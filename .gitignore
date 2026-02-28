@@ -1,8 +1,10 @@
 ## AI Agent tools
 
-.agents/
+.agents
 .opencode
-.specify/
+.claude
+.specify
+specs
 
 ## Dependencies
 node_modules/
