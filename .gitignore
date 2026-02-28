@@ -1,0 +1,30 @@
+## AI Agent tools
+
+.agents/
+.opencode
+.specify/
+
+## Dependencies
+node_modules/
+
+## Build output
+dist/
+build/
+*.tsbuildinfo
+
+## Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+## Test output
+coverage/
+
+## Environment files
+.env
+.env.*
+!.env.example
+
+## OS files
+.DS_Store
