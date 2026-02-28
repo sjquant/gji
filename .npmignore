@@ -1,0 +1,14 @@
+src/
+tests/
+specs/
+.specify/
+.agents/
+.opencode/
+.claude/
+vitest.config.ts
+tsconfig.json
+.eslintrc.cjs
+.eslintignore
+coverage/
+*.log
+*.tmp

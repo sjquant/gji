@@ -1,0 +1,28 @@
+{
+  "name": "gji",
+  "version": "0.1.0",
+  "description": "Context switching without the mess.",
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "gji": "dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "lint": "eslint . --ext .ts",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "packageManager": "pnpm@10.6.3",
+  "engines": {
+    "node": ">=20"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.9",
+    "@typescript-eslint/eslint-plugin": "^8.26.0",
+    "@typescript-eslint/parser": "^8.26.0",
+    "eslint": "^8.57.1",
+    "typescript": "^5.8.2",
+    "vitest": "^2.1.8"
+  }
+}
