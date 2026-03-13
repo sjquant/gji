@@ -16,7 +16,7 @@
 ## Requirements
 - R1. The CLI must detect the main repository root from either the repo root or a nested worktree path.
 - R2. The CLI must use a deterministic workspace layout at `../worktrees/{repo}/{branch}`.
-- R3. The CLI must support initializing project configuration and base command setup through `gji init`.
+- R3. The CLI must support initializing project configuration through `gji init`.
 - R4. The CLI must support creating a new branch and linked worktree through `gji new`.
 - R5. The CLI must support fetching a GitHub pull request ref and creating a worktree from it through `gji pr <number>`.
 - R6. The CLI must support jumping to an existing worktree path through `gji go [branch]`, with interactive selection when no branch is provided.
@@ -25,23 +25,24 @@
 - R9. The CLI must support interactive cleanup of stale, merged, or unwanted worktrees through `gji clean`.
 - R10. The CLI must support a completion flow through `gji done [branch]` that confirms removal, deletes the target worktree, deletes the branch, and returns the user to the repository root.
 - R11. The CLI must handle path conflicts interactively when a target worktree directory already exists.
-- R12. The CLI should support optional command execution after worktree setup, such as launching an editor or coding agent.
 
 ## In Scope
 - A local TypeScript command-line tool for Git worktree lifecycle management.
 - Branch-based and PR-based worktree creation flows.
 - Interactive prompts for selection, conflict resolution, and cleanup.
 - Repository-aware path resolution and worktree discovery.
-- Optional post-setup command execution.
+- Shell-friendly command behavior that composes cleanly with standard terminal tooling.
 
 ## Out of Scope
 - GUI or web interface.
 - Remote repository hosting beyond Git and GitHub PR ref usage described in the README.
-- Full project or dependency environment provisioning beyond optional post-setup command execution.
+- Built-in editor, agent, or arbitrary command launching after worktree setup; users can compose `gji` with shell commands instead.
+- Full project or dependency environment provisioning beyond worktree setup itself.
 - Non-interactive bulk orchestration across many repositories.
 
 ## Constraints
 - The implementation must work within Git worktree semantics and local filesystem constraints.
 - The workflow should remain fast and opinionated rather than exposing every possible Git option.
+- Shell composition should rely on standard terminal features rather than built-in post-setup exec hooks.
 - Interactive flows must be safe for destructive actions such as cleanup and branch deletion.
 - The initial scope should align with the commands and behaviors already described in `README.md`.

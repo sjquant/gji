@@ -24,11 +24,11 @@ When you switch context often, standard branch workflows create friction:
 - PR-to-tree flow using GitHub PR refs (e.g. `origin/pull/123/head`)
 - Interactive conflict handling when target paths already exist
 - Interactive cleanup for stale or merged worktrees
-- Optional auto-exec command after setup (e.g. `code .`, `claude`, `opencode`)
+- Shell-friendly output that composes with standard terminal tooling
 
 ## Planned commands
 
-- `gji init` - initialize project config and base command setup
+- `gji init` - initialize project config
 - `gji new` - create a new branch + linked worktree
 - `gji pr <number>` - fetch PR ref and create worktree
 - `gji go [branch]` - print/open the worktree path for quick jump; if branch is omitted, open a TUI to select an existing worktree/branch

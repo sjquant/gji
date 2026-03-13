@@ -25,7 +25,8 @@ pnpm-debug.log*
 !.env.example
 
 ## Personal notes/comments
-TASKS.md
+tasks.md
+!TASKS.md
 
 ## Editor files
 .vscode
