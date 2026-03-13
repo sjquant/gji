@@ -21,6 +21,7 @@ When you switch context often, standard branch workflows create friction:
 
 - Smart pathing from anywhere in a repo (root or nested worktree)
 - Deterministic workspace layout: `../worktrees/{repo}/{branch}`
+- Zero-config by default, with optional global or repo-local config overrides when needed
 - PR-to-tree flow using GitHub PR refs (e.g. `origin/pull/123/head`)
 - Interactive conflict handling when target paths already exist
 - Interactive cleanup for stale or merged worktrees
@@ -28,7 +29,6 @@ When you switch context often, standard branch workflows create friction:
 
 ## Planned commands
 
-- `gji init` - initialize project config
 - `gji new` - create a new branch + linked worktree
 - `gji pr <number>` - fetch PR ref and create worktree
 - `gji go [branch]` - print/open the worktree path for quick jump; if branch is omitted, open a TUI to select an existing worktree/branch

@@ -1,12 +1,12 @@
-import { mkdir, mkdtemp, realpath, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { mkdir, realpath } from 'node:fs/promises';
+import { join } from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 
 import { describe, expect, it } from 'vitest';
 
 import { detectRepository, resolveWorktreePath } from './repo.js';
+import { createRepository } from './repo.test-helpers.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -19,7 +19,7 @@ describe('detectRepository', () => {
     expect(result).toMatchObject({
       currentRoot: repoRoot,
       isWorktree: false,
-      repoName: 'gji-detect-main',
+      repoName: 'gji-test-repo',
       repoRoot,
     });
   });
@@ -39,7 +39,7 @@ describe('detectRepository', () => {
     expect(result).toMatchObject({
       currentRoot: realWorktreePath,
       isWorktree: true,
-      repoName: 'gji-detect-main',
+      repoName: 'gji-test-repo',
       repoRoot,
     });
   });
@@ -52,22 +52,6 @@ describe('resolveWorktreePath', () => {
     );
   });
 });
-
-async function createRepository(): Promise<string> {
-  const root = await mkdtemp(join(tmpdir(), 'gji-detect-main-'));
-  const repoRoot = join(root, 'gji-detect-main');
-
-  await mkdir(repoRoot, { recursive: true });
-  await writeFile(join(repoRoot, 'README.md'), '# temp repo\n', 'utf8');
-  await runGit(repoRoot, ['init']);
-  await runGit(repoRoot, ['config', 'user.name', 'Codex']);
-  await runGit(repoRoot, ['config', 'user.email', 'codex@example.com']);
-  await runGit(repoRoot, ['add', 'README.md']);
-  await runGit(repoRoot, ['commit', '-m', 'init']);
-
-  return realpath(repoRoot);
-}
-
 async function runGit(cwd: string, args: string[]): Promise<void> {
   await execFileAsync('git', args, { cwd });
 }

@@ -1,6 +1,9 @@
 import { Command } from 'commander';
 
+import { runNewCommand } from './new.js';
+
 export interface RunCliOptions {
+  cwd?: string;
   stderr?: (chunk: string) => void;
   stdout?: (chunk: string) => void;
 }
@@ -28,6 +31,7 @@ export async function runCli(
   options: RunCliOptions = {},
 ): Promise<RunCliResult> {
   const program = createProgram();
+  const cwd = options.cwd ?? process.cwd();
   const stdout = options.stdout ?? (() => undefined);
   const stderr = options.stderr ?? (() => undefined);
 
@@ -44,6 +48,7 @@ export async function runCli(
   }
 
   try {
+    attachCommandActions(program, { cwd, stderr, stdout });
     await program.parseAsync(['node', 'gji', ...argv], { from: 'node' });
 
     return { exitCode: 0 };
@@ -58,12 +63,7 @@ export async function runCli(
 
 function registerCommands(program: Command): void {
   program
-    .command('init')
-    .description('initialize project config')
-    .action(notImplemented('init'));
-
-  program
-    .command('new')
+    .command('new <branch>')
     .description('create a new branch and linked worktree')
     .action(notImplemented('new'));
 
@@ -98,10 +98,37 @@ function registerCommands(program: Command): void {
     .action(notImplemented('done'));
 }
 
+function attachCommandActions(
+  program: Command,
+  options: Required<RunCliOptions>,
+): void {
+  program.commands
+    .find((command) => command.name() === 'new')
+    ?.action(async (branch: string) => {
+      const exitCode = await runNewCommand({ ...options, branch });
+
+      if (exitCode !== 0) {
+        throw commanderExit(exitCode);
+      }
+    });
+}
+
 function notImplemented(commandName: string): () => never {
   return () => {
     throw new Error(`'${commandName}' is not implemented yet.`);
   };
+}
+
+function commanderExit(exitCode: number): Error & { code: string; exitCode: number } {
+  const error = new Error(`Command exited with code ${exitCode}.`) as Error & {
+    code: string;
+    exitCode: number;
+  };
+
+  error.code = 'commander.executeSubCommandAsync';
+  error.exitCode = exitCode;
+
+  return error;
 }
 
 function isCommanderExit(
