@@ -6,7 +6,7 @@ TODO
 ## Tasks
 
 - [DONE] Set up the TypeScript CLI project structure, command entrypoint, and shared configuration/loading utilities for `gji`.
-- [TODO] Implement repository detection and deterministic worktree path resolution that works from the repo root or any nested worktree path.
+- [DONE] Implement repository detection and deterministic worktree path resolution that works from the repo root or any nested worktree path.
 - [TODO] Implement `gji init` to initialize project config.
 - [TODO] Implement `gji new` to create a branch and linked worktree, including interactive handling when the target path already exists.
 - [TODO] Implement `gji pr <number>` to fetch GitHub PR refs and create a linked worktree from the fetched ref.
