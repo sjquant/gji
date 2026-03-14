@@ -54,6 +54,32 @@ describe('gji done', () => {
     await expect(branchExists(repoRoot, doneBranch)).resolves.toBe(false);
     await expect(branchExists(repoRoot, 'feature/keep')).resolves.toBe(true);
   });
+
+  it('aborts cleanly when the interactive branch prompt is cancelled', async () => {
+    // Given a repository root with a linked branch worktree and a cancelled chooser.
+    const repoRoot = await createRepository();
+    const branch = 'feature/done-cancel';
+    const worktreePath = await addLinkedWorktree(repoRoot, branch);
+    const stderr: string[] = [];
+    const runDoneCommand = createDoneCommand({
+      confirmRemoval: async () => {
+        throw new Error('confirmRemoval should not run after a cancelled prompt');
+      },
+      promptForBranch: async () => null,
+    });
+
+    // When gji done runs without a branch and the chooser is cancelled.
+    expect(await runDoneCommand({
+      cwd: repoRoot,
+      stderr: (chunk) => stderr.push(chunk),
+      stdout: () => undefined,
+    })).toBe(1);
+
+    // Then it leaves the worktree and branch intact and reports the abort.
+    await expect(pathExists(worktreePath)).resolves.toBe(true);
+    await expect(branchExists(repoRoot, branch)).resolves.toBe(true);
+    expect(stderr.join('')).toContain('Aborted');
+  });
 });
 
 async function branchExists(repoRoot: string, branch: string): Promise<boolean> {

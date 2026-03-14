@@ -55,6 +55,30 @@ describe('gji clean', () => {
     await expect(pathExists(worktreePath)).resolves.toBe(true);
     expect(stderr.join('')).toContain('Aborted');
   });
+
+  it('refuses to prompt when there are no linked worktrees to clean', async () => {
+    // Given a repository root without any linked worktrees.
+    const repoRoot = await createRepository();
+    const stderr: string[] = [];
+    const runCleanCommand = createCleanCommand({
+      confirmRemoval: async () => {
+        throw new Error('confirmRemoval should not run without linked worktrees');
+      },
+      promptForWorktrees: async () => {
+        throw new Error('promptForWorktrees should not run without linked worktrees');
+      },
+    });
+
+    // When gji clean runs from that repository root.
+    expect(await runCleanCommand({
+      cwd: repoRoot,
+      stderr: (chunk) => stderr.push(chunk),
+      stdout: () => undefined,
+    })).toBe(1);
+
+    // Then it exits safely with a descriptive message.
+    expect(stderr.join('')).toContain('No linked worktrees to clean');
+  });
 });
 
 async function branchExists(repoRoot: string, branch: string): Promise<boolean> {

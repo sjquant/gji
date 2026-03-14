@@ -37,10 +37,16 @@ export function createDoneCommand(
     }
 
     const branch = options.branch ?? (await promptForBranch(linkedBranchWorktrees));
+
+    if (!branch) {
+      options.stderr('Aborted\n');
+      return 1;
+    }
+
     const worktree = linkedBranchWorktrees.find((entry) => entry.branch === branch);
 
-    if (!branch || !worktree) {
-      options.stderr(`No linked worktree found for branch: ${branch ?? '(none)'}\n`);
+    if (!worktree) {
+      options.stderr(`No linked worktree found for branch: ${branch}\n`);
       return 1;
     }
 

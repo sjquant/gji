@@ -51,6 +51,16 @@ describe('resolveWorktreePath', () => {
       '/tmp/repos/worktrees/gji/feature/test-branch',
     );
   });
+
+  it.each([
+    '',
+    '.',
+    '..',
+    'feature/./bad',
+    'feature/../bad',
+  ])('rejects invalid branch path %j', (branch) => {
+    expect(() => resolveWorktreePath('/tmp/repos/gji', branch)).toThrow();
+  });
 });
 async function runGit(cwd: string, args: string[]): Promise<void> {
   await execFileAsync('git', args, { cwd });
