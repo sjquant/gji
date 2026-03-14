@@ -13,7 +13,7 @@ TODO
 - [DONE] Implement `gji ls` to display active worktrees in a readable table.
 - [DONE] Implement `gji clean` and `gji done [branch]` with confirmation prompts and safe deletion of worktrees and branches.
 - [DONE] Implement a future `gji config` command to manage global config defaults without requiring repo initialization.
-- [TODO] Add optional global and repo-local config layering only when a concrete setting requires it.
+- [DONE] Add optional global and repo-local config layering only when a concrete setting requires it.
 - [TODO] Add tests and documentation coverage for core pathing, Git command flows, interactive prompts, and destructive-action safeguards.
 
 ## Handoff Notes

@@ -5,6 +5,7 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { isCancel, select } from '@clack/prompts';
 
+import { loadEffectiveConfig } from './config.js';
 import { detectRepository, resolveWorktreePath } from './repo.js';
 
 const execFileAsync = promisify(execFile);
@@ -28,7 +29,9 @@ export function createNewCommand(
 
   return async function runNewCommand(options: NewCommandOptions): Promise<number> {
     const repository = await detectRepository(options.cwd);
-    const worktreePath = resolveWorktreePath(repository.repoRoot, options.branch);
+    const config = await loadEffectiveConfig(repository.repoRoot);
+    const branch = applyConfiguredBranchPrefix(options.branch, config.branchPrefix);
+    const worktreePath = resolveWorktreePath(repository.repoRoot, branch);
 
     if (await pathExists(worktreePath)) {
       const choice = await prompt(worktreePath);
@@ -45,7 +48,7 @@ export function createNewCommand(
     await mkdir(dirname(worktreePath), { recursive: true });
     await execFileAsync(
       'git',
-      ['worktree', 'add', '-b', options.branch, worktreePath],
+      ['worktree', 'add', '-b', branch, worktreePath],
       { cwd: repository.repoRoot },
     );
 
@@ -65,6 +68,18 @@ async function pathExists(path: string): Promise<boolean> {
 }
 
 export const runNewCommand = createNewCommand();
+
+function applyConfiguredBranchPrefix(branch: string, branchPrefix: unknown): string {
+  if (typeof branchPrefix !== 'string' || branchPrefix.length === 0) {
+    return branch;
+  }
+
+  if (branch.startsWith(branchPrefix)) {
+    return branch;
+  }
+
+  return `${branchPrefix}${branch}`;
+}
 
 async function promptForPathConflict(path: string): Promise<PathConflictChoice> {
   const choice = await select<PathConflictChoice>({

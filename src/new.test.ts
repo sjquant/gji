@@ -1,9 +1,11 @@
-import { mkdir } from 'node:fs/promises';
-import { join } from 'node:path';
+import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { dirname, join } from 'node:path';
 
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 
 import { runCli } from './cli.js';
+import { GLOBAL_CONFIG_FILE_PATH } from './config.js';
 import { resolveWorktreePath } from './repo.js';
 import {
   addLinkedWorktree,
@@ -12,6 +14,17 @@ import {
   pathExists,
 } from './repo.test-helpers.js';
 import { createNewCommand, runNewCommand } from './new.js';
+
+const originalHome = process.env.HOME;
+
+afterEach(() => {
+  if (originalHome === undefined) {
+    delete process.env.HOME;
+    return;
+  }
+
+  process.env.HOME = originalHome;
+});
 
 describe('gji new', () => {
   it('creates a branch and linked worktree from the repository root', async () => {
@@ -53,6 +66,70 @@ describe('gji new', () => {
     expect(result.exitCode).toBe(0);
     await expect(pathExists(newWorktreePath)).resolves.toBe(true);
     await expect(currentBranch(newWorktreePath)).resolves.toBe(newBranch);
+  });
+
+  it('applies a global branch prefix when creating a new worktree', async () => {
+    // Given an isolated home directory with a configured default branch prefix.
+    const home = await mkdtemp(join(tmpdir(), 'gji-home-'));
+    const repoRoot = await createRepository();
+    const stdout: string[] = [];
+    const branchName = 'add-command';
+    const prefixedBranchName = `feature/${branchName}`;
+    const worktreePath = resolveWorktreePath(repoRoot, prefixedBranchName);
+    const globalConfigPath = GLOBAL_CONFIG_FILE_PATH(home);
+    process.env.HOME = home;
+
+    await mkdir(dirname(globalConfigPath), { recursive: true });
+    await writeFile(
+      globalConfigPath,
+      JSON.stringify({ branchPrefix: 'feature/' }),
+      'utf8',
+    );
+
+    // When gji new creates a worktree for an unprefixed branch name.
+    const result = await runCli(['new', branchName], {
+      cwd: repoRoot,
+      stdout: (chunk) => stdout.push(chunk),
+    });
+
+    // Then it creates the prefixed branch/worktree from the configured default.
+    expect(result.exitCode).toBe(0);
+    await expect(pathExists(worktreePath)).resolves.toBe(true);
+    await expect(currentBranch(worktreePath)).resolves.toBe(prefixedBranchName);
+    expect(stdout.join('')).toContain(worktreePath);
+  });
+
+  it('prefers a repo-local branch prefix over the global default', async () => {
+    // Given global and repo-local branch prefix defaults.
+    const home = await mkdtemp(join(tmpdir(), 'gji-home-'));
+    const repoRoot = await createRepository();
+    const branchName = 'add-command';
+    const prefixedBranchName = `repo/${branchName}`;
+    const worktreePath = resolveWorktreePath(repoRoot, prefixedBranchName);
+    const globalConfigPath = GLOBAL_CONFIG_FILE_PATH(home);
+    process.env.HOME = home;
+
+    await mkdir(dirname(globalConfigPath), { recursive: true });
+    await writeFile(
+      globalConfigPath,
+      JSON.stringify({ branchPrefix: 'feature/' }),
+      'utf8',
+    );
+    await writeFile(
+      join(repoRoot, '.gji.json'),
+      JSON.stringify({ branchPrefix: 'repo/' }),
+      'utf8',
+    );
+
+    // When gji new runs inside that repository.
+    const result = await runCli(['new', branchName], {
+      cwd: repoRoot,
+    });
+
+    // Then the repo-local prefix wins over the global default.
+    expect(result.exitCode).toBe(0);
+    await expect(pathExists(worktreePath)).resolves.toBe(true);
+    await expect(currentBranch(worktreePath)).resolves.toBe(prefixedBranchName);
   });
 
   it('reuses the existing path when the conflict prompt selects reuse', async () => {

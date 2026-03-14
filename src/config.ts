@@ -22,6 +22,18 @@ export async function loadConfig(root: string): Promise<LoadedConfig> {
   return loadConfigFile(path);
 }
 
+export async function loadEffectiveConfig(
+  root: string,
+  home: string = homedir(),
+): Promise<GjiConfig> {
+  const [globalConfig, localConfig] = await Promise.all([
+    loadGlobalConfig(home),
+    loadConfig(root),
+  ]);
+
+  return mergeConfig(globalConfig.config, localConfig.config);
+}
+
 export async function loadGlobalConfig(home: string = homedir()): Promise<LoadedConfig> {
   return loadConfigFile(GLOBAL_CONFIG_FILE_PATH(home));
 }
@@ -92,21 +104,24 @@ async function loadConfigFile(path: string): Promise<LoadedConfig> {
   } catch (error) {
     if (isMissingFileError(error)) {
       return {
-      config: DEFAULT_CONFIG,
-      exists: false,
-      path,
-    };
+        config: DEFAULT_CONFIG,
+        exists: false,
+        path,
+      };
     }
 
     throw error;
   }
 }
 
-function mergeConfig(value: Record<string, unknown>): GjiConfig {
-  return {
-    ...DEFAULT_CONFIG,
-    ...value,
-  };
+function mergeConfig(...values: Record<string, unknown>[]): GjiConfig {
+  return values.reduce<GjiConfig>(
+    (config, value) => ({
+      ...config,
+      ...value,
+    }),
+    { ...DEFAULT_CONFIG },
+  );
 }
 
 function isMissingFileError(error: unknown): error is NodeJS.ErrnoException {
