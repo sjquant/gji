@@ -23,8 +23,8 @@
 - R7. The CLI must support jumping to an existing worktree path through `gji go [branch]`, with interactive selection when no branch is provided.
 - R8. The CLI must print the main repository root path through `gji root`.
 - R9. The CLI must list active worktrees in a readable table through `gji ls`.
-- R10. The CLI must support interactive cleanup of stale, merged, or unwanted worktrees through `gji clean`.
-- R11. The CLI must support a completion flow through `gji done [branch]` that confirms removal, deletes the target worktree, deletes the branch, and returns the user to the repository root.
+- R10. The CLI must support interactive cleanup of stale, merged, unwanted, or detached worktrees through `gji remove [branch]`.
+- R11. The CLI must support a completion flow through `gji remove [branch]` that confirms removal, deletes the target worktree, deletes the branch when one exists, and returns the user to the repository root.
 - R12. The CLI must handle path conflicts interactively when a target worktree directory already exists.
 - R13. The CLI should support a `gji config` command for managing global configuration defaults without requiring per-repository initialization.
 

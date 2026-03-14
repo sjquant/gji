@@ -22,7 +22,6 @@ describe('runCli', () => {
     expect(output).toContain('go');
     expect(output).toContain('root');
     expect(output).toContain('ls');
-    expect(output).toContain('clean');
-    expect(output).toContain('done');
+    expect(output).toContain('remove');
   });
 });

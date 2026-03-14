@@ -24,7 +24,7 @@ When you switch context often, standard branch workflows create friction:
 - Zero-config by default, with optional global or repo-local config overrides when needed
 - PR-to-tree flow using GitHub PR refs (e.g. `origin/pull/123/head`)
 - Interactive conflict handling when target paths already exist
-- Interactive cleanup for stale or merged worktrees
+- Interactive worktree cleanup, including detached worktrees
 - Shell-friendly output that composes with standard terminal tooling
 
 ## Commands
@@ -34,8 +34,7 @@ When you switch context often, standard branch workflows create friction:
 - `gji go [branch]` - print the matching worktree path, or choose one interactively when no branch is provided
 - `gji root` - print the main repository root path from either the repo root or a linked worktree
 - `gji ls` - list the active worktrees in a branch/path table
-- `gji clean` - interactively select linked worktrees to remove, with confirmation before deletion
-- `gji done [branch]` - remove a linked worktree, delete its branch, and print the repo root after confirmation
+- `gji remove [branch]` - remove a linked worktree, delete its branch when present, and print the repo root after confirmation
 - `gji config` - inspect or manage global defaults with `get`, `set`, and `unset`
 
 ## Configuration

@@ -1,12 +1,11 @@
 import { Command } from 'commander';
 
-import { runCleanCommand } from './clean.js';
 import { runConfigCommand } from './config-command.js';
-import { runDoneCommand } from './done.js';
 import { runGoCommand } from './go.js';
 import { runLsCommand } from './ls.js';
 import { runNewCommand } from './new.js';
 import { runPrCommand } from './pr.js';
+import { runRemoveCommand } from './remove.js';
 import { runRootCommand } from './root.js';
 
 export interface RunCliOptions {
@@ -95,14 +94,9 @@ function registerCommands(program: Command): void {
     .action(notImplemented('ls'));
 
   program
-    .command('clean')
-    .description('interactively remove worktrees')
-    .action(notImplemented('clean'));
-
-  program
-    .command('done [branch]')
-    .description('remove a completed worktree and delete its branch')
-    .action(notImplemented('done'));
+    .command('remove [branch]')
+    .description('remove a linked worktree and delete its branch when present')
+    .action(notImplemented('remove'));
 
   const configCommand = program
     .command('config')
@@ -190,34 +184,22 @@ function attachCommandActions(
       }
     });
 
-  program.commands
-    .find((command) => command.name() === 'clean')
-    ?.action(async () => {
-      const exitCode = await runCleanCommand({
-        cwd: options.cwd,
-        stderr: options.stderr,
-        stdout: options.stdout,
-      });
-
-      if (exitCode !== 0) {
-        throw commanderExit(exitCode);
-      }
+  const runRemovalCommand = async (branch?: string) => {
+    const exitCode = await runRemoveCommand({
+      branch,
+      cwd: options.cwd,
+      stderr: options.stderr,
+      stdout: options.stdout,
     });
 
-  program.commands
-    .find((command) => command.name() === 'done')
-    ?.action(async (branch?: string) => {
-      const exitCode = await runDoneCommand({
-        branch,
-        cwd: options.cwd,
-        stderr: options.stderr,
-        stdout: options.stdout,
-      });
+    if (exitCode !== 0) {
+      throw commanderExit(exitCode);
+    }
+  };
 
-      if (exitCode !== 0) {
-        throw commanderExit(exitCode);
-      }
-    });
+  program.commands
+    .find((command) => command.name() === 'remove')
+    ?.action(runRemovalCommand);
 
   const configCommand = program.commands.find((command) => command.name() === 'config');
 

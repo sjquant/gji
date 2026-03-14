@@ -11,7 +11,7 @@ TODO
 - [DONE] Implement `gji pr <number>` to fetch GitHub PR refs and create a linked worktree from the fetched ref.
 - [DONE] Implement `gji go [branch]` and `gji root`, including interactive branch/worktree selection when no branch is provided.
 - [DONE] Implement `gji ls` to display active worktrees in a readable table.
-- [DONE] Implement `gji clean` and `gji done [branch]` with confirmation prompts and safe deletion of worktrees and branches.
+- [DONE] Implement `gji remove [branch]` with confirmation prompts and safe deletion of worktrees and branches.
 - [DONE] Implement a future `gji config` command to manage global config defaults without requiring repo initialization.
 - [DONE] Add optional global and repo-local config layering only when a concrete setting requires it.
 - [DONE] Add tests and documentation coverage for core pathing, Git command flows, interactive prompts, and destructive-action safeguards.

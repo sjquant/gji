@@ -7,46 +7,45 @@ import {
   removeWorktree,
 } from './worktree-management.js';
 
-export interface DoneCommandOptions {
+export interface RemoveCommandOptions {
   branch?: string;
   cwd: string;
   stderr: (chunk: string) => void;
   stdout: (chunk: string) => void;
 }
 
-export interface DoneCommandDependencies {
+export interface RemoveCommandDependencies {
   confirmRemoval: (worktree: WorktreeEntry) => Promise<boolean>;
-  promptForBranch: (worktrees: WorktreeEntry[]) => Promise<string | null>;
+  promptForWorktree: (worktrees: WorktreeEntry[]) => Promise<string | null>;
 }
 
-export function createDoneCommand(
-  dependencies: Partial<DoneCommandDependencies> = {},
-): (options: DoneCommandOptions) => Promise<number> {
-  const promptForBranch = dependencies.promptForBranch ?? defaultPromptForBranch;
+export function createRemoveCommand(
+  dependencies: Partial<RemoveCommandDependencies> = {},
+): (options: RemoveCommandOptions) => Promise<number> {
+  const promptForWorktree = dependencies.promptForWorktree ?? defaultPromptForWorktree;
   const confirmRemoval = dependencies.confirmRemoval ?? defaultConfirmRemoval;
 
-  return async function runDoneCommand(options: DoneCommandOptions): Promise<number> {
+  return async function runRemoveCommand(options: RemoveCommandOptions): Promise<number> {
     const { linkedWorktrees, repository } = await loadLinkedWorktrees(options.cwd);
-    const linkedBranchWorktrees = linkedWorktrees.filter(
-      (worktree): worktree is WorktreeEntry & { branch: string } => worktree.branch !== null,
-    );
 
-    if (linkedBranchWorktrees.length === 0) {
-      options.stderr('No linked branch worktrees to finish\n');
+    if (linkedWorktrees.length === 0) {
+      options.stderr('No linked worktrees to finish\n');
       return 1;
     }
 
-    const branch = options.branch ?? (await promptForBranch(linkedBranchWorktrees));
+    const selection = options.branch ?? (await promptForWorktree(linkedWorktrees));
 
-    if (!branch) {
+    if (!selection) {
       options.stderr('Aborted\n');
       return 1;
     }
 
-    const worktree = linkedBranchWorktrees.find((entry) => entry.branch === branch);
+    const worktree = linkedWorktrees.find(
+      (entry) => entry.branch === selection || entry.path === selection,
+    );
 
     if (!worktree) {
-      options.stderr(`No linked worktree found for branch: ${branch}\n`);
+      options.stderr(`No linked worktree found for branch: ${selection}\n`);
       return 1;
     }
 
@@ -56,22 +55,26 @@ export function createDoneCommand(
     }
 
     await removeWorktree(repository.repoRoot, worktree.path);
-    await deleteBranch(repository.repoRoot, branch);
+
+    if (worktree.branch) {
+      await deleteBranch(repository.repoRoot, worktree.branch);
+    }
+
     options.stdout(`${repository.repoRoot}\n`);
 
     return 0;
   };
 }
 
-export const runDoneCommand = createDoneCommand();
+export const runRemoveCommand = createRemoveCommand();
 
-async function defaultPromptForBranch(worktrees: WorktreeEntry[]): Promise<string | null> {
+async function defaultPromptForWorktree(worktrees: WorktreeEntry[]): Promise<string | null> {
   const choice = await select<string>({
     message: 'Choose a worktree to finish',
     options: worktrees.map((worktree) => ({
       hint: worktree.path,
       label: worktree.branch ?? '(detached)',
-      value: worktree.branch ?? worktree.path,
+      value: worktree.path,
     })),
   });
 
@@ -80,10 +83,12 @@ async function defaultPromptForBranch(worktrees: WorktreeEntry[]): Promise<strin
 
 async function defaultConfirmRemoval(worktree: WorktreeEntry): Promise<boolean> {
   const choice = await confirm({
-    message: `Remove worktree and delete branch ${worktree.branch}?`,
+    message: worktree.branch
+      ? `Remove worktree and delete branch ${worktree.branch}?`
+      : `Remove detached worktree ${worktree.path}?`,
     active: 'Yes',
     inactive: 'No',
-    initialValue: false,
+    initialValue: true,
   });
 
   return !isCancel(choice) && choice;
