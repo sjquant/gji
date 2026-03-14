@@ -1,6 +1,7 @@
 import { Command } from 'commander';
 
 import { runGoCommand } from './go.js';
+import { runLsCommand } from './ls.js';
 import { runNewCommand } from './new.js';
 import { runPrCommand } from './pr.js';
 import { runRootCommand } from './root.js';
@@ -144,6 +145,19 @@ function attachCommandActions(
     .find((command) => command.name() === 'root')
     ?.action(async () => {
       const exitCode = await runRootCommand({
+        cwd: options.cwd,
+        stdout: options.stdout,
+      });
+
+      if (exitCode !== 0) {
+        throw commanderExit(exitCode);
+      }
+    });
+
+  program.commands
+    .find((command) => command.name() === 'ls')
+    ?.action(async () => {
+      const exitCode = await runLsCommand({
         cwd: options.cwd,
         stdout: options.stdout,
       });

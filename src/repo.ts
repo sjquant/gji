@@ -54,7 +54,7 @@ export async function listWorktrees(cwd: string): Promise<WorktreeEntry[]> {
 
   return entries.map((entry) => {
     const path = findPorcelainValue(entry, 'worktree');
-    const branchRef = findPorcelainValue(entry, 'branch');
+    const branchRef = findOptionalPorcelainValue(entry, 'branch');
 
     return {
       branch: branchRef ? branchRef.replace('refs/heads/', '') : null,
@@ -64,12 +64,22 @@ export async function listWorktrees(cwd: string): Promise<WorktreeEntry[]> {
 }
 
 function findPorcelainValue(block: string, key: string): string {
+  const value = findOptionalPorcelainValue(block, key);
+
+  if (!value) {
+    throw new Error(`Missing '${key}' in git worktree output.`);
+  }
+
+  return value;
+}
+
+function findOptionalPorcelainValue(block: string, key: string): string | null {
   const line = block
     .split('\n')
     .find((candidate) => candidate.startsWith(`${key} `));
 
   if (!line) {
-    throw new Error(`Missing '${key}' in git worktree output.`);
+    return null;
   }
 
   return line.slice(key.length + 1);
