@@ -21,6 +21,24 @@ export async function createRepository(): Promise<string> {
   return realpath(repoRoot);
 }
 
+export async function createRepositoryWithOrigin(): Promise<{
+  originRoot: string;
+  repoRoot: string;
+}> {
+  const root = await mkdtemp(join(tmpdir(), 'gji-remote-'));
+  const originRoot = join(root, 'origin.git');
+  const repoRoot = await createRepository();
+
+  await runGit(root, ['init', '--bare', originRoot]);
+  await runGit(repoRoot, ['remote', 'add', 'origin', originRoot]);
+  await runGit(repoRoot, ['push', '-u', 'origin', 'HEAD']);
+
+  return {
+    originRoot,
+    repoRoot,
+  };
+}
+
 async function runGit(cwd: string, args: string[]): Promise<void> {
   await execFileAsync('git', args, { cwd });
 }

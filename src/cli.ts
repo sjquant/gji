@@ -1,6 +1,7 @@
 import { Command } from 'commander';
 
 import { runNewCommand } from './new.js';
+import { runPrCommand } from './pr.js';
 
 export interface RunCliOptions {
   cwd?: string;
@@ -106,6 +107,16 @@ function attachCommandActions(
     .find((command) => command.name() === 'new')
     ?.action(async (branch: string) => {
       const exitCode = await runNewCommand({ ...options, branch });
+
+      if (exitCode !== 0) {
+        throw commanderExit(exitCode);
+      }
+    });
+
+  program.commands
+    .find((command) => command.name() === 'pr')
+    ?.action(async (number: string) => {
+      const exitCode = await runPrCommand({ cwd: options.cwd, number, stdout: options.stdout });
 
       if (exitCode !== 0) {
         throw commanderExit(exitCode);
