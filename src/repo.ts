@@ -12,6 +12,11 @@ export interface RepositoryContext {
   repoRoot: string;
 }
 
+export interface WorktreeEntry {
+  branch: string | null;
+  path: string;
+}
+
 export async function detectRepository(cwd: string): Promise<RepositoryContext> {
   const currentRoot = await runGit(cwd, ['rev-parse', '--show-toplevel']);
   const rawCommonDir = await runGit(cwd, ['rev-parse', '--git-common-dir']);
@@ -41,6 +46,33 @@ export function resolveWorktreePath(repoRoot: string, branch: string): string {
   }
 
   return join(dirname(repoRoot), 'worktrees', basename(repoRoot), ...segments);
+}
+
+export async function listWorktrees(cwd: string): Promise<WorktreeEntry[]> {
+  const output = await runGit(cwd, ['worktree', 'list', '--porcelain']);
+  const entries = output.split('\n\n').filter(Boolean);
+
+  return entries.map((entry) => {
+    const path = findPorcelainValue(entry, 'worktree');
+    const branchRef = findPorcelainValue(entry, 'branch');
+
+    return {
+      branch: branchRef ? branchRef.replace('refs/heads/', '') : null,
+      path,
+    };
+  });
+}
+
+function findPorcelainValue(block: string, key: string): string {
+  const line = block
+    .split('\n')
+    .find((candidate) => candidate.startsWith(`${key} `));
+
+  if (!line) {
+    throw new Error(`Missing '${key}' in git worktree output.`);
+  }
+
+  return line.slice(key.length + 1);
 }
 
 async function runGit(cwd: string, args: string[]): Promise<string> {

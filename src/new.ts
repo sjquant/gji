@@ -8,42 +8,51 @@ import { isCancel, select } from '@clack/prompts';
 import { detectRepository, resolveWorktreePath } from './repo.js';
 
 const execFileAsync = promisify(execFile);
-type PathConflictChoice = 'abort' | 'reuse';
+export type PathConflictChoice = 'abort' | 'reuse';
 
 export interface NewCommandOptions {
   branch: string;
-  choosePathConflict?: (path: string) => Promise<PathConflictChoice>;
   cwd: string;
   stderr: (chunk: string) => void;
   stdout: (chunk: string) => void;
 }
 
-export async function runNewCommand(options: NewCommandOptions): Promise<number> {
-  const repository = await detectRepository(options.cwd);
-  const worktreePath = resolveWorktreePath(repository.repoRoot, options.branch);
+export interface NewCommandDependencies {
+  promptForPathConflict: (path: string) => Promise<PathConflictChoice>;
+}
 
-  if (await pathExists(worktreePath)) {
-    const choice = await (options.choosePathConflict ?? promptForPathConflict)(worktreePath);
+export function createNewCommand(
+  dependencies: Partial<NewCommandDependencies> = {},
+): (options: NewCommandOptions) => Promise<number> {
+  const prompt = dependencies.promptForPathConflict ?? promptForPathConflict;
 
-    if (choice === 'reuse') {
-      options.stdout(`${worktreePath}\n`);
-      return 0;
+  return async function runNewCommand(options: NewCommandOptions): Promise<number> {
+    const repository = await detectRepository(options.cwd);
+    const worktreePath = resolveWorktreePath(repository.repoRoot, options.branch);
+
+    if (await pathExists(worktreePath)) {
+      const choice = await prompt(worktreePath);
+
+      if (choice === 'reuse') {
+        options.stdout(`${worktreePath}\n`);
+        return 0;
+      }
+
+      options.stderr(`Aborted because target worktree path already exists: ${worktreePath}\n`);
+      return 1;
     }
 
-    options.stderr(`Aborted because target worktree path already exists: ${worktreePath}\n`);
-    return 1;
-  }
+    await mkdir(dirname(worktreePath), { recursive: true });
+    await execFileAsync(
+      'git',
+      ['worktree', 'add', '-b', options.branch, worktreePath],
+      { cwd: repository.repoRoot },
+    );
 
-  await mkdir(dirname(worktreePath), { recursive: true });
-  await execFileAsync(
-    'git',
-    ['worktree', 'add', '-b', options.branch, worktreePath],
-    { cwd: repository.repoRoot },
-  );
+    options.stdout(`${worktreePath}\n`);
 
-  options.stdout(`${worktreePath}\n`);
-
-  return 0;
+    return 0;
+  };
 }
 
 async function pathExists(path: string): Promise<boolean> {
@@ -54,6 +63,8 @@ async function pathExists(path: string): Promise<boolean> {
     return false;
   }
 }
+
+export const runNewCommand = createNewCommand();
 
 async function promptForPathConflict(path: string): Promise<PathConflictChoice> {
   const choice = await select<PathConflictChoice>({

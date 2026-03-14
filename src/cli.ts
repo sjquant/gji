@@ -1,7 +1,9 @@
 import { Command } from 'commander';
 
+import { runGoCommand } from './go.js';
 import { runNewCommand } from './new.js';
 import { runPrCommand } from './pr.js';
+import { runRootCommand } from './root.js';
 
 export interface RunCliOptions {
   cwd?: string;
@@ -117,6 +119,34 @@ function attachCommandActions(
     .find((command) => command.name() === 'pr')
     ?.action(async (number: string) => {
       const exitCode = await runPrCommand({ cwd: options.cwd, number, stdout: options.stdout });
+
+      if (exitCode !== 0) {
+        throw commanderExit(exitCode);
+      }
+    });
+
+  program.commands
+    .find((command) => command.name() === 'go')
+    ?.action(async (branch?: string) => {
+      const exitCode = await runGoCommand({
+        branch,
+        cwd: options.cwd,
+        stderr: options.stderr,
+        stdout: options.stdout,
+      });
+
+      if (exitCode !== 0) {
+        throw commanderExit(exitCode);
+      }
+    });
+
+  program.commands
+    .find((command) => command.name() === 'root')
+    ?.action(async () => {
+      const exitCode = await runRootCommand({
+        cwd: options.cwd,
+        stdout: options.stdout,
+      });
 
       if (exitCode !== 0) {
         throw commanderExit(exitCode);

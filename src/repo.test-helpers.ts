@@ -1,8 +1,11 @@
-import { mkdir, mkdtemp, realpath, writeFile } from 'node:fs/promises';
+import { access, mkdir, mkdtemp, realpath, writeFile } from 'node:fs/promises';
+import { constants } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
+
+import { resolveWorktreePath } from './repo.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -39,6 +42,51 @@ export async function createRepositoryWithOrigin(): Promise<{
   };
 }
 
-async function runGit(cwd: string, args: string[]): Promise<void> {
-  await execFileAsync('git', args, { cwd });
+export async function addLinkedWorktree(
+  repoRoot: string,
+  branch: string,
+): Promise<string> {
+  const worktreePath = resolveWorktreePath(repoRoot, branch);
+
+  await runGit(repoRoot, ['branch', branch]);
+  await runGit(repoRoot, ['worktree', 'add', worktreePath, branch]);
+
+  return worktreePath;
+}
+
+export async function commitFile(
+  repoRoot: string,
+  fileName: string,
+  content: string,
+  message: string,
+): Promise<void> {
+  await writeFile(join(repoRoot, fileName), content, 'utf8');
+  await runGit(repoRoot, ['add', fileName]);
+  await runGit(repoRoot, ['commit', '-m', message]);
+}
+
+export async function currentBranch(cwd: string): Promise<string> {
+  return runGit(cwd, ['branch', '--show-current']);
+}
+
+export async function pathExists(path: string): Promise<boolean> {
+  try {
+    await access(path, constants.F_OK);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export async function pushPullRequestRef(
+  repoRoot: string,
+  number: string,
+): Promise<void> {
+  await runGit(repoRoot, ['push', 'origin', `HEAD:refs/pull/${number}/head`]);
+}
+
+export async function runGit(cwd: string, args: string[]): Promise<string> {
+  const { stdout } = await execFileAsync('git', args, { cwd });
+
+  return stdout.trim();
 }

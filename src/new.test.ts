@@ -1,17 +1,17 @@
-import { access, mkdir } from 'node:fs/promises';
-import { execFile } from 'node:child_process';
-import { promisify } from 'node:util';
+import { mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
-import { constants } from 'node:fs';
 
 import { describe, expect, it } from 'vitest';
 
 import { runCli } from './cli.js';
 import { resolveWorktreePath } from './repo.js';
-import { createRepository } from './repo.test-helpers.js';
-import { runNewCommand } from './new.js';
-
-const execFileAsync = promisify(execFile);
+import {
+  addLinkedWorktree,
+  createRepository,
+  currentBranch,
+  pathExists,
+} from './repo.test-helpers.js';
+import { createNewCommand, runNewCommand } from './new.js';
 
 describe('gji new', () => {
   it('creates a branch and linked worktree from the repository root', async () => {
@@ -38,15 +38,10 @@ describe('gji new', () => {
     // Given an existing linked worktree and a second branch to create.
     const repoRoot = await createRepository();
     const existingBranch = 'feature/existing';
-    const existingWorktreePath = resolveWorktreePath(repoRoot, existingBranch);
+    const existingWorktreePath = await addLinkedWorktree(repoRoot, existingBranch);
     const newBranch = 'feature/from-worktree';
     const newWorktreePath = resolveWorktreePath(repoRoot, newBranch);
     const nestedCwd = join(existingWorktreePath, 'nested');
-
-    await execFileAsync('git', ['branch', existingBranch], { cwd: repoRoot });
-    await execFileAsync('git', ['worktree', 'add', existingWorktreePath, existingBranch], {
-      cwd: repoRoot,
-    });
     await mkdir(nestedCwd, { recursive: true });
 
     // When gji new runs from inside that linked worktree.
@@ -67,13 +62,15 @@ describe('gji new', () => {
     const stderr: string[] = [];
     const branchName = 'feature/existing-path';
     const worktreePath = resolveWorktreePath(repoRoot, branchName);
+    const runNewCommand = createNewCommand({
+      promptForPathConflict: async () => 'reuse',
+    });
 
     await mkdir(worktreePath, { recursive: true });
 
     // When the interactive conflict handler selects reuse.
     const result = await runNewCommand({
       branch: branchName,
-      choosePathConflict: async () => 'reuse',
       cwd: repoRoot,
       stderr: (chunk) => stderr.push(chunk),
       stdout: (chunk) => stdout.push(chunk),
@@ -92,13 +89,15 @@ describe('gji new', () => {
     const stderr: string[] = [];
     const branchName = 'feature/abort-existing-path';
     const worktreePath = resolveWorktreePath(repoRoot, branchName);
+    const runNewCommand = createNewCommand({
+      promptForPathConflict: async () => 'abort',
+    });
 
     await mkdir(worktreePath, { recursive: true });
 
     // When the interactive conflict handler selects abort.
     const result = await runNewCommand({
       branch: branchName,
-      choosePathConflict: async () => 'abort',
       cwd: repoRoot,
       stderr: (chunk) => stderr.push(chunk),
       stdout: (chunk) => stdout.push(chunk),
@@ -110,18 +109,3 @@ describe('gji new', () => {
     expect(stderr.join('')).toContain('Aborted');
   });
 });
-
-async function currentBranch(cwd: string): Promise<string> {
-  const { stdout } = await execFileAsync('git', ['branch', '--show-current'], { cwd });
-
-  return stdout.trim();
-}
-
-async function pathExists(path: string): Promise<boolean> {
-  try {
-    await access(path, constants.F_OK);
-    return true;
-  } catch {
-    return false;
-  }
-}
