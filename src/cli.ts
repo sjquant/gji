@@ -1,5 +1,7 @@
 import { Command } from 'commander';
 
+import { runCleanCommand } from './clean.js';
+import { runDoneCommand } from './done.js';
 import { runGoCommand } from './go.js';
 import { runLsCommand } from './ls.js';
 import { runNewCommand } from './new.js';
@@ -159,6 +161,35 @@ function attachCommandActions(
     ?.action(async () => {
       const exitCode = await runLsCommand({
         cwd: options.cwd,
+        stdout: options.stdout,
+      });
+
+      if (exitCode !== 0) {
+        throw commanderExit(exitCode);
+      }
+    });
+
+  program.commands
+    .find((command) => command.name() === 'clean')
+    ?.action(async () => {
+      const exitCode = await runCleanCommand({
+        cwd: options.cwd,
+        stderr: options.stderr,
+        stdout: options.stdout,
+      });
+
+      if (exitCode !== 0) {
+        throw commanderExit(exitCode);
+      }
+    });
+
+  program.commands
+    .find((command) => command.name() === 'done')
+    ?.action(async (branch?: string) => {
+      const exitCode = await runDoneCommand({
+        branch,
+        cwd: options.cwd,
+        stderr: options.stderr,
         stdout: options.stdout,
       });
 
