@@ -1,6 +1,7 @@
 import { Command } from 'commander';
 
 import { runCleanCommand } from './clean.js';
+import { runConfigCommand } from './config-command.js';
 import { runDoneCommand } from './done.js';
 import { runGoCommand } from './go.js';
 import { runLsCommand } from './ls.js';
@@ -102,6 +103,26 @@ function registerCommands(program: Command): void {
     .command('done [branch]')
     .description('remove a completed worktree and delete its branch')
     .action(notImplemented('done'));
+
+  const configCommand = program
+    .command('config')
+    .description('manage global config defaults')
+    .action(notImplemented('config'));
+
+  configCommand
+    .command('get [key]')
+    .description('print the global config or a single key')
+    .action(notImplemented('config get'));
+
+  configCommand
+    .command('set <key> <value>')
+    .description('set a global config value')
+    .action(notImplemented('config set'));
+
+  configCommand
+    .command('unset <key>')
+    .description('remove a global config value')
+    .action(notImplemented('config unset'));
 }
 
 function attachCommandActions(
@@ -197,6 +218,61 @@ function attachCommandActions(
         throw commanderExit(exitCode);
       }
     });
+
+  const configCommand = program.commands.find((command) => command.name() === 'config');
+
+  configCommand?.action(async () => {
+    const exitCode = await runConfigCommand({
+      cwd: options.cwd,
+      stdout: options.stdout,
+    });
+
+    if (exitCode !== 0) {
+      throw commanderExit(exitCode);
+    }
+  });
+
+  configCommand?.commands.find((command) => command.name() === 'get')?.action(async (key?: string) => {
+    const exitCode = await runConfigCommand({
+      action: 'get',
+      cwd: options.cwd,
+      key,
+      stdout: options.stdout,
+    });
+
+    if (exitCode !== 0) {
+      throw commanderExit(exitCode);
+    }
+  });
+
+  configCommand?.commands
+    .find((command) => command.name() === 'set')
+    ?.action(async (key: string, value: string) => {
+      const exitCode = await runConfigCommand({
+        action: 'set',
+        cwd: options.cwd,
+        key,
+        stdout: options.stdout,
+        value,
+      });
+
+      if (exitCode !== 0) {
+        throw commanderExit(exitCode);
+      }
+    });
+
+  configCommand?.commands.find((command) => command.name() === 'unset')?.action(async (key: string) => {
+    const exitCode = await runConfigCommand({
+      action: 'unset',
+      cwd: options.cwd,
+      key,
+      stdout: options.stdout,
+    });
+
+    if (exitCode !== 0) {
+      throw commanderExit(exitCode);
+    }
+  });
 }
 
 function notImplemented(commandName: string): () => never {
