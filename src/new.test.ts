@@ -9,6 +9,7 @@ import { describe, expect, it } from 'vitest';
 import { runCli } from './cli.js';
 import { resolveWorktreePath } from './repo.js';
 import { createRepository } from './repo.test-helpers.js';
+import { runNewCommand } from './new.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -57,6 +58,56 @@ describe('gji new', () => {
     expect(result.exitCode).toBe(0);
     await expect(pathExists(newWorktreePath)).resolves.toBe(true);
     await expect(currentBranch(newWorktreePath)).resolves.toBe(newBranch);
+  });
+
+  it('reuses the existing path when the conflict prompt selects reuse', async () => {
+    // Given an existing target path for the requested branch.
+    const repoRoot = await createRepository();
+    const stdout: string[] = [];
+    const stderr: string[] = [];
+    const branchName = 'feature/existing-path';
+    const worktreePath = resolveWorktreePath(repoRoot, branchName);
+
+    await mkdir(worktreePath, { recursive: true });
+
+    // When the interactive conflict handler selects reuse.
+    const result = await runNewCommand({
+      branch: branchName,
+      choosePathConflict: async () => 'reuse',
+      cwd: repoRoot,
+      stderr: (chunk) => stderr.push(chunk),
+      stdout: (chunk) => stdout.push(chunk),
+    });
+
+    // Then the command exits successfully and returns the existing path.
+    expect(result).toBe(0);
+    expect(stderr).toEqual([]);
+    expect(stdout.join('')).toContain(worktreePath);
+  });
+
+  it('aborts when the conflict prompt selects abort', async () => {
+    // Given an existing target path for the requested branch.
+    const repoRoot = await createRepository();
+    const stdout: string[] = [];
+    const stderr: string[] = [];
+    const branchName = 'feature/abort-existing-path';
+    const worktreePath = resolveWorktreePath(repoRoot, branchName);
+
+    await mkdir(worktreePath, { recursive: true });
+
+    // When the interactive conflict handler selects abort.
+    const result = await runNewCommand({
+      branch: branchName,
+      choosePathConflict: async () => 'abort',
+      cwd: repoRoot,
+      stderr: (chunk) => stderr.push(chunk),
+      stdout: (chunk) => stdout.push(chunk),
+    });
+
+    // Then the command exits without creating or reusing the worktree.
+    expect(result).toBe(1);
+    expect(stdout).toEqual([]);
+    expect(stderr.join('')).toContain('Aborted');
   });
 });
 
