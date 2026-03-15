@@ -35,8 +35,7 @@ describe('gji init', () => {
 
     // Then it prints the shell integration wrapper.
     expect(result.exitCode).toBe(0);
-    expect(stdout.join('')).toContain('command gji go --print');
-    expect(stdout.join('')).toContain('gji()');
+    expect(stdout.join('')).toBe(expectedZshIntegration());
   });
 
   it('auto-detects the shell from SHELL when no shell is provided', async () => {
@@ -51,7 +50,7 @@ describe('gji init', () => {
 
     // Then it prints the detected shell integration wrapper.
     expect(result.exitCode).toBe(0);
-    expect(stdout.join('')).toContain('gji()');
+    expect(stdout.join('')).toBe(expectedZshIntegration());
   });
 
   it('writes zsh integration to the shell rc file with --write', async () => {
@@ -65,9 +64,7 @@ describe('gji init', () => {
 
     // Then the zsh rc file contains the integration wrapper.
     expect(result.exitCode).toBe(0);
-    await expect(readFile(join(home, '.zshrc'), 'utf8')).resolves.toContain(
-      'command gji go --print',
-    );
+    await expect(readFile(join(home, '.zshrc'), 'utf8')).resolves.toBe(expectedZshIntegration());
   });
 
   it('does not duplicate the zsh integration block when --write runs twice', async () => {
@@ -87,3 +84,25 @@ describe('gji init', () => {
     expect(content.match(/# <<< gji init <<</g)).toHaveLength(1);
   });
 });
+
+function expectedZshIntegration(): string {
+  return `# >>> gji init >>>
+gji() {
+  if [ "$1" = "go" ]; then
+    shift
+    if [ "\${1:-}" = "--print" ]; then
+      command gji go "$@"
+      return $?
+    fi
+
+    local target
+    target="$(command gji go --print "$@")" || return $?
+    cd "$target" || return $?
+    return 0
+  fi
+
+  command gji "$@"
+}
+# <<< gji init <<<
+`;
+}

@@ -44,7 +44,7 @@ describe('gji new', () => {
     expect(result.exitCode).toBe(0);
     await expect(pathExists(worktreePath)).resolves.toBe(true);
     await expect(currentBranch(worktreePath)).resolves.toBe(branchName);
-    expect(stdout.join('')).toContain(worktreePath);
+    expect(stdout.join('')).toBe(`${worktreePath}\n`);
   });
 
   it('creates the branch from the main repository even when run inside a worktree', async () => {
@@ -96,7 +96,7 @@ describe('gji new', () => {
     expect(result.exitCode).toBe(0);
     await expect(pathExists(worktreePath)).resolves.toBe(true);
     await expect(currentBranch(worktreePath)).resolves.toBe(prefixedBranchName);
-    expect(stdout.join('')).toContain(worktreePath);
+    expect(stdout.join('')).toBe(`${worktreePath}\n`);
   });
 
   it('prefers a repo-local branch prefix over the global default', async () => {
@@ -156,7 +156,7 @@ describe('gji new', () => {
     // Then the command exits successfully and returns the existing path.
     expect(result).toBe(0);
     expect(stderr).toEqual([]);
-    expect(stdout.join('')).toContain(worktreePath);
+    expect(stdout.join('')).toBe(`${worktreePath}\n`);
   });
 
   it('aborts when the conflict prompt selects abort', async () => {
@@ -183,6 +183,8 @@ describe('gji new', () => {
     // Then the command exits without creating or reusing the worktree.
     expect(result).toBe(1);
     expect(stdout).toEqual([]);
-    expect(stderr.join('')).toContain('Aborted');
+    expect(stderr.join('')).toBe(
+      `Aborted because target worktree path already exists: ${worktreePath}\n`,
+    );
   });
 });

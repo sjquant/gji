@@ -21,6 +21,7 @@ describe('runCli', () => {
     expect(output).toContain('init');
     expect(output).toContain('pr');
     expect(output).toContain('go');
+    expect(output).toContain('status');
     expect(output).toContain('root');
     expect(output).toContain('ls');
     expect(output).toContain('remove');

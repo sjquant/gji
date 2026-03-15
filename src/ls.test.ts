@@ -18,12 +18,14 @@ describe('gji ls', () => {
       'bugfix/short',
       'chore/a-very-long-branch-name',
     ];
-    const worktrees = await Promise.all(
-      branchNames.map(async (branch) => ({
+    const worktrees: Array<{ branch: string; path: string }> = [];
+
+    for (const branch of branchNames) {
+      worktrees.push({
         branch,
         path: await addLinkedWorktree(repoRoot, branch),
-      })),
-    );
+      });
+    }
     const stdout: string[] = [];
 
     // When gji ls runs from the repository root.
@@ -38,19 +40,19 @@ describe('gji ls', () => {
       defaultBranch.length,
       ...branchNames.map((branch) => branch.length),
     );
+    const expected = [
+      `${'BRANCH'.padEnd(branchWidth, ' ')} PATH`,
+      ...[
+        { branch: defaultBranch, path: repoRoot },
+        ...worktrees,
+      ]
+        .sort((left, right) => left.path.localeCompare(right.path))
+        .map((worktree) => `${worktree.branch.padEnd(branchWidth, ' ')} ${worktree.path}`),
+    ];
 
     // Then it prints every active worktree in a branch/path table.
     expect(result.exitCode).toBe(0);
-    expect(lines).toHaveLength(worktrees.length + 2);
-    expect(lines[0]).toBe(`${'BRANCH'.padEnd(branchWidth, ' ')} PATH`);
-    expect(lines[1]).toBe(`${defaultBranch.padEnd(branchWidth, ' ')} ${repoRoot}`);
-    expect(lines.slice(2)).toEqual(
-      expect.arrayContaining(
-        worktrees.map(
-          (worktree) => `${worktree.branch.padEnd(branchWidth, ' ')} ${worktree.path}`,
-        ),
-      ),
-    );
+    expect(lines).toEqual(expected);
   });
 
   it('labels detached worktrees explicitly', async () => {
@@ -68,20 +70,26 @@ describe('gji ls', () => {
       cwd: repoRoot,
       stdout: (chunk) => stdout.push(chunk),
     });
+    const defaultBranch = await currentBranch(repoRoot);
     const branchWidth = Math.max(
       'BRANCH'.length,
+      defaultBranch.length,
       featureBranch.length,
       '(detached)'.length,
     );
-    const output = stdout.join('');
+    const expected = [
+      `${'BRANCH'.padEnd(branchWidth, ' ')} PATH`,
+      ...[
+        { branch: defaultBranch, path: repoRoot },
+        { branch: featureBranch, path: featureWorktreePath },
+        { branch: '(detached)', path: detachedWorktreePath },
+      ]
+        .sort((left, right) => left.path.localeCompare(right.path))
+        .map((worktree) => `${worktree.branch.padEnd(branchWidth, ' ')} ${worktree.path}`),
+    ].join('\n');
 
     // Then it keeps the branch-backed worktree and labels the detached one clearly.
     expect(result.exitCode).toBe(0);
-    expect(output).toContain(
-      `${featureBranch.padEnd(branchWidth, ' ')} ${featureWorktreePath}`,
-    );
-    expect(output).toContain(
-      `${'(detached)'.padEnd(branchWidth, ' ')} ${detachedWorktreePath}`,
-    );
+    expect(stdout.join('').trimEnd()).toBe(expected);
   });
 });

@@ -8,6 +8,7 @@ import { runNewCommand } from './new.js';
 import { runPrCommand } from './pr.js';
 import { runRemoveCommand } from './remove.js';
 import { runRootCommand } from './root.js';
+import { runStatusCommand } from './status.js';
 
 export interface RunCliOptions {
   cwd?: string;
@@ -95,6 +96,11 @@ function registerCommands(program: Command): void {
     .command('root')
     .description('print the main repository root path')
     .action(notImplemented('root'));
+
+  program
+    .command('status')
+    .description('summarize repository and worktree health')
+    .action(notImplemented('status'));
 
   program
     .command('ls')
@@ -186,6 +192,19 @@ function attachCommandActions(
     .find((command) => command.name() === 'root')
     ?.action(async () => {
       const exitCode = await runRootCommand({
+        cwd: options.cwd,
+        stdout: options.stdout,
+      });
+
+      if (exitCode !== 0) {
+        throw commanderExit(exitCode);
+      }
+    });
+
+  program.commands
+    .find((command) => command.name() === 'status')
+    ?.action(async () => {
+      const exitCode = await runStatusCommand({
         cwd: options.cwd,
         stdout: options.stdout,
       });
