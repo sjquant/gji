@@ -18,6 +18,7 @@ describe('runCli', () => {
     expect(stderr).toEqual([]);
     expect(output).toContain('Usage: gji');
     expect(output).toContain('new');
+    expect(output).toContain('init');
     expect(output).toContain('pr');
     expect(output).toContain('go');
     expect(output).toContain('root');

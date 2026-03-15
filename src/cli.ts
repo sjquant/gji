@@ -2,6 +2,7 @@ import { Command } from 'commander';
 
 import { runConfigCommand } from './config-command.js';
 import { runGoCommand } from './go.js';
+import { runInitCommand } from './init.js';
 import { runLsCommand } from './ls.js';
 import { runNewCommand } from './new.js';
 import { runPrCommand } from './pr.js';
@@ -74,6 +75,12 @@ function registerCommands(program: Command): void {
     .action(notImplemented('new'));
 
   program
+    .command('init [shell]')
+    .description('print or install shell integration')
+    .option('--write', 'write the integration to the shell config file')
+    .action(notImplemented('init'));
+
+  program
     .command('pr <number>')
     .description('fetch a pull request ref and create a linked worktree')
     .action(notImplemented('pr'));
@@ -81,6 +88,7 @@ function registerCommands(program: Command): void {
   program
     .command('go [branch]')
     .description('print or select a worktree path')
+    .option('--print', 'print the resolved worktree path explicitly')
     .action(notImplemented('go'));
 
   program
@@ -134,6 +142,21 @@ function attachCommandActions(
     });
 
   program.commands
+    .find((command) => command.name() === 'init')
+    ?.action(async (shell: string | undefined, commandOptions: { write?: boolean }) => {
+      const exitCode = await runInitCommand({
+        cwd: options.cwd,
+        shell,
+        stdout: options.stdout,
+        write: commandOptions.write,
+      });
+
+      if (exitCode !== 0) {
+        throw commanderExit(exitCode);
+      }
+    });
+
+  program.commands
     .find((command) => command.name() === 'pr')
     ?.action(async (number: string) => {
       const exitCode = await runPrCommand({ cwd: options.cwd, number, stdout: options.stdout });
@@ -145,10 +168,11 @@ function attachCommandActions(
 
   program.commands
     .find((command) => command.name() === 'go')
-    ?.action(async (branch?: string) => {
+    ?.action(async (branch: string | undefined, commandOptions: { print?: boolean }) => {
       const exitCode = await runGoCommand({
         branch,
         cwd: options.cwd,
+        print: commandOptions.print,
         stderr: options.stderr,
         stdout: options.stdout,
       });

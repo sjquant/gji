@@ -47,6 +47,24 @@ describe('gji root', () => {
 });
 
 describe('gji go', () => {
+  it('prints the linked worktree path explicitly with --print', async () => {
+    // Given an existing linked worktree for a branch.
+    const repoRoot = await createRepository();
+    const branchName = 'feature/go-print';
+    const worktreePath = await addLinkedWorktree(repoRoot, branchName);
+    const stdout: string[] = [];
+
+    // When gji go runs in explicit print mode.
+    const result = await runCli(['go', '--print', branchName], {
+      cwd: repoRoot,
+      stdout: (chunk) => stdout.push(chunk),
+    });
+
+    // Then it prints the matching worktree path.
+    expect(result.exitCode).toBe(0);
+    expect(stdout.join('').trim()).toBe(worktreePath);
+  });
+
   it('prints the linked worktree path for a branch', async () => {
     // Given an existing linked worktree for a branch.
     const repoRoot = await createRepository();

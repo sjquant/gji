@@ -4,6 +4,7 @@ import { listWorktrees, type WorktreeEntry } from './repo.js';
 export interface GoCommandOptions {
   branch?: string;
   cwd: string;
+  print?: boolean;
   stderr: (chunk: string) => void;
   stdout: (chunk: string) => void;
 }
