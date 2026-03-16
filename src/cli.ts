@@ -9,6 +9,7 @@ import { runPrCommand } from './pr.js';
 import { runRemoveCommand } from './remove.js';
 import { runRootCommand } from './root.js';
 import { runStatusCommand } from './status.js';
+import { runSyncCommand } from './sync.js';
 
 export interface RunCliOptions {
   cwd?: string;
@@ -101,6 +102,12 @@ function registerCommands(program: Command): void {
     .command('status')
     .description('summarize repository and worktree health')
     .action(notImplemented('status'));
+
+  program
+    .command('sync')
+    .description('fetch and update one or all worktrees')
+    .option('--all', 'sync every worktree in the repository')
+    .action(notImplemented('sync'));
 
   program
     .command('ls')
@@ -206,6 +213,21 @@ function attachCommandActions(
     ?.action(async () => {
       const exitCode = await runStatusCommand({
         cwd: options.cwd,
+        stdout: options.stdout,
+      });
+
+      if (exitCode !== 0) {
+        throw commanderExit(exitCode);
+      }
+    });
+
+  program.commands
+    .find((command) => command.name() === 'sync')
+    ?.action(async (commandOptions: { all?: boolean }) => {
+      const exitCode = await runSyncCommand({
+        all: commandOptions.all,
+        cwd: options.cwd,
+        stderr: options.stderr,
         stdout: options.stdout,
       });
 

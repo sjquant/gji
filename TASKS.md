@@ -17,8 +17,8 @@ TODO
 - [DONE] Add tests and documentation coverage for core pathing, Git command flows, interactive prompts, and destructive-action safeguards.
 - [DONE] Add `gji init [shell] [--write]` shell integration so `gji go [branch]` can change the current shell directory directly, while preserving the current raw CLI path-printing behavior for backward compatibility and a script-friendly mode such as `gji go --print`.
 - [REVIEW] Implement `gji status` to summarize worktree health, including branch state and useful at-a-glance repository metadata.
-- [DOING] Implement `gji sync [--all]` to fetch/prune remotes and update one or all worktrees against the configured default branch safely.
-- [TODO] Add structured machine-readable output for `gji ls --json`.
+- [REVIEW] Implement `gji sync [--all]` to fetch/prune remotes and update one or all worktrees against the configured default branch safely.
+- [DOING] Add structured machine-readable output for `gji ls --json`.
 
 ## Handoff Notes
 

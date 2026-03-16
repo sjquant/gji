@@ -42,6 +42,17 @@ export async function createRepositoryWithOrigin(): Promise<{
   };
 }
 
+export async function cloneRepository(originRoot: string): Promise<string> {
+  const root = await mkdtemp(join(tmpdir(), 'gji-clone-'));
+  const cloneRoot = join(root, 'clone');
+
+  await execFileAsync('git', ['clone', originRoot, cloneRoot]);
+  await runGit(cloneRoot, ['config', 'user.name', 'Codex']);
+  await runGit(cloneRoot, ['config', 'user.email', 'codex@example.com']);
+
+  return realpath(cloneRoot);
+}
+
 export async function addLinkedWorktree(
   repoRoot: string,
   branch: string,
