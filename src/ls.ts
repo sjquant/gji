@@ -2,11 +2,17 @@ import { listWorktrees, type WorktreeEntry } from './repo.js';
 
 export interface LsCommandOptions {
   cwd: string;
+  json?: boolean;
   stdout: (chunk: string) => void;
 }
 
 export async function runLsCommand(options: LsCommandOptions): Promise<number> {
-  const worktrees = await listWorktrees(options.cwd);
+  const worktrees = sortWorktreesByPath(await listWorktrees(options.cwd));
+
+  if (options.json) {
+    options.stdout(`${JSON.stringify(worktrees, null, 2)}\n`);
+    return 0;
+  }
 
   options.stdout(`${formatWorktreeTable(worktrees)}\n`);
 
@@ -29,4 +35,20 @@ export function formatWorktreeTable(worktrees: WorktreeEntry[]): string {
   }
 
   return lines.join('\n');
+}
+
+function sortWorktreesByPath(worktrees: WorktreeEntry[]): WorktreeEntry[] {
+  return [...worktrees].sort((left, right) => comparePaths(left.path, right.path));
+}
+
+function comparePaths(left: string, right: string): number {
+  if (left < right) {
+    return -1;
+  }
+
+  if (left > right) {
+    return 1;
+  }
+
+  return 0;
 }

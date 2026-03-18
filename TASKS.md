@@ -18,7 +18,7 @@ TODO
 - [DONE] Add `gji init [shell] [--write]` shell integration so `gji go [branch]` can change the current shell directory directly, while preserving the current raw CLI path-printing behavior for backward compatibility and a script-friendly mode such as `gji go --print`.
 - [REVIEW] Implement `gji status` to summarize worktree health, including branch state and useful at-a-glance repository metadata.
 - [REVIEW] Implement `gji sync [--all]` to fetch/prune remotes and update one or all worktrees against the configured default branch safely.
-- [DOING] Add structured machine-readable output for `gji ls --json`.
+- [REVIEW] Add structured machine-readable output for `gji ls --json`.
 
 ## Handoff Notes
 

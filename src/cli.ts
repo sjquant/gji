@@ -112,6 +112,7 @@ function registerCommands(program: Command): void {
   program
     .command('ls')
     .description('list active worktrees')
+    .option('--json', 'print active worktrees as JSON')
     .action(notImplemented('ls'));
 
   program
@@ -238,9 +239,10 @@ function attachCommandActions(
 
   program.commands
     .find((command) => command.name() === 'ls')
-    ?.action(async () => {
+    ?.action(async (commandOptions: { json?: boolean }) => {
       const exitCode = await runLsCommand({
         cwd: options.cwd,
+        json: commandOptions.json,
         stdout: options.stdout,
       });
 
