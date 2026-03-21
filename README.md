@@ -19,13 +19,19 @@ Standard branch switching gets annoying when you are:
 Install from npm:
 
 ```sh
-npm install -g gji
+npm install -g @solaqua/gji
 ```
 
 Confirm the CLI is available:
 
 ```sh
 gji --help
+```
+
+The installed command is still:
+
+```sh
+gji
 ```
 
 ## Quick start

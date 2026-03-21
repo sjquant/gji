@@ -27,8 +27,10 @@ TODO
 - [DONE] Expand README and SPEC to document `syncRemote` and `syncDefaultBranch` configuration, plus the new `gji status --json` contract.
 - [DONE] Make the package publish-ready by removing `private`, adding npm metadata, constraining published files, and adding a `prepublishOnly` verification script.
 - [DONE] Rewrite `README.md` for first-time adoption with install instructions, quick start, shell setup, daily workflow examples, config examples, and JSON output examples.
-- [REVIEW] Add a minimal GitHub Actions workflow to run `pnpm test` and `pnpm build` on pushes and pull requests.
-- [TODO] Add a release checklist or publishing guide covering package naming, `npm pack --dry-run`, versioning, and first publish steps.
+- [DONE] Add a minimal GitHub Actions workflow to run `pnpm test` and `pnpm build` on pushes and pull requests.
+- [DONE] Rename the npm package to `@solaqua/gji` and update install and publishing references to the scoped package name.
+- [DONE] Add an automated publish workflow that releases to npm when a version tag created by `npm version` is pushed.
+- [DONE] Expand the release checklist to cover scoped publishing and the publish workflow prerequisites such as npm Trusted Publishing.
 
 ## Handoff Notes
 
