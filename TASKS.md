@@ -25,8 +25,8 @@ TODO
 - [DONE] Add `gji status --json` with stable machine-readable output for repository metadata, worktree health, and upstream divergence.
 - [DONE] Implement `gji clean` to prune stale linked worktrees safely, with detached-worktree handling and clear confirmation prompts.
 - [DONE] Expand README and SPEC to document `syncRemote` and `syncDefaultBranch` configuration, plus the new `gji status --json` contract.
-- [TODO] Make the package publish-ready by removing `private`, adding npm metadata, constraining published files, and adding a `prepublishOnly` verification script.
-- [TODO] Rewrite `README.md` for first-time adoption with install instructions, quick start, shell setup, daily workflow examples, config examples, and JSON output examples.
+- [DONE] Make the package publish-ready by removing `private`, adding npm metadata, constraining published files, and adding a `prepublishOnly` verification script.
+- [DONE] Rewrite `README.md` for first-time adoption with install instructions, quick start, shell setup, daily workflow examples, config examples, and JSON output examples.
 - [TODO] Add a minimal GitHub Actions workflow to run `pnpm test` and `pnpm build` on pushes and pull requests.
 - [TODO] Add a release checklist or publishing guide covering package naming, `npm pack --dry-run`, versioning, and first publish steps.
 

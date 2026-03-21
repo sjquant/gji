@@ -1,14 +1,41 @@
 {
   "name": "gji",
   "version": "0.1.0",
-  "private": true,
+  "description": "Git worktree CLI for fast context switching.",
+  "license": "MIT",
+  "author": "sjquant",
   "type": "module",
   "packageManager": "pnpm@10.6.3",
+  "homepage": "https://github.com/sjquant/gji#readme",
+  "bugs": {
+    "url": "https://github.com/sjquant/gji/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/sjquant/gji.git"
+  },
+  "keywords": [
+    "git",
+    "worktree",
+    "cli",
+    "developer-tools",
+    "productivity",
+    "terminal"
+  ],
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
   "bin": {
     "gji": "./dist/index.js"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "node scripts/clean-dist.mjs && tsc -p tsconfig.build.json",
+    "prepublishOnly": "pnpm test && pnpm build",
     "test": "vitest run --passWithNoTests",
     "test:watch": "vitest"
   },

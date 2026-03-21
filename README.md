@@ -2,49 +2,51 @@
 
 Context switching without the mess.
 
-> Status: Under active development.
+`gji` is a Git worktree CLI for people who jump between tasks all day. It gives each branch or PR its own directory, so you stop doing `stash`, `pop`, reinstall cycles, and fragile branch juggling.
 
-`gji` (Git Jump Interface) is a TypeScript CLI for managing Git worktrees with a fast, opinionated workflow. It helps you jump between branches and PRs without repeated `stash`, `pop`, and reinstall churn, and fits well with concurrent AI-assisted coding ("vibe coding") across multiple isolated worktrees.
+## Why
 
-## Why gji
+Standard branch switching gets annoying when you are:
 
-When you switch context often, standard branch workflows create friction:
+- fixing one bug while reviewing another branch
+- hopping between feature work and PR checks
+- using multiple terminals, editors, or AI agents at the same time
 
-- dirty working trees
-- repetitive stash/pop cycles
-- dependency reinstall overhead
-- unclear cleanup of old worktrees
+`gji` keeps those contexts isolated in separate worktrees with deterministic paths.
 
-`gji` solves this by isolating each task in dedicated worktree directories.
+## Install
 
-## Core ideas
+Install from npm:
 
-- Smart pathing from anywhere in a repo (root or nested worktree)
-- Deterministic workspace layout: `../worktrees/{repo}/{branch}`
-- Zero-config by default, with optional global or repo-local config overrides when needed
-- Optional shell integration so `gji go` can change your current shell directory directly
-- PR-to-tree flow using GitHub PR refs (e.g. `origin/pull/123/head`)
-- Interactive conflict handling when target paths already exist
-- Interactive worktree cleanup, including detached worktrees
-- Shell-friendly output that composes with standard terminal tooling, including JSON output for `gji ls`
+```sh
+npm install -g gji
+```
 
-## Commands
+Confirm the CLI is available:
 
-- `gji init [shell]` - print shell integration for `zsh`, `bash`, or `fish`
-- `gji new <branch>` - create a new branch and linked worktree, using `branchPrefix` from config when set
-- `gji pr <number>` - fetch `origin/pull/<number>/head` and create a linked `pr/<number>` worktree
-- `gji go [branch]` - jump to an existing worktree when shell integration is installed, or print the matching worktree path otherwise
-- `gji root` - print the main repository root path from either the repo root or a linked worktree
-- `gji status [--json]` - summarize repository metadata, clean/dirty state, and upstream divergence per worktree in text or JSON
-- `gji sync [--all]` - fetch from the configured remote and update the current or all worktrees onto the configured default branch
-- `gji ls [--json]` - list the active worktrees in a branch/path table or structured JSON
-- `gji clean` - interactively prune one or more linked worktrees, including detached entries, while excluding the current worktree
-- `gji remove [branch]` - remove a linked worktree, delete its branch when present, and print the repo root after confirmation
-- `gji config` - inspect or manage global defaults with `get`, `set`, and `unset`
+```sh
+gji --help
+```
+
+## Quick start
+
+Inside a Git repository:
+
+```sh
+gji new feature/login-form
+gji go feature/login-form
+gji status
+```
+
+That creates a linked worktree at a deterministic path:
+
+```text
+../worktrees/<repo>/<branch>
+```
 
 ## Shell setup
 
-`gji go` can only change your current directory when shell integration is installed. Without shell integration, the raw CLI keeps printing paths so it remains script-friendly.
+`gji go` can only change your current directory when shell integration is installed. Without shell integration, the raw CLI prints the target path so it stays script-friendly.
 
 For zsh:
 
@@ -56,44 +58,40 @@ source ~/.zshrc
 After that:
 
 ```sh
-gji go feature/my-branch
+gji go feature/login-form
 ```
 
-will change your current shell directory directly.
+changes your shell directory directly.
 
-If you want the explicit script mode instead, use:
+For scripts or explicit piping:
 
 ```sh
-gji go --print feature/my-branch
+gji go --print feature/login-form
 ```
 
-## Examples
+## Daily workflow
 
-Create a new worktree:
+Start a task:
 
 ```sh
-gji new feature/login-form
+gji new feature/refactor-auth
+gji go feature/refactor-auth
 ```
 
-Fetch a GitHub PR into a dedicated worktree:
+Check what is active:
+
+```sh
+gji status
+gji ls
+```
+
+Pull a PR into its own worktree:
 
 ```sh
 gji pr 123
 ```
 
-Check repository/worktree health:
-
-```sh
-gji status
-```
-
-Read machine-readable repository/worktree health:
-
-```sh
-gji status --json
-```
-
-Sync the current worktree onto the latest configured default branch:
+Sync the current worktree with the latest default branch:
 
 ```sh
 gji sync
@@ -105,31 +103,48 @@ Sync every worktree in the repository:
 gji sync --all
 ```
 
-List worktrees as machine-readable JSON:
-
-```sh
-gji ls --json
-```
-
-Interactively prune stale linked worktrees:
+Clean up stale linked worktrees interactively:
 
 ```sh
 gji clean
 ```
 
+Finish a single worktree explicitly:
+
+```sh
+gji remove feature/refactor-auth
+```
+
+## Commands
+
+- `gji init [shell]` prints shell integration for `zsh`, `bash`, or `fish`
+- `gji new [branch]` creates a branch and linked worktree; when omitted, it prompts with a placeholder branch name
+- `gji pr <number>` fetches `origin/pull/<number>/head` and creates a linked `pr/<number>` worktree
+- `gji go [branch]` jumps to an existing worktree when shell integration is installed, or prints the matching worktree path otherwise
+- `gji root` prints the main repository root path from either the repo root or a linked worktree
+- `gji status [--json]` prints repository metadata, worktree health, and upstream divergence
+- `gji sync [--all]` fetches from the configured remote and rebases or fast-forwards worktrees onto the configured default branch
+- `gji ls [--json]` lists active worktrees in a table or JSON
+- `gji clean` interactively prunes one or more linked worktrees, including detached entries, while excluding the current worktree
+- `gji remove [branch]` removes a linked worktree and deletes its branch when present
+- `gji config` reads or updates global defaults
+
 ## Configuration
 
-`gji` stays zero-config by default. When you need a default, it currently supports:
+`gji` is usable without setup, but it supports defaults through:
 
-- `branchPrefix` for `gji new`
-- `syncRemote` for `gji sync`
-- `syncDefaultBranch` for `gji sync`
+- global config at `~/.config/gji/config.json`
+- repo-local config at `.gji.json`
 
-- Global config lives at `~/.config/gji/config.json`
-- Repo-local config lives at `.gji.json` in the repository root
-- Repo-local values override global defaults
+Repo-local values override global defaults.
 
-Example global config:
+Supported keys:
+
+- `branchPrefix`
+- `syncRemote`
+- `syncDefaultBranch`
+
+Example:
 
 ```json
 {
@@ -139,9 +154,20 @@ Example global config:
 }
 ```
 
-If `syncRemote` is unset, `gji sync` defaults to `origin`. If `syncDefaultBranch` is unset, `gji sync` resolves the remote's default branch from `HEAD`.
+Behavior:
 
-`gji status --json` prints a stable top-level object with:
+- if `syncRemote` is unset, `gji sync` defaults to `origin`
+- if `syncDefaultBranch` is unset, `gji sync` resolves the remote default branch from `HEAD`
+
+## JSON output
+
+`gji ls --json` returns branch/path entries:
+
+```sh
+gji ls --json
+```
+
+`gji status --json` returns a top-level object with:
 
 - `repoRoot`
 - `currentRoot`
@@ -150,10 +176,20 @@ If `syncRemote` is unset, `gji sync` defaults to `origin`. If `syncDefaultBranch
 Each worktree entry contains:
 
 - `branch`: branch name or `null` for detached worktrees
-- `current`: whether the entry matches the current cwd
+- `current`
 - `path`
 - `status`: `clean` or `dirty`
-- `upstream`: one of:
+- `upstream`: one of
   - `{ "kind": "detached" }`
   - `{ "kind": "no-upstream" }`
   - `{ "kind": "tracked", "ahead": number, "behind": number }`
+
+## Notes
+
+- `gji` works from either the main repository root or any linked worktree
+- the current worktree is never offered as a `gji clean` removal candidate
+- `gji` currently uses GitHub-style PR refs for `gji pr`
+
+## License
+
+MIT
