@@ -25,6 +25,7 @@ describe('runCli', () => {
     expect(output).toContain('sync');
     expect(output).toContain('root');
     expect(output).toContain('ls');
+    expect(output).toContain('clean');
     expect(output).toContain('remove');
   });
 });

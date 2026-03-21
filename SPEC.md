@@ -37,6 +37,9 @@
 - R19. The CLI must support `gji status` to summarize the current repository and linked worktrees with useful health signals such as branch association and repository state.
 - R20. The CLI must support `gji sync [--all]` to fetch/prune remotes and update one or all worktrees against the configured default branch safely.
 - R21. The CLI must support `gji ls --json` to emit machine-readable structured output for editor, shell, and automation integrations.
+- R22. The CLI must support `gji clean` to interactively prune one or more linked worktrees safely, including detached entries while excluding the current worktree from removal candidates.
+- R23. The CLI must support `gji status --json` to emit machine-readable repository metadata, worktree health, and upstream divergence state with detached worktrees represented as `branch: null`.
+- R24. The product should support configuration keys such as `syncRemote` and `syncDefaultBranch` so synchronization defaults can be overridden globally or per repository.
 
 ## In Scope
 - A local TypeScript command-line tool for Git worktree lifecycle management.
@@ -49,6 +52,7 @@
 - Optional shell integration for directory-jumping behavior in interactive shells such as zsh, bash, and fish, with explicit setup through `gji init`.
 - Status and synchronization workflows for one or many worktrees in the same repository.
 - Structured JSON output for commands that users may want to compose with other tools.
+- Interactive pruning of stale linked worktrees without requiring users to remove them one by one.
 
 ## Out of Scope
 - GUI or web interface.

@@ -1,5 +1,6 @@
 import { Command } from 'commander';
 
+import { runCleanCommand } from './clean.js';
 import { runConfigCommand } from './config-command.js';
 import { runGoCommand } from './go.js';
 import { runInitCommand } from './init.js';
@@ -115,6 +116,11 @@ function registerCommands(program: Command): void {
     .description('list active worktrees')
     .option('--json', 'print active worktrees as JSON')
     .action(notImplemented('ls'));
+
+  program
+    .command('clean')
+    .description('interactively prune linked worktrees')
+    .action(notImplemented('clean'));
 
   program
     .command('remove [branch]')
@@ -245,6 +251,20 @@ function attachCommandActions(
       const exitCode = await runLsCommand({
         cwd: options.cwd,
         json: commandOptions.json,
+        stdout: options.stdout,
+      });
+
+      if (exitCode !== 0) {
+        throw commanderExit(exitCode);
+      }
+    });
+
+  program.commands
+    .find((command) => command.name() === 'clean')
+    ?.action(async () => {
+      const exitCode = await runCleanCommand({
+        cwd: options.cwd,
+        stderr: options.stderr,
         stdout: options.stdout,
       });
 

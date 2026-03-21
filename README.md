@@ -35,9 +35,10 @@ When you switch context often, standard branch workflows create friction:
 - `gji pr <number>` - fetch `origin/pull/<number>/head` and create a linked `pr/<number>` worktree
 - `gji go [branch]` - jump to an existing worktree when shell integration is installed, or print the matching worktree path otherwise
 - `gji root` - print the main repository root path from either the repo root or a linked worktree
-- `gji status` - summarize repository metadata, clean/dirty state, and upstream divergence per worktree
-- `gji sync [--all]` - fetch from `origin` and update the current or all worktrees onto the remote default branch
+- `gji status [--json]` - summarize repository metadata, clean/dirty state, and upstream divergence per worktree in text or JSON
+- `gji sync [--all]` - fetch from the configured remote and update the current or all worktrees onto the configured default branch
 - `gji ls [--json]` - list the active worktrees in a branch/path table or structured JSON
+- `gji clean` - interactively prune one or more linked worktrees, including detached entries, while excluding the current worktree
 - `gji remove [branch]` - remove a linked worktree, delete its branch when present, and print the repo root after confirmation
 - `gji config` - inspect or manage global defaults with `get`, `set`, and `unset`
 
@@ -86,7 +87,13 @@ Check repository/worktree health:
 gji status
 ```
 
-Sync the current worktree onto the latest remote default branch:
+Read machine-readable repository/worktree health:
+
+```sh
+gji status --json
+```
+
+Sync the current worktree onto the latest configured default branch:
 
 ```sh
 gji sync
@@ -104,9 +111,19 @@ List worktrees as machine-readable JSON:
 gji ls --json
 ```
 
+Interactively prune stale linked worktrees:
+
+```sh
+gji clean
+```
+
 ## Configuration
 
-`gji` stays zero-config by default. When you need a default, it currently supports `branchPrefix` for `gji new`.
+`gji` stays zero-config by default. When you need a default, it currently supports:
+
+- `branchPrefix` for `gji new`
+- `syncRemote` for `gji sync`
+- `syncDefaultBranch` for `gji sync`
 
 - Global config lives at `~/.config/gji/config.json`
 - Repo-local config lives at `.gji.json` in the repository root
@@ -116,6 +133,27 @@ Example global config:
 
 ```json
 {
-  "branchPrefix": "feature/"
+  "branchPrefix": "feature/",
+  "syncRemote": "upstream",
+  "syncDefaultBranch": "main"
 }
 ```
+
+If `syncRemote` is unset, `gji sync` defaults to `origin`. If `syncDefaultBranch` is unset, `gji sync` resolves the remote's default branch from `HEAD`.
+
+`gji status --json` prints a stable top-level object with:
+
+- `repoRoot`
+- `currentRoot`
+- `worktrees`
+
+Each worktree entry contains:
+
+- `branch`: branch name or `null` for detached worktrees
+- `current`: whether the entry matches the current cwd
+- `path`
+- `status`: `clean` or `dirty`
+- `upstream`: one of:
+  - `{ "kind": "detached" }`
+  - `{ "kind": "no-upstream" }`
+  - `{ "kind": "tracked", "ahead": number, "behind": number }`
