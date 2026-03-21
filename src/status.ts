@@ -1,13 +1,15 @@
 import { detectRepository, listWorktrees, type WorktreeEntry } from './repo.js';
 import { readWorktreeHealth, type WorktreeHealth } from './git.js';
+import { comparePaths } from './paths.js';
 
 export interface StatusCommandOptions {
   cwd: string;
+  json?: boolean;
   stdout: (chunk: string) => void;
 }
 
 interface WorktreeStatusRow {
-  branch: string;
+  branch: string | null;
   current: boolean;
   path: string;
   status: 'clean' | 'dirty';
@@ -21,10 +23,15 @@ type UpstreamState =
 
 export async function runStatusCommand(options: StatusCommandOptions): Promise<number> {
   const repository = await detectRepository(options.cwd);
-  const worktrees = await listWorktrees(options.cwd);
+  const worktrees = sortWorktreesByPath(await listWorktrees(options.cwd));
   const rows = await Promise.all(
     worktrees.map(async (worktree) => buildStatusRow(worktree, repository.currentRoot)),
   );
+
+  if (options.json) {
+    options.stdout(`${JSON.stringify(formatStatusJson(repository.repoRoot, repository.currentRoot, rows), null, 2)}\n`);
+    return 0;
+  }
 
   options.stdout(`${formatStatusOutput(repository.repoRoot, repository.currentRoot, rows)}\n`);
 
@@ -37,7 +44,7 @@ export function formatStatusOutput(
   rows: WorktreeStatusRow[],
 ): string {
   const currentWidth = Math.max('CURRENT'.length, ...rows.map((row) => row.current ? 1 : 0));
-  const branchWidth = Math.max('BRANCH'.length, ...rows.map((row) => row.branch.length));
+  const branchWidth = Math.max('BRANCH'.length, ...rows.map((row) => formatBranch(row.branch).length));
   const statusWidth = Math.max('STATUS'.length, ...rows.map((row) => row.status.length));
   const upstreamWidth = Math.max(
     'UPSTREAM'.length,
@@ -52,11 +59,27 @@ export function formatStatusOutput(
 
   for (const row of rows) {
     lines.push(
-      `${(row.current ? '*' : '').padEnd(currentWidth, ' ')} ${row.branch.padEnd(branchWidth, ' ')} ${row.status.padEnd(statusWidth, ' ')} ${formatUpstreamState(row.upstream).padEnd(upstreamWidth, ' ')} ${row.path}`,
+      `${(row.current ? '*' : '').padEnd(currentWidth, ' ')} ${formatBranch(row.branch).padEnd(branchWidth, ' ')} ${row.status.padEnd(statusWidth, ' ')} ${formatUpstreamState(row.upstream).padEnd(upstreamWidth, ' ')} ${row.path}`,
     );
   }
 
   return lines.join('\n');
+}
+
+export function formatStatusJson(
+  repoRoot: string,
+  currentRoot: string,
+  rows: WorktreeStatusRow[],
+): {
+  currentRoot: string;
+  repoRoot: string;
+  worktrees: WorktreeStatusRow[];
+} {
+  return {
+    currentRoot,
+    repoRoot,
+    worktrees: rows,
+  };
 }
 
 async function buildStatusRow(
@@ -66,12 +89,20 @@ async function buildStatusRow(
   const health = await readWorktreeHealth(worktree.path);
 
   return {
-    branch: worktree.branch ?? '(detached)',
+    branch: worktree.branch,
     current: worktree.path === currentRoot,
     path: worktree.path,
     status: health.status,
     upstream: buildUpstreamState(worktree.branch, health),
   };
+}
+
+function sortWorktreesByPath(worktrees: WorktreeEntry[]): WorktreeEntry[] {
+  return [...worktrees].sort((left, right) => comparePaths(left.path, right.path));
+}
+
+function formatBranch(branch: string | null): string {
+  return branch ?? '(detached)';
 }
 
 function buildUpstreamState(branch: string | null, health: WorktreeHealth): UpstreamState {

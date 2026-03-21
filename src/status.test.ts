@@ -183,7 +183,7 @@ describe('gji status', () => {
             upstream: 'no-upstream',
           },
           {
-            branch: '(detached)',
+            branch: null,
             current: false,
             path: detachedWorktreePath,
             status: 'clean',
@@ -193,13 +193,79 @@ describe('gji status', () => {
       }),
     );
   });
+
+  it('prints stable structured JSON with repository metadata and upstream state', async () => {
+    // Given a repository with tracked, untracked, and detached worktrees.
+    const { originRoot, repoRoot } = await createRepositoryWithOrigin();
+    const defaultBranch = await currentBranch(repoRoot);
+    const trackedBranch = 'feature/status-json-tracked';
+    const untrackedBranch = 'feature/status-json-untracked';
+    const trackedWorktreePath = await addLinkedWorktree(repoRoot, trackedBranch);
+    const untrackedWorktreePath = await addLinkedWorktree(repoRoot, untrackedBranch);
+    const detachedWorktreePath = `${repoRoot}-detached`;
+    const upstreamClone = await cloneRepository(originRoot);
+    const stdout: string[] = [];
+
+    await runGit(repoRoot, ['push', '-u', 'origin', trackedBranch]);
+    await commitFile(trackedWorktreePath, 'ahead.txt', 'ahead\n', 'ahead');
+    await commitFile(upstreamClone, 'behind.txt', 'behind\n', 'behind');
+    await runGit(upstreamClone, ['push', 'origin', `HEAD:${defaultBranch}`]);
+    await runGit(repoRoot, ['fetch', 'origin']);
+    await runGit(repoRoot, ['worktree', 'add', '--detach', detachedWorktreePath, 'HEAD']);
+    await writeFile(join(untrackedWorktreePath, 'dirty.txt'), 'dirty\n', 'utf8');
+
+    // When gji status runs in JSON mode.
+    const result = await runCli(['status', '--json'], {
+      cwd: repoRoot,
+      stdout: (chunk) => stdout.push(chunk),
+    });
+
+    // Then it prints exact structured repository and worktree status data.
+    expect(result.exitCode).toBe(0);
+    expect(stdout.join('')).toBe(
+      `${JSON.stringify({
+        currentRoot: repoRoot,
+        repoRoot,
+        worktrees: [
+          {
+            branch: defaultBranch,
+            current: true,
+            path: repoRoot,
+            status: 'clean',
+            upstream: { ahead: 0, behind: 1, kind: 'tracked' },
+          },
+          {
+            branch: null,
+            current: false,
+            path: detachedWorktreePath,
+            status: 'clean',
+            upstream: { kind: 'detached' },
+          },
+          {
+            branch: trackedBranch,
+            current: false,
+            path: trackedWorktreePath,
+            status: 'clean',
+            upstream: { ahead: 1, behind: 0, kind: 'tracked' },
+          },
+          {
+            branch: untrackedBranch,
+            current: false,
+            path: untrackedWorktreePath,
+            status: 'dirty',
+            upstream: { kind: 'no-upstream' },
+          },
+        ],
+      }, null, 2)}\n`,
+    );
+  });
 });
 
 function buildExpectedStatusOutput(input: {
   currentRoot: string;
   repoRoot: string;
   rows: Array<{
-    branch: string;
+    branch: string | null;
     current: boolean;
     path: string;
     status: 'clean' | 'dirty';
@@ -209,7 +275,7 @@ function buildExpectedStatusOutput(input: {
   const currentWidth = 'CURRENT'.length;
   const branchWidth = Math.max(
     'BRANCH'.length,
-    ...input.rows.map((row) => row.branch.length),
+    ...input.rows.map((row) => formatBranch(row.branch).length),
   );
   const statusWidth = Math.max(
     'STATUS'.length,
@@ -227,8 +293,12 @@ function buildExpectedStatusOutput(input: {
     `${'CURRENT'.padEnd(currentWidth, ' ')} ${'BRANCH'.padEnd(branchWidth, ' ')} ${'STATUS'.padEnd(statusWidth, ' ')} ${'UPSTREAM'.padEnd(upstreamWidth, ' ')} PATH`,
     ...input.rows.map(
       (row) =>
-        `${(row.current ? '*' : '').padEnd(currentWidth, ' ')} ${row.branch.padEnd(branchWidth, ' ')} ${row.status.padEnd(statusWidth, ' ')} ${row.upstream.padEnd(upstreamWidth, ' ')} ${row.path}`,
+        `${(row.current ? '*' : '').padEnd(currentWidth, ' ')} ${formatBranch(row.branch).padEnd(branchWidth, ' ')} ${row.status.padEnd(statusWidth, ' ')} ${row.upstream.padEnd(upstreamWidth, ' ')} ${row.path}`,
     ),
     '',
   ].join('\n');
+}
+
+function formatBranch(branch: string | null): string {
+  return branch ?? '(detached)';
 }

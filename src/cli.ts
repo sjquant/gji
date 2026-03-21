@@ -101,6 +101,7 @@ function registerCommands(program: Command): void {
   program
     .command('status')
     .description('summarize repository and worktree health')
+    .option('--json', 'print repository and worktree health as JSON')
     .action(notImplemented('status'));
 
   program
@@ -211,9 +212,10 @@ function attachCommandActions(
 
   program.commands
     .find((command) => command.name() === 'status')
-    ?.action(async () => {
+    ?.action(async (commandOptions: { json?: boolean }) => {
       const exitCode = await runStatusCommand({
         cwd: options.cwd,
+        json: commandOptions.json,
         stdout: options.stdout,
       });
 

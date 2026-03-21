@@ -19,9 +19,12 @@ TODO
 - [DONE] Implement `gji status` to summarize worktree health, including branch state and useful at-a-glance repository metadata.
 - [DONE] Implement `gji sync [--all]` to fetch/prune remotes and update one or all worktrees against the configured default branch safely.
 - [DONE] Add structured machine-readable output for `gji ls --json`.
-- [REVIEW] Update `README.md` to document `gji init`, shell integration setup, `gji status`, `gji sync`, and `gji ls --json` with realistic examples.
-- [REVIEW] Add configurable sync defaults for remote and default-branch resolution instead of assuming `origin` and remote `HEAD`.
-- [REVIEW] Expand `gji status` to show upstream divergence signals such as ahead/behind counts for branch-backed worktrees.
+- [DONE] Update `README.md` to document `gji init`, shell integration setup, `gji status`, `gji sync`, and `gji ls --json` with realistic examples.
+- [DONE] Add configurable sync defaults for remote and default-branch resolution instead of assuming `origin` and remote `HEAD`.
+- [DONE] Expand `gji status` to show upstream divergence signals such as ahead/behind counts for branch-backed worktrees.
+- [REVIEW] Add `gji status --json` with stable machine-readable output for repository metadata, worktree health, and upstream divergence.
+- [TODO] Implement `gji clean` to prune stale linked worktrees safely, with detached-worktree handling and clear confirmation prompts.
+- [TODO] Expand README and SPEC to document `syncRemote` and `syncDefaultBranch` configuration, plus the new `gji status --json` contract.
 
 ## Handoff Notes
 
