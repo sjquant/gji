@@ -166,4 +166,36 @@ describe('gji sync', () => {
     expect(result.exitCode).toBe(1);
     expect(stderr.join('')).toBe(`Cannot sync detached worktree: ${detachedWorktreePath}\n`);
   });
+
+  it('uses repo-local sync config for remote and default-branch resolution', async () => {
+    // Given a repository whose sync defaults are configured locally.
+    const { repoRoot } = await createRepositoryWithOrigin();
+    const defaultBranch = await currentBranch(repoRoot);
+    const targetBranch = 'feature/sync-configured';
+    const targetWorktreePath = await addLinkedWorktree(repoRoot, targetBranch);
+    const stdout: string[] = [];
+
+    await runGit(repoRoot, ['remote', 'rename', 'origin', 'upstream']);
+    await writeFile(
+      join(repoRoot, '.gji.json'),
+      JSON.stringify({
+        syncDefaultBranch: defaultBranch,
+        syncRemote: 'upstream',
+      }),
+      'utf8',
+    );
+    await commitFile(repoRoot, 'configured-sync.txt', 'configured\n', 'configured sync');
+    await runGit(repoRoot, ['push', 'upstream', defaultBranch]);
+
+    // When gji sync runs inside the linked worktree.
+    const result = await runCli(['sync'], {
+      cwd: targetWorktreePath,
+      stdout: (chunk) => stdout.push(chunk),
+    });
+
+    // Then it uses the configured remote and default branch instead of the hard-coded defaults.
+    expect(result.exitCode).toBe(0);
+    expect(stdout.join('')).toBe(`${targetWorktreePath}\n`);
+    await expect(pathExists(join(targetWorktreePath, 'configured-sync.txt'))).resolves.toBe(true);
+  });
 });

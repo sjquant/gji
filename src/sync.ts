@@ -1,6 +1,7 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 
+import { loadEffectiveConfig } from './config.js';
 import { detectRepository, listWorktrees, type WorktreeEntry } from './repo.js';
 
 const execFileAsync = promisify(execFile);
@@ -14,8 +15,11 @@ export interface SyncCommandOptions {
 
 export async function runSyncCommand(options: SyncCommandOptions): Promise<number> {
   const repository = await detectRepository(options.cwd);
+  const config = await loadEffectiveConfig(repository.repoRoot);
   const worktrees = await listWorktrees(options.cwd);
-  const defaultBranch = await resolveDefaultBranch(repository.repoRoot);
+  const remote = resolveConfiguredString(config.syncRemote) ?? 'origin';
+  const defaultBranch = resolveConfiguredString(config.syncDefaultBranch)
+    ?? await resolveDefaultBranch(repository.repoRoot, remote);
 
   if (!defaultBranch) {
     options.stderr('Unable to determine the default branch for sync.\n');
@@ -36,17 +40,17 @@ export async function runSyncCommand(options: SyncCommandOptions): Promise<numbe
     }
   }
 
-  await execFileAsync('git', ['fetch', '--prune', 'origin'], { cwd: repository.repoRoot });
+  await execFileAsync('git', ['fetch', '--prune', remote], { cwd: repository.repoRoot });
 
   for (const worktree of targetWorktrees) {
     if (worktree.branch === defaultBranch) {
       await execFileAsync(
         'git',
-        ['merge', '--ff-only', `origin/${defaultBranch}`],
+        ['merge', '--ff-only', `${remote}/${defaultBranch}`],
         { cwd: worktree.path },
       );
     } else {
-      await execFileAsync('git', ['rebase', `origin/${defaultBranch}`], {
+      await execFileAsync('git', ['rebase', `${remote}/${defaultBranch}`], {
         cwd: worktree.path,
       });
     }
@@ -87,8 +91,8 @@ async function isDirtyWorktree(cwd: string): Promise<boolean> {
   return stdout.trim().length > 0;
 }
 
-async function resolveDefaultBranch(repoRoot: string): Promise<string | null> {
-  const { stdout } = await execFileAsync('git', ['ls-remote', '--symref', 'origin', 'HEAD'], {
+async function resolveDefaultBranch(repoRoot: string, remote: string): Promise<string | null> {
+  const { stdout } = await execFileAsync('git', ['ls-remote', '--symref', remote, 'HEAD'], {
     cwd: repoRoot,
   });
   const refLine = stdout
@@ -102,4 +106,8 @@ async function resolveDefaultBranch(repoRoot: string): Promise<string | null> {
   const match = /^ref: refs\/heads\/(.+)\tHEAD$/.exec(refLine);
 
   return match?.[1] ?? null;
+}
+
+function resolveConfiguredString(value: unknown): string | null {
+  return typeof value === 'string' && value.length > 0 ? value : null;
 }

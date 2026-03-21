@@ -16,9 +16,12 @@ TODO
 - [DONE] Add optional global and repo-local config layering only when a concrete setting requires it.
 - [DONE] Add tests and documentation coverage for core pathing, Git command flows, interactive prompts, and destructive-action safeguards.
 - [DONE] Add `gji init [shell] [--write]` shell integration so `gji go [branch]` can change the current shell directory directly, while preserving the current raw CLI path-printing behavior for backward compatibility and a script-friendly mode such as `gji go --print`.
-- [REVIEW] Implement `gji status` to summarize worktree health, including branch state and useful at-a-glance repository metadata.
-- [REVIEW] Implement `gji sync [--all]` to fetch/prune remotes and update one or all worktrees against the configured default branch safely.
-- [REVIEW] Add structured machine-readable output for `gji ls --json`.
+- [DONE] Implement `gji status` to summarize worktree health, including branch state and useful at-a-glance repository metadata.
+- [DONE] Implement `gji sync [--all]` to fetch/prune remotes and update one or all worktrees against the configured default branch safely.
+- [DONE] Add structured machine-readable output for `gji ls --json`.
+- [REVIEW] Update `README.md` to document `gji init`, shell integration setup, `gji status`, `gji sync`, and `gji ls --json` with realistic examples.
+- [REVIEW] Add configurable sync defaults for remote and default-branch resolution instead of assuming `origin` and remote `HEAD`.
+- [DOING] Expand `gji status` to show upstream divergence signals such as ahead/behind counts for branch-backed worktrees.
 
 ## Handoff Notes
 
