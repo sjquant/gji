@@ -13,7 +13,11 @@ import {
   currentBranch,
   pathExists,
 } from './repo.test-helpers.js';
-import { createNewCommand, runNewCommand } from './new.js';
+import {
+  createNewCommand,
+  generateBranchPlaceholder,
+  runNewCommand,
+} from './new.js';
 
 const originalHome = process.env.HOME;
 
@@ -132,6 +136,55 @@ describe('gji new', () => {
     await expect(currentBranch(worktreePath)).resolves.toBe(prefixedBranchName);
   });
 
+  it('prompts for a branch name with a funny placeholder when none is provided', async () => {
+    // Given a repository root and an interactive branch prompt.
+    const repoRoot = await createRepository();
+    const chosenBranch = 'prometheus-brought-snacks';
+    const worktreePath = resolveWorktreePath(repoRoot, chosenBranch);
+    const stdout: string[] = [];
+    const runNewCommand = createNewCommand({
+      createBranchPlaceholder: () => 'socrates-debugged-this',
+      promptForBranch: async (placeholder) => {
+        expect(placeholder).toBe('socrates-debugged-this');
+        return chosenBranch;
+      },
+    });
+
+    // When gji new runs without an explicit branch.
+    const result = await runNewCommand({
+      cwd: repoRoot,
+      stderr: () => undefined,
+      stdout: (chunk) => stdout.push(chunk),
+    });
+
+    // Then it creates the prompted branch/worktree and prints the path.
+    expect(result).toBe(0);
+    await expect(pathExists(worktreePath)).resolves.toBe(true);
+    await expect(currentBranch(worktreePath)).resolves.toBe(chosenBranch);
+    expect(stdout.join('')).toBe(`${worktreePath}\n`);
+  });
+
+  it('aborts when the branch prompt is cancelled', async () => {
+    // Given a repository root and a cancelled branch prompt.
+    const repoRoot = await createRepository();
+    const stderr: string[] = [];
+    const runNewCommand = createNewCommand({
+      createBranchPlaceholder: () => 'socrates-debugged-this',
+      promptForBranch: async () => null,
+    });
+
+    // When gji new runs without an explicit branch and the prompt is cancelled.
+    const result = await runNewCommand({
+      cwd: repoRoot,
+      stderr: (chunk) => stderr.push(chunk),
+      stdout: () => undefined,
+    });
+
+    // Then it aborts without creating a worktree.
+    expect(result).toBe(1);
+    expect(stderr.join('')).toBe('Aborted\n');
+  });
+
   it('reuses the existing path when the conflict prompt selects reuse', async () => {
     // Given an existing target path for the requested branch.
     const repoRoot = await createRepository();
@@ -186,5 +239,23 @@ describe('gji new', () => {
     expect(stderr.join('')).toBe(
       `Aborted because target worktree path already exists: ${worktreePath}\n`,
     );
+  });
+
+  it('generates funny placeholder names as slug-safe mythic human-style branches', () => {
+    // Given deterministic random choices.
+    const placeholders = [
+      generateBranchPlaceholder(() => 0),
+      generateBranchPlaceholder(() => 0.49),
+      generateBranchPlaceholder(() => 0.99),
+    ];
+
+    // Then the generated names stay slug-safe and use the curated funny roots.
+    for (const placeholder of placeholders) {
+      expect(placeholder).toMatch(/^[a-z0-9-]+$/);
+      expect(placeholder.split('-')[0]).toMatch(
+        /^(socrates|prometheus|beethoven|ada|turing|hypatia|tesla|curie|diogenes|plato|hephaestus|athena|archimedes|euclid|heraclitus|galileo|newton|lovelace|nietzsche|kafka)$/,
+      );
+      expect(placeholder.split('-').length).toBeGreaterThan(1);
+    }
   });
 });

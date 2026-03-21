@@ -3,7 +3,7 @@ import { constants } from 'node:fs';
 import { dirname } from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { isCancel, select } from '@clack/prompts';
+import { isCancel, select, text } from '@clack/prompts';
 
 import { loadEffectiveConfig } from './config.js';
 import { detectRepository, resolveWorktreePath } from './repo.js';
@@ -12,25 +12,36 @@ const execFileAsync = promisify(execFile);
 export type PathConflictChoice = 'abort' | 'reuse';
 
 export interface NewCommandOptions {
-  branch: string;
+  branch?: string;
   cwd: string;
   stderr: (chunk: string) => void;
   stdout: (chunk: string) => void;
 }
 
 export interface NewCommandDependencies {
+  createBranchPlaceholder: () => string;
+  promptForBranch: (placeholder: string) => Promise<string | null>;
   promptForPathConflict: (path: string) => Promise<PathConflictChoice>;
 }
 
 export function createNewCommand(
   dependencies: Partial<NewCommandDependencies> = {},
 ): (options: NewCommandOptions) => Promise<number> {
+  const createBranchPlaceholder = dependencies.createBranchPlaceholder ?? generateBranchPlaceholder;
+  const promptForBranch = dependencies.promptForBranch ?? defaultPromptForBranch;
   const prompt = dependencies.promptForPathConflict ?? promptForPathConflict;
 
   return async function runNewCommand(options: NewCommandOptions): Promise<number> {
     const repository = await detectRepository(options.cwd);
     const config = await loadEffectiveConfig(repository.repoRoot);
-    const branch = applyConfiguredBranchPrefix(options.branch, config.branchPrefix);
+    const rawBranch = options.branch ?? await promptForBranch(createBranchPlaceholder());
+
+    if (!rawBranch) {
+      options.stderr('Aborted\n');
+      return 1;
+    }
+
+    const branch = applyConfiguredBranchPrefix(rawBranch, config.branchPrefix);
     const worktreePath = resolveWorktreePath(repository.repoRoot, branch);
 
     if (await pathExists(worktreePath)) {
@@ -69,6 +80,50 @@ async function pathExists(path: string): Promise<boolean> {
 
 export const runNewCommand = createNewCommand();
 
+export function generateBranchPlaceholder(random: () => number = Math.random): string {
+  const roots = [
+    'socrates',
+    'prometheus',
+    'beethoven',
+    'ada',
+    'turing',
+    'hypatia',
+    'tesla',
+    'curie',
+    'diogenes',
+    'plato',
+    'hephaestus',
+    'athena',
+    'archimedes',
+    'euclid',
+    'heraclitus',
+    'galileo',
+    'newton',
+    'lovelace',
+    'nietzsche',
+    'kafka',
+  ];
+  const antics = [
+    'borrowed-a-bike',
+    'brought-snacks',
+    'missed-the-bus',
+    'lost-the-keys',
+    'spilled-the-coffee',
+    'forgot-the-umbrella',
+    'walked-the-dog',
+    'missed-the-train',
+    'wrote-a-poem',
+    'burned-the-toast',
+    'fed-the-pigeons',
+    'watered-the-plants',
+    'washed-the-dishes',
+    'folded-the-laundry',
+    'took-a-nap',
+  ];
+
+  return `${pickRandom(roots, random)}-${pickRandom(antics, random)}`;
+}
+
 function applyConfiguredBranchPrefix(branch: string, branchPrefix: unknown): string {
   if (typeof branchPrefix !== 'string' || branchPrefix.length === 0) {
     return branch;
@@ -95,4 +150,25 @@ async function promptForPathConflict(path: string): Promise<PathConflictChoice> 
   }
 
   return choice;
+}
+
+async function defaultPromptForBranch(placeholder: string): Promise<string | null> {
+  const choice = await text({
+    defaultValue: placeholder,
+    message: 'Name the new branch',
+    placeholder,
+    validate: (value) => value.trim().length === 0 ? 'Branch name must not be empty.' : undefined,
+  });
+
+  if (isCancel(choice)) {
+    return null;
+  }
+
+  return choice.trim();
+}
+
+function pickRandom(values: string[], random: () => number): string {
+  const index = Math.floor(random() * values.length);
+
+  return values[Math.min(index, values.length - 1)];
 }

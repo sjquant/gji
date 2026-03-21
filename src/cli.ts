@@ -73,7 +73,7 @@ export async function runCli(
 
 function registerCommands(program: Command): void {
   program
-    .command('new <branch>')
+    .command('new [branch]')
     .description('create a new branch and linked worktree')
     .action(notImplemented('new'));
 
