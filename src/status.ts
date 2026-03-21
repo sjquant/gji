@@ -1,9 +1,5 @@
-import { execFile } from 'node:child_process';
-import { promisify } from 'node:util';
-
 import { detectRepository, listWorktrees, type WorktreeEntry } from './repo.js';
-
-const execFileAsync = promisify(execFile);
+import { readWorktreeHealth, type WorktreeHealth } from './git.js';
 
 export interface StatusCommandOptions {
   cwd: string;
@@ -15,7 +11,13 @@ interface WorktreeStatusRow {
   current: boolean;
   path: string;
   status: 'clean' | 'dirty';
+  upstream: UpstreamState;
 }
+
+type UpstreamState =
+  | { kind: 'detached' }
+  | { kind: 'no-upstream' }
+  | { kind: 'tracked'; ahead: number; behind: number };
 
 export async function runStatusCommand(options: StatusCommandOptions): Promise<number> {
   const repository = await detectRepository(options.cwd);
@@ -37,16 +39,20 @@ export function formatStatusOutput(
   const currentWidth = Math.max('CURRENT'.length, ...rows.map((row) => row.current ? 1 : 0));
   const branchWidth = Math.max('BRANCH'.length, ...rows.map((row) => row.branch.length));
   const statusWidth = Math.max('STATUS'.length, ...rows.map((row) => row.status.length));
+  const upstreamWidth = Math.max(
+    'UPSTREAM'.length,
+    ...rows.map((row) => formatUpstreamState(row.upstream).length),
+  );
   const lines = [
     `REPO ${repoRoot}`,
     `CURRENT ${currentRoot}`,
     '',
-    `${'CURRENT'.padEnd(currentWidth, ' ')} ${'BRANCH'.padEnd(branchWidth, ' ')} ${'STATUS'.padEnd(statusWidth, ' ')} PATH`,
+    `${'CURRENT'.padEnd(currentWidth, ' ')} ${'BRANCH'.padEnd(branchWidth, ' ')} ${'STATUS'.padEnd(statusWidth, ' ')} ${'UPSTREAM'.padEnd(upstreamWidth, ' ')} PATH`,
   ];
 
   for (const row of rows) {
     lines.push(
-      `${(row.current ? '*' : '').padEnd(currentWidth, ' ')} ${row.branch.padEnd(branchWidth, ' ')} ${row.status.padEnd(statusWidth, ' ')} ${row.path}`,
+      `${(row.current ? '*' : '').padEnd(currentWidth, ' ')} ${row.branch.padEnd(branchWidth, ' ')} ${row.status.padEnd(statusWidth, ' ')} ${formatUpstreamState(row.upstream).padEnd(upstreamWidth, ' ')} ${row.path}`,
     );
   }
 
@@ -57,16 +63,53 @@ async function buildStatusRow(
   worktree: WorktreeEntry,
   currentRoot: string,
 ): Promise<WorktreeStatusRow> {
+  const health = await readWorktreeHealth(worktree.path);
+
   return {
     branch: worktree.branch ?? '(detached)',
     current: worktree.path === currentRoot,
     path: worktree.path,
-    status: (await isDirtyWorktree(worktree.path)) ? 'dirty' : 'clean',
+    status: health.status,
+    upstream: buildUpstreamState(worktree.branch, health),
   };
 }
 
-async function isDirtyWorktree(cwd: string): Promise<boolean> {
-  const { stdout } = await execFileAsync('git', ['status', '--porcelain'], { cwd });
+function buildUpstreamState(branch: string | null, health: WorktreeHealth): UpstreamState {
+  if (branch === null) {
+    return { kind: 'detached' };
+  }
 
-  return stdout.trim().length > 0;
+  if (!health.hasUpstream) {
+    return { kind: 'no-upstream' };
+  }
+
+  return {
+    ahead: health.ahead,
+    behind: health.behind,
+    kind: 'tracked',
+  };
+}
+
+function formatUpstreamState(upstream: UpstreamState): string {
+  if (upstream.kind === 'detached') {
+    return 'n/a';
+  }
+
+  if (upstream.kind === 'no-upstream') {
+    return 'no-upstream';
+  }
+
+  if (upstream.ahead === 0 && upstream.behind === 0) {
+    return 'up to date';
+  }
+
+  if (upstream.ahead === 0) {
+    return `behind ${upstream.behind}`;
+  }
+
+  if (upstream.behind === 0) {
+    return `ahead ${upstream.ahead}`;
+  }
+
+  return `ahead ${upstream.ahead}, behind ${upstream.behind}`;
 }

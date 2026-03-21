@@ -4,7 +4,15 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 import { runCli } from './cli.js';
-import { addLinkedWorktree, createRepository, currentBranch } from './repo.test-helpers.js';
+import {
+  addLinkedWorktree,
+  commitFile,
+  createRepository,
+  createRepositoryWithOrigin,
+  cloneRepository,
+  currentBranch,
+  runGit,
+} from './repo.test-helpers.js';
 
 describe('gji status', () => {
   it('prints repository metadata and worktree health from the repository root', async () => {
@@ -32,9 +40,27 @@ describe('gji status', () => {
         currentRoot: repoRoot,
         repoRoot,
         rows: [
-          { branch: defaultBranch, current: true, path: repoRoot, status: 'clean' },
-          { branch: cleanBranch, current: false, path: cleanWorktreePath, status: 'clean' },
-          { branch: dirtyBranch, current: false, path: dirtyWorktreePath, status: 'dirty' },
+          {
+            branch: defaultBranch,
+            current: true,
+            path: repoRoot,
+            status: 'clean',
+            upstream: 'no-upstream',
+          },
+          {
+            branch: cleanBranch,
+            current: false,
+            path: cleanWorktreePath,
+            status: 'clean',
+            upstream: 'no-upstream',
+          },
+          {
+            branch: dirtyBranch,
+            current: false,
+            path: dirtyWorktreePath,
+            status: 'dirty',
+            upstream: 'no-upstream',
+          },
         ],
       }),
     );
@@ -61,8 +87,108 @@ describe('gji status', () => {
         currentRoot: worktreePath,
         repoRoot,
         rows: [
-          { branch: defaultBranch, current: false, path: repoRoot, status: 'clean' },
-          { branch: branchName, current: true, path: worktreePath, status: 'clean' },
+          {
+            branch: defaultBranch,
+            current: false,
+            path: repoRoot,
+            status: 'clean',
+            upstream: 'no-upstream',
+          },
+          {
+            branch: branchName,
+            current: true,
+            path: worktreePath,
+            status: 'clean',
+            upstream: 'no-upstream',
+          },
+        ],
+      }),
+    );
+  });
+
+  it('shows ahead and behind counts for branch-backed worktrees with upstreams', async () => {
+    // Given a repository with one branch behind upstream and another ahead of upstream.
+    const { originRoot, repoRoot } = await createRepositoryWithOrigin();
+    const defaultBranch = await currentBranch(repoRoot);
+    const aheadBranch = 'feature/status-ahead';
+    const aheadWorktreePath = await addLinkedWorktree(repoRoot, aheadBranch);
+    const stdout: string[] = [];
+    const upstreamClone = await cloneRepository(originRoot);
+
+    await runGit(repoRoot, ['push', '-u', 'origin', aheadBranch]);
+    await commitFile(aheadWorktreePath, 'ahead.txt', 'ahead\n', 'ahead');
+    await commitFile(upstreamClone, 'behind.txt', 'behind\n', 'behind');
+    await runGit(upstreamClone, ['push', 'origin', `HEAD:${defaultBranch}`]);
+    await runGit(repoRoot, ['fetch', 'origin']);
+
+    // When gji status runs from the repository root.
+    const result = await runCli(['status'], {
+      cwd: repoRoot,
+      stdout: (chunk) => stdout.push(chunk),
+    });
+
+    // Then it reports upstream divergence counts for tracked branches.
+    expect(result.exitCode).toBe(0);
+    expect(stdout.join('')).toBe(
+      buildExpectedStatusOutput({
+        currentRoot: repoRoot,
+        repoRoot,
+        rows: [
+          {
+            branch: defaultBranch,
+            current: true,
+            path: repoRoot,
+            status: 'clean',
+            upstream: 'behind 1',
+          },
+          {
+            branch: aheadBranch,
+            current: false,
+            path: aheadWorktreePath,
+            status: 'clean',
+            upstream: 'ahead 1',
+          },
+        ],
+      }),
+    );
+  });
+
+  it('prints n/a as the upstream state for detached worktrees', async () => {
+    // Given a repository with a detached linked worktree.
+    const repoRoot = await createRepository();
+    const defaultBranch = await currentBranch(repoRoot);
+    const detachedWorktreePath = `${repoRoot}-detached`;
+    const stdout: string[] = [];
+
+    await runGit(repoRoot, ['worktree', 'add', '--detach', detachedWorktreePath, 'HEAD']);
+
+    // When gji status runs from the repository root.
+    const result = await runCli(['status'], {
+      cwd: repoRoot,
+      stdout: (chunk) => stdout.push(chunk),
+    });
+
+    // Then it renders detached worktrees with an n/a upstream state.
+    expect(result.exitCode).toBe(0);
+    expect(stdout.join('')).toBe(
+      buildExpectedStatusOutput({
+        currentRoot: repoRoot,
+        repoRoot,
+        rows: [
+          {
+            branch: defaultBranch,
+            current: true,
+            path: repoRoot,
+            status: 'clean',
+            upstream: 'no-upstream',
+          },
+          {
+            branch: '(detached)',
+            current: false,
+            path: detachedWorktreePath,
+            status: 'clean',
+            upstream: 'n/a',
+          },
         ],
       }),
     );
@@ -77,6 +203,7 @@ function buildExpectedStatusOutput(input: {
     current: boolean;
     path: string;
     status: 'clean' | 'dirty';
+    upstream: string;
   }>;
 }): string {
   const currentWidth = 'CURRENT'.length;
@@ -88,15 +215,19 @@ function buildExpectedStatusOutput(input: {
     'STATUS'.length,
     ...input.rows.map((row) => row.status.length),
   );
+  const upstreamWidth = Math.max(
+    'UPSTREAM'.length,
+    ...input.rows.map((row) => row.upstream.length),
+  );
 
   return [
     `REPO ${input.repoRoot}`,
     `CURRENT ${input.currentRoot}`,
     '',
-    `${'CURRENT'.padEnd(currentWidth, ' ')} ${'BRANCH'.padEnd(branchWidth, ' ')} ${'STATUS'.padEnd(statusWidth, ' ')} PATH`,
+    `${'CURRENT'.padEnd(currentWidth, ' ')} ${'BRANCH'.padEnd(branchWidth, ' ')} ${'STATUS'.padEnd(statusWidth, ' ')} ${'UPSTREAM'.padEnd(upstreamWidth, ' ')} PATH`,
     ...input.rows.map(
       (row) =>
-        `${(row.current ? '*' : '').padEnd(currentWidth, ' ')} ${row.branch.padEnd(branchWidth, ' ')} ${row.status.padEnd(statusWidth, ' ')} ${row.path}`,
+        `${(row.current ? '*' : '').padEnd(currentWidth, ' ')} ${row.branch.padEnd(branchWidth, ' ')} ${row.status.padEnd(statusWidth, ' ')} ${row.upstream.padEnd(upstreamWidth, ' ')} ${row.path}`,
     ),
     '',
   ].join('\n');

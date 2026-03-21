@@ -35,7 +35,7 @@ When you switch context often, standard branch workflows create friction:
 - `gji pr <number>` - fetch `origin/pull/<number>/head` and create a linked `pr/<number>` worktree
 - `gji go [branch]` - jump to an existing worktree when shell integration is installed, or print the matching worktree path otherwise
 - `gji root` - print the main repository root path from either the repo root or a linked worktree
-- `gji status` - summarize repository metadata and per-worktree clean/dirty state
+- `gji status` - summarize repository metadata, clean/dirty state, and upstream divergence per worktree
 - `gji sync [--all]` - fetch from `origin` and update the current or all worktrees onto the remote default branch
 - `gji ls [--json]` - list the active worktrees in a branch/path table or structured JSON
 - `gji remove [branch]` - remove a linked worktree, delete its branch when present, and print the repo root after confirmation

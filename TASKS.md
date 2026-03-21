@@ -21,7 +21,7 @@ TODO
 - [DONE] Add structured machine-readable output for `gji ls --json`.
 - [REVIEW] Update `README.md` to document `gji init`, shell integration setup, `gji status`, `gji sync`, and `gji ls --json` with realistic examples.
 - [REVIEW] Add configurable sync defaults for remote and default-branch resolution instead of assuming `origin` and remote `HEAD`.
-- [DOING] Expand `gji status` to show upstream divergence signals such as ahead/behind counts for branch-backed worktrees.
+- [REVIEW] Expand `gji status` to show upstream divergence signals such as ahead/behind counts for branch-backed worktrees.
 
 ## Handoff Notes
 

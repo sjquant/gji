@@ -64,7 +64,7 @@ describe('gji sync', () => {
     expect(result.exitCode).toBe(0);
     expect(stdout.join('')).toBe(
       [repoRoot, firstWorktreePath, secondWorktreePath]
-        .sort((left, right) => left.localeCompare(right))
+        .sort((left, right) => comparePaths(left, right))
         .map((path) => `${path}\n`)
         .join(''),
     );
@@ -140,7 +140,7 @@ describe('gji sync', () => {
     expect(result.exitCode).toBe(0);
     expect(stdout.join('')).toBe(
       [repoRoot, featureWorktreePath]
-        .sort((left, right) => left.localeCompare(right))
+        .sort((left, right) => comparePaths(left, right))
         .map((path) => `${path}\n`)
         .join(''),
     );
@@ -199,3 +199,15 @@ describe('gji sync', () => {
     await expect(pathExists(join(targetWorktreePath, 'configured-sync.txt'))).resolves.toBe(true);
   });
 });
+
+function comparePaths(left: string, right: string): number {
+  if (left < right) {
+    return -1;
+  }
+
+  if (left > right) {
+    return 1;
+  }
+
+  return 0;
+}

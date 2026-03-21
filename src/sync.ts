@@ -1,10 +1,7 @@
-import { execFile } from 'node:child_process';
-import { promisify } from 'node:util';
-
 import { loadEffectiveConfig } from './config.js';
+import { isDirtyWorktree, runGit } from './git.js';
+import { comparePaths } from './paths.js';
 import { detectRepository, listWorktrees, type WorktreeEntry } from './repo.js';
-
-const execFileAsync = promisify(execFile);
 
 export interface SyncCommandOptions {
   all?: boolean;
@@ -40,19 +37,13 @@ export async function runSyncCommand(options: SyncCommandOptions): Promise<numbe
     }
   }
 
-  await execFileAsync('git', ['fetch', '--prune', remote], { cwd: repository.repoRoot });
+  await runGit(repository.repoRoot, ['fetch', '--prune', remote]);
 
   for (const worktree of targetWorktrees) {
     if (worktree.branch === defaultBranch) {
-      await execFileAsync(
-        'git',
-        ['merge', '--ff-only', `${remote}/${defaultBranch}`],
-        { cwd: worktree.path },
-      );
+      await runGit(worktree.path, ['merge', '--ff-only', `${remote}/${defaultBranch}`]);
     } else {
-      await execFileAsync('git', ['rebase', `${remote}/${defaultBranch}`], {
-        cwd: worktree.path,
-      });
+      await runGit(worktree.path, ['rebase', `${remote}/${defaultBranch}`]);
     }
 
     options.stdout(`${worktree.path}\n`);
@@ -69,7 +60,7 @@ function selectTargetWorktrees(
   if (all) {
     return worktrees
       .filter((worktree) => worktree.branch !== null)
-      .sort((left, right) => left.path.localeCompare(right.path));
+      .sort((left, right) => comparePaths(left.path, right.path));
   }
 
   const currentWorktree = worktrees.find((worktree) => worktree.path === currentRoot);
@@ -85,16 +76,8 @@ function selectTargetWorktrees(
   return [currentWorktree];
 }
 
-async function isDirtyWorktree(cwd: string): Promise<boolean> {
-  const { stdout } = await execFileAsync('git', ['status', '--porcelain'], { cwd });
-
-  return stdout.trim().length > 0;
-}
-
 async function resolveDefaultBranch(repoRoot: string, remote: string): Promise<string | null> {
-  const { stdout } = await execFileAsync('git', ['ls-remote', '--symref', remote, 'HEAD'], {
-    cwd: repoRoot,
-  });
+  const stdout = await runGit(repoRoot, ['ls-remote', '--symref', remote, 'HEAD']);
   const refLine = stdout
     .split('\n')
     .find((line) => line.startsWith('ref: refs/heads/'));

@@ -1,4 +1,5 @@
 import { listWorktrees, type WorktreeEntry } from './repo.js';
+import { comparePaths } from './paths.js';
 
 export interface LsCommandOptions {
   cwd: string;
@@ -39,16 +40,4 @@ export function formatWorktreeTable(worktrees: WorktreeEntry[]): string {
 
 function sortWorktreesByPath(worktrees: WorktreeEntry[]): WorktreeEntry[] {
   return [...worktrees].sort((left, right) => comparePaths(left.path, right.path));
-}
-
-function comparePaths(left: string, right: string): number {
-  if (left < right) {
-    return -1;
-  }
-
-  if (left > right) {
-    return 1;
-  }
-
-  return 0;
 }
