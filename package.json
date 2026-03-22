@@ -34,7 +34,7 @@
     "node": ">=18"
   },
   "bin": {
-    "gji": "./dist/index.js"
+    "gji": "dist/index.js"
   },
   "scripts": {
     "build": "node scripts/clean-dist.mjs && tsc -p tsconfig.build.json",

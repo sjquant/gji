@@ -1,3 +1,4 @@
+import { createRequire } from 'node:module';
 import { Command } from 'commander';
 
 import { runCleanCommand } from './clean.js';
@@ -24,16 +25,25 @@ export interface RunCliResult {
 
 export function createProgram(): Command {
   const program = new Command();
+  const packageVersion = readPackageVersion();
 
   program
     .name('gji')
     .description('Context switching without the mess.')
+    .version(packageVersion)
     .showHelpAfterError()
     .showSuggestionAfterError();
 
   registerCommands(program);
 
   return program;
+}
+
+function readPackageVersion(): string {
+  const require = createRequire(import.meta.url);
+  const packageJson = require('../package.json') as { version?: unknown };
+
+  return typeof packageJson.version === 'string' ? packageJson.version : '0.0.0';
 }
 
 export async function runCli(
