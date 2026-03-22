@@ -88,6 +88,23 @@ describe('gji init', () => {
 function expectedZshIntegration(): string {
   return `# >>> gji init >>>
 gji() {
+  if [ "$1" = "new" ]; then
+    shift
+    if [ "\${1:-}" = "--help" ]; then
+      command gji new "$@"
+      return $?
+    fi
+
+    local target
+    local output_file
+    output_file="$(mktemp -t gji-new.XXXXXX)" || return 1
+    GJI_NEW_OUTPUT_FILE="$output_file" command gji new "$@" || { local status=$?; rm -f "$output_file"; return $status; }
+    target="$(cat "$output_file")"
+    rm -f "$output_file"
+    cd "$target" || return $?
+    return 0
+  fi
+
   if [ "$1" = "go" ]; then
     shift
     if [ "\${1:-}" = "--print" ]; then
@@ -116,6 +133,23 @@ gji() {
     local output_file
     output_file="$(mktemp -t gji-root.XXXXXX)" || return 1
     GJI_ROOT_OUTPUT_FILE="$output_file" command gji root "$@" || { local status=$?; rm -f "$output_file"; return $status; }
+    target="$(cat "$output_file")"
+    rm -f "$output_file"
+    cd "$target" || return $?
+    return 0
+  fi
+
+  if [ "$1" = "remove" ] || [ "$1" = "rm" ]; then
+    shift
+    if [ "\${1:-}" = "--help" ]; then
+      command gji remove "$@"
+      return $?
+    fi
+
+    local target
+    local output_file
+    output_file="$(mktemp -t gji-remove.XXXXXX)" || return 1
+    GJI_REMOVE_OUTPUT_FILE="$output_file" command gji remove "$@" || { local status=$?; rm -f "$output_file"; return $status; }
     target="$(cat "$output_file")"
     rm -f "$output_file"
     cd "$target" || return $?

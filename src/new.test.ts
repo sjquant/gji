@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 
@@ -94,6 +94,41 @@ describe('gji new', () => {
     expect(result.exitCode).toBe(0);
     await expect(pathExists(newWorktreePath)).resolves.toBe(true);
     await expect(currentBranch(newWorktreePath)).resolves.toBe(newBranch);
+  });
+
+  it('writes the created worktree path to the shell output file without printing it', async () => {
+    // Given a repository root and a shell output file.
+    const repoRoot = await createRepository();
+    const branchName = 'feature/new-output-file';
+    const worktreePath = resolveWorktreePath(repoRoot, branchName);
+    const outputFile = join(repoRoot, 'created-worktree.txt');
+    const originalOutputFile = process.env.GJI_NEW_OUTPUT_FILE;
+    const stdout: string[] = [];
+
+    process.env.GJI_NEW_OUTPUT_FILE = outputFile;
+
+    try {
+      // When gji new runs via the shell-wrapper output file path.
+      const result = await runNewCommand({
+        branch: branchName,
+        cwd: repoRoot,
+        stderr: () => undefined,
+        stdout: (chunk) => stdout.push(chunk),
+      });
+
+      // Then it writes the created path to the output file instead of stdout.
+      expect(result).toBe(0);
+      expect(stdout).toEqual([]);
+      await expect(pathExists(worktreePath)).resolves.toBe(true);
+      await expect(pathExists(outputFile)).resolves.toBe(true);
+      await expect(readFile(outputFile, 'utf8')).resolves.toBe(`${worktreePath}\n`);
+    } finally {
+      if (originalOutputFile === undefined) {
+        delete process.env.GJI_NEW_OUTPUT_FILE;
+      } else {
+        process.env.GJI_NEW_OUTPUT_FILE = originalOutputFile;
+      }
+    }
   });
 
   it('applies a global branch prefix when creating a new worktree', async () => {

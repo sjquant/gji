@@ -1,6 +1,6 @@
-import { writeFile } from 'node:fs/promises';
 import { isCancel, select } from '@clack/prompts';
 import { listWorktrees, type WorktreeEntry } from './repo.js';
+import { writeShellOutput } from './shell-handoff.js';
 
 export interface GoCommandOptions {
   branch?: string;
@@ -43,12 +43,7 @@ export function createGoCommand(
       return 1;
     }
 
-    if (process.env[GO_OUTPUT_FILE_ENV]) {
-      await writeFile(process.env[GO_OUTPUT_FILE_ENV], `${chosenPath}\n`, 'utf8');
-      return 0;
-    }
-
-    options.stdout(`${chosenPath}\n`);
+    await writeShellOutput(GO_OUTPUT_FILE_ENV, chosenPath, options.stdout);
     return 0;
   };
 }

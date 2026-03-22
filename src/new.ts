@@ -7,9 +7,11 @@ import { isCancel, select, text } from '@clack/prompts';
 
 import { loadEffectiveConfig } from './config.js';
 import { detectRepository, resolveWorktreePath } from './repo.js';
+import { writeShellOutput } from './shell-handoff.js';
 
 const execFileAsync = promisify(execFile);
 export type PathConflictChoice = 'abort' | 'reuse';
+const NEW_OUTPUT_FILE_ENV = 'GJI_NEW_OUTPUT_FILE';
 
 export interface NewCommandOptions {
   branch?: string;
@@ -56,7 +58,7 @@ export function createNewCommand(
       const choice = await prompt(worktreePath);
 
       if (choice === 'reuse') {
-        options.stdout(`${worktreePath}\n`);
+        await writeOutput(worktreePath, options.stdout);
         return 0;
       }
 
@@ -71,7 +73,7 @@ export function createNewCommand(
 
     await execFileAsync('git', gitArgs, { cwd: repository.repoRoot });
 
-    options.stdout(`${worktreePath}\n`);
+    await writeOutput(worktreePath, options.stdout);
 
     return 0;
   };
@@ -197,4 +199,11 @@ function pickRandom(values: string[], random: () => number): string {
   const index = Math.floor(random() * values.length);
 
   return values[Math.min(index, values.length - 1)];
+}
+
+async function writeOutput(
+  worktreePath: string,
+  stdout: (chunk: string) => void,
+): Promise<void> {
+  await writeShellOutput(NEW_OUTPUT_FILE_ENV, worktreePath, stdout);
 }

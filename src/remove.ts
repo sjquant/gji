@@ -6,6 +6,7 @@ import {
   loadLinkedWorktrees,
   removeWorktree,
 } from './worktree-management.js';
+import { writeShellOutput } from './shell-handoff.js';
 
 export interface RemoveCommandOptions {
   branch?: string;
@@ -18,6 +19,8 @@ export interface RemoveCommandDependencies {
   confirmRemoval: (worktree: WorktreeEntry) => Promise<boolean>;
   promptForWorktree: (worktrees: WorktreeEntry[]) => Promise<string | null>;
 }
+
+const REMOVE_OUTPUT_FILE_ENV = 'GJI_REMOVE_OUTPUT_FILE';
 
 export function createRemoveCommand(
   dependencies: Partial<RemoveCommandDependencies> = {},
@@ -60,7 +63,7 @@ export function createRemoveCommand(
       await deleteBranch(repository.repoRoot, worktree.branch);
     }
 
-    options.stdout(`${repository.repoRoot}\n`);
+    await writeOutput(repository.repoRoot, options.stdout);
 
     return 0;
   };
@@ -92,4 +95,11 @@ async function defaultConfirmRemoval(worktree: WorktreeEntry): Promise<boolean> 
   });
 
   return !isCancel(choice) && choice;
+}
+
+async function writeOutput(
+  repoRoot: string,
+  stdout: (chunk: string) => void,
+): Promise<void> {
+  await writeShellOutput(REMOVE_OUTPUT_FILE_ENV, repoRoot, stdout);
 }

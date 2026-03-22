@@ -1,3 +1,5 @@
+import { readFile } from 'node:fs/promises';
+
 import { describe, expect, it } from 'vitest';
 
 import { createRemoveCommand } from './remove.js';
@@ -86,6 +88,42 @@ describe('gji remove', () => {
     // Then it removes only the worktree and prints the repository root.
     await expect(pathExists(detachedWorktreePath)).resolves.toBe(false);
     expect(stdout.join('').trim()).toBe(repoRoot);
+  });
+
+  it('writes the repository root to the shell output file without printing it', async () => {
+    // Given a repository root with a linked branch worktree to remove and a shell output file.
+    const repoRoot = await createRepository();
+    const branch = 'feature/remove-output-file';
+    const worktreePath = await addLinkedWorktree(repoRoot, branch);
+    const outputFile = `${repoRoot}-remove-output.txt`;
+    const originalOutputFile = process.env.GJI_REMOVE_OUTPUT_FILE;
+    const stdout: string[] = [];
+    const runRemoveCommand = createRemoveCommand({
+      confirmRemoval: async () => true,
+    });
+
+    process.env.GJI_REMOVE_OUTPUT_FILE = outputFile;
+
+    try {
+      // When gji remove runs via the shell-wrapper output file path.
+      expect(await runRemoveCommand({
+        branch,
+        cwd: repoRoot,
+        stderr: () => undefined,
+        stdout: (chunk) => stdout.push(chunk),
+      })).toBe(0);
+
+      // Then it writes the repo root to the output file instead of stdout.
+      await expect(pathExists(worktreePath)).resolves.toBe(false);
+      expect(stdout).toEqual([]);
+      await expect(readFile(outputFile, 'utf8')).resolves.toBe(`${repoRoot}\n`);
+    } finally {
+      if (originalOutputFile === undefined) {
+        delete process.env.GJI_REMOVE_OUTPUT_FILE;
+      } else {
+        process.env.GJI_REMOVE_OUTPUT_FILE = originalOutputFile;
+      }
+    }
   });
 
   it('aborts cleanly when the interactive branch prompt is cancelled', async () => {

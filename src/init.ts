@@ -7,6 +7,45 @@ export type SupportedShell = 'bash' | 'fish' | 'zsh';
 const START_MARKER = '# >>> gji init >>>';
 const END_MARKER = '# <<< gji init <<<';
 
+interface ShellWrappedCommand {
+  bypassOption: '--help' | '--print';
+  commandName: string;
+  envVar: string;
+  names: string[];
+  tempPrefix: string;
+}
+
+const SHELL_WRAPPED_COMMANDS: ShellWrappedCommand[] = [
+  {
+    bypassOption: '--help',
+    commandName: 'new',
+    envVar: 'GJI_NEW_OUTPUT_FILE',
+    names: ['new'],
+    tempPrefix: 'gji-new',
+  },
+  {
+    bypassOption: '--print',
+    commandName: 'go',
+    envVar: 'GJI_GO_OUTPUT_FILE',
+    names: ['go'],
+    tempPrefix: 'gji-go',
+  },
+  {
+    bypassOption: '--print',
+    commandName: 'root',
+    envVar: 'GJI_ROOT_OUTPUT_FILE',
+    names: ['root'],
+    tempPrefix: 'gji-root',
+  },
+  {
+    bypassOption: '--help',
+    commandName: 'remove',
+    envVar: 'GJI_REMOVE_OUTPUT_FILE',
+    names: ['remove', 'rm'],
+    tempPrefix: 'gji-remove',
+  },
+];
+
 export interface InitCommandOptions {
   cwd: string;
   shell?: string;
@@ -44,51 +83,15 @@ export async function runInitCommand(options: InitCommandOptions): Promise<numbe
 }
 
 export function renderShellIntegration(shell: SupportedShell): string {
+  const commandBlocks = SHELL_WRAPPED_COMMANDS.map((command) =>
+    shell === 'fish' ? renderFishWrapper(command) : renderPosixWrapper(command),
+  ).join('\n\n');
+
   switch (shell) {
     case 'fish':
       return `${START_MARKER}
 function gji --wraps gji --description 'gji shell integration'
-    if test (count $argv) -gt 0; and test $argv[1] = go
-        set -e argv[1]
-        if test (count $argv) -gt 0; and test $argv[1] = --print
-            command gji go $argv
-            return $status
-        end
-
-        set -l output_file (mktemp -t gji-go.XXXXXX)
-        or return 1
-        env GJI_GO_OUTPUT_FILE=$output_file command gji go $argv
-        or begin
-            set -l status_code $status
-            rm -f $output_file
-            return $status_code
-        end
-        set -l target (cat $output_file)
-        rm -f $output_file
-        cd $target
-        return $status
-    end
-
-    if test (count $argv) -gt 0; and test $argv[1] = root
-        set -e argv[1]
-        if test (count $argv) -gt 0; and test $argv[1] = --print
-            command gji root $argv
-            return $status
-        end
-
-        set -l output_file (mktemp -t gji-root.XXXXXX)
-        or return 1
-        env GJI_ROOT_OUTPUT_FILE=$output_file command gji root $argv
-        or begin
-            set -l status_code $status
-            rm -f $output_file
-            return $status_code
-        end
-        set -l target (cat $output_file)
-        rm -f $output_file
-        cd $target
-        return $status
-    end
+${indentBlock(commandBlocks, 4)}
 
     command gji $argv
 end
@@ -98,39 +101,7 @@ ${END_MARKER}
     case 'zsh':
       return `${START_MARKER}
 gji() {
-  if [ "$1" = "go" ]; then
-    shift
-    if [ "\${1:-}" = "--print" ]; then
-      command gji go "$@"
-      return $?
-    fi
-
-    local target
-    local output_file
-    output_file="$(mktemp -t gji-go.XXXXXX)" || return 1
-    GJI_GO_OUTPUT_FILE="$output_file" command gji go "$@" || { local status=$?; rm -f "$output_file"; return $status; }
-    target="$(cat "$output_file")"
-    rm -f "$output_file"
-    cd "$target" || return $?
-    return 0
-  fi
-
-  if [ "$1" = "root" ]; then
-    shift
-    if [ "\${1:-}" = "--print" ]; then
-      command gji root "$@"
-      return $?
-    fi
-
-    local target
-    local output_file
-    output_file="$(mktemp -t gji-root.XXXXXX)" || return 1
-    GJI_ROOT_OUTPUT_FILE="$output_file" command gji root "$@" || { local status=$?; rm -f "$output_file"; return $status; }
-    target="$(cat "$output_file")"
-    rm -f "$output_file"
-    cd "$target" || return $?
-    return 0
-  fi
+${indentBlock(commandBlocks, 2)}
 
   command gji "$@"
 }
@@ -224,4 +195,59 @@ function escapeForRegExp(value: string): string {
 
 function isMissingFileError(error: unknown): error is NodeJS.ErrnoException {
   return error instanceof Error && 'code' in error && error.code === 'ENOENT';
+}
+
+function renderFishWrapper(command: ShellWrappedCommand): string {
+  const tests = command.names.map((name) => `test $argv[1] = ${name}`).join('; or ');
+
+  return `if test (count $argv) -gt 0; and ${tests}
+    set -e argv[1]
+    if test (count $argv) -gt 0; and test $argv[1] = ${command.bypassOption}
+        command gji ${command.commandName} $argv
+        return $status
+    end
+
+    set -l output_file (mktemp -t ${command.tempPrefix}.XXXXXX)
+    or return 1
+    env ${command.envVar}=$output_file command gji ${command.commandName} $argv
+    or begin
+        set -l status_code $status
+        rm -f $output_file
+        return $status_code
+    end
+    set -l target (cat $output_file)
+    rm -f $output_file
+    cd $target
+    return $status
+end`;
+}
+
+function renderPosixWrapper(command: ShellWrappedCommand): string {
+  const tests = command.names.map((name) => `[ "$1" = "${name}" ]`).join(' || ');
+
+  return `if ${tests}; then
+  shift
+  if [ "\${1:-}" = "${command.bypassOption}" ]; then
+    command gji ${command.commandName} "$@"
+    return $?
+  fi
+
+  local target
+  local output_file
+  output_file="$(mktemp -t ${command.tempPrefix}.XXXXXX)" || return 1
+  ${command.envVar}="$output_file" command gji ${command.commandName} "$@" || { local status=$?; rm -f "$output_file"; return $status; }
+  target="$(cat "$output_file")"
+  rm -f "$output_file"
+  cd "$target" || return $?
+  return 0
+fi`;
+}
+
+function indentBlock(value: string, spaces: number): string {
+  const prefix = ' '.repeat(spaces);
+
+  return value
+    .split('\n')
+    .map((line) => line.length === 0 ? '' : `${prefix}${line}`)
+    .join('\n');
 }
