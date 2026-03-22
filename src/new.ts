@@ -14,6 +14,7 @@ export type PathConflictChoice = 'abort' | 'reuse';
 export interface NewCommandOptions {
   branch?: string;
   cwd: string;
+  detached?: boolean;
   stderr: (chunk: string) => void;
   stdout: (chunk: string) => void;
 }
@@ -34,17 +35,24 @@ export function createNewCommand(
   return async function runNewCommand(options: NewCommandOptions): Promise<number> {
     const repository = await detectRepository(options.cwd);
     const config = await loadEffectiveConfig(repository.repoRoot);
-    const rawBranch = options.branch ?? await promptForBranch(createBranchPlaceholder());
+    const usesGeneratedDetachedName = options.detached && options.branch === undefined;
+    const rawBranch = options.detached
+      ? options.branch ?? createBranchPlaceholder()
+      : options.branch ?? await promptForBranch(createBranchPlaceholder());
 
     if (!rawBranch) {
       options.stderr('Aborted\n');
       return 1;
     }
 
-    const branch = applyConfiguredBranchPrefix(rawBranch, config.branchPrefix);
-    const worktreePath = resolveWorktreePath(repository.repoRoot, branch);
+    const worktreeName = options.detached
+      ? rawBranch
+      : applyConfiguredBranchPrefix(rawBranch, config.branchPrefix);
+    const worktreePath = usesGeneratedDetachedName
+      ? await resolveUniqueDetachedWorktreePath(repository.repoRoot, worktreeName)
+      : resolveWorktreePath(repository.repoRoot, worktreeName);
 
-    if (await pathExists(worktreePath)) {
+    if (!usesGeneratedDetachedName && await pathExists(worktreePath)) {
       const choice = await prompt(worktreePath);
 
       if (choice === 'reuse') {
@@ -57,11 +65,11 @@ export function createNewCommand(
     }
 
     await mkdir(dirname(worktreePath), { recursive: true });
-    await execFileAsync(
-      'git',
-      ['worktree', 'add', '-b', branch, worktreePath],
-      { cwd: repository.repoRoot },
-    );
+    const gitArgs = options.detached
+      ? ['worktree', 'add', '--detach', worktreePath]
+      : ['worktree', 'add', '-b', worktreeName, worktreePath];
+
+    await execFileAsync('git', gitArgs, { cwd: repository.repoRoot });
 
     options.stdout(`${worktreePath}\n`);
 
@@ -134,6 +142,24 @@ function applyConfiguredBranchPrefix(branch: string, branchPrefix: unknown): str
   }
 
   return `${branchPrefix}${branch}`;
+}
+
+async function resolveUniqueDetachedWorktreePath(
+  repoRoot: string,
+  baseName: string,
+): Promise<string> {
+  let attempt = 1;
+
+  while (true) {
+    const candidateName = attempt === 1 ? baseName : `${baseName}-${attempt}`;
+    const candidatePath = resolveWorktreePath(repoRoot, candidateName);
+
+    if (!await pathExists(candidatePath)) {
+      return candidatePath;
+    }
+
+    attempt += 1;
+  }
 }
 
 async function promptForPathConflict(path: string): Promise<PathConflictChoice> {

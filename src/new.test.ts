@@ -12,6 +12,7 @@ import {
   createRepository,
   currentBranch,
   pathExists,
+  runGit,
 } from './repo.test-helpers.js';
 import {
   createNewCommand,
@@ -48,6 +49,29 @@ describe('gji new', () => {
     expect(result.exitCode).toBe(0);
     await expect(pathExists(worktreePath)).resolves.toBe(true);
     await expect(currentBranch(worktreePath)).resolves.toBe(branchName);
+    expect(stdout.join('')).toBe(`${worktreePath}\n`);
+  });
+
+  it('creates a detached linked worktree without creating a branch', async () => {
+    // Given a repository root and a detached worktree name.
+    const repoRoot = await createRepository();
+    const stdout: string[] = [];
+    const worktreeName = 'detached/scratch-pad';
+    const worktreePath = resolveWorktreePath(repoRoot, worktreeName);
+
+    // When gji creates a detached worktree for that name.
+    const result = await runCli(['new', '--detached', worktreeName], {
+      cwd: repoRoot,
+      stdout: (chunk) => stdout.push(chunk),
+    });
+
+    // Then the detached worktree exists at the deterministic path without a branch.
+    expect(result.exitCode).toBe(0);
+    await expect(pathExists(worktreePath)).resolves.toBe(true);
+    await expect(currentBranch(worktreePath)).resolves.toBe('');
+    await expect(runGit(repoRoot, ['show-ref', '--verify', '--quiet', `refs/heads/${worktreeName}`]))
+      .rejects
+      .toThrow();
     expect(stdout.join('')).toBe(`${worktreePath}\n`);
   });
 
@@ -162,6 +186,71 @@ describe('gji new', () => {
     await expect(pathExists(worktreePath)).resolves.toBe(true);
     await expect(currentBranch(worktreePath)).resolves.toBe(chosenBranch);
     expect(stdout.join('')).toBe(`${worktreePath}\n`);
+  });
+
+  it('uses the generated placeholder for detached worktrees without prompting', async () => {
+    // Given a repository root and a detached command without an explicit name.
+    const repoRoot = await createRepository();
+    const generatedName = 'prometheus-brought-snacks';
+    const worktreePath = resolveWorktreePath(repoRoot, generatedName);
+    const stdout: string[] = [];
+    let promptCalled = false;
+    const runNewCommand = createNewCommand({
+      createBranchPlaceholder: () => generatedName,
+      promptForBranch: async () => {
+        promptCalled = true;
+        return 'should-not-run';
+      },
+    });
+
+    // When gji new runs in detached mode without an explicit name.
+    const result = await runNewCommand({
+      cwd: repoRoot,
+      detached: true,
+      stderr: () => undefined,
+      stdout: (chunk) => stdout.push(chunk),
+    });
+
+    // Then it succeeds without trying to prompt and uses the generated name.
+    expect(result).toBe(0);
+    expect(promptCalled).toBe(false);
+    await expect(pathExists(worktreePath)).resolves.toBe(true);
+    await expect(currentBranch(worktreePath)).resolves.toBe('');
+    expect(stdout.join('')).toBe(`${worktreePath}\n`);
+  });
+
+  it('retries detached placeholder names with a suffix when the generated path already exists', async () => {
+    // Given a repository root and an auto-generated detached name that already exists.
+    const repoRoot = await createRepository();
+    const generatedName = 'prometheus-brought-snacks';
+    const conflictingPath = resolveWorktreePath(repoRoot, generatedName);
+    const retriedPath = resolveWorktreePath(repoRoot, `${generatedName}-2`);
+    const stdout: string[] = [];
+    let promptCalled = false;
+    const runNewCommand = createNewCommand({
+      createBranchPlaceholder: () => generatedName,
+      promptForBranch: async () => {
+        promptCalled = true;
+        return 'should-not-run';
+      },
+    });
+
+    await mkdir(conflictingPath, { recursive: true });
+
+    // When gji new runs in detached mode without an explicit name.
+    const result = await runNewCommand({
+      cwd: repoRoot,
+      detached: true,
+      stderr: () => undefined,
+      stdout: (chunk) => stdout.push(chunk),
+    });
+
+    // Then it retries with a suffixed name instead of failing or prompting.
+    expect(result).toBe(0);
+    expect(promptCalled).toBe(false);
+    await expect(pathExists(retriedPath)).resolves.toBe(true);
+    await expect(currentBranch(retriedPath)).resolves.toBe('');
+    expect(stdout.join('')).toBe(`${retriedPath}\n`);
   });
 
   it('aborts when the branch prompt is cancelled', async () => {

@@ -27,5 +27,6 @@ describe('runCli', () => {
     expect(output).toContain('ls');
     expect(output).toContain('clean');
     expect(output).toContain('remove');
+    expect(output).toContain('rm');
   });
 });

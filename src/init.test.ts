@@ -96,7 +96,7 @@ gji() {
     fi
 
     local target
-    target="$(command gji go --print "$@")" || return $?
+    target="$(GJI_GO_TTY_PROMPT=1 command gji go --print "$@")" || return $?
     cd "$target" || return $?
     return 0
   fi

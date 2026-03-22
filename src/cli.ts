@@ -74,7 +74,8 @@ export async function runCli(
 function registerCommands(program: Command): void {
   program
     .command('new [branch]')
-    .description('create a new branch and linked worktree')
+    .description('create a new branch or detached linked worktree')
+    .option('--detached', 'create a detached worktree without a branch')
     .action(notImplemented('new'));
 
   program
@@ -124,6 +125,7 @@ function registerCommands(program: Command): void {
 
   program
     .command('remove [branch]')
+    .alias('rm')
     .description('remove a linked worktree and delete its branch when present')
     .action(notImplemented('remove'));
 
@@ -154,8 +156,8 @@ function attachCommandActions(
 ): void {
   program.commands
     .find((command) => command.name() === 'new')
-    ?.action(async (branch: string) => {
-      const exitCode = await runNewCommand({ ...options, branch });
+    ?.action(async (branch: string | undefined, commandOptions: { detached?: boolean }) => {
+      const exitCode = await runNewCommand({ ...options, branch, detached: commandOptions.detached });
 
       if (exitCode !== 0) {
         throw commanderExit(exitCode);

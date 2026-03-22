@@ -109,4 +109,52 @@ describe('gji go', () => {
     expect(stderr).toEqual([]);
     expect(stdout.join('').trim()).toBe(worktreePath);
   });
+
+  it('uses the captured-output prompt mode for interactive --print selection', async () => {
+    // Given an existing linked worktree and shell integration prompt mode.
+    const repoRoot = await createRepository();
+    const branchName = 'feature/go-print-select';
+    const worktreePath = await addLinkedWorktree(repoRoot, branchName);
+    const originalPromptMode = process.env.GJI_GO_TTY_PROMPT;
+    const stdout: string[] = [];
+    const stderr: string[] = [];
+    let defaultPromptCalled = false;
+    let capturedOutputPromptCalled = false;
+    const runGoCommand = createGoCommand({
+      promptForCapturedOutputWorktree: async (worktrees) => {
+        capturedOutputPromptCalled = true;
+        expect(worktrees.map((worktree) => worktree.branch)).toContain(branchName);
+        return worktreePath;
+      },
+      promptForWorktree: async () => {
+        defaultPromptCalled = true;
+        return null;
+      },
+    });
+
+    process.env.GJI_GO_TTY_PROMPT = '1';
+
+    try {
+      // When gji go runs in print mode without a branch.
+      const result = await runGoCommand({
+        cwd: repoRoot,
+        print: true,
+        stderr: (chunk) => stderr.push(chunk),
+        stdout: (chunk) => stdout.push(chunk),
+      });
+
+      // Then it uses the tty-safe prompt path and still prints only the selection.
+      expect(result).toBe(0);
+      expect(defaultPromptCalled).toBe(false);
+      expect(capturedOutputPromptCalled).toBe(true);
+      expect(stderr).toEqual([]);
+      expect(stdout.join('').trim()).toBe(worktreePath);
+    } finally {
+      if (originalPromptMode === undefined) {
+        delete process.env.GJI_GO_TTY_PROMPT;
+      } else {
+        process.env.GJI_GO_TTY_PROMPT = originalPromptMode;
+      }
+    }
+  });
 });
