@@ -16,22 +16,20 @@ Standard branch switching gets annoying when you are:
 
 ## Install
 
-Install from npm:
+Current source install:
 
 ```sh
-npm install -g @solaqua/gji
+git clone https://github.com/sjquant/gji.git
+cd gji
+pnpm build
+npm install -g .
 ```
 
 Confirm the CLI is available:
 
 ```sh
+gji --version
 gji --help
-```
-
-The installed command is still:
-
-```sh
-gji
 ```
 
 ## Quick start
@@ -41,6 +39,7 @@ Inside a Git repository:
 ```sh
 gji new feature/login-form
 gji go feature/login-form
+gji root
 gji status
 ```
 
@@ -52,7 +51,7 @@ That creates a linked worktree at a deterministic path:
 
 ## Shell setup
 
-`gji go` can only change your current directory when shell integration is installed. Without shell integration, the raw CLI prints the target path so it stays script-friendly.
+`gji go` and `gji root` can only change your current directory when shell integration is installed. Without shell integration, the raw CLI prints the target path so it stays script-friendly.
 
 For zsh:
 
@@ -65,14 +64,22 @@ After that:
 
 ```sh
 gji go feature/login-form
+gji root
 ```
 
 changes your shell directory directly.
+
+If you reinstall or upgrade `gji`, refresh the shell function:
+
+```sh
+eval "$(gji init zsh)"
+```
 
 For scripts or explicit piping:
 
 ```sh
 gji go --print feature/login-form
+gji root --print
 ```
 
 ## Daily workflow
@@ -82,6 +89,12 @@ Start a task:
 ```sh
 gji new feature/refactor-auth
 gji go feature/refactor-auth
+```
+
+Start a detached scratch worktree:
+
+```sh
+gji new --detached
 ```
 
 Check what is active:
@@ -119,20 +132,23 @@ Finish a single worktree explicitly:
 
 ```sh
 gji remove feature/refactor-auth
+# or
+gji rm feature/refactor-auth
 ```
 
 ## Commands
 
+- `gji --version` prints the installed CLI version
 - `gji init [shell]` prints shell integration for `zsh`, `bash`, or `fish`
-- `gji new [branch]` creates a branch and linked worktree; when omitted, it prompts with a placeholder branch name
+- `gji new [branch] [--detached]` creates a branch and linked worktree; when omitted, it prompts with a placeholder branch name, and `--detached` creates a detached worktree instead
 - `gji pr <number>` fetches `origin/pull/<number>/head` and creates a linked `pr/<number>` worktree
-- `gji go [branch]` jumps to an existing worktree when shell integration is installed, or prints the matching worktree path otherwise
-- `gji root` prints the main repository root path from either the repo root or a linked worktree
+- `gji go [branch] [--print]` jumps to an existing worktree when shell integration is installed, or prints the matching worktree path otherwise
+- `gji root [--print]` jumps to the main repository root when shell integration is installed, or prints it otherwise
 - `gji status [--json]` prints repository metadata, worktree health, and upstream divergence
 - `gji sync [--all]` fetches from the configured remote and rebases or fast-forwards worktrees onto the configured default branch
 - `gji ls [--json]` lists active worktrees in a table or JSON
 - `gji clean` interactively prunes one or more linked worktrees, including detached entries, while excluding the current worktree
-- `gji remove [branch]` removes a linked worktree and deletes its branch when present
+- `gji remove [branch]` and `gji rm [branch]` remove a linked worktree and delete its branch when present
 - `gji config` reads or updates global defaults
 
 ## Configuration
