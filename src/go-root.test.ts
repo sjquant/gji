@@ -1,11 +1,11 @@
-import { mkdir } from 'node:fs/promises';
+import { mkdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import { describe, expect, it } from 'vitest';
 
 import { runCli } from './cli.js';
 import { createGoCommand } from './go.js';
-import { addLinkedWorktree, createRepository } from './repo.test-helpers.js';
+import { addLinkedWorktree, createRepository, pathExists } from './repo.test-helpers.js';
 
 describe('gji root', () => {
   it('prints the main repository root from the repository root', async () => {
@@ -110,50 +110,46 @@ describe('gji go', () => {
     expect(stdout.join('').trim()).toBe(worktreePath);
   });
 
-  it('uses the captured-output prompt mode for interactive --print selection', async () => {
-    // Given an existing linked worktree and shell integration prompt mode.
+  it('writes the selected worktree to the shell output file without printing it', async () => {
+    // Given an existing linked worktree and a shell output file.
     const repoRoot = await createRepository();
     const branchName = 'feature/go-print-select';
     const worktreePath = await addLinkedWorktree(repoRoot, branchName);
-    const originalPromptMode = process.env.GJI_GO_TTY_PROMPT;
+    const outputFile = join(repoRoot, 'selected-worktree.txt');
+    const originalOutputFile = process.env.GJI_GO_OUTPUT_FILE;
     const stdout: string[] = [];
     const stderr: string[] = [];
     let defaultPromptCalled = false;
-    let capturedOutputPromptCalled = false;
     const runGoCommand = createGoCommand({
-      promptForCapturedOutputWorktree: async (worktrees) => {
-        capturedOutputPromptCalled = true;
+      promptForWorktree: async (worktrees) => {
+        defaultPromptCalled = true;
         expect(worktrees.map((worktree) => worktree.branch)).toContain(branchName);
         return worktreePath;
       },
-      promptForWorktree: async () => {
-        defaultPromptCalled = true;
-        return null;
-      },
     });
 
-    process.env.GJI_GO_TTY_PROMPT = '1';
+    process.env.GJI_GO_OUTPUT_FILE = outputFile;
 
     try {
-      // When gji go runs in print mode without a branch.
+      // When gji go runs without a branch via the shell-wrapper output file path.
       const result = await runGoCommand({
         cwd: repoRoot,
-        print: true,
         stderr: (chunk) => stderr.push(chunk),
         stdout: (chunk) => stdout.push(chunk),
       });
 
-      // Then it uses the tty-safe prompt path and prints the marked selection.
+      // Then it writes the selection to the output file instead of stdout.
       expect(result).toBe(0);
-      expect(defaultPromptCalled).toBe(false);
-      expect(capturedOutputPromptCalled).toBe(true);
+      expect(defaultPromptCalled).toBe(true);
       expect(stderr).toEqual([]);
-      expect(stdout.join('')).toBe(`__GJI_TARGET__:${worktreePath}\n`);
+      expect(stdout).toEqual([]);
+      await expect(pathExists(outputFile)).resolves.toBe(true);
+      await expect(readFile(outputFile, 'utf8')).resolves.toBe(`${worktreePath}\n`);
     } finally {
-      if (originalPromptMode === undefined) {
-        delete process.env.GJI_GO_TTY_PROMPT;
+      if (originalOutputFile === undefined) {
+        delete process.env.GJI_GO_OUTPUT_FILE;
       } else {
-        process.env.GJI_GO_TTY_PROMPT = originalPromptMode;
+        process.env.GJI_GO_OUTPUT_FILE = originalOutputFile;
       }
     }
   });

@@ -55,8 +55,16 @@ function gji --wraps gji --description 'gji shell integration'
             return $status
         end
 
-        set -l target (env GJI_GO_TTY_PROMPT=1 command gji go --print $argv)
-        or return $status
+        set -l output_file (mktemp -t gji-go.XXXXXX)
+        or return 1
+        env GJI_GO_OUTPUT_FILE=$output_file command gji go $argv
+        or begin
+            set -l status_code $status
+            rm -f $output_file
+            return $status_code
+        end
+        set -l target (cat $output_file)
+        rm -f $output_file
         cd $target
         return $status
     end
@@ -77,9 +85,11 @@ gji() {
     fi
 
     local target
-    local output
-    output="$(GJI_GO_TTY_PROMPT=1 command gji go --print "$@")" || return $?
-    target="\${output##*__GJI_TARGET__:}"
+    local output_file
+    output_file="$(mktemp -t gji-go.XXXXXX)" || return 1
+    GJI_GO_OUTPUT_FILE="$output_file" command gji go "$@" || { local status=$?; rm -f "$output_file"; return $status; }
+    target="$(cat "$output_file")"
+    rm -f "$output_file"
     cd "$target" || return $?
     return 0
   fi

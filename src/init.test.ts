@@ -96,9 +96,11 @@ gji() {
     fi
 
     local target
-    local output
-    output="$(GJI_GO_TTY_PROMPT=1 command gji go --print "$@")" || return $?
-    target="\${output##*__GJI_TARGET__:}"
+    local output_file
+    output_file="$(mktemp -t gji-go.XXXXXX)" || return 1
+    GJI_GO_OUTPUT_FILE="$output_file" command gji go "$@" || { local status=$?; rm -f "$output_file"; return $status; }
+    target="$(cat "$output_file")"
+    rm -f "$output_file"
     cd "$target" || return $?
     return 0
   fi
