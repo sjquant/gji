@@ -6,6 +6,7 @@ import { describe, expect, it } from 'vitest';
 import { runCli } from './cli.js';
 import { createGoCommand } from './go.js';
 import { addLinkedWorktree, createRepository, pathExists } from './repo.test-helpers.js';
+import { runRootCommand } from './root.js';
 
 describe('gji root', () => {
   it('prints the main repository root from the repository root', async () => {
@@ -43,6 +44,56 @@ describe('gji root', () => {
     // Then it still prints the main repository root path.
     expect(result.exitCode).toBe(0);
     expect(stdout.join('').trim()).toBe(repoRoot);
+  });
+
+  it('prints the main repository root explicitly with --print', async () => {
+    // Given a linked worktree with a nested current working directory.
+    const repoRoot = await createRepository();
+    const branchName = 'feature/root-print';
+    const worktreePath = await addLinkedWorktree(repoRoot, branchName);
+    const stdout: string[] = [];
+
+    // When gji root runs with --print from inside that linked worktree.
+    const result = await runCli(['root', '--print'], {
+      cwd: worktreePath,
+      stdout: (chunk) => stdout.push(chunk),
+    });
+
+    // Then it prints the main repository root path.
+    expect(result.exitCode).toBe(0);
+    expect(stdout.join('').trim()).toBe(repoRoot);
+  });
+
+  it('writes the repository root to the shell output file without printing it', async () => {
+    // Given a linked worktree and a shell output file.
+    const repoRoot = await createRepository();
+    const branchName = 'feature/root-output-file';
+    const worktreePath = await addLinkedWorktree(repoRoot, branchName);
+    const outputFile = join(repoRoot, 'selected-root.txt');
+    const originalOutputFile = process.env.GJI_ROOT_OUTPUT_FILE;
+    const stdout: string[] = [];
+
+    process.env.GJI_ROOT_OUTPUT_FILE = outputFile;
+
+    try {
+      // When gji root runs via the shell-wrapper output file path.
+      const result = await runRootCommand({
+        cwd: worktreePath,
+        stdout: (chunk) => stdout.push(chunk),
+      });
+
+      // Then it writes the root to the output file instead of stdout.
+      expect(result).toBe(0);
+      expect(stdout).toEqual([]);
+      await expect(pathExists(outputFile)).resolves.toBe(true);
+      await expect(readFile(outputFile, 'utf8')).resolves.toBe(`${repoRoot}\n`);
+    } finally {
+      if (originalOutputFile === undefined) {
+        delete process.env.GJI_ROOT_OUTPUT_FILE;
+      } else {
+        process.env.GJI_ROOT_OUTPUT_FILE = originalOutputFile;
+      }
+    }
   });
 });
 

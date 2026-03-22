@@ -105,6 +105,23 @@ gji() {
     return 0
   fi
 
+  if [ "$1" = "root" ]; then
+    shift
+    if [ "\${1:-}" = "--print" ]; then
+      command gji root "$@"
+      return $?
+    fi
+
+    local target
+    local output_file
+    output_file="$(mktemp -t gji-root.XXXXXX)" || return 1
+    GJI_ROOT_OUTPUT_FILE="$output_file" command gji root "$@" || { local status=$?; rm -f "$output_file"; return $status; }
+    target="$(cat "$output_file")"
+    rm -f "$output_file"
+    cd "$target" || return $?
+    return 0
+  fi
+
   command gji "$@"
 }
 # <<< gji init <<<

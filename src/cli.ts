@@ -108,6 +108,7 @@ function registerCommands(program: Command): void {
   program
     .command('root')
     .description('print the main repository root path')
+    .option('--print', 'print the resolved repository root path explicitly')
     .action(notImplemented('root'));
 
   program
@@ -217,9 +218,10 @@ function attachCommandActions(
 
   program.commands
     .find((command) => command.name() === 'root')
-    ?.action(async () => {
+    ?.action(async (commandOptions: { print?: boolean }) => {
       const exitCode = await runRootCommand({
         cwd: options.cwd,
+        print: commandOptions.print,
         stdout: options.stdout,
       });
 

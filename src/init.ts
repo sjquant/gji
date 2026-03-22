@@ -69,6 +69,27 @@ function gji --wraps gji --description 'gji shell integration'
         return $status
     end
 
+    if test (count $argv) -gt 0; and test $argv[1] = root
+        set -e argv[1]
+        if test (count $argv) -gt 0; and test $argv[1] = --print
+            command gji root $argv
+            return $status
+        end
+
+        set -l output_file (mktemp -t gji-root.XXXXXX)
+        or return 1
+        env GJI_ROOT_OUTPUT_FILE=$output_file command gji root $argv
+        or begin
+            set -l status_code $status
+            rm -f $output_file
+            return $status_code
+        end
+        set -l target (cat $output_file)
+        rm -f $output_file
+        cd $target
+        return $status
+    end
+
     command gji $argv
 end
 ${END_MARKER}
@@ -88,6 +109,23 @@ gji() {
     local output_file
     output_file="$(mktemp -t gji-go.XXXXXX)" || return 1
     GJI_GO_OUTPUT_FILE="$output_file" command gji go "$@" || { local status=$?; rm -f "$output_file"; return $status; }
+    target="$(cat "$output_file")"
+    rm -f "$output_file"
+    cd "$target" || return $?
+    return 0
+  fi
+
+  if [ "$1" = "root" ]; then
+    shift
+    if [ "\${1:-}" = "--print" ]; then
+      command gji root "$@"
+      return $?
+    fi
+
+    local target
+    local output_file
+    output_file="$(mktemp -t gji-root.XXXXXX)" || return 1
+    GJI_ROOT_OUTPUT_FILE="$output_file" command gji root "$@" || { local status=$?; rm -f "$output_file"; return $status; }
     target="$(cat "$output_file")"
     rm -f "$output_file"
     cd "$target" || return $?
