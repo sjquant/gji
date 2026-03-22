@@ -143,12 +143,12 @@ describe('gji go', () => {
         stdout: (chunk) => stdout.push(chunk),
       });
 
-      // Then it uses the tty-safe prompt path and still prints only the selection.
+      // Then it uses the tty-safe prompt path and prints the marked selection.
       expect(result).toBe(0);
       expect(defaultPromptCalled).toBe(false);
       expect(capturedOutputPromptCalled).toBe(true);
       expect(stderr).toEqual([]);
-      expect(stdout.join('').trim()).toBe(worktreePath);
+      expect(stdout.join('')).toBe(`__GJI_TARGET__:${worktreePath}\n`);
     } finally {
       if (originalPromptMode === undefined) {
         delete process.env.GJI_GO_TTY_PROMPT;

@@ -16,6 +16,7 @@ export interface GoCommandDependencies {
 }
 
 const GO_TTY_PROMPT_ENV = 'GJI_GO_TTY_PROMPT';
+const GO_TTY_TARGET_PREFIX = '__GJI_TARGET__:';
 
 export function createGoCommand(
   dependencies: Partial<GoCommandDependencies> = {},
@@ -48,7 +49,11 @@ export function createGoCommand(
       return 1;
     }
 
-    options.stdout(`${chosenPath}\n`);
+    const output = shouldUseCapturedOutputPrompt(options)
+      ? `${GO_TTY_TARGET_PREFIX}${chosenPath}\n`
+      : `${chosenPath}\n`;
+
+    options.stdout(output);
     return 0;
   };
 }
