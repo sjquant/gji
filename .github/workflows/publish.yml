@@ -36,5 +36,17 @@ jobs:
       - name: Build package
         run: pnpm build
 
+      - name: Resolve npm dist-tag
+        id: npm_tag
+        run: |
+          VERSION="$(node -p "require('./package.json').version")"
+          if [[ "$VERSION" == *-* ]]; then
+            TAG="${VERSION#*-}"
+            TAG="${TAG%%.*}"
+          else
+            TAG="latest"
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
       - name: Publish to npm
-        run: npm publish
+        run: npm publish --tag "${{ steps.npm_tag.outputs.tag }}"
