@@ -1,16 +1,16 @@
-import { access, mkdir } from 'node:fs/promises';
-import { constants } from 'node:fs';
+import { mkdir } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { isCancel, select, text } from '@clack/prompts';
+import { isCancel, text } from '@clack/prompts';
 
 import { loadEffectiveConfig } from './config.js';
+import { type PathConflictChoice, pathExists, promptForPathConflict } from './conflict.js';
 import { detectRepository, resolveWorktreePath } from './repo.js';
 import { writeShellOutput } from './shell-handoff.js';
 
 const execFileAsync = promisify(execFile);
-export type PathConflictChoice = 'abort' | 'reuse';
+export type { PathConflictChoice };
 const NEW_OUTPUT_FILE_ENV = 'GJI_NEW_OUTPUT_FILE';
 
 export interface NewCommandOptions {
@@ -77,15 +77,6 @@ export function createNewCommand(
 
     return 0;
   };
-}
-
-async function pathExists(path: string): Promise<boolean> {
-  try {
-    await access(path, constants.F_OK);
-    return true;
-  } catch {
-    return false;
-  }
 }
 
 export const runNewCommand = createNewCommand();
@@ -162,22 +153,6 @@ async function resolveUniqueDetachedWorktreePath(
 
     attempt += 1;
   }
-}
-
-async function promptForPathConflict(path: string): Promise<PathConflictChoice> {
-  const choice = await select<PathConflictChoice>({
-    message: `Target path already exists: ${path}`,
-    options: [
-      { value: 'abort', label: 'Abort', hint: 'Keep the existing directory untouched' },
-      { value: 'reuse', label: 'Reuse path', hint: 'Print the existing path and stop' },
-    ],
-  });
-
-  if (isCancel(choice)) {
-    return 'abort';
-  }
-
-  return choice;
 }
 
 async function defaultPromptForBranch(placeholder: string): Promise<string | null> {

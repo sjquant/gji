@@ -1,17 +1,15 @@
-import { access, mkdir } from 'node:fs/promises';
-import { constants } from 'node:fs';
+import { mkdir } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 
-import { isCancel, select } from '@clack/prompts';
-
+import { type PathConflictChoice, pathExists, promptForPathConflict } from './conflict.js';
 import { detectRepository, resolveWorktreePath } from './repo.js';
 import { writeShellOutput } from './shell-handoff.js';
 
 const execFileAsync = promisify(execFile);
 
-export type PathConflictChoice = 'abort' | 'reuse';
+export type { PathConflictChoice };
 const PR_OUTPUT_FILE_ENV = 'GJI_PR_OUTPUT_FILE';
 
 export interface PrCommandOptions {
@@ -31,6 +29,11 @@ export function createPrCommand(
   const prompt = dependencies.promptForPathConflict ?? promptForPathConflict;
 
   return async function runPrCommand(options: PrCommandOptions): Promise<number> {
+    if (!/^\d+$/.test(options.number)) {
+      options.stderr(`Invalid PR number: ${options.number}\n`);
+      return 1;
+    }
+
     const repository = await detectRepository(options.cwd);
     const branchName = `pr/${options.number}`;
     const remoteRef = `refs/remotes/origin/pull/${options.number}/head`;
@@ -48,17 +51,25 @@ export function createPrCommand(
       return 1;
     }
 
-    await execFileAsync(
-      'git',
-      ['fetch', 'origin', `refs/pull/${options.number}/head:${remoteRef}`],
-      { cwd: repository.repoRoot },
-    );
+    try {
+      await execFileAsync(
+        'git',
+        ['fetch', 'origin', `refs/pull/${options.number}/head:${remoteRef}`],
+        { cwd: repository.repoRoot },
+      );
+    } catch {
+      options.stderr(`Failed to fetch PR #${options.number} from origin\n`);
+      return 1;
+    }
+
     await mkdir(dirname(worktreePath), { recursive: true });
-    await execFileAsync(
-      'git',
-      ['worktree', 'add', '-b', branchName, worktreePath, remoteRef],
-      { cwd: repository.repoRoot },
-    );
+
+    const branchAlreadyExists = await localBranchExists(repository.repoRoot, branchName);
+    const worktreeArgs = branchAlreadyExists
+      ? ['worktree', 'add', worktreePath, branchName]
+      : ['worktree', 'add', '-b', branchName, worktreePath, remoteRef];
+
+    await execFileAsync('git', worktreeArgs, { cwd: repository.repoRoot });
 
     await writeOutput(worktreePath, options.stdout);
 
@@ -66,9 +77,13 @@ export function createPrCommand(
   };
 }
 
-async function pathExists(path: string): Promise<boolean> {
+async function localBranchExists(repoRoot: string, branchName: string): Promise<boolean> {
   try {
-    await access(path, constants.F_OK);
+    await execFileAsync(
+      'git',
+      ['show-ref', '--verify', '--quiet', `refs/heads/${branchName}`],
+      { cwd: repoRoot },
+    );
     return true;
   } catch {
     return false;
@@ -76,22 +91,6 @@ async function pathExists(path: string): Promise<boolean> {
 }
 
 export const runPrCommand = createPrCommand();
-
-async function promptForPathConflict(path: string): Promise<PathConflictChoice> {
-  const choice = await select<PathConflictChoice>({
-    message: `Target path already exists: ${path}`,
-    options: [
-      { value: 'abort', label: 'Abort', hint: 'Keep the existing directory untouched' },
-      { value: 'reuse', label: 'Reuse path', hint: 'Print the existing path and stop' },
-    ],
-  });
-
-  if (isCancel(choice)) {
-    return 'abort';
-  }
-
-  return choice;
-}
 
 async function writeOutput(
   worktreePath: string,

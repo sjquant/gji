@@ -164,4 +164,63 @@ describe('gji pr', () => {
       `Aborted because target worktree path already exists: ${worktreePath}\n`,
     );
   });
+
+  it('rejects a non-numeric PR number', async () => {
+    // Given a repository and a non-numeric PR number.
+    const repoRoot = await createRepository();
+    const stderr: string[] = [];
+
+    // When gji pr is called with a non-numeric argument.
+    const result = await runPrCommand({
+      cwd: repoRoot,
+      number: 'abc',
+      stderr: (chunk) => stderr.push(chunk),
+      stdout: () => undefined,
+    });
+
+    // Then it exits with an error without touching git.
+    expect(result).toBe(1);
+    expect(stderr.join('')).toContain('abc');
+  });
+
+  it('reports a clear error when the PR does not exist on origin', async () => {
+    // Given a repository with an origin remote but no PR ref for number 9999.
+    const { repoRoot } = await createRepositoryWithOrigin();
+    const stderr: string[] = [];
+
+    // When gji pr tries to fetch a non-existent PR.
+    const result = await runPrCommand({
+      cwd: repoRoot,
+      number: '9999',
+      stderr: (chunk) => stderr.push(chunk),
+      stdout: () => undefined,
+    });
+
+    // Then it exits with an error mentioning the PR number.
+    expect(result).toBe(1);
+    expect(stderr.join('')).toContain('9999');
+  });
+
+  it('attaches to an existing pr branch instead of recreating it', async () => {
+    // Given a repository where the pr/123 branch already exists locally but has no worktree.
+    const { repoRoot } = await createRepositoryWithOrigin();
+    const branchName = 'feature/pre-existing-pr-branch';
+    const worktreePath = resolveWorktreePath(repoRoot, 'pr/123');
+
+    await runGit(repoRoot, ['checkout', '-b', branchName]);
+    await commitFile(repoRoot, 'pre-existing.txt', 'pre-existing\n', 'pre-existing');
+    await pushPullRequestRef(repoRoot, '123');
+    await runGit(repoRoot, ['checkout', '-']);
+    // Fetch the ref and create the local branch manually (simulating a previous run that cleaned up the worktree)
+    await runGit(repoRoot, ['fetch', 'origin', 'refs/pull/123/head:refs/remotes/origin/pull/123/head']);
+    await runGit(repoRoot, ['branch', 'pr/123', 'refs/remotes/origin/pull/123/head']);
+
+    // When gji pr runs and the pr/123 branch already exists.
+    const result = await runCli(['pr', '123'], { cwd: repoRoot });
+
+    // Then it creates the worktree by attaching to the existing branch without error.
+    expect(result.exitCode).toBe(0);
+    await expect(pathExists(worktreePath)).resolves.toBe(true);
+    await expect(currentBranch(worktreePath)).resolves.toBe('pr/123');
+  });
 });
