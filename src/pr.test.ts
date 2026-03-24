@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 import { runCli } from './cli.js';
-import { createPrCommand, runPrCommand } from './pr.js';
+import { createPrCommand, parsePrInput, runPrCommand } from './pr.js';
 import { resolveWorktreePath } from './repo.js';
 import {
   addLinkedWorktree,
@@ -16,6 +16,28 @@ import {
   pushPullRequestRef,
   runGit,
 } from './repo.test-helpers.js';
+
+describe('parsePrInput', () => {
+  it.each([
+    ['123', '123'],
+    ['#123', '123'],
+    ['https://github.com/owner/repo/pull/123', '123'],
+    ['https://github.com/owner/repo/pull/123/files', '123'],
+    ['https://gitlab.com/owner/repo/-/merge_requests/456', '456'],
+    ['https://gitlab.mycompany.com/group/sub/repo/-/merge_requests/789', '789'],
+    ['https://bitbucket.org/owner/repo/pull-requests/321', '321'],
+  ])('parses %s as PR number %s', (input, expected) => {
+    expect(parsePrInput(input)).toBe(expected);
+  });
+
+  it.each([
+    ['abc'],
+    ['not-a-url'],
+    [''],
+  ])('returns null for unrecognized input %s', (input) => {
+    expect(parsePrInput(input)).toBeNull();
+  });
+});
 
 describe('gji pr', () => {
   it('fetches a PR ref from origin and creates a linked worktree', async () => {
@@ -165,12 +187,12 @@ describe('gji pr', () => {
     );
   });
 
-  it('rejects a non-numeric PR number', async () => {
-    // Given a repository and a non-numeric PR number.
+  it('rejects unrecognized input', async () => {
+    // Given a repository and an unrecognizable PR reference.
     const repoRoot = await createRepository();
     const stderr: string[] = [];
 
-    // When gji pr is called with a non-numeric argument.
+    // When gji pr is called with an unrecognized argument.
     const result = await runPrCommand({
       cwd: repoRoot,
       number: 'abc',
@@ -181,6 +203,48 @@ describe('gji pr', () => {
     // Then it exits with an error without touching git.
     expect(result).toBe(1);
     expect(stderr.join('')).toContain('abc');
+  });
+
+  it('accepts a GitHub PR URL', async () => {
+    // Given a repository with a PR ref on origin.
+    const { repoRoot } = await createRepositoryWithOrigin();
+    const branchName = 'feature/url-input';
+    const worktreePath = resolveWorktreePath(repoRoot, 'pr/555');
+
+    await runGit(repoRoot, ['checkout', '-b', branchName]);
+    await commitFile(repoRoot, 'url-input.txt', 'url input\n', 'url input');
+    await pushPullRequestRef(repoRoot, '555');
+    await runGit(repoRoot, ['checkout', '-']);
+
+    // When gji pr is called with a full GitHub URL.
+    const result = await runCli(['pr', 'https://github.com/owner/repo/pull/555'], {
+      cwd: repoRoot,
+    });
+
+    // Then it creates the worktree by extracting the PR number from the URL.
+    expect(result.exitCode).toBe(0);
+    await expect(pathExists(worktreePath)).resolves.toBe(true);
+    await expect(currentBranch(worktreePath)).resolves.toBe('pr/555');
+  });
+
+  it('accepts a #-prefixed PR number', async () => {
+    // Given a repository with a PR ref on origin.
+    const { repoRoot } = await createRepositoryWithOrigin();
+    const branchName = 'feature/hash-input';
+    const worktreePath = resolveWorktreePath(repoRoot, 'pr/777');
+
+    await runGit(repoRoot, ['checkout', '-b', branchName]);
+    await commitFile(repoRoot, 'hash-input.txt', 'hash input\n', 'hash input');
+    await pushPullRequestRef(repoRoot, '777');
+    await runGit(repoRoot, ['checkout', '-']);
+
+    // When gji pr is called with a #-prefixed number.
+    const result = await runCli(['pr', '#777'], { cwd: repoRoot });
+
+    // Then it creates the worktree correctly.
+    expect(result.exitCode).toBe(0);
+    await expect(pathExists(worktreePath)).resolves.toBe(true);
+    await expect(currentBranch(worktreePath)).resolves.toBe('pr/777');
   });
 
   it('reports a clear error when the PR does not exist on origin', async () => {

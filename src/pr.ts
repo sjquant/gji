@@ -23,20 +23,34 @@ export interface PrCommandDependencies {
   promptForPathConflict: (path: string) => Promise<PathConflictChoice>;
 }
 
+export function parsePrInput(input: string): string | null {
+  if (/^\d+$/.test(input)) return input;
+
+  const hashMatch = input.match(/^#(\d+)$/);
+  if (hashMatch) return hashMatch[1];
+
+  const urlMatch = input.match(/\/(?:pull|pull-requests|merge_requests)\/(\d+)/);
+  if (urlMatch) return urlMatch[1];
+
+  return null;
+}
+
 export function createPrCommand(
   dependencies: Partial<PrCommandDependencies> = {},
 ): (options: PrCommandOptions) => Promise<number> {
   const prompt = dependencies.promptForPathConflict ?? promptForPathConflict;
 
   return async function runPrCommand(options: PrCommandOptions): Promise<number> {
-    if (!/^\d+$/.test(options.number)) {
-      options.stderr(`Invalid PR number: ${options.number}\n`);
+    const prNumber = parsePrInput(options.number);
+
+    if (!prNumber) {
+      options.stderr(`Invalid PR reference: ${options.number}\n`);
       return 1;
     }
 
     const repository = await detectRepository(options.cwd);
-    const branchName = `pr/${options.number}`;
-    const remoteRef = `refs/remotes/origin/pull/${options.number}/head`;
+    const branchName = `pr/${prNumber}`;
+    const remoteRef = `refs/remotes/origin/pull/${prNumber}/head`;
     const worktreePath = resolveWorktreePath(repository.repoRoot, branchName);
 
     if (await pathExists(worktreePath)) {
@@ -54,11 +68,11 @@ export function createPrCommand(
     try {
       await execFileAsync(
         'git',
-        ['fetch', 'origin', `refs/pull/${options.number}/head:${remoteRef}`],
+        ['fetch', 'origin', `refs/pull/${prNumber}/head:${remoteRef}`],
         { cwd: repository.repoRoot },
       );
     } catch {
-      options.stderr(`Failed to fetch PR #${options.number} from origin\n`);
+      options.stderr(`Failed to fetch PR #${prNumber} from origin\n`);
       return 1;
     }
 
