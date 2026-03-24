@@ -193,7 +193,7 @@ function attachCommandActions(
   program.commands
     .find((command) => command.name() === 'pr')
     ?.action(async (number: string) => {
-      const exitCode = await runPrCommand({ cwd: options.cwd, number, stdout: options.stdout });
+      const exitCode = await runPrCommand({ cwd: options.cwd, number, stderr: options.stderr, stdout: options.stdout });
 
       if (exitCode !== 0) {
         throw commanderExit(exitCode);

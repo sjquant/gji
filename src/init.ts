@@ -24,6 +24,13 @@ const SHELL_WRAPPED_COMMANDS: ShellWrappedCommand[] = [
     tempPrefix: 'gji-new',
   },
   {
+    bypassOption: '--help',
+    commandName: 'pr',
+    envVar: 'GJI_PR_OUTPUT_FILE',
+    names: ['pr'],
+    tempPrefix: 'gji-pr',
+  },
+  {
     bypassOption: '--print',
     commandName: 'go',
     envVar: 'GJI_GO_OUTPUT_FILE',

@@ -105,6 +105,23 @@ gji() {
     return 0
   fi
 
+  if [ "$1" = "pr" ]; then
+    shift
+    if [ "\${1:-}" = "--help" ]; then
+      command gji pr "$@"
+      return $?
+    fi
+
+    local target
+    local output_file
+    output_file="$(mktemp -t gji-pr.XXXXXX)" || return 1
+    GJI_PR_OUTPUT_FILE="$output_file" command gji pr "$@" || { local status=$?; rm -f "$output_file"; return $status; }
+    target="$(cat "$output_file")"
+    rm -f "$output_file"
+    cd "$target" || return $?
+    return 0
+  fi
+
   if [ "$1" = "go" ]; then
     shift
     if [ "\${1:-}" = "--print" ]; then
