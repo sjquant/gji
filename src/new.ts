@@ -69,7 +69,9 @@ export function createNewCommand(
     await mkdir(dirname(worktreePath), { recursive: true });
     const gitArgs = options.detached
       ? ['worktree', 'add', '--detach', worktreePath]
-      : ['worktree', 'add', '-b', worktreeName, worktreePath];
+      : await localBranchExists(repository.repoRoot, worktreeName)
+        ? ['worktree', 'add', worktreePath, worktreeName]
+        : ['worktree', 'add', '-b', worktreeName, worktreePath];
 
     await execFileAsync('git', gitArgs, { cwd: repository.repoRoot });
 
@@ -174,6 +176,15 @@ function pickRandom(values: string[], random: () => number): string {
   const index = Math.floor(random() * values.length);
 
   return values[Math.min(index, values.length - 1)];
+}
+
+async function localBranchExists(repoRoot: string, branchName: string): Promise<boolean> {
+  try {
+    await execFileAsync('git', ['show-ref', '--verify', '--quiet', `refs/heads/${branchName}`], { cwd: repoRoot });
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 async function writeOutput(

@@ -365,6 +365,28 @@ describe('gji new', () => {
     );
   });
 
+  it('creates a worktree for an existing local branch without recreating the branch', async () => {
+    // Given a repository with an existing branch that has no worktree yet.
+    const repoRoot = await createRepository();
+    const stdout: string[] = [];
+    const branchName = 'feature/existing-branch';
+    const worktreePath = resolveWorktreePath(repoRoot, branchName);
+
+    await runGit(repoRoot, ['branch', branchName]);
+
+    // When gji new is run for that already-existing branch.
+    const result = await runCli(['new', branchName], {
+      cwd: repoRoot,
+      stdout: (chunk) => stdout.push(chunk),
+    });
+
+    // Then it creates the worktree using the existing branch (no -b flag).
+    expect(result.exitCode).toBe(0);
+    await expect(pathExists(worktreePath)).resolves.toBe(true);
+    await expect(currentBranch(worktreePath)).resolves.toBe(branchName);
+    expect(stdout.join('')).toBe(`${worktreePath}\n`);
+  });
+
   it('generates funny placeholder names as slug-safe mythic human-style branches', () => {
     // Given deterministic random choices.
     const placeholders = [

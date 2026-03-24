@@ -31,6 +31,7 @@ TODO
 - [DONE] Rename the npm package to `@solaqua/gji` and update install and publishing references to the scoped package name.
 - [DONE] Add an automated publish workflow that releases to npm when a version tag created by `npm version` is pushed.
 - [DONE] Expand the release checklist to cover scoped publishing and the publish workflow prerequisites such as npm Trusted Publishing.
+- [DONE] Support creating a worktree for an already-existing local branch in `gji new` without requiring the `-b` flag.
 
 ## Handoff Notes
 
