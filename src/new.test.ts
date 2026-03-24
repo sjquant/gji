@@ -365,22 +365,21 @@ describe('gji new', () => {
     );
   });
 
-  it('creates a worktree for an existing local branch without recreating the branch', async () => {
-    // Given a repository with an existing branch that has no worktree yet.
+  it('creates a linked worktree for a branch that already exists locally', async () => {
+    // Given a repository with a local branch that has no worktree checked out yet.
     const repoRoot = await createRepository();
     const stdout: string[] = [];
-    const branchName = 'feature/existing-branch';
+    const branchName = 'feature/pre-existing-branch';
     const worktreePath = resolveWorktreePath(repoRoot, branchName);
-
     await runGit(repoRoot, ['branch', branchName]);
 
-    // When gji new is run for that already-existing branch.
+    // When gji new is run for that pre-existing branch.
     const result = await runCli(['new', branchName], {
       cwd: repoRoot,
       stdout: (chunk) => stdout.push(chunk),
     });
 
-    // Then it creates the worktree using the existing branch (no -b flag).
+    // Then the worktree is created at the expected path and is checked out to the existing branch.
     expect(result.exitCode).toBe(0);
     await expect(pathExists(worktreePath)).resolves.toBe(true);
     await expect(currentBranch(worktreePath)).resolves.toBe(branchName);
