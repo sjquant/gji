@@ -110,6 +110,8 @@ Pull a PR into its own worktree:
 
 ```sh
 gji pr 123
+gji pr #123
+gji pr https://github.com/owner/repo/pull/123
 ```
 
 Sync the current worktree with the latest default branch:
@@ -145,7 +147,7 @@ After removal, the shell-integrated command returns you to the repository root.
 - `gji --version` prints the installed CLI version
 - `gji init [shell]` prints shell integration for `zsh`, `bash`, or `fish`
 - `gji new [branch] [--detached]` creates a branch and linked worktree; with shell integration it moves into the new worktree, and `--detached` creates a detached worktree instead
-- `gji pr <number>` fetches `origin/pull/<number>/head` and creates a linked `pr/<number>` worktree
+- `gji pr <ref>` accepts `123`, `#123`, or a full PR/MR URL, extracts the numeric ID, then fetches `origin/pull/<number>/head` and creates a linked `pr/<number>` worktree
 - `gji go [branch] [--print]` jumps to an existing worktree when shell integration is installed, or prints the matching worktree path otherwise
 - `gji root [--print]` jumps to the main repository root when shell integration is installed, or prints it otherwise
 - `gji status [--json]` prints repository metadata, worktree health, and upstream divergence
@@ -214,7 +216,7 @@ Each worktree entry contains:
 
 - `gji` works from either the main repository root or any linked worktree
 - the current worktree is never offered as a `gji clean` removal candidate
-- `gji` currently uses GitHub-style PR refs for `gji pr`
+- `gji pr` accepts GitHub, GitLab, and Bitbucket-style PR/MR links, but still fetches from `origin` using GitHub-style `refs/pull/<number>/head`
 
 ## License
 
