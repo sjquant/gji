@@ -18,6 +18,7 @@ export async function createRepository(): Promise<string> {
   await runGit(repoRoot, ['init']);
   await runGit(repoRoot, ['config', 'user.name', 'Codex']);
   await runGit(repoRoot, ['config', 'user.email', 'codex@example.com']);
+  await runGit(repoRoot, ['config', 'commit.gpgsign', 'false']);
   await runGit(repoRoot, ['add', 'README.md']);
   await runGit(repoRoot, ['commit', '-m', 'init']);
 
@@ -49,6 +50,7 @@ export async function cloneRepository(originRoot: string): Promise<string> {
   await execFileAsync('git', ['clone', originRoot, cloneRoot]);
   await runGit(cloneRoot, ['config', 'user.name', 'Codex']);
   await runGit(cloneRoot, ['config', 'user.email', 'codex@example.com']);
+  await runGit(cloneRoot, ['config', 'commit.gpgsign', 'false']);
 
   return realpath(cloneRoot);
 }
