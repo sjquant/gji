@@ -3,17 +3,24 @@ import { confirm, isCancel, multiselect } from '@clack/prompts';
 import type { WorktreeEntry } from './repo.js';
 import {
   deleteBranch,
+  forceDeleteBranch,
+  forceRemoveWorktree,
+  isBranchUnmergedError,
+  isWorktreeDirtyError,
   loadLinkedWorktrees,
   removeWorktree,
 } from './worktree-management.js';
 
 export interface CleanCommandOptions {
   cwd: string;
+  force?: boolean;
   stderr: (chunk: string) => void;
   stdout: (chunk: string) => void;
 }
 
 export interface CleanCommandDependencies {
+  confirmForceDeleteBranch: (branch: string) => Promise<boolean>;
+  confirmForceRemoveWorktree: (worktreePath: string) => Promise<boolean>;
   confirmRemoval: (worktrees: WorktreeEntry[]) => Promise<boolean>;
   promptForWorktrees: (worktrees: WorktreeEntry[]) => Promise<string[] | null>;
 }
@@ -23,6 +30,8 @@ export function createCleanCommand(
 ): (options: CleanCommandOptions) => Promise<number> {
   const promptForWorktrees = dependencies.promptForWorktrees ?? defaultPromptForWorktrees;
   const confirmRemoval = dependencies.confirmRemoval ?? defaultConfirmRemoval;
+  const confirmForceRemoveWorktree = dependencies.confirmForceRemoveWorktree ?? defaultConfirmForceRemoveWorktree;
+  const confirmForceDeleteBranch = dependencies.confirmForceDeleteBranch ?? defaultConfirmForceDeleteBranch;
 
   return async function runCleanCommand(options: CleanCommandOptions): Promise<number> {
     const { linkedWorktrees, repository } = await loadLinkedWorktrees(options.cwd);
@@ -55,10 +64,33 @@ export function createCleanCommand(
     }
 
     for (const worktree of selectedWorktrees) {
-      await removeWorktree(repository.repoRoot, worktree.path);
+      try {
+        await removeWorktree(repository.repoRoot, worktree.path);
+      } catch (error) {
+        if (!isWorktreeDirtyError(error)) {
+          throw error;
+        }
+
+        if (!options.force && !(await confirmForceRemoveWorktree(worktree.path))) {
+          options.stderr('Aborted\n');
+          return 1;
+        }
+
+        await forceRemoveWorktree(repository.repoRoot, worktree.path);
+      }
 
       if (worktree.branch) {
-        await deleteBranch(repository.repoRoot, worktree.branch);
+        try {
+          await deleteBranch(repository.repoRoot, worktree.branch);
+        } catch (error) {
+          if (!isBranchUnmergedError(error)) {
+            throw error;
+          }
+
+          if (options.force || (await confirmForceDeleteBranch(worktree.branch))) {
+            await forceDeleteBranch(repository.repoRoot, worktree.branch);
+          }
+        }
       }
     }
 
@@ -91,6 +123,28 @@ function resolveSelectedWorktrees(
   }
 
   return selectedWorktrees;
+}
+
+async function defaultConfirmForceRemoveWorktree(worktreePath: string): Promise<boolean> {
+  const choice = await confirm({
+    active: 'Yes',
+    inactive: 'No',
+    initialValue: false,
+    message: `Worktree at ${worktreePath} has untracked or modified files. Force remove?`,
+  });
+
+  return !isCancel(choice) && choice;
+}
+
+async function defaultConfirmForceDeleteBranch(branch: string): Promise<boolean> {
+  const choice = await confirm({
+    active: 'Yes',
+    inactive: 'No',
+    initialValue: false,
+    message: `Branch ${branch} has unmerged commits. Force delete?`,
+  });
+
+  return !isCancel(choice) && choice;
 }
 
 async function defaultPromptForWorktrees(

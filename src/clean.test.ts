@@ -1,8 +1,12 @@
+import { writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
+
 import { describe, expect, it } from 'vitest';
 
 import { createCleanCommand } from './clean.js';
 import {
   addLinkedWorktree,
+  commitFile,
   createRepository,
   pathExists,
   runGit,
@@ -172,6 +176,118 @@ describe('gji clean', () => {
     await expect(branchExists(repoRoot, currentBranch)).resolves.toBe(true);
     await expect(pathExists(otherWorktreePath)).resolves.toBe(false);
     await expect(branchExists(repoRoot, otherBranch)).resolves.toBe(false);
+  });
+
+  it('force-removes a dirty worktree when the user confirms', async () => {
+    // Given a repository with a linked worktree that has an untracked file.
+    const repoRoot = await createRepository();
+    const branch = 'feature/clean-dirty-confirm';
+    const worktreePath = await addLinkedWorktree(repoRoot, branch);
+    await writeFile(join(worktreePath, 'untracked.txt'), 'dirty');
+    let promptedForForce = false;
+    const runCleanCommand = createCleanCommand({
+      confirmForceRemoveWorktree: async () => {
+        promptedForForce = true;
+        return true;
+      },
+      confirmRemoval: async () => true,
+      promptForWorktrees: async () => [worktreePath],
+    });
+
+    // When gji clean runs.
+    expect(await runCleanCommand({ cwd: repoRoot, stderr: () => undefined, stdout: () => undefined })).toBe(0);
+
+    // Then it force-removes the worktree after prompting.
+    await expect(pathExists(worktreePath)).resolves.toBe(false);
+    expect(promptedForForce).toBe(true);
+  });
+
+  it('aborts when a dirty worktree force remove is declined', async () => {
+    // Given a repository with a linked worktree that has an untracked file and a declined force prompt.
+    const repoRoot = await createRepository();
+    const branch = 'feature/clean-dirty-decline';
+    const worktreePath = await addLinkedWorktree(repoRoot, branch);
+    await writeFile(join(worktreePath, 'untracked.txt'), 'dirty');
+    const stderr: string[] = [];
+    const runCleanCommand = createCleanCommand({
+      confirmForceRemoveWorktree: async () => false,
+      confirmRemoval: async () => true,
+      promptForWorktrees: async () => [worktreePath],
+    });
+
+    // When gji clean runs and force remove is declined.
+    expect(await runCleanCommand({ cwd: repoRoot, stderr: (chunk) => stderr.push(chunk), stdout: () => undefined })).toBe(1);
+
+    // Then it leaves the worktree intact and reports the abort.
+    await expect(pathExists(worktreePath)).resolves.toBe(true);
+    expect(stderr.join('')).toContain('Aborted');
+  });
+
+  it('force-deletes an unmerged branch when the user confirms', async () => {
+    // Given a repository with a linked worktree that has an unmerged commit.
+    const repoRoot = await createRepository();
+    const branch = 'feature/clean-unmerged-confirm';
+    const worktreePath = await addLinkedWorktree(repoRoot, branch);
+    await commitFile(worktreePath, 'new.txt', 'content', 'Unmerged commit');
+    let promptedForForce = false;
+    const runCleanCommand = createCleanCommand({
+      confirmForceDeleteBranch: async () => {
+        promptedForForce = true;
+        return true;
+      },
+      confirmRemoval: async () => true,
+      promptForWorktrees: async () => [worktreePath],
+    });
+
+    // When gji clean runs.
+    expect(await runCleanCommand({ cwd: repoRoot, stderr: () => undefined, stdout: () => undefined })).toBe(0);
+
+    // Then it force-deletes the branch after prompting.
+    await expect(pathExists(worktreePath)).resolves.toBe(false);
+    await expect(branchExists(repoRoot, branch)).resolves.toBe(false);
+    expect(promptedForForce).toBe(true);
+  });
+
+  it('removes the worktree and keeps an unmerged branch when force delete is declined', async () => {
+    // Given a repository with a linked worktree that has an unmerged commit and a declined force prompt.
+    const repoRoot = await createRepository();
+    const branch = 'feature/clean-unmerged-decline';
+    const worktreePath = await addLinkedWorktree(repoRoot, branch);
+    await commitFile(worktreePath, 'new.txt', 'content', 'Unmerged commit');
+    const runCleanCommand = createCleanCommand({
+      confirmForceDeleteBranch: async () => false,
+      confirmRemoval: async () => true,
+      promptForWorktrees: async () => [worktreePath],
+    });
+
+    // When gji clean runs and force delete is declined.
+    expect(await runCleanCommand({ cwd: repoRoot, stderr: () => undefined, stdout: () => undefined })).toBe(0);
+
+    // Then the worktree is removed but the branch is preserved.
+    await expect(pathExists(worktreePath)).resolves.toBe(false);
+    await expect(branchExists(repoRoot, branch)).resolves.toBe(true);
+  });
+
+  it('skips force prompts when force option is set', async () => {
+    // Given a repository with a dirty linked worktree that has an unmerged commit.
+    const repoRoot = await createRepository();
+    const branch = 'feature/clean-force-flag';
+    const worktreePath = await addLinkedWorktree(repoRoot, branch);
+    await writeFile(join(worktreePath, 'untracked.txt'), 'dirty');
+    await commitFile(worktreePath, 'new.txt', 'content', 'Unmerged commit');
+    const runCleanCommand = createCleanCommand({
+      confirmForceDeleteBranch: async () => { throw new Error('should not prompt for force delete'); },
+      confirmForceRemoveWorktree: async () => { throw new Error('should not prompt for force remove'); },
+      confirmRemoval: async () => true,
+      promptForWorktrees: async () => [worktreePath],
+    });
+
+    // When gji clean runs with the force option.
+    expect(await runCleanCommand({ cwd: repoRoot, force: true, stderr: () => undefined, stdout: () => undefined })).toBe(0);
+
+    // Then it removes worktree and deletes branch without any force prompts.
+    await expect(pathExists(worktreePath)).resolves.toBe(false);
+    await expect(branchExists(repoRoot, branch)).resolves.toBe(false);
   });
 });
 
