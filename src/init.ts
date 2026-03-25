@@ -242,7 +242,7 @@ function renderPosixWrapper(command: ShellWrappedCommand): string {
   local target
   local output_file
   output_file="$(mktemp -t ${command.tempPrefix}.XXXXXX)" || return 1
-  ${command.envVar}="$output_file" command gji ${command.commandName} "$@" || { local status=$?; rm -f "$output_file"; return $status; }
+  ${command.envVar}="$output_file" command gji ${command.commandName} "$@" || { local exit_code=$?; rm -f "$output_file"; return $exit_code; }
   target="$(cat "$output_file")"
   rm -f "$output_file"
   cd "$target" || return $?

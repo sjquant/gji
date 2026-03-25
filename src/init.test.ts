@@ -98,7 +98,7 @@ gji() {
     local target
     local output_file
     output_file="$(mktemp -t gji-new.XXXXXX)" || return 1
-    GJI_NEW_OUTPUT_FILE="$output_file" command gji new "$@" || { local status=$?; rm -f "$output_file"; return $status; }
+    GJI_NEW_OUTPUT_FILE="$output_file" command gji new "$@" || { local exit_code=$?; rm -f "$output_file"; return $exit_code; }
     target="$(cat "$output_file")"
     rm -f "$output_file"
     cd "$target" || return $?
@@ -115,7 +115,7 @@ gji() {
     local target
     local output_file
     output_file="$(mktemp -t gji-pr.XXXXXX)" || return 1
-    GJI_PR_OUTPUT_FILE="$output_file" command gji pr "$@" || { local status=$?; rm -f "$output_file"; return $status; }
+    GJI_PR_OUTPUT_FILE="$output_file" command gji pr "$@" || { local exit_code=$?; rm -f "$output_file"; return $exit_code; }
     target="$(cat "$output_file")"
     rm -f "$output_file"
     cd "$target" || return $?
@@ -132,7 +132,7 @@ gji() {
     local target
     local output_file
     output_file="$(mktemp -t gji-go.XXXXXX)" || return 1
-    GJI_GO_OUTPUT_FILE="$output_file" command gji go "$@" || { local status=$?; rm -f "$output_file"; return $status; }
+    GJI_GO_OUTPUT_FILE="$output_file" command gji go "$@" || { local exit_code=$?; rm -f "$output_file"; return $exit_code; }
     target="$(cat "$output_file")"
     rm -f "$output_file"
     cd "$target" || return $?
@@ -149,7 +149,7 @@ gji() {
     local target
     local output_file
     output_file="$(mktemp -t gji-root.XXXXXX)" || return 1
-    GJI_ROOT_OUTPUT_FILE="$output_file" command gji root "$@" || { local status=$?; rm -f "$output_file"; return $status; }
+    GJI_ROOT_OUTPUT_FILE="$output_file" command gji root "$@" || { local exit_code=$?; rm -f "$output_file"; return $exit_code; }
     target="$(cat "$output_file")"
     rm -f "$output_file"
     cd "$target" || return $?
@@ -166,7 +166,7 @@ gji() {
     local target
     local output_file
     output_file="$(mktemp -t gji-remove.XXXXXX)" || return 1
-    GJI_REMOVE_OUTPUT_FILE="$output_file" command gji remove "$@" || { local status=$?; rm -f "$output_file"; return $status; }
+    GJI_REMOVE_OUTPUT_FILE="$output_file" command gji remove "$@" || { local exit_code=$?; rm -f "$output_file"; return $exit_code; }
     target="$(cat "$output_file")"
     rm -f "$output_file"
     cd "$target" || return $?
