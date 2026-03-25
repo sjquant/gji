@@ -10,6 +10,7 @@ import {
   loadLinkedWorktrees,
   removeWorktree,
 } from './worktree-management.js';
+import { defaultConfirmForceDeleteBranch, defaultConfirmForceRemoveWorktree } from './worktree-prompts.js';
 import { writeShellOutput } from './shell-handoff.js';
 
 export interface RemoveCommandOptions {
@@ -61,7 +62,7 @@ export function createRemoveCommand(
       return 1;
     }
 
-    if (!(await confirmRemoval(worktree))) {
+    if (!options.force && !(await confirmRemoval(worktree))) {
       options.stderr('Aborted\n');
       return 1;
     }
@@ -78,7 +79,12 @@ export function createRemoveCommand(
         return 1;
       }
 
-      await forceRemoveWorktree(repository.repoRoot, worktree.path);
+      try {
+        await forceRemoveWorktree(repository.repoRoot, worktree.path);
+      } catch (forceError) {
+        options.stderr(`Failed to remove worktree at ${worktree.path}: ${toMessage(forceError)}\n`);
+        return 1;
+      }
     }
 
     if (worktree.branch) {
@@ -90,7 +96,13 @@ export function createRemoveCommand(
         }
 
         if (options.force || (await confirmForceDeleteBranch(worktree.branch))) {
-          await forceDeleteBranch(repository.repoRoot, worktree.branch);
+          try {
+            await forceDeleteBranch(repository.repoRoot, worktree.branch);
+          } catch (forceError) {
+            options.stderr(`Failed to delete branch ${worktree.branch}: ${toMessage(forceError)}\n`);
+          }
+        } else {
+          options.stderr(`Branch ${worktree.branch} was not deleted (has unmerged commits)\n`);
         }
       }
     }
@@ -116,28 +128,6 @@ async function defaultPromptForWorktree(worktrees: WorktreeEntry[]): Promise<str
   return isCancel(choice) ? null : choice;
 }
 
-async function defaultConfirmForceRemoveWorktree(worktreePath: string): Promise<boolean> {
-  const choice = await confirm({
-    active: 'Yes',
-    inactive: 'No',
-    initialValue: false,
-    message: `Worktree at ${worktreePath} has untracked or modified files. Force remove?`,
-  });
-
-  return !isCancel(choice) && choice;
-}
-
-async function defaultConfirmForceDeleteBranch(branch: string): Promise<boolean> {
-  const choice = await confirm({
-    active: 'Yes',
-    inactive: 'No',
-    initialValue: false,
-    message: `Branch ${branch} has unmerged commits. Force delete?`,
-  });
-
-  return !isCancel(choice) && choice;
-}
-
 async function defaultConfirmRemoval(worktree: WorktreeEntry): Promise<boolean> {
   const choice = await confirm({
     message: worktree.branch
@@ -156,4 +146,8 @@ async function writeOutput(
   stdout: (chunk: string) => void,
 ): Promise<void> {
   await writeShellOutput(REMOVE_OUTPUT_FILE_ENV, repoRoot, stdout);
+}
+
+function toMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }

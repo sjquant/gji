@@ -132,14 +132,14 @@ function registerCommands(program: Command): void {
   program
     .command('clean')
     .description('interactively prune linked worktrees')
-    .option('-f, --force', 'force-remove dirty worktrees and force-delete unmerged branches')
+    .option('-f, --force', 'bypass prompts, force-remove dirty worktrees, and force-delete unmerged branches')
     .action(notImplemented('clean'));
 
   program
     .command('remove [branch]')
     .alias('rm')
     .description('remove a linked worktree and delete its branch when present')
-    .option('-f, --force', 'force-remove a dirty worktree and force-delete an unmerged branch')
+    .option('-f, --force', 'bypass prompts, force-remove a dirty worktree, and force-delete an unmerged branch')
     .action(notImplemented('remove'));
 
   const configCommand = program

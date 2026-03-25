@@ -201,17 +201,36 @@ describe('gji remove', () => {
     const branch = 'feature/remove-unmerged-decline';
     const worktreePath = await addLinkedWorktree(repoRoot, branch);
     await commitFile(worktreePath, 'new.txt', 'content', 'Unmerged commit');
+    const stderr: string[] = [];
     const runRemoveCommand = createRemoveCommand({
       confirmForceDeleteBranch: async () => false,
       confirmRemoval: async () => true,
     });
 
     // When gji remove runs and force delete is declined.
-    expect(await runRemoveCommand({ branch, cwd: repoRoot, stderr: () => undefined, stdout: () => undefined })).toBe(0);
+    expect(await runRemoveCommand({ branch, cwd: repoRoot, stderr: (chunk) => stderr.push(chunk), stdout: () => undefined })).toBe(0);
 
-    // Then the worktree is removed but the branch is preserved.
+    // Then the worktree is removed but the branch is preserved, with a message about the kept branch.
     await expect(pathExists(worktreePath)).resolves.toBe(false);
     await expect(branchExists(repoRoot, branch)).resolves.toBe(true);
+    expect(stderr.join('')).toContain(branch);
+    expect(stderr.join('')).toContain('not deleted');
+  });
+
+  it('skips the initial confirmation prompt when force option is set', async () => {
+    // Given a repository with a linked worktree and a confirmRemoval that would throw if called.
+    const repoRoot = await createRepository();
+    const branch = 'feature/remove-force-skips-confirm';
+    const worktreePath = await addLinkedWorktree(repoRoot, branch);
+    const runRemoveCommand = createRemoveCommand({
+      confirmRemoval: async () => { throw new Error('confirmRemoval should not be called with force'); },
+    });
+
+    // When gji remove runs with force.
+    expect(await runRemoveCommand({ branch, cwd: repoRoot, force: true, stderr: () => undefined, stdout: () => undefined })).toBe(0);
+
+    // Then it removes the worktree without prompting for confirmation.
+    await expect(pathExists(worktreePath)).resolves.toBe(false);
   });
 
   it('skips force prompts and force-removes worktree and force-deletes branch when force option is set', async () => {
