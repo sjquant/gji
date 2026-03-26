@@ -21,6 +21,7 @@ Current source install:
 ```sh
 git clone https://github.com/sjquant/gji.git
 cd gji
+pnpm install
 pnpm build
 npm install -g .
 ```
