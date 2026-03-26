@@ -5,6 +5,9 @@ import { detectRepository, listWorktrees, type RepositoryContext, type WorktreeE
 
 const execFileAsync = promisify(execFile);
 
+// Force English output so error message string matching is locale-independent.
+const GIT_ENV = { ...process.env, LC_ALL: 'C' };
+
 export interface LinkedWorktreeContext {
   linkedWorktrees: WorktreeEntry[];
   repository: RepositoryContext;
@@ -23,9 +26,29 @@ export async function loadLinkedWorktrees(cwd: string): Promise<LinkedWorktreeCo
 }
 
 export async function removeWorktree(repoRoot: string, worktreePath: string): Promise<void> {
-  await execFileAsync('git', ['worktree', 'remove', worktreePath], { cwd: repoRoot });
+  await execFileAsync('git', ['worktree', 'remove', worktreePath], { cwd: repoRoot, env: GIT_ENV });
+}
+
+export async function forceRemoveWorktree(repoRoot: string, worktreePath: string): Promise<void> {
+  await execFileAsync('git', ['worktree', 'remove', '--force', worktreePath], { cwd: repoRoot, env: GIT_ENV });
 }
 
 export async function deleteBranch(repoRoot: string, branch: string): Promise<void> {
-  await execFileAsync('git', ['branch', '-d', branch], { cwd: repoRoot });
+  await execFileAsync('git', ['branch', '-d', branch], { cwd: repoRoot, env: GIT_ENV });
+}
+
+export async function forceDeleteBranch(repoRoot: string, branch: string): Promise<void> {
+  await execFileAsync('git', ['branch', '-D', branch], { cwd: repoRoot, env: GIT_ENV });
+}
+
+export function isWorktreeDirtyError(error: unknown): boolean {
+  return hasStderr(error) && error.stderr.includes('contains modified or untracked files');
+}
+
+export function isBranchUnmergedError(error: unknown): boolean {
+  return hasStderr(error) && error.stderr.includes('is not fully merged');
+}
+
+function hasStderr(error: unknown): error is { stderr: string } {
+  return error instanceof Error && 'stderr' in error && typeof (error as { stderr: unknown }).stderr === 'string';
 }

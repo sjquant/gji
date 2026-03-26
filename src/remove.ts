@@ -3,19 +3,27 @@ import { confirm, isCancel, select } from '@clack/prompts';
 import type { WorktreeEntry } from './repo.js';
 import {
   deleteBranch,
+  forceDeleteBranch,
+  forceRemoveWorktree,
+  isBranchUnmergedError,
+  isWorktreeDirtyError,
   loadLinkedWorktrees,
   removeWorktree,
 } from './worktree-management.js';
+import { defaultConfirmForceDeleteBranch, defaultConfirmForceRemoveWorktree } from './worktree-prompts.js';
 import { writeShellOutput } from './shell-handoff.js';
 
 export interface RemoveCommandOptions {
   branch?: string;
   cwd: string;
+  force?: boolean;
   stderr: (chunk: string) => void;
   stdout: (chunk: string) => void;
 }
 
 export interface RemoveCommandDependencies {
+  confirmForceDeleteBranch: (branch: string) => Promise<boolean>;
+  confirmForceRemoveWorktree: (worktreePath: string) => Promise<boolean>;
   confirmRemoval: (worktree: WorktreeEntry) => Promise<boolean>;
   promptForWorktree: (worktrees: WorktreeEntry[]) => Promise<string | null>;
 }
@@ -27,6 +35,8 @@ export function createRemoveCommand(
 ): (options: RemoveCommandOptions) => Promise<number> {
   const promptForWorktree = dependencies.promptForWorktree ?? defaultPromptForWorktree;
   const confirmRemoval = dependencies.confirmRemoval ?? defaultConfirmRemoval;
+  const confirmForceRemoveWorktree = dependencies.confirmForceRemoveWorktree ?? defaultConfirmForceRemoveWorktree;
+  const confirmForceDeleteBranch = dependencies.confirmForceDeleteBranch ?? defaultConfirmForceDeleteBranch;
 
   return async function runRemoveCommand(options: RemoveCommandOptions): Promise<number> {
     const { linkedWorktrees, repository } = await loadLinkedWorktrees(options.cwd);
@@ -52,15 +62,49 @@ export function createRemoveCommand(
       return 1;
     }
 
-    if (!(await confirmRemoval(worktree))) {
+    if (!options.force && !(await confirmRemoval(worktree))) {
       options.stderr('Aborted\n');
       return 1;
     }
 
-    await removeWorktree(repository.repoRoot, worktree.path);
+    try {
+      await removeWorktree(repository.repoRoot, worktree.path);
+    } catch (error) {
+      if (!isWorktreeDirtyError(error)) {
+        throw error;
+      }
+
+      if (!options.force && !(await confirmForceRemoveWorktree(worktree.path))) {
+        options.stderr('Aborted\n');
+        return 1;
+      }
+
+      try {
+        await forceRemoveWorktree(repository.repoRoot, worktree.path);
+      } catch (forceError) {
+        options.stderr(`Failed to remove worktree at ${worktree.path}: ${toMessage(forceError)}\n`);
+        return 1;
+      }
+    }
 
     if (worktree.branch) {
-      await deleteBranch(repository.repoRoot, worktree.branch);
+      try {
+        await deleteBranch(repository.repoRoot, worktree.branch);
+      } catch (error) {
+        if (!isBranchUnmergedError(error)) {
+          throw error;
+        }
+
+        if (options.force || (await confirmForceDeleteBranch(worktree.branch))) {
+          try {
+            await forceDeleteBranch(repository.repoRoot, worktree.branch);
+          } catch (forceError) {
+            options.stderr(`Failed to delete branch ${worktree.branch}: ${toMessage(forceError)}\n`);
+          }
+        } else {
+          options.stderr(`Branch ${worktree.branch} was not deleted (has unmerged commits)\n`);
+        }
+      }
     }
 
     await writeOutput(repository.repoRoot, options.stdout);
@@ -102,4 +146,8 @@ async function writeOutput(
   stdout: (chunk: string) => void,
 ): Promise<void> {
   await writeShellOutput(REMOVE_OUTPUT_FILE_ENV, repoRoot, stdout);
+}
+
+function toMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }

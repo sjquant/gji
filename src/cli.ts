@@ -132,12 +132,14 @@ function registerCommands(program: Command): void {
   program
     .command('clean')
     .description('interactively prune linked worktrees')
+    .option('-f, --force', 'bypass prompts, force-remove dirty worktrees, and force-delete unmerged branches')
     .action(notImplemented('clean'));
 
   program
     .command('remove [branch]')
     .alias('rm')
     .description('remove a linked worktree and delete its branch when present')
+    .option('-f, --force', 'bypass prompts, force-remove a dirty worktree, and force-delete an unmerged branch')
     .action(notImplemented('remove'));
 
   const configCommand = program
@@ -275,9 +277,10 @@ function attachCommandActions(
 
   program.commands
     .find((command) => command.name() === 'clean')
-    ?.action(async () => {
+    ?.action(async (commandOptions: { force?: boolean }) => {
       const exitCode = await runCleanCommand({
         cwd: options.cwd,
+        force: commandOptions.force,
         stderr: options.stderr,
         stdout: options.stdout,
       });
@@ -287,10 +290,11 @@ function attachCommandActions(
       }
     });
 
-  const runRemovalCommand = async (branch?: string) => {
+  const runRemovalCommand = async (branch?: string, commandOptions: { force?: boolean } = {}) => {
     const exitCode = await runRemoveCommand({
       branch,
       cwd: options.cwd,
+      force: commandOptions.force,
       stderr: options.stderr,
       stdout: options.stdout,
     });
