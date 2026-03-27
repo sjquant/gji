@@ -8,6 +8,12 @@ export const GLOBAL_CONFIG_NAME = 'config.json';
 
 export type GjiConfig = Record<string, unknown>;
 
+export interface GjiHooks {
+  afterNew?: string;
+  afterGo?: string;
+  beforeRemove?: string;
+}
+
 export interface LoadedConfig {
   config: GjiConfig;
   exists: boolean;

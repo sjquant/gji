@@ -1,5 +1,9 @@
+import { basename } from 'node:path';
+
 import { isCancel, select } from '@clack/prompts';
-import { listWorktrees, type WorktreeEntry } from './repo.js';
+import { loadEffectiveConfig } from './config.js';
+import { extractHooks, runHook } from './hooks.js';
+import { detectRepository, listWorktrees, type WorktreeEntry } from './repo.js';
 import { writeShellOutput } from './shell-handoff.js';
 
 export interface GoCommandOptions {
@@ -22,7 +26,10 @@ export function createGoCommand(
   const prompt = dependencies.promptForWorktree ?? promptForWorktree;
 
   return async function runGoCommand(options: GoCommandOptions): Promise<number> {
-    const worktrees = await listWorktrees(options.cwd);
+    const [worktrees, repository] = await Promise.all([
+      listWorktrees(options.cwd),
+      detectRepository(options.cwd),
+    ]);
 
     if (options.branch) {
       const worktree = worktrees.find((entry) => entry.branch === options.branch);
@@ -42,6 +49,16 @@ export function createGoCommand(
       options.stderr('Aborted\n');
       return 1;
     }
+
+    const config = await loadEffectiveConfig(repository.repoRoot);
+    const hooks = extractHooks(config);
+    const chosenWorktree = worktrees.find((w) => w.path === chosenPath);
+    await runHook(
+      hooks.afterGo,
+      chosenPath,
+      { branch: chosenWorktree?.branch, path: chosenPath, repo: basename(repository.repoRoot) },
+      options.stderr,
+    );
 
     await writeShellOutput(GO_OUTPUT_FILE_ENV, chosenPath, options.stdout);
     return 0;

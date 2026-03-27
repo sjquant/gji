@@ -1,7 +1,7 @@
 # TASKS
 
 **## Status**
-TODO
+IN PROGRESS
 
 ## Tasks
 
@@ -32,6 +32,7 @@ TODO
 - [DONE] Add an automated publish workflow that releases to npm when a version tag created by `npm version` is pushed.
 - [DONE] Expand the release checklist to cover scoped publishing and the publish workflow prerequisites such as npm Trusted Publishing.
 - [DONE] Support creating a worktree for an already-existing local branch in `gji new` without requiring the `-b` flag.
+- [IN PROGRESS] Add lifecycle hooks (`hooks.afterNew`, `hooks.afterGo`, `hooks.beforeRemove`) to config so users can run setup scripts automatically (e.g. `pnpm install`) when creating, switching to, or removing a worktree. Support `{{branch}}`, `{{path}}`, and `{{repo}}` template variables. Hook failures emit a warning but do not abort the command.
 
 ## Handoff Notes
 
