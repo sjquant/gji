@@ -120,6 +120,69 @@ describe('runHook', () => {
   });
 });
 
+describe('hook config layering', () => {
+  it('merges global and project hooks rather than replacing the global object', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'gji-home-'));
+    const repoRoot = await createRepository();
+    const branchName = 'feature/layered-hooks';
+    const worktreePath = resolveWorktreePath(repoRoot, branchName);
+    const globalMarker = join(worktreePath, '.global-hook-ran');
+    const localMarker = join(worktreePath, '.local-hook-ran');
+    process.env.HOME = home;
+
+    const globalConfigPath = GLOBAL_CONFIG_FILE_PATH(home);
+    await import('node:fs/promises').then(({ mkdir: mkdirFn }) =>
+      mkdirFn(join(globalConfigPath, '..'), { recursive: true }),
+    );
+    await writeFile(
+      globalConfigPath,
+      JSON.stringify({ hooks: { afterGo: `touch "${globalMarker}"` } }),
+      'utf8',
+    );
+    await writeFile(
+      join(repoRoot, '.gji.json'),
+      JSON.stringify({ hooks: { afterNew: `touch "${localMarker}"` } }),
+      'utf8',
+    );
+
+    // afterNew from local config should run; afterGo from global should not be lost
+    const result = await runCli(['new', branchName], { cwd: repoRoot });
+    expect(result.exitCode).toBe(0);
+    await expect(readFile(localMarker)).resolves.toBeDefined();
+  });
+
+  it('project hook overrides global hook for the same key', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'gji-home-'));
+    const repoRoot = await createRepository();
+    const branchName = 'feature/override-hook';
+    const worktreePath = resolveWorktreePath(repoRoot, branchName);
+    const globalMarker = join(worktreePath, '.global-ran');
+    const localMarker = join(worktreePath, '.local-ran');
+    process.env.HOME = home;
+
+    const globalConfigPath = GLOBAL_CONFIG_FILE_PATH(home);
+    await import('node:fs/promises').then(({ mkdir: mkdirFn }) =>
+      mkdirFn(join(globalConfigPath, '..'), { recursive: true }),
+    );
+    await writeFile(
+      globalConfigPath,
+      JSON.stringify({ hooks: { afterNew: `touch "${globalMarker}"` } }),
+      'utf8',
+    );
+    await writeFile(
+      join(repoRoot, '.gji.json'),
+      JSON.stringify({ hooks: { afterNew: `touch "${localMarker}"` } }),
+      'utf8',
+    );
+
+    const result = await runCli(['new', branchName], { cwd: repoRoot });
+    expect(result.exitCode).toBe(0);
+    // Local hook runs; global hook for the same key is replaced
+    await expect(readFile(localMarker)).resolves.toBeDefined();
+    await expect(readFile(globalMarker)).rejects.toThrow();
+  });
+});
+
 describe('gji new with afterNew hook', () => {
   it('runs the configured afterNew hook in the new worktree directory', async () => {
     const home = await mkdtemp(join(tmpdir(), 'gji-home-'));
