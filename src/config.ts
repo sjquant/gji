@@ -8,12 +8,6 @@ export const GLOBAL_CONFIG_NAME = 'config.json';
 
 export type GjiConfig = Record<string, unknown>;
 
-export interface GjiHooks {
-  afterNew?: string;
-  afterGo?: string;
-  beforeRemove?: string;
-}
-
 export interface LoadedConfig {
   config: GjiConfig;
   exists: boolean;
@@ -39,8 +33,6 @@ export async function loadEffectiveConfig(
 
   const merged = mergeConfig(globalConfig.config, localConfig.config);
 
-  // Deep-merge hooks so project hooks layer on top of global hooks rather
-  // than replacing the entire object.
   const globalHooks = isPlainObject(globalConfig.config.hooks) ? globalConfig.config.hooks : {};
   const localHooks = isPlainObject(localConfig.config.hooks) ? localConfig.config.hooks : {};
 

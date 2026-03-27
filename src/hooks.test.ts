@@ -1,14 +1,14 @@
-import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { extractHooks, interpolate, runHook } from './hooks.js';
-import { GLOBAL_CONFIG_FILE_PATH } from './config.js';
-import { createRepository } from './repo.test-helpers.js';
 import { runCli } from './cli.js';
+import { GLOBAL_CONFIG_FILE_PATH } from './config.js';
+import { extractHooks, interpolate, runHook } from './hooks.js';
 import { resolveWorktreePath } from './repo.js';
+import { createRepository } from './repo.test-helpers.js';
 
 const originalHome = process.env.HOME;
 
@@ -22,26 +22,36 @@ afterEach(() => {
 
 describe('interpolate', () => {
   it('replaces {{branch}} with the branch name', () => {
+    // Given a template referencing {{branch}} and a context with a branch value.
+    // Then {{branch}} is replaced with the value from context.
     expect(interpolate('echo {{branch}}', { branch: 'feature/foo', path: '/p', repo: 'r' }))
       .toBe('echo feature/foo');
   });
 
   it('replaces {{path}} with the worktree path', () => {
+    // Given a template referencing {{path}} and a context with a path value.
+    // Then {{path}} is replaced with the value from context.
     expect(interpolate('cd {{path}}', { branch: 'main', path: '/worktrees/r/main', repo: 'r' }))
       .toBe('cd /worktrees/r/main');
   });
 
   it('replaces {{repo}} with the repo name', () => {
+    // Given a template referencing {{repo}} and a context with a repo value.
+    // Then {{repo}} is replaced with the value from context.
     expect(interpolate('echo {{repo}}', { path: '/p', repo: 'myrepo' }))
       .toBe('echo myrepo');
   });
 
   it('replaces all occurrences of a variable', () => {
+    // Given a template with the same variable used twice.
+    // Then both occurrences are replaced.
     expect(interpolate('{{branch}} {{branch}}', { branch: 'main', path: '/p', repo: 'r' }))
       .toBe('main main');
   });
 
   it('substitutes empty string for a missing branch', () => {
+    // Given a template referencing {{branch}} and a context with no branch.
+    // Then {{branch}} is replaced with an empty string.
     expect(interpolate('echo {{branch}}', { path: '/p', repo: 'r' }))
       .toBe('echo ');
   });
@@ -49,25 +59,35 @@ describe('interpolate', () => {
 
 describe('extractHooks', () => {
   it('returns empty object when no hooks key exists', () => {
+    // Given a config with no hooks key.
+    // Then extractHooks returns an empty object.
     expect(extractHooks({})).toEqual({});
   });
 
   it('extracts afterNew', () => {
+    // Given a config with only an afterNew hook.
+    // Then extractHooks returns only that hook.
     expect(extractHooks({ hooks: { afterNew: 'pnpm install' } }))
       .toEqual({ afterNew: 'pnpm install' });
   });
 
   it('extracts all three hook types', () => {
+    // Given a config with all three hook keys set.
+    // Then extractHooks returns all three.
     expect(extractHooks({ hooks: { afterNew: 'a', afterGo: 'b', beforeRemove: 'c' } }))
       .toEqual({ afterNew: 'a', afterGo: 'b', beforeRemove: 'c' });
   });
 
   it('ignores non-string hook values', () => {
+    // Given a config with hooks set to non-string values.
+    // Then extractHooks omits those keys.
     expect(extractHooks({ hooks: { afterNew: 123, afterGo: null } }))
       .toEqual({});
   });
 
-  it('ignores hooks key that is not an object', () => {
+  it('ignores a hooks key that is not a plain object', () => {
+    // Given a config where the hooks key is a primitive or array.
+    // Then extractHooks treats it as if no hooks were configured.
     expect(extractHooks({ hooks: 'invalid' })).toEqual({});
     expect(extractHooks({ hooks: [] })).toEqual({});
     expect(extractHooks({ hooks: 42 })).toEqual({});
@@ -76,27 +96,37 @@ describe('extractHooks', () => {
 
 describe('runHook', () => {
   it('does nothing when hookCmd is undefined', async () => {
+    // Given no hook command is configured.
     const stderr: string[] = [];
+
+    // When runHook is called with undefined.
     await runHook(undefined, '/tmp', { path: '/tmp', repo: 'r' }, (c) => stderr.push(c));
+
+    // Then nothing is emitted to stderr.
     expect(stderr).toEqual([]);
   });
 
   it('executes a shell command in the given cwd', async () => {
+    // Given a temporary directory and a hook that creates a marker file.
     const dir = await mkdtemp(join(tmpdir(), 'gji-hooks-'));
-    const touchFile = join(dir, 'hook-ran.txt');
+    const markerFile = join(dir, 'hook-ran.txt');
     const stderr: string[] = [];
 
-    await runHook(`touch "${touchFile}"`, dir, { path: dir, repo: 'r' }, (c) => stderr.push(c));
+    // When runHook is called with that command.
+    await runHook(`touch "${markerFile}"`, dir, { path: dir, repo: 'r' }, (c) => stderr.push(c));
 
-    await expect(readFile(touchFile)).resolves.toBeDefined();
+    // Then the marker file exists and no errors were emitted.
+    await expect(readFile(markerFile)).resolves.toBeDefined();
     expect(stderr).toEqual([]);
   });
 
   it('interpolates template variables before running the command', async () => {
+    // Given a hook command that uses {{branch}} and {{repo}} variables.
     const dir = await mkdtemp(join(tmpdir(), 'gji-hooks-'));
     const outputFile = join(dir, 'output.txt');
     const stderr: string[] = [];
 
+    // When runHook is called with branch and repo in context.
     await runHook(
       `printf '%s:%s' '{{branch}}' '{{repo}}' > "${outputFile}"`,
       dir,
@@ -104,39 +134,40 @@ describe('runHook', () => {
       (c) => stderr.push(c),
     );
 
-    const content = await readFile(outputFile, 'utf8');
-    expect(content).toBe('feature/test:myrepo');
+    // Then the output file contains the substituted values.
+    await expect(readFile(outputFile, 'utf8')).resolves.toBe('feature/test:myrepo');
   });
 
   it('emits a warning on non-zero exit without throwing', async () => {
+    // Given a hook command that exits with a non-zero code.
     const dir = await mkdtemp(join(tmpdir(), 'gji-hooks-'));
     const stderr: string[] = [];
 
+    // When runHook runs that failing command.
     await expect(
       runHook('exit 42', dir, { path: dir, repo: 'r' }, (c) => stderr.push(c)),
     ).resolves.toBeUndefined();
 
+    // Then a warning mentioning the exit code is emitted to stderr.
     expect(stderr.join('')).toContain('hook exited with code 42');
   });
 });
 
 describe('hook config layering', () => {
-  it('merges global and project hooks rather than replacing the global object', async () => {
+  it('merges global and project hooks so both apply when they use different keys', async () => {
+    // Given a global config with afterGo and a project config with afterNew.
     const home = await mkdtemp(join(tmpdir(), 'gji-home-'));
     const repoRoot = await createRepository();
     const branchName = 'feature/layered-hooks';
     const worktreePath = resolveWorktreePath(repoRoot, branchName);
-    const globalMarker = join(worktreePath, '.global-hook-ran');
     const localMarker = join(worktreePath, '.local-hook-ran');
     process.env.HOME = home;
 
     const globalConfigPath = GLOBAL_CONFIG_FILE_PATH(home);
-    await import('node:fs/promises').then(({ mkdir: mkdirFn }) =>
-      mkdirFn(join(globalConfigPath, '..'), { recursive: true }),
-    );
+    await mkdir(dirname(globalConfigPath), { recursive: true });
     await writeFile(
       globalConfigPath,
-      JSON.stringify({ hooks: { afterGo: `touch "${globalMarker}"` } }),
+      JSON.stringify({ hooks: { afterGo: 'echo go' } }),
       'utf8',
     );
     await writeFile(
@@ -145,13 +176,16 @@ describe('hook config layering', () => {
       'utf8',
     );
 
-    // afterNew from local config should run; afterGo from global should not be lost
+    // When gji new is run.
     const result = await runCli(['new', branchName], { cwd: repoRoot });
+
+    // Then the project afterNew hook ran and the global afterGo was not discarded.
     expect(result.exitCode).toBe(0);
     await expect(readFile(localMarker)).resolves.toBeDefined();
   });
 
   it('project hook overrides global hook for the same key', async () => {
+    // Given global and project configs that both define afterNew with different commands.
     const home = await mkdtemp(join(tmpdir(), 'gji-home-'));
     const repoRoot = await createRepository();
     const branchName = 'feature/override-hook';
@@ -161,9 +195,7 @@ describe('hook config layering', () => {
     process.env.HOME = home;
 
     const globalConfigPath = GLOBAL_CONFIG_FILE_PATH(home);
-    await import('node:fs/promises').then(({ mkdir: mkdirFn }) =>
-      mkdirFn(join(globalConfigPath, '..'), { recursive: true }),
-    );
+    await mkdir(dirname(globalConfigPath), { recursive: true });
     await writeFile(
       globalConfigPath,
       JSON.stringify({ hooks: { afterNew: `touch "${globalMarker}"` } }),
@@ -175,9 +207,11 @@ describe('hook config layering', () => {
       'utf8',
     );
 
+    // When gji new is run.
     const result = await runCli(['new', branchName], { cwd: repoRoot });
+
+    // Then only the project hook ran and the global hook for the same key did not.
     expect(result.exitCode).toBe(0);
-    // Local hook runs; global hook for the same key is replaced
     await expect(readFile(localMarker)).resolves.toBeDefined();
     await expect(readFile(globalMarker)).rejects.toThrow();
   });
@@ -185,12 +219,11 @@ describe('hook config layering', () => {
 
 describe('gji new with afterNew hook', () => {
   it('runs the configured afterNew hook in the new worktree directory', async () => {
-    const home = await mkdtemp(join(tmpdir(), 'gji-home-'));
+    // Given a project config with an afterNew hook that creates a marker file.
     const repoRoot = await createRepository();
     const branchName = 'feature/hook-test';
     const worktreePath = resolveWorktreePath(repoRoot, branchName);
     const markerFile = join(worktreePath, '.hook-ran');
-    process.env.HOME = home;
 
     await writeFile(
       join(repoRoot, '.gji.json'),
@@ -198,13 +231,16 @@ describe('gji new with afterNew hook', () => {
       'utf8',
     );
 
+    // When gji new creates the worktree.
     const result = await runCli(['new', branchName], { cwd: repoRoot });
 
+    // Then the hook ran and the marker file exists inside the new worktree.
     expect(result.exitCode).toBe(0);
     await expect(readFile(markerFile)).resolves.toBeDefined();
   });
 
-  it('still creates the worktree when afterNew hook fails', async () => {
+  it('still creates the worktree when the afterNew hook fails', async () => {
+    // Given a project config with an afterNew hook that exits non-zero.
     const repoRoot = await createRepository();
     const branchName = 'feature/hook-fail';
     const worktreePath = resolveWorktreePath(repoRoot, branchName);
@@ -216,11 +252,13 @@ describe('gji new with afterNew hook', () => {
       'utf8',
     );
 
+    // When gji new runs with that failing hook.
     const result = await runCli(['new', branchName], {
       cwd: repoRoot,
       stderr: (c) => stderr.push(c),
     });
 
+    // Then the worktree is still created and a warning is emitted.
     expect(result.exitCode).toBe(0);
     await expect(readFile(join(worktreePath, '.git'))).resolves.toBeDefined();
     expect(stderr.join('')).toContain('hook exited with code 1');
@@ -229,21 +267,22 @@ describe('gji new with afterNew hook', () => {
 
 describe('gji remove with beforeRemove hook', () => {
   it('runs the configured beforeRemove hook before removing the worktree', async () => {
+    // Given an existing worktree and a project config with a beforeRemove hook.
     const repoRoot = await createRepository();
     const branchName = 'feature/to-remove';
-    const worktreePath = resolveWorktreePath(repoRoot, branchName);
     const markerFile = join(repoRoot, 'before-remove-ran.txt');
 
     await runCli(['new', branchName], { cwd: repoRoot });
-
     await writeFile(
       join(repoRoot, '.gji.json'),
       JSON.stringify({ hooks: { beforeRemove: `touch "${markerFile}"` } }),
       'utf8',
     );
 
+    // When gji remove is run for that worktree.
     const result = await runCli(['remove', '--force', branchName], { cwd: repoRoot });
 
+    // Then the hook ran before removal and the marker file exists.
     expect(result.exitCode).toBe(0);
     await expect(readFile(markerFile)).resolves.toBeDefined();
   });
