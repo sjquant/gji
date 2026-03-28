@@ -1,5 +1,9 @@
+import { basename } from 'node:path';
+
 import { isCancel, select } from '@clack/prompts';
-import { listWorktrees, type WorktreeEntry } from './repo.js';
+import { loadEffectiveConfig } from './config.js';
+import { extractHooks, runHook } from './hooks.js';
+import { detectRepository, listWorktrees, type WorktreeEntry } from './repo.js';
 import { writeShellOutput } from './shell-handoff.js';
 
 export interface GoCommandOptions {
@@ -22,28 +26,36 @@ export function createGoCommand(
   const prompt = dependencies.promptForWorktree ?? promptForWorktree;
 
   return async function runGoCommand(options: GoCommandOptions): Promise<number> {
-    const worktrees = await listWorktrees(options.cwd);
+    const [worktrees, repository] = await Promise.all([
+      listWorktrees(options.cwd),
+      detectRepository(options.cwd),
+    ]);
 
-    if (options.branch) {
-      const worktree = worktrees.find((entry) => entry.branch === options.branch);
+    const prompted = options.branch ? null : await prompt(worktrees);
+    const resolvedPath = options.branch
+      ? worktrees.find((entry) => entry.branch === options.branch)?.path
+      : prompted ?? undefined;
 
-      if (!worktree) {
-        options.stderr(`No worktree found for branch: ${options.branch}\n`);
-        return 1;
-      }
-
-      options.stdout(`${worktree.path}\n`);
-      return 0;
-    }
-
-    const chosenPath = await prompt(worktrees);
-
-    if (!chosenPath) {
-      options.stderr('Aborted\n');
+    if (!resolvedPath) {
+      options.stderr(options.branch
+        ? `No worktree found for branch: ${options.branch}\n`
+        : 'Aborted\n',
+      );
       return 1;
     }
 
-    await writeShellOutput(GO_OUTPUT_FILE_ENV, chosenPath, options.stdout);
+    const chosenWorktree = worktrees.find((w) => w.path === resolvedPath);
+
+    const config = await loadEffectiveConfig(repository.repoRoot);
+    const hooks = extractHooks(config);
+    await runHook(
+      hooks.afterEnter,
+      resolvedPath,
+      { branch: chosenWorktree?.branch ?? undefined, path: resolvedPath, repo: basename(repository.repoRoot) },
+      options.stderr,
+    );
+
+    await writeShellOutput(GO_OUTPUT_FILE_ENV, resolvedPath, options.stdout);
     return 0;
   };
 }

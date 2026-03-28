@@ -31,7 +31,16 @@ export async function loadEffectiveConfig(
     loadConfig(root),
   ]);
 
-  return mergeConfig(globalConfig.config, localConfig.config);
+  const merged = mergeConfig(globalConfig.config, localConfig.config);
+
+  const globalHooks = isPlainObject(globalConfig.config.hooks) ? globalConfig.config.hooks : {};
+  const localHooks = isPlainObject(localConfig.config.hooks) ? localConfig.config.hooks : {};
+
+  if (Object.keys(globalHooks).length > 0 || Object.keys(localHooks).length > 0) {
+    merged.hooks = { ...globalHooks, ...localHooks };
+  }
+
+  return merged;
 }
 
 export async function loadGlobalConfig(home: string = homedir()): Promise<LoadedConfig> {
@@ -122,6 +131,10 @@ function mergeConfig(...values: Record<string, unknown>[]): GjiConfig {
     }),
     { ...DEFAULT_CONFIG },
   );
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 function isMissingFileError(error: unknown): error is NodeJS.ErrnoException {

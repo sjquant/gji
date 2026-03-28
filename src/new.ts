@@ -1,10 +1,11 @@
 import { mkdir } from 'node:fs/promises';
-import { dirname } from 'node:path';
+import { basename, dirname } from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { isCancel, text } from '@clack/prompts';
 
 import { loadEffectiveConfig } from './config.js';
+import { extractHooks, runHook } from './hooks.js';
 import { type PathConflictChoice, pathExists, promptForPathConflict } from './conflict.js';
 import { detectRepository, resolveWorktreePath } from './repo.js';
 import { writeShellOutput } from './shell-handoff.js';
@@ -74,6 +75,14 @@ export function createNewCommand(
         : ['worktree', 'add', '-b', worktreeName, worktreePath];
 
     await execFileAsync('git', gitArgs, { cwd: repository.repoRoot });
+
+    const hooks = extractHooks(config);
+    await runHook(
+      hooks.afterCreate,
+      worktreePath,
+      { branch: worktreeName, path: worktreePath, repo: basename(repository.repoRoot) },
+      options.stderr,
+    );
 
     await writeOutput(worktreePath, options.stdout);
 

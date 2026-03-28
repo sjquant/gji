@@ -1,9 +1,11 @@
 import { mkdir } from 'node:fs/promises';
-import { dirname } from 'node:path';
+import { basename, dirname } from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 
+import { loadEffectiveConfig } from './config.js';
 import { type PathConflictChoice, pathExists, promptForPathConflict } from './conflict.js';
+import { extractHooks, runHook } from './hooks.js';
 import { detectRepository, resolveWorktreePath } from './repo.js';
 import { writeShellOutput } from './shell-handoff.js';
 
@@ -84,6 +86,15 @@ export function createPrCommand(
       : ['worktree', 'add', '-b', branchName, worktreePath, remoteRef];
 
     await execFileAsync('git', worktreeArgs, { cwd: repository.repoRoot });
+
+    const config = await loadEffectiveConfig(repository.repoRoot);
+    const hooks = extractHooks(config);
+    await runHook(
+      hooks.afterCreate,
+      worktreePath,
+      { branch: branchName, path: worktreePath, repo: basename(repository.repoRoot) },
+      options.stderr,
+    );
 
     await writeOutput(worktreePath, options.stdout);
 

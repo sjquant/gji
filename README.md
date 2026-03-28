@@ -172,6 +172,7 @@ Supported keys:
 - `branchPrefix`
 - `syncRemote`
 - `syncDefaultBranch`
+- `hooks`
 
 Example:
 
@@ -187,6 +188,59 @@ Behavior:
 
 - if `syncRemote` is unset, `gji sync` defaults to `origin`
 - if `syncDefaultBranch` is unset, `gji sync` resolves the remote default branch from `HEAD`
+
+## Hooks
+
+`hooks` runs shell commands at key points in the worktree lifecycle. Configure it in `.gji.json` or `~/.config/gji/config.json`:
+
+```json
+{
+  "hooks": {
+    "afterCreate": "pnpm install",
+    "afterEnter": "echo switched to {{branch}}",
+    "beforeRemove": "pnpm run cleanup"
+  }
+}
+```
+
+Hook keys:
+
+- `afterCreate` — runs after a new worktree is created, whether via `gji new` or `gji pr`
+- `afterEnter` — runs after switching to a worktree via `gji go`
+- `beforeRemove` — runs before a worktree is removed via `gji remove`
+
+Each hook receives context in two ways:
+
+**Template variables** (substituted into the command string):
+
+| Variable | Value |
+|---|---|
+| `{{branch}}` | branch name, or empty string for detached worktrees |
+| `{{path}}` | absolute path to the worktree |
+| `{{repo}}` | repository directory name |
+
+**Environment variables** (available to the hook process):
+
+| Variable | Value |
+|---|---|
+| `GJI_BRANCH` | branch name, or empty string for detached worktrees |
+| `GJI_PATH` | absolute path to the worktree |
+| `GJI_REPO` | repository directory name |
+
+Hooks run inside the worktree directory. A non-zero exit emits a warning but does not abort the command.
+
+Global and project-level hooks are merged per key — project values override global values for the same key, while keys only present in the global config still apply:
+
+```json
+// ~/.config/gji/config.json
+{ "hooks": { "afterCreate": "nvm use", "afterEnter": "echo hi" } }
+
+// .gji.json
+{ "hooks": { "afterCreate": "pnpm install" } }
+
+// effective hooks
+{ "afterCreate": "pnpm install", "afterEnter": "echo hi" }
+```
 
 ## JSON output
 

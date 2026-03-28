@@ -1,5 +1,9 @@
+import { basename } from 'node:path';
+
 import { confirm, isCancel, select } from '@clack/prompts';
 
+import { loadEffectiveConfig } from './config.js';
+import { extractHooks, runHook } from './hooks.js';
 import type { WorktreeEntry } from './repo.js';
 import {
   deleteBranch,
@@ -66,6 +70,15 @@ export function createRemoveCommand(
       options.stderr('Aborted\n');
       return 1;
     }
+
+    const config = await loadEffectiveConfig(repository.repoRoot);
+    const hooks = extractHooks(config);
+    await runHook(
+      hooks.beforeRemove,
+      worktree.path,
+      { branch: worktree.branch ?? undefined, path: worktree.path, repo: basename(repository.repoRoot) },
+      options.stderr,
+    );
 
     try {
       await removeWorktree(repository.repoRoot, worktree.path);
