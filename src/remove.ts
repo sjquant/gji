@@ -76,7 +76,7 @@ export function createRemoveCommand(
     await runHook(
       hooks.beforeRemove,
       worktree.path,
-      { branch: worktree.branch, path: worktree.path, repo: basename(repository.repoRoot) },
+      { branch: worktree.branch ?? undefined, path: worktree.path, repo: basename(repository.repoRoot) },
       options.stderr,
     );
 

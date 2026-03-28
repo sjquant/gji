@@ -31,9 +31,10 @@ export function createGoCommand(
       detectRepository(options.cwd),
     ]);
 
+    const prompted = options.branch ? null : await prompt(worktrees);
     const resolvedPath = options.branch
       ? worktrees.find((entry) => entry.branch === options.branch)?.path
-      : (await prompt(worktrees)) ?? undefined;
+      : prompted ?? undefined;
 
     if (!resolvedPath) {
       options.stderr(options.branch
@@ -50,7 +51,7 @@ export function createGoCommand(
     await runHook(
       hooks.afterEnter,
       resolvedPath,
-      { branch: chosenWorktree?.branch, path: resolvedPath, repo: basename(repository.repoRoot) },
+      { branch: chosenWorktree?.branch ?? undefined, path: resolvedPath, repo: basename(repository.repoRoot) },
       options.stderr,
     );
 
