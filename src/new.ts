@@ -78,7 +78,7 @@ export function createNewCommand(
 
     const hooks = extractHooks(config);
     await runHook(
-      hooks.afterNew,
+      hooks.afterCreate,
       worktreePath,
       { branch: worktreeName, path: worktreePath, repo: basename(repository.repoRoot) },
       options.stderr,

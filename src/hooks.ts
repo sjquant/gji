@@ -1,8 +1,8 @@
 import { spawn } from 'node:child_process';
 
 export interface GjiHooks {
-  afterNew?: string;
-  afterGo?: string;
+  afterCreate?: string;
+  afterEnter?: string;
   beforeRemove?: string;
 }
 
@@ -27,6 +27,12 @@ export async function runHook(
       cwd,
       shell: true,
       stdio: ['ignore', 'inherit', 'pipe'],
+      env: {
+        ...process.env,
+        GJI_BRANCH: context.branch ?? '',
+        GJI_PATH: context.path,
+        GJI_REPO: context.repo,
+      },
     });
 
     (child.stderr as NodeJS.ReadableStream).on('data', (chunk: Buffer) => {
@@ -64,8 +70,8 @@ export function extractHooks(config: Record<string, unknown>): GjiHooks {
   const hooks = raw as Record<string, unknown>;
 
   return {
-    afterNew: typeof hooks.afterNew === 'string' ? hooks.afterNew : undefined,
-    afterGo: typeof hooks.afterGo === 'string' ? hooks.afterGo : undefined,
+    afterCreate: typeof hooks.afterCreate === 'string' ? hooks.afterCreate : undefined,
+    afterEnter: typeof hooks.afterEnter === 'string' ? hooks.afterEnter : undefined,
     beforeRemove: typeof hooks.beforeRemove === 'string' ? hooks.beforeRemove : undefined,
   };
 }

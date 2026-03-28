@@ -31,36 +31,30 @@ export function createGoCommand(
       detectRepository(options.cwd),
     ]);
 
-    if (options.branch) {
-      const worktree = worktrees.find((entry) => entry.branch === options.branch);
+    const resolvedPath = options.branch
+      ? worktrees.find((entry) => entry.branch === options.branch)?.path
+      : (await prompt(worktrees)) ?? undefined;
 
-      if (!worktree) {
-        options.stderr(`No worktree found for branch: ${options.branch}\n`);
-        return 1;
-      }
-
-      options.stdout(`${worktree.path}\n`);
-      return 0;
-    }
-
-    const chosenPath = await prompt(worktrees);
-
-    if (!chosenPath) {
-      options.stderr('Aborted\n');
+    if (!resolvedPath) {
+      options.stderr(options.branch
+        ? `No worktree found for branch: ${options.branch}\n`
+        : 'Aborted\n',
+      );
       return 1;
     }
 
+    const chosenWorktree = worktrees.find((w) => w.path === resolvedPath);
+
     const config = await loadEffectiveConfig(repository.repoRoot);
     const hooks = extractHooks(config);
-    const chosenWorktree = worktrees.find((w) => w.path === chosenPath);
     await runHook(
-      hooks.afterGo,
-      chosenPath,
-      { branch: chosenWorktree?.branch, path: chosenPath, repo: basename(repository.repoRoot) },
+      hooks.afterEnter,
+      resolvedPath,
+      { branch: chosenWorktree?.branch, path: resolvedPath, repo: basename(repository.repoRoot) },
       options.stderr,
     );
 
-    await writeShellOutput(GO_OUTPUT_FILE_ENV, chosenPath, options.stdout);
+    await writeShellOutput(GO_OUTPUT_FILE_ENV, resolvedPath, options.stdout);
     return 0;
   };
 }

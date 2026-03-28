@@ -8,7 +8,7 @@ import { runCli } from './cli.js';
 import { GLOBAL_CONFIG_FILE_PATH } from './config.js';
 import { extractHooks, interpolate, runHook } from './hooks.js';
 import { resolveWorktreePath } from './repo.js';
-import { createRepository } from './repo.test-helpers.js';
+import { commitFile, createRepository, createRepositoryWithOrigin, pushPullRequestRef, runGit } from './repo.test-helpers.js';
 
 const originalHome = process.env.HOME;
 
@@ -64,24 +64,24 @@ describe('extractHooks', () => {
     expect(extractHooks({})).toEqual({});
   });
 
-  it('extracts afterNew', () => {
-    // Given a config with only an afterNew hook.
+  it('extracts afterCreate', () => {
+    // Given a config with only an afterCreate hook.
     // Then extractHooks returns only that hook.
-    expect(extractHooks({ hooks: { afterNew: 'pnpm install' } }))
-      .toEqual({ afterNew: 'pnpm install' });
+    expect(extractHooks({ hooks: { afterCreate: 'pnpm install' } }))
+      .toEqual({ afterCreate: 'pnpm install' });
   });
 
   it('extracts all three hook types', () => {
     // Given a config with all three hook keys set.
     // Then extractHooks returns all three.
-    expect(extractHooks({ hooks: { afterNew: 'a', afterGo: 'b', beforeRemove: 'c' } }))
-      .toEqual({ afterNew: 'a', afterGo: 'b', beforeRemove: 'c' });
+    expect(extractHooks({ hooks: { afterCreate: 'a', afterEnter: 'b', beforeRemove: 'c' } }))
+      .toEqual({ afterCreate: 'a', afterEnter: 'b', beforeRemove: 'c' });
   });
 
   it('ignores non-string hook values', () => {
     // Given a config with hooks set to non-string values.
     // Then extractHooks omits those keys.
-    expect(extractHooks({ hooks: { afterNew: 123, afterGo: null } }))
+    expect(extractHooks({ hooks: { afterCreate: 123, afterEnter: null } }))
       .toEqual({});
   });
 
@@ -138,6 +138,24 @@ describe('runHook', () => {
     await expect(readFile(outputFile, 'utf8')).resolves.toBe('feature/test:myrepo');
   });
 
+  it('exposes context as GJI_* environment variables', async () => {
+    // Given a hook that writes the GJI_* env vars to a file.
+    const dir = await mkdtemp(join(tmpdir(), 'gji-hooks-'));
+    const outputFile = join(dir, 'env.txt');
+    const stderr: string[] = [];
+
+    // When runHook is called with branch, path and repo in context.
+    await runHook(
+      `printf '%s:%s:%s' "$GJI_BRANCH" "$GJI_PATH" "$GJI_REPO" > "${outputFile}"`,
+      dir,
+      { branch: 'feature/env', path: dir, repo: 'myrepo' },
+      (c) => stderr.push(c),
+    );
+
+    // Then the output file contains the values from the env vars.
+    await expect(readFile(outputFile, 'utf8')).resolves.toBe(`feature/env:${dir}:myrepo`);
+  });
+
   it('emits a warning on non-zero exit without throwing', async () => {
     // Given a hook command that exits with a non-zero code.
     const dir = await mkdtemp(join(tmpdir(), 'gji-hooks-'));
@@ -155,7 +173,7 @@ describe('runHook', () => {
 
 describe('hook config layering', () => {
   it('merges global and project hooks so both apply when they use different keys', async () => {
-    // Given a global config with afterGo and a project config with afterNew.
+    // Given a global config with afterEnter and a project config with afterCreate.
     const home = await mkdtemp(join(tmpdir(), 'gji-home-'));
     const repoRoot = await createRepository();
     const branchName = 'feature/layered-hooks';
@@ -167,25 +185,25 @@ describe('hook config layering', () => {
     await mkdir(dirname(globalConfigPath), { recursive: true });
     await writeFile(
       globalConfigPath,
-      JSON.stringify({ hooks: { afterGo: 'echo go' } }),
+      JSON.stringify({ hooks: { afterEnter: 'echo enter' } }),
       'utf8',
     );
     await writeFile(
       join(repoRoot, '.gji.json'),
-      JSON.stringify({ hooks: { afterNew: `touch "${localMarker}"` } }),
+      JSON.stringify({ hooks: { afterCreate: `touch "${localMarker}"` } }),
       'utf8',
     );
 
     // When gji new is run.
     const result = await runCli(['new', branchName], { cwd: repoRoot });
 
-    // Then the project afterNew hook ran and the global afterGo was not discarded.
+    // Then the project afterCreate hook ran and the global afterEnter was not discarded.
     expect(result.exitCode).toBe(0);
     await expect(readFile(localMarker)).resolves.toBeDefined();
   });
 
   it('project hook overrides global hook for the same key', async () => {
-    // Given global and project configs that both define afterNew with different commands.
+    // Given global and project configs that both define afterCreate with different commands.
     const home = await mkdtemp(join(tmpdir(), 'gji-home-'));
     const repoRoot = await createRepository();
     const branchName = 'feature/override-hook';
@@ -198,12 +216,12 @@ describe('hook config layering', () => {
     await mkdir(dirname(globalConfigPath), { recursive: true });
     await writeFile(
       globalConfigPath,
-      JSON.stringify({ hooks: { afterNew: `touch "${globalMarker}"` } }),
+      JSON.stringify({ hooks: { afterCreate: `touch "${globalMarker}"` } }),
       'utf8',
     );
     await writeFile(
       join(repoRoot, '.gji.json'),
-      JSON.stringify({ hooks: { afterNew: `touch "${localMarker}"` } }),
+      JSON.stringify({ hooks: { afterCreate: `touch "${localMarker}"` } }),
       'utf8',
     );
 
@@ -217,9 +235,9 @@ describe('hook config layering', () => {
   });
 });
 
-describe('gji new with afterNew hook', () => {
-  it('runs the configured afterNew hook in the new worktree directory', async () => {
-    // Given a project config with an afterNew hook that creates a marker file.
+describe('gji new with afterCreate hook', () => {
+  it('runs the configured afterCreate hook in the new worktree directory', async () => {
+    // Given a project config with an afterCreate hook that creates a marker file.
     const repoRoot = await createRepository();
     const branchName = 'feature/hook-test';
     const worktreePath = resolveWorktreePath(repoRoot, branchName);
@@ -227,7 +245,7 @@ describe('gji new with afterNew hook', () => {
 
     await writeFile(
       join(repoRoot, '.gji.json'),
-      JSON.stringify({ hooks: { afterNew: `touch "${markerFile}"` } }),
+      JSON.stringify({ hooks: { afterCreate: `touch "${markerFile}"` } }),
       'utf8',
     );
 
@@ -239,8 +257,8 @@ describe('gji new with afterNew hook', () => {
     await expect(readFile(markerFile)).resolves.toBeDefined();
   });
 
-  it('still creates the worktree when the afterNew hook fails', async () => {
-    // Given a project config with an afterNew hook that exits non-zero.
+  it('still creates the worktree when the afterCreate hook fails', async () => {
+    // Given a project config with an afterCreate hook that exits non-zero.
     const repoRoot = await createRepository();
     const branchName = 'feature/hook-fail';
     const worktreePath = resolveWorktreePath(repoRoot, branchName);
@@ -248,7 +266,7 @@ describe('gji new with afterNew hook', () => {
 
     await writeFile(
       join(repoRoot, '.gji.json'),
-      JSON.stringify({ hooks: { afterNew: 'exit 1' } }),
+      JSON.stringify({ hooks: { afterCreate: 'exit 1' } }),
       'utf8',
     );
 
@@ -262,6 +280,33 @@ describe('gji new with afterNew hook', () => {
     expect(result.exitCode).toBe(0);
     await expect(readFile(join(worktreePath, '.git'))).resolves.toBeDefined();
     expect(stderr.join('')).toContain('hook exited with code 1');
+  });
+});
+
+describe('gji pr with afterCreate hook', () => {
+  it('runs the configured afterCreate hook after checking out a PR worktree', async () => {
+    // Given a repository with an origin remote exposing a PR ref and an afterCreate hook.
+    const { repoRoot } = await createRepositoryWithOrigin();
+    await runGit(repoRoot, ['checkout', '-b', 'feature/pr-source']);
+    await commitFile(repoRoot, 'pr.txt', 'change\n', 'pr commit');
+    await pushPullRequestRef(repoRoot, '1');
+    await runGit(repoRoot, ['checkout', '-']);
+
+    const worktreePath = resolveWorktreePath(repoRoot, 'pr/1');
+    const markerFile = join(worktreePath, '.hook-ran');
+
+    await writeFile(
+      join(repoRoot, '.gji.json'),
+      JSON.stringify({ hooks: { afterCreate: `touch "${markerFile}"` } }),
+      'utf8',
+    );
+
+    // When gji pr fetches and creates the PR worktree.
+    const result = await runCli(['pr', '1'], { cwd: repoRoot });
+
+    // Then the afterCreate hook ran inside the new PR worktree.
+    expect(result.exitCode).toBe(0);
+    await expect(readFile(markerFile)).resolves.toBeDefined();
   });
 });
 
