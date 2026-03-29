@@ -34,7 +34,27 @@ IN PROGRESS
 - [DONE] Support creating a worktree for an already-existing local branch in `gji new` without requiring the `-b` flag.
 - [DONE] Add lifecycle hooks (`hooks.afterCreate`, `hooks.afterEnter`, `hooks.beforeRemove`) to config so users can run setup scripts automatically (e.g. `pnpm install`) when creating, switching to, or removing a worktree. Hooks fire from both `gji new` and `gji pr` for `afterCreate`. Support `{{branch}}`, `{{path}}`, and `{{repo}}` template variables and `GJI_BRANCH`, `GJI_PATH`, `GJI_REPO` env vars. Global and project hooks deep-merge per key. Hook failures emit a warning but do not abort the command.
 
-- [ ] Add `src/package-manager.ts` with lockfile-based detection logic. Export `detectPackageManager(repoRoot: string): Promise<{ name: string; installCommand: string } | null>` that checks for `pnpm-lock.yaml` → `pnpm install`, `yarn.lock` → `yarn install`, `bun.lockb` → `bun install`, `package-lock.json` → `npm install`, `poetry.lock` → `poetry install`, `uv.lock` → `uv sync`, `Cargo.toml` → `cargo build`, `go.sum` → `go mod download`, `Gemfile.lock` → `bundle install`, in that priority order. Cover all managers and the no-match case in unit tests.
+- [ ] Add `src/package-manager.ts` with lockfile-based detection logic. Export `detectPackageManager(repoRoot: string): Promise<{ name: string; installCommand: string } | null>` that checks for the following files in priority order and returns the first match:
+  - `pnpm-lock.yaml` → `pnpm install`
+  - `yarn.lock` → `yarn install`
+  - `bun.lockb` → `bun install`
+  - `package-lock.json` → `npm install`
+  - `deno.json` / `deno.jsonc` → `deno cache`
+  - `poetry.lock` → `poetry install`
+  - `uv.lock` → `uv sync`
+  - `Pipfile.lock` → `pipenv install`
+  - `pdm.lock` → `pdm install`
+  - `renv.lock` → `Rscript -e 'renv::restore()'`
+  - `Cargo.toml` → `cargo build`
+  - `go.sum` → `go mod download`
+  - `Gemfile.lock` → `bundle install`
+  - `composer.lock` → `composer install`
+  - `mix.lock` → `mix deps.get`
+  - `pubspec.yaml` → `dart pub get`
+  - `pom.xml` → `mvn install`
+  - `build.gradle` / `build.gradle.kts` → `./gradlew build`
+  - `*.csproj` / `*.sln` → `dotnet restore`
+  Cover all managers and the no-match case in unit tests.
 
 - [ ] Integrate package-manager detection into `gji new` and `gji pr`: after worktree creation, if no `hooks.afterCreate` is configured and `skipInstallPrompt` is not `true` in effective config, detect the package manager and prompt (Yes / No / Always / Never). "Always" persists `hooks.afterCreate` with the detected command to local config (`.gji.json`); "Never" persists `skipInstallPrompt: true` to local config. "Yes" runs once without persisting. No prompt is shown when detection returns null. Add tests covering each prompt outcome, the skip flag, and the hooks.afterCreate override.
 
