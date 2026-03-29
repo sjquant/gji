@@ -1,7 +1,7 @@
 # TASKS
 
 **## Status**
-DONE
+IN PROGRESS
 
 ## Tasks
 
@@ -33,6 +33,14 @@ DONE
 - [DONE] Expand the release checklist to cover scoped publishing and the publish workflow prerequisites such as npm Trusted Publishing.
 - [DONE] Support creating a worktree for an already-existing local branch in `gji new` without requiring the `-b` flag.
 - [DONE] Add lifecycle hooks (`hooks.afterCreate`, `hooks.afterEnter`, `hooks.beforeRemove`) to config so users can run setup scripts automatically (e.g. `pnpm install`) when creating, switching to, or removing a worktree. Hooks fire from both `gji new` and `gji pr` for `afterCreate`. Support `{{branch}}`, `{{path}}`, and `{{repo}}` template variables and `GJI_BRANCH`, `GJI_PATH`, `GJI_REPO` env vars. Global and project hooks deep-merge per key. Hook failures emit a warning but do not abort the command.
+
+- [ ] Add `src/package-manager.ts` with lockfile-based detection logic. Export `detectPackageManager(repoRoot: string): Promise<{ name: string; installCommand: string } | null>` that checks for `pnpm-lock.yaml` → `pnpm install`, `yarn.lock` → `yarn install`, `bun.lockb` → `bun install`, `package-lock.json` → `npm install`, `poetry.lock` → `poetry install`, `uv.lock` → `uv sync`, `Cargo.toml` → `cargo build`, `go.sum` → `go mod download`, `Gemfile.lock` → `bundle install`, in that priority order. Cover all managers and the no-match case in unit tests.
+
+- [ ] Integrate package-manager detection into `gji new` and `gji pr`: after worktree creation, if no `hooks.afterCreate` is configured and `skipInstallPrompt` is not `true` in effective config, detect the package manager and prompt (Yes / No / Always / Never). "Always" persists `hooks.afterCreate` with the detected command to local config (`.gji.json`); "Never" persists `skipInstallPrompt: true` to local config. "Yes" runs once without persisting. No prompt is shown when detection returns null. Add tests covering each prompt outcome, the skip flag, and the hooks.afterCreate override.
+
+- [ ] Add `src/file-sync.ts` with a `syncFiles(mainRoot: string, targetPath: string, patterns: string[]): Promise<void>` function that copies files matching each pattern (resolved relative to `mainRoot`) into the equivalent relative path under `targetPath`, creating parent directories as needed. Skip silently when the source does not exist. Add unit tests for copying a file, skipping a missing source, copying into a nested path, and handling an empty patterns array.
+
+- [ ] Integrate `syncFiles` into `gji new` and `gji pr`: read `syncFiles` (type `string[]`) from effective config; if non-empty, resolve the main worktree root via `detectRepository` and call `syncFiles(repoRoot, worktreePath, patterns)` after the worktree is created and before the `afterCreate` hook runs. Add integration tests covering config inheritance (global vs. local), a missing source file being skipped, and a successful copy end-to-end.
 
 ## Handoff Notes
 
