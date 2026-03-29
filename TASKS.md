@@ -34,7 +34,7 @@ IN PROGRESS
 - [DONE] Support creating a worktree for an already-existing local branch in `gji new` without requiring the `-b` flag.
 - [DONE] Add lifecycle hooks (`hooks.afterCreate`, `hooks.afterEnter`, `hooks.beforeRemove`) to config so users can run setup scripts automatically (e.g. `pnpm install`) when creating, switching to, or removing a worktree. Hooks fire from both `gji new` and `gji pr` for `afterCreate`. Support `{{branch}}`, `{{path}}`, and `{{repo}}` template variables and `GJI_BRANCH`, `GJI_PATH`, `GJI_REPO` env vars. Global and project hooks deep-merge per key. Hook failures emit a warning but do not abort the command.
 
-- [ ] Add `src/package-manager.ts` with lockfile-based detection logic. Export `detectPackageManager(repoRoot: string): Promise<{ name: string; installCommand: string } | null>` that checks for the following files in priority order and returns the first match. Exact filenames are checked with `fs.access`; glob patterns (marked with `*`) are resolved with a directory scan:
+- [ ] Add `src/package-manager.ts` with lockfile-based detection logic. Implement as a data-driven list of `{ signal, command, glob? }` entries checked in priority order; `glob: true` entries require a directory scan instead of `fs.access`. Export `detectPackageManager(repoRoot: string): Promise<{ name: string; installCommand: string } | null>` that returns the first match. For polyglot repos with multiple signals the first entry in the list wins; no attempt is made to enumerate all matches. Cover common managers and the no-match case in unit tests:
   - JavaScript / TypeScript
     - `pnpm-lock.yaml` → `pnpm install`
     - `yarn.lock` → `yarn install`
@@ -51,7 +51,7 @@ IN PROGRESS
   - R
     - `renv.lock` → `Rscript -e 'renv::restore()'`
   - Rust
-    - `Cargo.toml` → `cargo build`
+    - `Cargo.lock` → `cargo build`
   - Go
     - `go.sum` → `go mod download`
   - Ruby
@@ -62,28 +62,28 @@ IN PROGRESS
     - `mix.lock` → `mix deps.get`
     - `rebar.lock` → `rebar3 deps`
   - Dart / Flutter
-    - `pubspec.yaml` → `dart pub get`
+    - `pubspec.lock` → `dart pub get`
   - Java / Kotlin / Scala
     - `pom.xml` → `mvn install`
-    - `build.gradle` / `build.gradle.kts` → `./gradlew build`
+    - `gradlew` → `./gradlew build` (check wrapper first; fall back to `gradle build` if absent)
     - `build.sbt` → `sbt compile`
   - .NET (C# / F# / VB)
-    - `*.sln` → `dotnet restore`
-    - `*.csproj` / `*.fsproj` / `*.vbproj` → `dotnet restore`
+    - `*.sln` → `dotnet restore` (glob)
+    - `*.csproj` / `*.fsproj` / `*.vbproj` → `dotnet restore` (glob)
   - Swift
     - `Package.swift` → `swift package resolve`
   - Haskell
     - `stack.yaml` → `stack build`
-    - `cabal.project` / `*.cabal` → `cabal install --only-dependencies`
+    - `cabal.project` / `*.cabal` → `cabal install --only-dependencies` (glob)
   - Clojure
     - `deps.edn` → `clojure -P`
     - `project.clj` → `lein deps`
   - OCaml
-    - `*.opam` / `opam.root` → `opam install . --deps-only`
+    - `dune-project` → `dune build`
   - Julia
     - `Manifest.toml` → `julia --project -e 'using Pkg; Pkg.instantiate()'`
   - Nim
-    - `*.nimble` → `nimble install`
+    - `*.nimble` → `nimble install` (glob)
   - Crystal
     - `shard.yml` → `shards install`
   - Perl
@@ -97,10 +97,9 @@ IN PROGRESS
     - `flake.nix` → `nix develop`
     - `shell.nix` → `nix-shell`
   - Terraform / OpenTofu
-    - `*.tf` → `terraform init`
-  Cover all managers and the no-match case in unit tests.
+    - `terraform.lock.hcl` → `terraform init`
 
-- [ ] Integrate package-manager detection into `gji new` and `gji pr`: after worktree creation, if no `hooks.afterCreate` is configured and `skipInstallPrompt` is not `true` in effective config, detect the package manager and prompt (Yes / No / Always / Never). "Always" persists `hooks.afterCreate` with the detected command to local config (`.gji.json`); "Never" persists `skipInstallPrompt: true` to local config. "Yes" runs once without persisting. No prompt is shown when detection returns null. Add tests covering each prompt outcome, the skip flag, and the hooks.afterCreate override.
+- [ ] Integrate package-manager detection into `gji new` and `gji pr`: after worktree creation, if no `hooks.afterCreate` is configured and `skipInstallPrompt` is not `true` in effective config, detect the package manager and prompt (Yes / No / Always / Never). "Always" merges `hooks.afterCreate` with the detected command into local config (`.gji.json`), overwriting any existing `afterCreate` value but preserving other hook keys; "Never" persists `skipInstallPrompt: true` to local config; both `skipInstallPrompt` and `hooks.afterCreate` are local-config-only and never written to global config. "Yes" runs once without persisting. No prompt is shown when detection returns null. Add tests covering each prompt outcome, the skip flag, the hooks.afterCreate override, and the case where `hooks.afterCreate` is already set (prompt is suppressed).
 
 - [ ] Add `src/file-sync.ts` with a `syncFiles(mainRoot: string, targetPath: string, patterns: string[]): Promise<void>` function that copies files matching each pattern (resolved relative to `mainRoot`) into the equivalent relative path under `targetPath`, creating parent directories as needed. Skip silently when the source does not exist. Add unit tests for copying a file, skipping a missing source, copying into a nested path, and handling an empty patterns array.
 
