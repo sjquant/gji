@@ -4,13 +4,24 @@ on:
   push:
     tags:
       - 'v*'
+  workflow_call:
+    inputs:
+      ref:
+        description: Git ref or SHA to publish from
+        required: true
+        type: string
+      tag:
+        description: Version tag associated with the publish
+        required: true
+        type: string
 
 permissions:
   contents: read
   id-token: write
 
 jobs:
-  publish:
+  publish-from-tag:
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
 
     steps:
@@ -27,16 +38,28 @@ jobs:
           cache: pnpm
           registry-url: https://registry.npmjs.org
 
+      - name: Check whether version is already published
+        id: published
+        run: |
+          PACKAGE_NAME="$(node -p "require('./package.json').name")"
+          VERSION="$(node -p "require('./package.json').version")"
+
+          if npm view "${PACKAGE_NAME}@${VERSION}" version >/dev/null 2>&1; then
+            echo "published=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "published=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Install dependencies
+        if: steps.published.outputs.published != 'true'
         run: pnpm install --frozen-lockfile
 
-      - name: Run tests
-        run: pnpm test
-
       - name: Build package
+        if: steps.published.outputs.published != 'true'
         run: pnpm build
 
       - name: Resolve npm dist-tag
+        if: steps.published.outputs.published != 'true'
         id: npm_tag
         run: |
           VERSION="$(node -p "require('./package.json').version")"
@@ -49,4 +72,67 @@ jobs:
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
 
       - name: Publish to npm
-        run: npm publish --tag "${{ steps.npm_tag.outputs.tag }}"
+        if: steps.published.outputs.published != 'true'
+        run: npm publish --ignore-scripts --tag "${{ steps.npm_tag.outputs.tag }}"
+
+  publish-from-workflow-call:
+    if: github.event_name == 'workflow_call'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          ref: ${{ inputs.ref }}
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: pnpm
+          registry-url: https://registry.npmjs.org
+
+      - name: Check whether version is already published
+        id: published
+        run: |
+          PACKAGE_NAME="$(node -p "require('./package.json').name")"
+          VERSION="$(node -p "require('./package.json').version")"
+
+          if npm view "${PACKAGE_NAME}@${VERSION}" version >/dev/null 2>&1; then
+            echo "published=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "published=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Install dependencies
+        if: steps.published.outputs.published != 'true'
+        run: pnpm install --frozen-lockfile
+
+      - name: Build package
+        if: steps.published.outputs.published != 'true'
+        run: pnpm build
+
+      - name: Resolve npm dist-tag
+        if: steps.published.outputs.published != 'true'
+        id: npm_tag
+        run: |
+          VERSION="$(node -p "require('./package.json').version")"
+          if [[ "v$VERSION" != "${{ inputs.tag }}" ]]; then
+            echo "Expected tag ${{ inputs.tag }} to match package version v$VERSION" >&2
+            exit 1
+          fi
+          if [[ "$VERSION" == *-* ]]; then
+            TAG="${VERSION#*-}"
+            TAG="${TAG%%.*}"
+          else
+            TAG="latest"
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Publish to npm
+        if: steps.published.outputs.published != 'true'
+        run: npm publish --ignore-scripts --tag "${{ steps.npm_tag.outputs.tag }}"

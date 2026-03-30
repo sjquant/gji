@@ -32,3 +32,47 @@ jobs:
 
       - name: Build package
         run: pnpm build
+
+  tag-version:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: test-and-build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      created: ${{ steps.version_tag.outputs.created }}
+      publish: ${{ steps.version_tag.outputs.publish }}
+      ref: ${{ steps.version_tag.outputs.ref }}
+      tag: ${{ steps.version_tag.outputs.tag }}
+      version: ${{ steps.version_tag.outputs.version }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 20
+
+      - name: Create version tag for package.json bumps
+        id: version_tag
+        env:
+          GITHUB_EVENT_BEFORE: ${{ github.event.before }}
+          GITHUB_REF: ${{ github.ref }}
+          GITHUB_SHA: ${{ github.sha }}
+        run: node scripts/version-tag.mjs
+
+  publish-version-bump:
+    needs: tag-version
+    if: needs.tag-version.outputs.publish == 'true'
+    permissions:
+      contents: read
+      id-token: write
+    uses: ./.github/workflows/publish.yml
+    with:
+      ref: ${{ needs.tag-version.outputs.ref }}
+      tag: ${{ needs.tag-version.outputs.tag }}
+    secrets: inherit
