@@ -1,7 +1,7 @@
 # TASKS
 
 **## Status**
-DONE
+IN PROGRESS
 
 ## Tasks
 
@@ -33,6 +33,25 @@ DONE
 - [DONE] Expand the release checklist to cover scoped publishing and the publish workflow prerequisites such as npm Trusted Publishing.
 - [DONE] Support creating a worktree for an already-existing local branch in `gji new` without requiring the `-b` flag.
 - [DONE] Add lifecycle hooks (`hooks.afterCreate`, `hooks.afterEnter`, `hooks.beforeRemove`) to config so users can run setup scripts automatically (e.g. `pnpm install`) when creating, switching to, or removing a worktree. Hooks fire from both `gji new` and `gji pr` for `afterCreate`. Support `{{branch}}`, `{{path}}`, and `{{repo}}` template variables and `GJI_BRANCH`, `GJI_PATH`, `GJI_REPO` env vars. Global and project hooks deep-merge per key. Hook failures emit a warning but do not abort the command.
+
+- [DONE] Add `src/package-manager.ts` with lockfile-based detection logic across 20 ecosystems (~40 managers). See source file for the full entry list.
+
+- [ ] Add `saveLocalConfig(root: string, config: GjiConfig): Promise<string>` and `updateLocalConfigKey(root: string, key: string, value: unknown): Promise<GjiConfig>` to `src/config.ts`, mirroring the existing global equivalents but writing to `.gji.json` in the repo root. The update function must read-modify-write so that only the target key changes and all other keys are preserved. Add unit tests covering: creating the file when absent, updating an existing key, and preserving unrelated keys in an existing file.
+
+- [ ] Integrate package-manager detection into `gji new` and `gji pr`: after worktree creation, if no `hooks.afterCreate` is configured in the effective config and `skipInstallPrompt` is not `true` in the effective config, detect the package manager and prompt (Yes / No / Always / Never):
+  - "Yes" — run the detected command once in the new worktree; do not persist anything.
+  - "No" — skip once; the prompt will appear again next time.
+  - "Always" — run the command, then use `updateLocalConfigKey` to write `hooks.afterCreate` into `.gji.json`, deep-merging into any existing `hooks` object so other hook keys (e.g. `afterEnter`) are preserved.
+  - "Never" — use `updateLocalConfigKey` to write `skipInstallPrompt: true` into `.gji.json`.
+  - Both "Always" and "Never" writes target local config only, never global config.
+  - No prompt is shown when `detectPackageManager` returns null.
+  - If writing to `.gji.json` fails (e.g. read-only filesystem), emit a warning to stderr but do not abort.
+  - If the install command itself fails, emit a warning to stderr but do not abort (consistent with hook failure behaviour).
+  Add tests covering: each prompt outcome, the skip flag suppressing the prompt, `hooks.afterCreate` already set suppressing the prompt, "Always" preserving existing non-`afterCreate` hook keys, and a filesystem write failure emitting a warning without crashing.
+
+- [ ] Add `src/file-sync.ts` with a `syncFiles(mainRoot: string, targetPath: string, patterns: string[]): Promise<void>` function that copies files matching each pattern (resolved relative to `mainRoot`) into the equivalent relative path under `targetPath`, creating parent directories as needed. If the target file already exists it is silently skipped (non-destructive). Skip silently when the source does not exist. Reject patterns that are absolute paths or contain `..` segments. Add unit tests for: copying a file, skipping a missing source, skipping an existing target, copying into a nested path, rejecting an absolute-path pattern, and handling an empty patterns array.
+
+- [ ] Integrate `syncFiles` into `gji new` and `gji pr`: read `syncFiles` (type `string[]`) from effective config; if non-empty, resolve the main worktree root via `detectRepository` and call `syncFiles(repoRoot, worktreePath, patterns)` after the worktree is created and before the `afterCreate` hook runs. If any individual file copy fails emit a warning to stderr but continue — do not abort. Document in code comments that `syncFiles` runs before `afterCreate` so synced files are available to install scripts. Note: `syncFiles` is not array-merged across global and local config — local overrides global entirely (standard shallow-merge behaviour). Add integration tests covering: config inheritance (local overrides global), a missing source file being skipped, an existing target file being skipped, and a successful copy end-to-end.
 
 ## Handoff Notes
 
