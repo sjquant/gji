@@ -53,6 +53,16 @@ IN PROGRESS
 
 - [ ] Integrate `syncFiles` into `gji new` and `gji pr`: read `syncFiles` (type `string[]`) from effective config; if non-empty, resolve the main worktree root via `detectRepository` and call `syncFiles(repoRoot, worktreePath, patterns)` after the worktree is created and before the `afterCreate` hook runs. If any individual file copy fails emit a warning to stderr but continue — do not abort. Document in code comments that `syncFiles` runs before `afterCreate` so synced files are available to install scripts. Note: `syncFiles` is not array-merged across global and local config — local overrides global entirely (standard shallow-merge behaviour). Add integration tests covering: config inheritance (local overrides global), a missing source file being skipped, an existing target file being skipped, and a successful copy end-to-end.
 
+- [ ] Add non-interactive (headless) mode: when `GJI_NO_TUI=1` or `NO_COLOR` is set in the environment, all `@clack/prompts` interactive prompts must be bypassed. Commands that require input and receive none should fail immediately with a clear error to stderr (exit code 1) rather than hanging. Specifically: `gji new` without a branch arg should error; `gji go` without a branch arg should error; `gji remove` without `--force` should error; `gji clean` without `--force` should error. Add unit tests covering that each interactive path errors correctly when `GJI_NO_TUI=1`.
+
+- [ ] Add `--json` output to `gji new` and `gji pr`: on success emit a single JSON object `{ branch: string, path: string }` to stdout; on error emit `{ error: string }` to stderr with a non-zero exit code. JSON mode must suppress all spinner/prompt output. Add tests for both success and error JSON shapes.
+
+- [ ] Add `--json` output to `gji remove`: on success emit `{ branch: string, path: string, deleted: true }`; on error emit `{ error: string }`. Add `--json` to `gji clean`: emit `{ removed: Array<{ branch: string, path: string }> }`. Add `--json` to `gji sync`: emit `{ updated: Array<{ branch: string, path: string }> }`. In all cases JSON mode must suppress interactive prompts (behave as if `GJI_NO_TUI=1`). Add tests for each.
+
+- [ ] Add `--dry-run` to `gji new` and `gji pr`: print (or emit via `--json`) what would be created without executing any git commands or writing files. Add `--dry-run` to `gji remove` and `gji clean`: print what would be deleted without removing anything. Dry-run must be usable with `--json` so agents can validate their parameter mapping before committing to a destructive action. Add tests covering dry-run output for each command.
+
+- [ ] Improve error messages with actionable `Hint:` lines on stderr. Key cases to cover: missing git remote (hint `git remote add origin <url>`), PR fetch failure (hint `git fetch origin` or check remote URL), worktree path conflict when not using `--force` (hint the exact `gji remove <branch>` or `gji clean` command to resolve it), and `gji go` with an unknown branch (hint `gji ls` to see available worktrees). The `Hint:` prefix must be consistent so agents can reliably parse it.
+
 ## Handoff Notes
 
 - Bootstrap CLI, config-loading, and repository-pathing utilities now exist under `src/`; upcoming work should build on those modules rather than recreating them.
