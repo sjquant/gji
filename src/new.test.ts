@@ -386,6 +386,94 @@ describe('gji new', () => {
     expect(stdout.join('')).toBe(`${worktreePath}\n`);
   });
 
+  describe('syncFiles integration', () => {
+    it('copies a configured sync file into the new worktree end-to-end', async () => {
+      // Given a repo with a source file and syncFiles config.
+      const repoRoot = await createRepository();
+      const branchName = 'feature/sync-copy';
+      const worktreePath = resolveWorktreePath(repoRoot, branchName);
+      await writeFile(join(repoRoot, '.env.example'), 'SECRET=\n', 'utf8');
+      await writeFile(join(repoRoot, '.gji.json'), JSON.stringify({ syncFiles: ['.env.example'] }), 'utf8');
+
+      // When creating the worktree.
+      const result = await runCli(['new', branchName], { cwd: repoRoot });
+
+      // Then the file is present in the new worktree.
+      expect(result.exitCode).toBe(0);
+      const content = await readFile(join(worktreePath, '.env.example'), 'utf8');
+      expect(content).toBe('SECRET=\n');
+    });
+
+    it('skips a sync file whose source does not exist without aborting', async () => {
+      // Given a repo with syncFiles pointing to a missing source.
+      const repoRoot = await createRepository();
+      const branchName = 'feature/sync-missing';
+      const worktreePath = resolveWorktreePath(repoRoot, branchName);
+      await writeFile(join(repoRoot, '.gji.json'), JSON.stringify({ syncFiles: ['missing.txt'] }), 'utf8');
+      const stderr: string[] = [];
+
+      // When creating the worktree.
+      const result = await runNewCommand({
+        branch: branchName,
+        cwd: repoRoot,
+        stderr: (chunk) => stderr.push(chunk),
+        stdout: () => undefined,
+      });
+
+      // Then it succeeds, no copy was attempted, and no warning was emitted.
+      expect(result).toBe(0);
+      expect(stderr).toEqual([]);
+      await expect(pathExists(join(worktreePath, 'missing.txt'))).resolves.toBe(false);
+    });
+
+    it('emits a warning for an invalid sync pattern but does not abort', async () => {
+      // Given a repo with an absolute-path pattern in syncFiles (which syncFiles rejects).
+      const repoRoot = await createRepository();
+      const branchName = 'feature/sync-invalid';
+      const worktreePath = resolveWorktreePath(repoRoot, branchName);
+      await writeFile(join(repoRoot, '.gji.json'), JSON.stringify({ syncFiles: ['/etc/passwd'] }), 'utf8');
+      const stderr: string[] = [];
+
+      // When creating the worktree.
+      const result = await runNewCommand({
+        branch: branchName,
+        cwd: repoRoot,
+        stderr: (chunk) => stderr.push(chunk),
+        stdout: () => undefined,
+      });
+
+      // Then the worktree is still created and a warning is emitted for the bad pattern.
+      expect(result).toBe(0);
+      await expect(pathExists(worktreePath)).resolves.toBe(true);
+      expect(stderr.join('')).toContain('Warning:');
+      expect(stderr.join('')).toContain('/etc/passwd');
+    });
+
+    it('local syncFiles config overrides global (no array merging)', async () => {
+      // Given global config with syncFiles and local config with a different syncFiles.
+      const home = await mkdtemp(join(tmpdir(), 'gji-home-'));
+      const repoRoot = await createRepository();
+      const branchName = 'feature/sync-override';
+      const worktreePath = resolveWorktreePath(repoRoot, branchName);
+      const globalConfigPath = GLOBAL_CONFIG_FILE_PATH(home);
+      process.env.HOME = home;
+
+      await writeFile(join(repoRoot, 'global-file.txt'), 'from global\n', 'utf8');
+      await writeFile(join(repoRoot, 'local-file.txt'), 'from local\n', 'utf8');
+      await mkdir(dirname(globalConfigPath), { recursive: true });
+      await writeFile(globalConfigPath, JSON.stringify({ syncFiles: ['global-file.txt'] }), 'utf8');
+      await writeFile(join(repoRoot, '.gji.json'), JSON.stringify({ syncFiles: ['local-file.txt'] }), 'utf8');
+
+      // When creating the worktree.
+      const result = await runCli(['new', branchName], { cwd: repoRoot });
+
+      // Then only the local syncFiles list is used (local-file.txt copied, global-file.txt not).
+      expect(result.exitCode).toBe(0);
+      await expect(pathExists(join(worktreePath, 'local-file.txt'))).resolves.toBe(true);
+      await expect(pathExists(join(worktreePath, 'global-file.txt'))).resolves.toBe(false);
+    });
+  });
+
   it('generates funny placeholder names as slug-safe mythic human-style branches', () => {
     // Given deterministic random choices.
     const placeholders = [
