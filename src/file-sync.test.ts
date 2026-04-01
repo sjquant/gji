@@ -90,6 +90,23 @@ describe('syncFiles', () => {
     );
   });
 
+  it('copies a gitignored file that exists only in the main worktree', async() => {
+    // Given — a .gitignore that excludes .env, and a .env file present at the source.
+    // This is the primary use case: syncing secrets/credentials that git won't carry
+    // into a fresh worktree.
+    const mainRoot = await makeTmpDir();
+    const targetPath = await makeTmpDir();
+    await writeFile(join(mainRoot, '.gitignore'), '.env\n', 'utf8');
+    await writeFile(join(mainRoot, '.env'), 'SECRET=abc\n', 'utf8');
+
+    // When
+    await syncFiles(mainRoot, targetPath, ['.env']);
+
+    // Then — the ignored file is copied regardless of .gitignore
+    const content = await readFile(join(targetPath, '.env'), 'utf8');
+    expect(content).toBe('SECRET=abc\n');
+  });
+
   it('handles an empty patterns array without error', async () => {
     // Given
     const mainRoot = await makeTmpDir();
