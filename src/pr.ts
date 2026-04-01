@@ -52,6 +52,7 @@ export function createPrCommand(
     }
 
     const repository = await detectRepository(options.cwd);
+    const config = await loadEffectiveConfig(repository.repoRoot);
     const branchName = `pr/${prNumber}`;
     const remoteRef = `refs/remotes/origin/pull/${prNumber}/head`;
     const worktreePath = resolveWorktreePath(repository.repoRoot, branchName);
@@ -88,10 +89,10 @@ export function createPrCommand(
 
     await execFileAsync('git', worktreeArgs, { cwd: repository.repoRoot });
 
-    const config = await loadEffectiveConfig(repository.repoRoot);
-
     // Sync files from main worktree before afterCreate so synced files are available to install scripts.
-    const syncPatterns = Array.isArray(config.syncFiles) ? (config.syncFiles as string[]) : [];
+    const syncPatterns = Array.isArray(config.syncFiles)
+      ? (config.syncFiles as unknown[]).filter((p): p is string => typeof p === 'string')
+      : [];
     for (const pattern of syncPatterns) {
       try {
         await syncFiles(repository.repoRoot, worktreePath, [pattern]);

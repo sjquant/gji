@@ -420,36 +420,33 @@ describe('gji new', () => {
         stdout: () => undefined,
       });
 
-      // Then it succeeds and no copy was attempted.
+      // Then it succeeds, no copy was attempted, and no warning was emitted.
       expect(result).toBe(0);
+      expect(stderr).toEqual([]);
       await expect(pathExists(join(worktreePath, 'missing.txt'))).resolves.toBe(false);
     });
 
-    it('skips a sync file that already exists in the target worktree', async () => {
-      // Given a repo where the target already has the file.
+    it('emits a warning for an invalid sync pattern but does not abort', async () => {
+      // Given a repo with an absolute-path pattern in syncFiles (which syncFiles rejects).
       const repoRoot = await createRepository();
-      const branchName = 'feature/sync-existing-target';
+      const branchName = 'feature/sync-invalid';
       const worktreePath = resolveWorktreePath(repoRoot, branchName);
-      await writeFile(join(repoRoot, '.env.example'), 'SOURCE=\n', 'utf8');
-      await writeFile(join(repoRoot, '.gji.json'), JSON.stringify({ syncFiles: ['.env.example'] }), 'utf8');
+      await writeFile(join(repoRoot, '.gji.json'), JSON.stringify({ syncFiles: ['/etc/passwd'] }), 'utf8');
+      const stderr: string[] = [];
 
-      // Pre-create the worktree and place a file there.
-      const runNewFirst = createNewCommand({ promptForPathConflict: async () => 'reuse' });
-      await mkdir(worktreePath, { recursive: true });
-      await writeFile(join(worktreePath, '.env.example'), 'EXISTING=\n', 'utf8');
-
-      // When creating the worktree (reusing existing path).
-      const result = await runNewFirst({
+      // When creating the worktree.
+      const result = await runNewCommand({
         branch: branchName,
         cwd: repoRoot,
-        stderr: () => undefined,
+        stderr: (chunk) => stderr.push(chunk),
         stdout: () => undefined,
       });
 
-      // Then the existing target file is untouched.
+      // Then the worktree is still created and a warning is emitted for the bad pattern.
       expect(result).toBe(0);
-      const content = await readFile(join(worktreePath, '.env.example'), 'utf8');
-      expect(content).toBe('EXISTING=\n');
+      await expect(pathExists(worktreePath)).resolves.toBe(true);
+      expect(stderr.join('')).toContain('Warning:');
+      expect(stderr.join('')).toContain('/etc/passwd');
     });
 
     it('local syncFiles config overrides global (no array merging)', async () => {

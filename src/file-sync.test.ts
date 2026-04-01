@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -30,8 +30,11 @@ describe('syncFiles', () => {
     const mainRoot = await makeTmpDir();
     const targetPath = await makeTmpDir();
 
-    // When / Then — no error thrown
-    await expect(syncFiles(mainRoot, targetPath, ['missing.txt'])).resolves.toBeUndefined();
+    // When
+    await syncFiles(mainRoot, targetPath, ['missing.txt']);
+
+    // Then — no target file was created
+    await expect(stat(join(targetPath, 'missing.txt'))).rejects.toThrow();
   });
 
   it('skips silently when the target already exists', async () => {

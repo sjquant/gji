@@ -78,7 +78,9 @@ export function createNewCommand(
     await execFileAsync('git', gitArgs, { cwd: repository.repoRoot });
 
     // Sync files from main worktree before afterCreate so synced files are available to install scripts.
-    const syncPatterns = Array.isArray(config.syncFiles) ? (config.syncFiles as string[]) : [];
+    const syncPatterns = Array.isArray(config.syncFiles)
+      ? (config.syncFiles as unknown[]).filter((p): p is string => typeof p === 'string')
+      : [];
     for (const pattern of syncPatterns) {
       try {
         await syncFiles(repository.repoRoot, worktreePath, [pattern]);
