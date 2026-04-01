@@ -386,6 +386,97 @@ describe('gji new', () => {
     expect(stdout.join('')).toBe(`${worktreePath}\n`);
   });
 
+  describe('syncFiles integration', () => {
+    it('copies a configured sync file into the new worktree end-to-end', async () => {
+      // Given a repo with a source file and syncFiles config.
+      const repoRoot = await createRepository();
+      const branchName = 'feature/sync-copy';
+      const worktreePath = resolveWorktreePath(repoRoot, branchName);
+      await writeFile(join(repoRoot, '.env.example'), 'SECRET=\n', 'utf8');
+      await writeFile(join(repoRoot, '.gji.json'), JSON.stringify({ syncFiles: ['.env.example'] }), 'utf8');
+
+      // When creating the worktree.
+      const result = await runCli(['new', branchName], { cwd: repoRoot });
+
+      // Then the file is present in the new worktree.
+      expect(result.exitCode).toBe(0);
+      const content = await readFile(join(worktreePath, '.env.example'), 'utf8');
+      expect(content).toBe('SECRET=\n');
+    });
+
+    it('skips a sync file whose source does not exist without aborting', async () => {
+      // Given a repo with syncFiles pointing to a missing source.
+      const repoRoot = await createRepository();
+      const branchName = 'feature/sync-missing';
+      const worktreePath = resolveWorktreePath(repoRoot, branchName);
+      await writeFile(join(repoRoot, '.gji.json'), JSON.stringify({ syncFiles: ['missing.txt'] }), 'utf8');
+      const stderr: string[] = [];
+
+      // When creating the worktree.
+      const result = await runNewCommand({
+        branch: branchName,
+        cwd: repoRoot,
+        stderr: (chunk) => stderr.push(chunk),
+        stdout: () => undefined,
+      });
+
+      // Then it succeeds and no copy was attempted.
+      expect(result).toBe(0);
+      await expect(pathExists(join(worktreePath, 'missing.txt'))).resolves.toBe(false);
+    });
+
+    it('skips a sync file that already exists in the target worktree', async () => {
+      // Given a repo where the target already has the file.
+      const repoRoot = await createRepository();
+      const branchName = 'feature/sync-existing-target';
+      const worktreePath = resolveWorktreePath(repoRoot, branchName);
+      await writeFile(join(repoRoot, '.env.example'), 'SOURCE=\n', 'utf8');
+      await writeFile(join(repoRoot, '.gji.json'), JSON.stringify({ syncFiles: ['.env.example'] }), 'utf8');
+
+      // Pre-create the worktree and place a file there.
+      const runNewFirst = createNewCommand({ promptForPathConflict: async () => 'reuse' });
+      await mkdir(worktreePath, { recursive: true });
+      await writeFile(join(worktreePath, '.env.example'), 'EXISTING=\n', 'utf8');
+
+      // When creating the worktree (reusing existing path).
+      const result = await runNewFirst({
+        branch: branchName,
+        cwd: repoRoot,
+        stderr: () => undefined,
+        stdout: () => undefined,
+      });
+
+      // Then the existing target file is untouched.
+      expect(result).toBe(0);
+      const content = await readFile(join(worktreePath, '.env.example'), 'utf8');
+      expect(content).toBe('EXISTING=\n');
+    });
+
+    it('local syncFiles config overrides global (no array merging)', async () => {
+      // Given global config with syncFiles and local config with a different syncFiles.
+      const home = await mkdtemp(join(tmpdir(), 'gji-home-'));
+      const repoRoot = await createRepository();
+      const branchName = 'feature/sync-override';
+      const worktreePath = resolveWorktreePath(repoRoot, branchName);
+      const globalConfigPath = GLOBAL_CONFIG_FILE_PATH(home);
+      process.env.HOME = home;
+
+      await writeFile(join(repoRoot, 'global-file.txt'), 'from global\n', 'utf8');
+      await writeFile(join(repoRoot, 'local-file.txt'), 'from local\n', 'utf8');
+      await mkdir(dirname(globalConfigPath), { recursive: true });
+      await writeFile(globalConfigPath, JSON.stringify({ syncFiles: ['global-file.txt'] }), 'utf8');
+      await writeFile(join(repoRoot, '.gji.json'), JSON.stringify({ syncFiles: ['local-file.txt'] }), 'utf8');
+
+      // When creating the worktree.
+      const result = await runCli(['new', branchName], { cwd: repoRoot });
+
+      // Then only the local syncFiles list is used (local-file.txt copied, global-file.txt not).
+      expect(result.exitCode).toBe(0);
+      await expect(pathExists(join(worktreePath, 'local-file.txt'))).resolves.toBe(true);
+      await expect(pathExists(join(worktreePath, 'global-file.txt'))).resolves.toBe(false);
+    });
+  });
+
   it('generates funny placeholder names as slug-safe mythic human-style branches', () => {
     // Given deterministic random choices.
     const placeholders = [

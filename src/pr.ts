@@ -4,6 +4,7 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 
 import { loadEffectiveConfig } from './config.js';
+import { syncFiles } from './file-sync.js';
 import { type PathConflictChoice, pathExists, promptForPathConflict } from './conflict.js';
 import { extractHooks, runHook } from './hooks.js';
 import { detectRepository, resolveWorktreePath } from './repo.js';
@@ -88,6 +89,17 @@ export function createPrCommand(
     await execFileAsync('git', worktreeArgs, { cwd: repository.repoRoot });
 
     const config = await loadEffectiveConfig(repository.repoRoot);
+
+    // Sync files from main worktree before afterCreate so synced files are available to install scripts.
+    const syncPatterns = Array.isArray(config.syncFiles) ? (config.syncFiles as string[]) : [];
+    for (const pattern of syncPatterns) {
+      try {
+        await syncFiles(repository.repoRoot, worktreePath, [pattern]);
+      } catch (error) {
+        options.stderr(`Warning: failed to sync file "${pattern}": ${error instanceof Error ? error.message : String(error)}\n`);
+      }
+    }
+
     const hooks = extractHooks(config);
     await runHook(
       hooks.afterCreate,

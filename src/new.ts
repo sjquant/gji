@@ -5,6 +5,7 @@ import { promisify } from 'node:util';
 import { isCancel, text } from '@clack/prompts';
 
 import { loadEffectiveConfig } from './config.js';
+import { syncFiles } from './file-sync.js';
 import { extractHooks, runHook } from './hooks.js';
 import { type PathConflictChoice, pathExists, promptForPathConflict } from './conflict.js';
 import { detectRepository, resolveWorktreePath } from './repo.js';
@@ -75,6 +76,16 @@ export function createNewCommand(
         : ['worktree', 'add', '-b', worktreeName, worktreePath];
 
     await execFileAsync('git', gitArgs, { cwd: repository.repoRoot });
+
+    // Sync files from main worktree before afterCreate so synced files are available to install scripts.
+    const syncPatterns = Array.isArray(config.syncFiles) ? (config.syncFiles as string[]) : [];
+    for (const pattern of syncPatterns) {
+      try {
+        await syncFiles(repository.repoRoot, worktreePath, [pattern]);
+      } catch (error) {
+        options.stderr(`Warning: failed to sync file "${pattern}": ${error instanceof Error ? error.message : String(error)}\n`);
+      }
+    }
 
     const hooks = extractHooks(config);
     await runHook(
