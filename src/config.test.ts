@@ -14,10 +14,13 @@ import {
 
 describe('loadConfig', () => {
   it('returns defaults when the config file does not exist', async () => {
+    // Given
     const root = await mkdtemp(join(tmpdir(), 'gji-config-'));
 
+    // When
     const result = await loadConfig(root);
 
+    // Then
     expect(result).toEqual({
       config: DEFAULT_CONFIG,
       exists: false,
@@ -26,16 +29,18 @@ describe('loadConfig', () => {
   });
 
   it('merges a project config file with the defaults', async () => {
+    // Given
     const root = await mkdtemp(join(tmpdir(), 'gji-config-'));
-
     await writeFile(
       join(root, CONFIG_FILE_NAME),
       JSON.stringify({ branchPrefix: 'feature/' }),
       'utf8',
     );
 
+    // When
     const result = await loadConfig(root);
 
+    // Then
     expect(result).toEqual({
       config: {
         ...DEFAULT_CONFIG,
@@ -48,43 +53,44 @@ describe('loadConfig', () => {
 });
 
 describe('saveLocalConfig', () => {
-  it('creates the config file when it does not exist', async () => {
+  it('creates the config file and returns its path when it does not exist', async () => {
+    // Given
     const root = await mkdtemp(join(tmpdir(), 'gji-config-'));
     const config = { branchPrefix: 'feat/' };
 
+    // When
     const savedPath = await saveLocalConfig(root, config);
 
-    const written = JSON.parse(await readFile(savedPath, 'utf8')) as unknown;
+    // Then
     expect(savedPath).toBe(join(root, CONFIG_FILE_NAME));
+    const written = JSON.parse(await readFile(savedPath, 'utf8')) as unknown;
     expect(written).toEqual(config);
   });
 
   it('overwrites an existing config file', async () => {
+    // Given
     const root = await mkdtemp(join(tmpdir(), 'gji-config-'));
     const configPath = join(root, CONFIG_FILE_NAME);
     await writeFile(configPath, JSON.stringify({ branchPrefix: 'old/' }), 'utf8');
 
+    // When
     await saveLocalConfig(root, { branchPrefix: 'new/' });
 
+    // Then
     const written = JSON.parse(await readFile(configPath, 'utf8')) as unknown;
     expect(written).toEqual({ branchPrefix: 'new/' });
-  });
-
-  it('returns the path to the config file', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'gji-config-'));
-
-    const result = await saveLocalConfig(root, {});
-
-    expect(result).toBe(join(root, CONFIG_FILE_NAME));
   });
 });
 
 describe('updateLocalConfigKey', () => {
   it('creates the config file with the key when it does not exist', async () => {
+    // Given
     const root = await mkdtemp(join(tmpdir(), 'gji-config-'));
 
+    // When
     const result = await updateLocalConfigKey(root, 'branchPrefix', 'feat/');
 
+    // Then
     expect(result).toEqual({ branchPrefix: 'feat/' });
     const written = JSON.parse(
       await readFile(join(root, CONFIG_FILE_NAME), 'utf8'),
@@ -93,6 +99,7 @@ describe('updateLocalConfigKey', () => {
   });
 
   it('updates an existing key without losing other keys', async () => {
+    // Given
     const root = await mkdtemp(join(tmpdir(), 'gji-config-'));
     await writeFile(
       join(root, CONFIG_FILE_NAME),
@@ -100,12 +107,15 @@ describe('updateLocalConfigKey', () => {
       'utf8',
     );
 
+    // When
     const result = await updateLocalConfigKey(root, 'branchPrefix', 'new/');
 
+    // Then
     expect(result).toEqual({ branchPrefix: 'new/', syncRemote: 'origin' });
   });
 
   it('adds a new key while preserving existing keys', async () => {
+    // Given
     const root = await mkdtemp(join(tmpdir(), 'gji-config-'));
     await writeFile(
       join(root, CONFIG_FILE_NAME),
@@ -113,8 +123,10 @@ describe('updateLocalConfigKey', () => {
       'utf8',
     );
 
+    // When
     const result = await updateLocalConfigKey(root, 'syncRemote', 'upstream');
 
+    // Then
     expect(result).toEqual({ branchPrefix: 'feat/', syncRemote: 'upstream' });
   });
 });
