@@ -47,6 +47,30 @@ export async function loadGlobalConfig(home: string = homedir()): Promise<Loaded
   return loadConfigFile(GLOBAL_CONFIG_FILE_PATH(home));
 }
 
+export async function saveLocalConfig(root: string, config: GjiConfig): Promise<string> {
+  const path = join(root, CONFIG_FILE_NAME);
+
+  await writeFile(path, `${JSON.stringify(config, null, 2)}\n`, 'utf8');
+
+  return path;
+}
+
+export async function updateLocalConfigKey(
+  root: string,
+  key: string,
+  value: unknown,
+): Promise<GjiConfig> {
+  const loaded = await loadConfig(root);
+  const nextConfig = {
+    ...loaded.config,
+    [key]: value,
+  };
+
+  await saveLocalConfig(root, nextConfig);
+
+  return nextConfig;
+}
+
 export async function saveGlobalConfig(
   config: GjiConfig,
   home: string = homedir(),
