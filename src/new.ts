@@ -7,7 +7,7 @@ import { isCancel, text } from '@clack/prompts';
 import { loadEffectiveConfig } from './config.js';
 import { syncFiles } from './file-sync.js';
 import { extractHooks, runHook } from './hooks.js';
-import { type InstallPromptDependencies, maybeRunInstallPrompt } from './install-prompt.js';
+import { maybeRunInstallPrompt } from './install-prompt.js';
 import { type PathConflictChoice, pathExists, promptForPathConflict } from './conflict.js';
 import { detectRepository, resolveWorktreePath } from './repo.js';
 import { writeShellOutput } from './shell-handoff.js';
@@ -36,12 +36,6 @@ export function createNewCommand(
   const createBranchPlaceholder = dependencies.createBranchPlaceholder ?? generateBranchPlaceholder;
   const promptForBranch = dependencies.promptForBranch ?? defaultPromptForBranch;
   const prompt = dependencies.promptForPathConflict ?? promptForPathConflict;
-  const installDeps: InstallPromptDependencies = {
-    detectInstallPackageManager: dependencies.detectInstallPackageManager,
-    promptForInstallChoice: dependencies.promptForInstallChoice,
-    runInstallCommand: dependencies.runInstallCommand,
-    writeConfigKey: dependencies.writeConfigKey,
-  };
 
   return async function runNewCommand(options: NewCommandOptions): Promise<number> {
     const repository = await detectRepository(options.cwd);
@@ -96,7 +90,7 @@ export function createNewCommand(
       }
     }
 
-    await maybeRunInstallPrompt(worktreePath, repository.repoRoot, config, options.stderr, installDeps);
+    await maybeRunInstallPrompt(worktreePath, repository.repoRoot, config, options.stderr, dependencies);
 
     const hooks = extractHooks(config);
     await runHook(
