@@ -474,6 +474,294 @@ describe('gji new', () => {
     });
   });
 
+  describe('install prompt', () => {
+    const fakePm = { name: 'pnpm', installCommand: 'pnpm install' };
+
+    it('runs install once and does not persist anything when "yes" is chosen', async () => {
+      // Given a repository with a detected package manager and a "yes" prompt choice.
+      const repoRoot = await createRepository();
+      const branchName = 'feature/install-yes';
+      const installCalls: Array<{ command: string; cwd: string }> = [];
+      const runNewCommand = createNewCommand({
+        detectInstallPackageManager: async () => fakePm,
+        promptForInstallChoice: async () => 'yes',
+        runInstallCommand: async (command, cwd) => {
+          installCalls.push({ command, cwd });
+        },
+        writeConfigKey: async () => {
+          throw new Error('should not write config');
+        },
+      });
+
+      // When gji new runs with the "yes" install choice.
+      const result = await runNewCommand({
+        branch: branchName,
+        cwd: repoRoot,
+        stderr: () => undefined,
+        stdout: () => undefined,
+      });
+
+      // Then install ran once in the new worktree and nothing was written to config.
+      expect(result).toBe(0);
+      expect(installCalls).toHaveLength(1);
+      expect(installCalls[0].command).toBe('pnpm install');
+    });
+
+    it('skips install entirely when "no" is chosen', async () => {
+      // Given a repository with a detected package manager and a "no" prompt choice.
+      const repoRoot = await createRepository();
+      const branchName = 'feature/install-no';
+      let installCalled = false;
+      let writeConfigCalled = false;
+      const runNewCommand = createNewCommand({
+        detectInstallPackageManager: async () => fakePm,
+        promptForInstallChoice: async () => 'no',
+        runInstallCommand: async () => {
+          installCalled = true;
+        },
+        writeConfigKey: async () => {
+          writeConfigCalled = true;
+        },
+      });
+
+      // When gji new runs with the "no" install choice.
+      const result = await runNewCommand({
+        branch: branchName,
+        cwd: repoRoot,
+        stderr: () => undefined,
+        stdout: () => undefined,
+      });
+
+      // Then neither install nor a config write happened.
+      expect(result).toBe(0);
+      expect(installCalled).toBe(false);
+      expect(writeConfigCalled).toBe(false);
+    });
+
+    it('runs install and writes hooks.afterCreate to local config when "always" is chosen', async () => {
+      // Given a repository with a detected package manager and an "always" prompt choice.
+      const repoRoot = await createRepository();
+      const branchName = 'feature/install-always';
+      const writtenKeys: Array<{ key: string; value: unknown }> = [];
+      const runNewCommand = createNewCommand({
+        detectInstallPackageManager: async () => fakePm,
+        promptForInstallChoice: async () => 'always',
+        runInstallCommand: async () => undefined,
+        writeConfigKey: async (_root, key, value) => {
+          writtenKeys.push({ key, value });
+        },
+      });
+
+      // When gji new runs with the "always" install choice.
+      const result = await runNewCommand({
+        branch: branchName,
+        cwd: repoRoot,
+        stderr: () => undefined,
+        stdout: () => undefined,
+      });
+
+      // Then hooks.afterCreate was written to local config with the install command.
+      expect(result).toBe(0);
+      expect(writtenKeys).toHaveLength(1);
+      expect(writtenKeys[0].key).toBe('hooks');
+      expect((writtenKeys[0].value as Record<string, unknown>).afterCreate).toBe('pnpm install');
+    });
+
+    it('writes skipInstallPrompt:true to local config when "never" is chosen', async () => {
+      // Given a repository with a detected package manager and a "never" prompt choice.
+      const repoRoot = await createRepository();
+      const branchName = 'feature/install-never';
+      const writtenKeys: Array<{ key: string; value: unknown }> = [];
+      const runNewCommand = createNewCommand({
+        detectInstallPackageManager: async () => fakePm,
+        promptForInstallChoice: async () => 'never',
+        runInstallCommand: async () => undefined,
+        writeConfigKey: async (_root, key, value) => {
+          writtenKeys.push({ key, value });
+        },
+      });
+
+      // When gji new runs with the "never" install choice.
+      const result = await runNewCommand({
+        branch: branchName,
+        cwd: repoRoot,
+        stderr: () => undefined,
+        stdout: () => undefined,
+      });
+
+      // Then skipInstallPrompt:true was written to local config.
+      expect(result).toBe(0);
+      expect(writtenKeys).toHaveLength(1);
+      expect(writtenKeys[0].key).toBe('skipInstallPrompt');
+      expect(writtenKeys[0].value).toBe(true);
+    });
+
+    it('suppresses the prompt when skipInstallPrompt is true in effective config', async () => {
+      // Given a repository with skipInstallPrompt:true in local config.
+      const repoRoot = await createRepository();
+      const branchName = 'feature/install-skip-flag';
+      let promptCalled = false;
+      await writeFile(join(repoRoot, '.gji.json'), JSON.stringify({ skipInstallPrompt: true }), 'utf8');
+      const runNewCommand = createNewCommand({
+        detectInstallPackageManager: async () => fakePm,
+        promptForInstallChoice: async () => {
+          promptCalled = true;
+          return 'yes';
+        },
+      });
+
+      // When gji new runs with the opt-out flag present.
+      const result = await runNewCommand({
+        branch: branchName,
+        cwd: repoRoot,
+        stderr: () => undefined,
+        stdout: () => undefined,
+      });
+
+      // Then no prompt appeared and the command succeeded.
+      expect(result).toBe(0);
+      expect(promptCalled).toBe(false);
+    });
+
+    it('suppresses the prompt when hooks.afterCreate is already set in effective config', async () => {
+      // Given a repository with hooks.afterCreate already configured.
+      const repoRoot = await createRepository();
+      const branchName = 'feature/install-hook-set';
+      let promptCalled = false;
+      await writeFile(join(repoRoot, '.gji.json'), JSON.stringify({ hooks: { afterCreate: 'npm ci' } }), 'utf8');
+      const runNewCommand = createNewCommand({
+        detectInstallPackageManager: async () => fakePm,
+        promptForInstallChoice: async () => {
+          promptCalled = true;
+          return 'yes';
+        },
+      });
+
+      // When gji new runs with an afterCreate hook already configured.
+      const result = await runNewCommand({
+        branch: branchName,
+        cwd: repoRoot,
+        stderr: () => undefined,
+        stdout: () => undefined,
+      });
+
+      // Then no prompt appeared and the command succeeded.
+      expect(result).toBe(0);
+      expect(promptCalled).toBe(false);
+    });
+
+    it('"always" deep-merges into existing local hooks preserving non-afterCreate keys', async () => {
+      // Given a repository with an existing afterEnter hook in local config.
+      const repoRoot = await createRepository();
+      const branchName = 'feature/install-always-merge';
+      const writtenKeys: Array<{ key: string; value: unknown }> = [];
+      await writeFile(join(repoRoot, '.gji.json'), JSON.stringify({ hooks: { afterEnter: 'echo entered' } }), 'utf8');
+      const runNewCommand = createNewCommand({
+        detectInstallPackageManager: async () => fakePm,
+        promptForInstallChoice: async () => 'always',
+        runInstallCommand: async () => undefined,
+        writeConfigKey: async (_root, key, value) => {
+          writtenKeys.push({ key, value });
+        },
+      });
+
+      // When gji new runs with the "always" install choice.
+      const result = await runNewCommand({
+        branch: branchName,
+        cwd: repoRoot,
+        stderr: () => undefined,
+        stdout: () => undefined,
+      });
+
+      // Then the written hooks object includes both afterCreate and the preserved afterEnter.
+      expect(result).toBe(0);
+      const hooks = writtenKeys[0].value as Record<string, unknown>;
+      expect(hooks.afterCreate).toBe('pnpm install');
+      expect(hooks.afterEnter).toBe('echo entered');
+    });
+
+    it('emits a warning and does not abort when writing config fails', async () => {
+      // Given a repository where the config write throws on "never".
+      const repoRoot = await createRepository();
+      const branchName = 'feature/install-write-fail';
+      const stderr: string[] = [];
+      const runNewCommand = createNewCommand({
+        detectInstallPackageManager: async () => fakePm,
+        promptForInstallChoice: async () => 'never',
+        runInstallCommand: async () => undefined,
+        writeConfigKey: async () => {
+          throw new Error('read-only filesystem');
+        },
+      });
+
+      // When gji new runs and the config write fails.
+      const result = await runNewCommand({
+        branch: branchName,
+        cwd: repoRoot,
+        stderr: (chunk) => stderr.push(chunk),
+        stdout: () => undefined,
+      });
+
+      // Then the command still succeeds and a warning was emitted to stderr.
+      expect(result).toBe(0);
+      expect(stderr.join('')).toContain('gji:');
+      expect(stderr.join('')).toContain('read-only filesystem');
+    });
+
+    it('suppresses the prompt when no package manager is detected', async () => {
+      // Given a repository where package-manager detection returns null.
+      const repoRoot = await createRepository();
+      const branchName = 'feature/install-no-pm';
+      let promptCalled = false;
+      const runNewCommand = createNewCommand({
+        detectInstallPackageManager: async () => null,
+        promptForInstallChoice: async () => {
+          promptCalled = true;
+          return 'yes';
+        },
+      });
+
+      // When gji new runs and no package manager is found.
+      const result = await runNewCommand({
+        branch: branchName,
+        cwd: repoRoot,
+        stderr: () => undefined,
+        stdout: () => undefined,
+      });
+
+      // Then no prompt appeared and the command succeeded.
+      expect(result).toBe(0);
+      expect(promptCalled).toBe(false);
+    });
+
+    it('emits a warning and does not abort when the install command fails', async () => {
+      // Given a repository where the install command throws on "yes".
+      const repoRoot = await createRepository();
+      const branchName = 'feature/install-cmd-fail';
+      const stderr: string[] = [];
+      const runNewCommand = createNewCommand({
+        detectInstallPackageManager: async () => fakePm,
+        promptForInstallChoice: async () => 'yes',
+        runInstallCommand: async () => {
+          throw new Error('command not found');
+        },
+      });
+
+      // When gji new runs and the install command fails.
+      const result = await runNewCommand({
+        branch: branchName,
+        cwd: repoRoot,
+        stderr: (chunk) => stderr.push(chunk),
+        stdout: () => undefined,
+      });
+
+      // Then the command still succeeds and a warning was emitted to stderr.
+      expect(result).toBe(0);
+      expect(stderr.join('')).toContain('gji:');
+      expect(stderr.join('')).toContain('command not found');
+    });
+  });
+
   it('generates funny placeholder names as slug-safe mythic human-style branches', () => {
     // Given deterministic random choices.
     const placeholders = [
