@@ -7,7 +7,7 @@ import { loadEffectiveConfig } from './config.js';
 import { syncFiles } from './file-sync.js';
 import { type PathConflictChoice, pathExists, promptForPathConflict } from './conflict.js';
 import { extractHooks, runHook } from './hooks.js';
-import { maybeRunInstallPrompt } from './install-prompt.js';
+import { type InstallPromptDependencies, maybeRunInstallPrompt } from './install-prompt.js';
 import { detectRepository, resolveWorktreePath } from './repo.js';
 import { writeShellOutput } from './shell-handoff.js';
 
