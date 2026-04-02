@@ -7,6 +7,7 @@ import { loadEffectiveConfig } from './config.js';
 import { syncFiles } from './file-sync.js';
 import { type PathConflictChoice, pathExists, promptForPathConflict } from './conflict.js';
 import { extractHooks, runHook } from './hooks.js';
+import { type InstallPromptDependencies, maybeRunInstallPrompt } from './install-prompt.js';
 import { detectRepository, resolveWorktreePath } from './repo.js';
 import { writeShellOutput } from './shell-handoff.js';
 
@@ -22,7 +23,7 @@ export interface PrCommandOptions {
   stdout: (chunk: string) => void;
 }
 
-export interface PrCommandDependencies {
+export interface PrCommandDependencies extends InstallPromptDependencies {
   promptForPathConflict: (path: string) => Promise<PathConflictChoice>;
 }
 
@@ -42,6 +43,12 @@ export function createPrCommand(
   dependencies: Partial<PrCommandDependencies> = {},
 ): (options: PrCommandOptions) => Promise<number> {
   const prompt = dependencies.promptForPathConflict ?? promptForPathConflict;
+  const installDeps: InstallPromptDependencies = {
+    detectInstallPackageManager: dependencies.detectInstallPackageManager,
+    promptForInstallChoice: dependencies.promptForInstallChoice,
+    runInstallCommand: dependencies.runInstallCommand,
+    writeConfigKey: dependencies.writeConfigKey,
+  };
 
   return async function runPrCommand(options: PrCommandOptions): Promise<number> {
     const prNumber = parsePrInput(options.number);
@@ -100,6 +107,8 @@ export function createPrCommand(
         options.stderr(`Warning: failed to sync file "${pattern}": ${error instanceof Error ? error.message : String(error)}\n`);
       }
     }
+
+    await maybeRunInstallPrompt(worktreePath, repository.repoRoot, config, options.stderr, installDeps);
 
     const hooks = extractHooks(config);
     await runHook(

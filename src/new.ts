@@ -7,6 +7,7 @@ import { isCancel, text } from '@clack/prompts';
 import { loadEffectiveConfig } from './config.js';
 import { syncFiles } from './file-sync.js';
 import { extractHooks, runHook } from './hooks.js';
+import { type InstallPromptDependencies, maybeRunInstallPrompt } from './install-prompt.js';
 import { type PathConflictChoice, pathExists, promptForPathConflict } from './conflict.js';
 import { detectRepository, resolveWorktreePath } from './repo.js';
 import { writeShellOutput } from './shell-handoff.js';
@@ -23,7 +24,7 @@ export interface NewCommandOptions {
   stdout: (chunk: string) => void;
 }
 
-export interface NewCommandDependencies {
+export interface NewCommandDependencies extends InstallPromptDependencies {
   createBranchPlaceholder: () => string;
   promptForBranch: (placeholder: string) => Promise<string | null>;
   promptForPathConflict: (path: string) => Promise<PathConflictChoice>;
@@ -35,6 +36,12 @@ export function createNewCommand(
   const createBranchPlaceholder = dependencies.createBranchPlaceholder ?? generateBranchPlaceholder;
   const promptForBranch = dependencies.promptForBranch ?? defaultPromptForBranch;
   const prompt = dependencies.promptForPathConflict ?? promptForPathConflict;
+  const installDeps: InstallPromptDependencies = {
+    detectInstallPackageManager: dependencies.detectInstallPackageManager,
+    promptForInstallChoice: dependencies.promptForInstallChoice,
+    runInstallCommand: dependencies.runInstallCommand,
+    writeConfigKey: dependencies.writeConfigKey,
+  };
 
   return async function runNewCommand(options: NewCommandOptions): Promise<number> {
     const repository = await detectRepository(options.cwd);
@@ -88,6 +95,8 @@ export function createNewCommand(
         options.stderr(`Warning: failed to sync file "${pattern}": ${error instanceof Error ? error.message : String(error)}\n`);
       }
     }
+
+    await maybeRunInstallPrompt(worktreePath, repository.repoRoot, config, options.stderr, installDeps);
 
     const hooks = extractHooks(config);
     await runHook(
