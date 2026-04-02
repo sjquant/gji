@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process';
+
 import { isCancel, select } from '@clack/prompts';
 
 import { type GjiConfig, loadConfig, updateLocalConfigKey } from './config.js';
@@ -9,7 +10,7 @@ export type InstallChoice = 'yes' | 'no' | 'always' | 'never';
 export interface InstallPromptDependencies {
   detectInstallPackageManager?: (root: string) => Promise<PackageManager | null>;
   promptForInstallChoice?: (pm: PackageManager) => Promise<InstallChoice | null>;
-  runInstallCommand?: (command: string, cwd: string) => Promise<void>;
+  runInstallCommand?: (command: string, cwd: string, stderr: (chunk: string) => void) => Promise<void>;
   writeConfigKey?: (root: string, key: string, value: unknown) => Promise<void>;
 }
 
@@ -18,17 +19,11 @@ export async function maybeRunInstallPrompt(
   repoRoot: string,
   config: GjiConfig,
   stderr: (chunk: string) => void,
-  deps: InstallPromptDependencies = {},
+  dependencies: InstallPromptDependencies = {},
 ): Promise<void> {
   // Skip if afterCreate hook is already configured in effective config.
-  const hooks = config.hooks;
-  if (
-    typeof hooks === 'object' &&
-    hooks !== null &&
-    !Array.isArray(hooks) &&
-    typeof (hooks as Record<string, unknown>).afterCreate === 'string' &&
-    ((hooks as Record<string, unknown>).afterCreate as string).length > 0
-  ) {
+  const hooks = isPlainObject(config.hooks) ? config.hooks : null;
+  if (typeof hooks?.afterCreate === 'string' && hooks.afterCreate.length > 0) {
     return;
   }
 
@@ -37,14 +32,14 @@ export async function maybeRunInstallPrompt(
     return;
   }
 
-  const detect = deps.detectInstallPackageManager ?? detectPackageManager;
+  const detect = dependencies.detectInstallPackageManager ?? detectPackageManager;
   const pm = await detect(worktreePath);
 
   if (!pm) {
     return;
   }
 
-  const prompt = deps.promptForInstallChoice ?? defaultPromptForInstallChoice;
+  const prompt = dependencies.promptForInstallChoice ?? defaultPromptForInstallChoice;
   const choice = await prompt(pm);
 
   if (!choice || choice === 'no') {
@@ -52,29 +47,24 @@ export async function maybeRunInstallPrompt(
   }
 
   if (choice === 'yes' || choice === 'always') {
-    const runner = deps.runInstallCommand ?? ((cmd, cwd) => defaultRunInstallCommand(cmd, cwd, stderr));
+    const runner = dependencies.runInstallCommand ?? defaultRunInstallCommand;
     try {
-      await runner(pm.installCommand, worktreePath);
+      await runner(pm.installCommand, worktreePath, stderr);
     } catch (error) {
-      stderr(`Warning: install command failed: ${error instanceof Error ? error.message : String(error)}\n`);
+      stderr(`gji: install command failed: ${error instanceof Error ? error.message : String(error)}\n`);
     }
   }
 
-  const writeKey = deps.writeConfigKey ?? (async (root, key, value) => { await updateLocalConfigKey(root, key, value); });
+  const writeKey = dependencies.writeConfigKey ?? defaultWriteConfigKey;
 
   if (choice === 'always') {
     try {
       // Read local config hooks to deep-merge so other hook keys (e.g. afterEnter) are preserved.
       const { config: localConfig } = await loadConfig(repoRoot);
-      const existingLocalHooks =
-        typeof localConfig.hooks === 'object' &&
-        localConfig.hooks !== null &&
-        !Array.isArray(localConfig.hooks)
-          ? (localConfig.hooks as Record<string, unknown>)
-          : {};
+      const existingLocalHooks = isPlainObject(localConfig.hooks) ? localConfig.hooks : {};
       await writeKey(repoRoot, 'hooks', { ...existingLocalHooks, afterCreate: pm.installCommand });
     } catch (error) {
-      stderr(`Warning: failed to save config: ${error instanceof Error ? error.message : String(error)}\n`);
+      stderr(`gji: failed to save config: ${error instanceof Error ? error.message : String(error)}\n`);
     }
   }
 
@@ -82,7 +72,7 @@ export async function maybeRunInstallPrompt(
     try {
       await writeKey(repoRoot, 'skipInstallPrompt', true);
     } catch (error) {
-      stderr(`Warning: failed to save config: ${error instanceof Error ? error.message : String(error)}\n`);
+      stderr(`gji: failed to save config: ${error instanceof Error ? error.message : String(error)}\n`);
     }
   }
 }
@@ -113,6 +103,14 @@ async function defaultRunInstallCommand(
   });
 }
 
+async function defaultWriteConfigKey(
+  root: string,
+  key: string,
+  value: unknown,
+): Promise<void> {
+  await updateLocalConfigKey(root, key, value);
+}
+
 async function defaultPromptForInstallChoice(pm: PackageManager): Promise<InstallChoice | null> {
   const choice = await select({
     message: `Run \`${pm.installCommand}\` in the new worktree?`,
@@ -129,4 +127,8 @@ async function defaultPromptForInstallChoice(pm: PackageManager): Promise<Instal
   }
 
   return choice as InstallChoice;
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }

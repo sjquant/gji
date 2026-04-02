@@ -704,7 +704,7 @@ describe('gji new', () => {
 
       // Then the command still succeeds and a warning was emitted to stderr.
       expect(result).toBe(0);
-      expect(stderr.join('')).toContain('Warning:');
+      expect(stderr.join('')).toContain('gji:');
       expect(stderr.join('')).toContain('read-only filesystem');
     });
 
@@ -757,7 +757,7 @@ describe('gji new', () => {
 
       // Then the command still succeeds and a warning was emitted to stderr.
       expect(result).toBe(0);
-      expect(stderr.join('')).toContain('Warning:');
+      expect(stderr.join('')).toContain('gji:');
       expect(stderr.join('')).toContain('command not found');
     });
   });
