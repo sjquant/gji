@@ -327,6 +327,7 @@ describe('gji pr', () => {
       expect(result).toBe(0);
       expect(installCalls).toHaveLength(1);
       expect(installCalls[0].command).toBe('pnpm install');
+      expect(installCalls[0].cwd).toBe(resolveWorktreePath(repoRoot, 'pr/2001'));
     });
 
     it('skips install entirely when "no" is chosen', async () => {
@@ -487,6 +488,7 @@ describe('gji pr', () => {
 
       // Then the written hooks object includes both afterCreate and the preserved afterEnter.
       expect(result).toBe(0);
+      expect(writtenKeys).toHaveLength(1);
       const hooks = writtenKeys[0].value as Record<string, unknown>;
       expect(hooks.afterCreate).toBe('pnpm install');
       expect(hooks.afterEnter).toBe('echo entered');
