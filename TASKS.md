@@ -38,7 +38,7 @@ IN PROGRESS
 
 - [DONE] Add `saveLocalConfig(root: string, config: GjiConfig): Promise<string>` and `updateLocalConfigKey(root: string, key: string, value: unknown): Promise<GjiConfig>` to `src/config.ts`, mirroring the existing global equivalents but writing to `.gji.json` in the repo root. The update function must read-modify-write so that only the target key changes and all other keys are preserved. Add unit tests covering: creating the file when absent, updating an existing key, and preserving unrelated keys in an existing file.
 
-- [ ] Integrate package-manager detection into `gji new` and `gji pr`: after worktree creation, if no `hooks.afterCreate` is configured in the effective config and `skipInstallPrompt` is not `true` in the effective config, detect the package manager and prompt (Yes / No / Always / Never):
+- [DONE] Integrate package-manager detection into `gji new` and `gji pr`: after worktree creation, if no `hooks.afterCreate` is configured in the effective config and `skipInstallPrompt` is not `true` in the effective config, detect the package manager and prompt (Yes / No / Always / Never):
   - "Yes" — run the detected command once in the new worktree; do not persist anything.
   - "No" — skip once; the prompt will appear again next time.
   - "Always" — run the command, then use `updateLocalConfigKey` to write `hooks.afterCreate` into `.gji.json`, deep-merging into any existing `hooks` object so other hook keys (e.g. `afterEnter`) are preserved.
