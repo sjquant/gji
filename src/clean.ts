@@ -1,5 +1,6 @@
 import { confirm, isCancel, multiselect } from '@clack/prompts';
 
+import { isHeadless } from './headless.js';
 import type { WorktreeEntry } from './repo.js';
 import {
   deleteBranch,
@@ -42,6 +43,11 @@ export function createCleanCommand(
 
     if (cleanupCandidates.length === 0) {
       options.stderr('No linked worktrees to clean\n');
+      return 1;
+    }
+
+    if (!options.force && isHeadless()) {
+      options.stderr('gji clean: --force is required in non-interactive mode (GJI_NO_TUI=1 or NO_COLOR)\n');
       return 1;
     }
 
