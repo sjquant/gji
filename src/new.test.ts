@@ -762,6 +762,116 @@ describe('gji new', () => {
     });
   });
 
+  describe('--json output', () => {
+    it('emits { branch, path } to stdout on success', async () => {
+      // Given a repository root and a new branch name.
+      const repoRoot = await createRepository();
+      const stdout: string[] = [];
+      const stderr: string[] = [];
+      const branchName = 'feature/json-success';
+      const worktreePath = resolveWorktreePath(repoRoot, branchName);
+
+      // When gji new --json succeeds.
+      const result = await runCli(['new', '--json', branchName], {
+        cwd: repoRoot,
+        stderr: (chunk) => stderr.push(chunk),
+        stdout: (chunk) => stdout.push(chunk),
+      });
+
+      // Then it emits a JSON object with branch and path, nothing to stderr.
+      expect(result.exitCode).toBe(0);
+      expect(stderr).toEqual([]);
+      const output = JSON.parse(stdout.join(''));
+      expect(output).toEqual({ branch: branchName, path: worktreePath });
+    });
+
+    it('emits { error } to stderr and exits 1 when no branch is provided', async () => {
+      // Given a repository root and no branch argument.
+      const repoRoot = await createRepository();
+      const stdout: string[] = [];
+      const stderr: string[] = [];
+      const runNewCommand = createNewCommand({
+        promptForBranch: async () => {
+          throw new Error('prompt must not be called in --json mode');
+        },
+      });
+
+      // When gji new --json runs without a branch.
+      const result = await runNewCommand({
+        cwd: repoRoot,
+        json: true,
+        stderr: (chunk) => stderr.push(chunk),
+        stdout: (chunk) => stdout.push(chunk),
+      });
+
+      // Then it emits a JSON error to stderr and exits 1 without touching stdout.
+      expect(result).toBe(1);
+      expect(stdout).toEqual([]);
+      const json = JSON.parse(stderr.join(''));
+      expect(json).toHaveProperty('error');
+      expect(typeof json.error).toBe('string');
+    });
+
+    it('emits { error } to stderr and exits 1 when the target path already exists', async () => {
+      // Given a repository root and a branch whose worktree path already exists.
+      const repoRoot = await createRepository();
+      const branchName = 'feature/json-conflict';
+      const worktreePath = resolveWorktreePath(repoRoot, branchName);
+      const stdout: string[] = [];
+      const stderr: string[] = [];
+      const runNewCommand = createNewCommand({
+        promptForPathConflict: async () => {
+          throw new Error('conflict prompt must not be called in --json mode');
+        },
+      });
+
+      await addLinkedWorktree(repoRoot, branchName);
+
+      // When gji new --json runs with an existing worktree path.
+      const result = await runNewCommand({
+        branch: branchName,
+        cwd: repoRoot,
+        json: true,
+        stderr: (chunk) => stderr.push(chunk),
+        stdout: (chunk) => stdout.push(chunk),
+      });
+
+      // Then it emits a JSON error mentioning the path and exits 1.
+      expect(result).toBe(1);
+      expect(stdout).toEqual([]);
+      const json = JSON.parse(stderr.join(''));
+      expect(json).toHaveProperty('error');
+      expect(json.error).toContain(worktreePath);
+    });
+
+    it('suppresses the install prompt in --json mode', async () => {
+      // Given a repository with a detected package manager.
+      const repoRoot = await createRepository();
+      const branchName = 'feature/json-no-install-prompt';
+      let promptCalled = false;
+      const runNewCommand = createNewCommand({
+        detectInstallPackageManager: async () => ({ name: 'pnpm', installCommand: 'pnpm install' }),
+        promptForInstallChoice: async () => {
+          promptCalled = true;
+          return 'yes';
+        },
+      });
+
+      // When gji new --json runs.
+      const result = await runNewCommand({
+        branch: branchName,
+        cwd: repoRoot,
+        json: true,
+        stderr: () => undefined,
+        stdout: () => undefined,
+      });
+
+      // Then the install prompt was never shown.
+      expect(result).toBe(0);
+      expect(promptCalled).toBe(false);
+    });
+  });
+
   it('generates funny placeholder names as slug-safe mythic human-style branches', () => {
     // Given deterministic random choices.
     const placeholders = [

@@ -21,6 +21,7 @@ export interface NewCommandOptions {
   branch?: string;
   cwd: string;
   detached?: boolean;
+  json?: boolean;
   stderr: (chunk: string) => void;
   stdout: (chunk: string) => void;
 }
@@ -43,8 +44,13 @@ export function createNewCommand(
     const config = await loadEffectiveConfig(repository.repoRoot);
     const usesGeneratedDetachedName = options.detached && options.branch === undefined;
 
-    if (!options.detached && !options.branch && isHeadless()) {
-      options.stderr('gji new: branch argument is required in non-interactive mode (GJI_NO_TUI=1)\n');
+    if (!options.detached && !options.branch && (options.json || isHeadless())) {
+      const message = 'branch argument is required';
+      if (options.json) {
+        options.stderr(`${JSON.stringify({ error: message }, null, 2)}\n`);
+      } else {
+        options.stderr(`gji new: ${message} in non-interactive mode (GJI_NO_TUI=1)\n`);
+      }
       return 1;
     }
 
@@ -53,7 +59,11 @@ export function createNewCommand(
       : options.branch ?? await promptForBranch(createBranchPlaceholder());
 
     if (!rawBranch) {
-      options.stderr('Aborted\n');
+      if (options.json) {
+        options.stderr(`${JSON.stringify({ error: 'Aborted' }, null, 2)}\n`);
+      } else {
+        options.stderr('Aborted\n');
+      }
       return 1;
     }
 
@@ -65,8 +75,13 @@ export function createNewCommand(
       : resolveWorktreePath(repository.repoRoot, worktreeName);
 
     if (!usesGeneratedDetachedName && await pathExists(worktreePath)) {
-      if (isHeadless()) {
-        options.stderr(`gji new: target worktree path already exists in non-interactive mode: ${worktreePath} (GJI_NO_TUI=1)\n`);
+      if (options.json || isHeadless()) {
+        const message = `target worktree path already exists: ${worktreePath}`;
+        if (options.json) {
+          options.stderr(`${JSON.stringify({ error: message }, null, 2)}\n`);
+        } else {
+          options.stderr(`gji new: ${message} in non-interactive mode (GJI_NO_TUI=1)\n`);
+        }
         return 1;
       }
 
@@ -102,7 +117,7 @@ export function createNewCommand(
       }
     }
 
-    await maybeRunInstallPrompt(worktreePath, repository.repoRoot, config, options.stderr, dependencies);
+    await maybeRunInstallPrompt(worktreePath, repository.repoRoot, config, options.stderr, dependencies, !!options.json);
 
     const hooks = extractHooks(config);
     await runHook(
@@ -112,7 +127,11 @@ export function createNewCommand(
       options.stderr,
     );
 
-    await writeOutput(worktreePath, options.stdout);
+    if (options.json) {
+      options.stdout(`${JSON.stringify({ branch: worktreeName, path: worktreePath }, null, 2)}\n`);
+    } else {
+      await writeOutput(worktreePath, options.stdout);
+    }
 
     return 0;
   };

@@ -55,9 +55,11 @@ IN PROGRESS
 
 - [DONE] Add non-interactive (headless) mode: when `GJI_NO_TUI=1` or `NO_COLOR` is set in the environment, all `@clack/prompts` interactive prompts must be bypassed. Commands that require input and receive none should fail immediately with a clear error to stderr (exit code 1) rather than hanging. Specifically: `gji new` without a branch arg should error; `gji go` without a branch arg should error; `gji remove` without `--force` should error; `gji clean` without `--force` should error. Add unit tests covering that each interactive path errors correctly when `GJI_NO_TUI=1`.
 
-- [ ] Add `--json` output to `gji new` and `gji pr`: on success emit a single JSON object `{ branch: string, path: string }` to stdout; on error emit `{ error: string }` to stderr with a non-zero exit code. JSON mode must suppress all spinner/prompt output. Add tests for both success and error JSON shapes.
+- [DONE] Add `--json` output to `gji new` and `gji pr`: on success emit a single JSON object `{ branch: string, path: string }` to stdout; on error emit `{ error: string }` to stderr with a non-zero exit code. JSON mode must suppress all spinner/prompt output. Add tests for both success and error JSON shapes.
 
-- [ ] Add `--json` output to `gji remove`: on success emit `{ branch: string, path: string, deleted: true }`; on error emit `{ error: string }`. Add `--json` to `gji clean`: emit `{ removed: Array<{ branch: string, path: string }> }`. Add `--json` to `gji sync`: emit `{ updated: Array<{ branch: string, path: string }> }`. In all cases JSON mode must suppress interactive prompts (behave as if `GJI_NO_TUI=1`). Add tests for each.
+- [DONE] Add `--json` output to `gji remove`: on success emit `{ branch: string, path: string, deleted: true }`; on error emit `{ error: string }`. Add `--json` to `gji clean`: emit `{ removed: Array<{ branch: string, path: string }> }`. In all cases JSON mode must suppress interactive prompts (behave as if `GJI_NO_TUI=1`). Add tests for each.
+
+- [ ] Add `--json` to `gji sync`: emit `{ updated: Array<{ branch: string, path: string }> }`; on error emit `{ error: string }`. JSON mode must suppress interactive prompts. Add tests.
 
 - [ ] Add `--dry-run` to `gji new` and `gji pr`: print (or emit via `--json`) what would be created without executing any git commands or writing files. Add `--dry-run` to `gji remove` and `gji clean`: print what would be deleted without removing anything. Dry-run must be usable with `--json` so agents can validate their parameter mapping before committing to a destructive action. Add tests covering dry-run output for each command.
 

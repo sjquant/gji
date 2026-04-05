@@ -22,6 +22,7 @@ export interface RemoveCommandOptions {
   branch?: string;
   cwd: string;
   force?: boolean;
+  json?: boolean;
   stderr: (chunk: string) => void;
   stdout: (chunk: string) => void;
 }
@@ -47,12 +48,17 @@ export function createRemoveCommand(
     const { linkedWorktrees, repository } = await loadLinkedWorktrees(options.cwd);
 
     if (linkedWorktrees.length === 0) {
-      options.stderr('No linked worktrees to finish\n');
+      emitError(options, 'No linked worktrees to finish');
       return 1;
     }
 
-    if (!options.branch && isHeadless()) {
-      options.stderr('gji remove: branch argument is required in non-interactive mode (GJI_NO_TUI=1)\n');
+    if (!options.branch && (options.json || isHeadless())) {
+      const message = 'branch argument is required';
+      if (options.json) {
+        emitError(options, message);
+      } else {
+        options.stderr(`gji remove: ${message} in non-interactive mode (GJI_NO_TUI=1)\n`);
+      }
       return 1;
     }
 
@@ -68,12 +74,17 @@ export function createRemoveCommand(
     );
 
     if (!worktree) {
-      options.stderr(`No linked worktree found for branch: ${selection}\n`);
+      emitError(options, `No linked worktree found for branch: ${selection}`);
       return 1;
     }
 
-    if (!options.force && isHeadless()) {
-      options.stderr('gji remove: --force is required in non-interactive mode (GJI_NO_TUI=1)\n');
+    if (!options.force && (options.json || isHeadless())) {
+      const message = '--force is required';
+      if (options.json) {
+        emitError(options, message);
+      } else {
+        options.stderr(`gji remove: ${message} in non-interactive mode (GJI_NO_TUI=1)\n`);
+      }
       return 1;
     }
 
@@ -106,7 +117,7 @@ export function createRemoveCommand(
       try {
         await forceRemoveWorktree(repository.repoRoot, worktree.path);
       } catch (forceError) {
-        options.stderr(`Failed to remove worktree at ${worktree.path}: ${toMessage(forceError)}\n`);
+        emitError(options, `Failed to remove worktree at ${worktree.path}: ${toMessage(forceError)}`);
         return 1;
       }
     }
@@ -131,7 +142,11 @@ export function createRemoveCommand(
       }
     }
 
-    await writeOutput(repository.repoRoot, options.stdout);
+    if (options.json) {
+      options.stdout(`${JSON.stringify({ branch: worktree.branch, path: worktree.path, deleted: true }, null, 2)}\n`);
+    } else {
+      await writeOutput(repository.repoRoot, options.stdout);
+    }
 
     return 0;
   };
@@ -170,6 +185,14 @@ async function writeOutput(
   stdout: (chunk: string) => void,
 ): Promise<void> {
   await writeShellOutput(REMOVE_OUTPUT_FILE_ENV, repoRoot, stdout);
+}
+
+function emitError(options: RemoveCommandOptions, message: string): void {
+  if (options.json) {
+    options.stderr(`${JSON.stringify({ error: message }, null, 2)}\n`);
+  } else {
+    options.stderr(`${message}\n`);
+  }
 }
 
 function toMessage(error: unknown): string {

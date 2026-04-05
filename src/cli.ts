@@ -86,6 +86,7 @@ function registerCommands(program: Command): void {
     .command('new [branch]')
     .description('create a new branch or detached linked worktree')
     .option('--detached', 'create a detached worktree without a branch')
+    .option('--json', 'emit JSON on success or error instead of human-readable output')
     .action(notImplemented('new'));
 
   program
@@ -97,6 +98,7 @@ function registerCommands(program: Command): void {
   program
     .command('pr <number>')
     .description('fetch a pull request ref and create a linked worktree')
+    .option('--json', 'emit JSON on success or error instead of human-readable output')
     .action(notImplemented('pr'));
 
   program
@@ -133,6 +135,7 @@ function registerCommands(program: Command): void {
     .command('clean')
     .description('interactively prune linked worktrees')
     .option('-f, --force', 'bypass prompts, force-remove dirty worktrees, and force-delete unmerged branches')
+    .option('--json', 'emit JSON on success or error instead of human-readable output')
     .action(notImplemented('clean'));
 
   program
@@ -140,6 +143,7 @@ function registerCommands(program: Command): void {
     .alias('rm')
     .description('remove a linked worktree and delete its branch when present')
     .option('-f, --force', 'bypass prompts, force-remove a dirty worktree, and force-delete an unmerged branch')
+    .option('--json', 'emit JSON on success or error instead of human-readable output')
     .action(notImplemented('remove'));
 
   const configCommand = program
@@ -169,8 +173,8 @@ function attachCommandActions(
 ): void {
   program.commands
     .find((command) => command.name() === 'new')
-    ?.action(async (branch: string | undefined, commandOptions: { detached?: boolean }) => {
-      const exitCode = await runNewCommand({ ...options, branch, detached: commandOptions.detached });
+    ?.action(async (branch: string | undefined, commandOptions: { detached?: boolean; json?: boolean }) => {
+      const exitCode = await runNewCommand({ ...options, branch, detached: commandOptions.detached, json: commandOptions.json });
 
       if (exitCode !== 0) {
         throw commanderExit(exitCode);
@@ -194,8 +198,8 @@ function attachCommandActions(
 
   program.commands
     .find((command) => command.name() === 'pr')
-    ?.action(async (number: string) => {
-      const exitCode = await runPrCommand({ cwd: options.cwd, number, stderr: options.stderr, stdout: options.stdout });
+    ?.action(async (number: string, commandOptions: { json?: boolean }) => {
+      const exitCode = await runPrCommand({ cwd: options.cwd, json: commandOptions.json, number, stderr: options.stderr, stdout: options.stdout });
 
       if (exitCode !== 0) {
         throw commanderExit(exitCode);
@@ -277,10 +281,11 @@ function attachCommandActions(
 
   program.commands
     .find((command) => command.name() === 'clean')
-    ?.action(async (commandOptions: { force?: boolean }) => {
+    ?.action(async (commandOptions: { force?: boolean; json?: boolean }) => {
       const exitCode = await runCleanCommand({
         cwd: options.cwd,
         force: commandOptions.force,
+        json: commandOptions.json,
         stderr: options.stderr,
         stdout: options.stdout,
       });
@@ -290,11 +295,12 @@ function attachCommandActions(
       }
     });
 
-  const runRemovalCommand = async (branch?: string, commandOptions: { force?: boolean } = {}) => {
+  const runRemovalCommand = async (branch?: string, commandOptions: { force?: boolean; json?: boolean } = {}) => {
     const exitCode = await runRemoveCommand({
       branch,
       cwd: options.cwd,
       force: commandOptions.force,
+      json: commandOptions.json,
       stderr: options.stderr,
       stdout: options.stdout,
     });

@@ -279,6 +279,141 @@ describe('gji remove', () => {
     await expect(branchExists(repoRoot, branch)).resolves.toBe(true);
     expect(stderr.join('')).toContain('Aborted');
   });
+
+  describe('--json output', () => {
+    it('emits { branch, path, deleted: true } to stdout on success', async () => {
+      // Given a repository with a linked worktree to remove.
+      const repoRoot = await createRepository();
+      const branch = 'feature/json-remove-success';
+      const worktreePath = await addLinkedWorktree(repoRoot, branch);
+      const stdout: string[] = [];
+      const stderr: string[] = [];
+      const runRemoveCommand = createRemoveCommand({
+        confirmRemoval: async () => { throw new Error('confirmation must not be called in --json mode'); },
+      });
+
+      // When gji remove --json --force runs for that branch.
+      const result = await runRemoveCommand({
+        branch,
+        cwd: repoRoot,
+        force: true,
+        json: true,
+        stderr: (chunk) => stderr.push(chunk),
+        stdout: (chunk) => stdout.push(chunk),
+      });
+
+      // Then it emits JSON with branch, path, and deleted flag; nothing to stderr.
+      expect(result).toBe(0);
+      expect(stderr).toEqual([]);
+      await expect(pathExists(worktreePath)).resolves.toBe(false);
+      const output = JSON.parse(stdout.join(''));
+      expect(output).toEqual({ branch, path: worktreePath, deleted: true });
+    });
+
+    it('includes branch: null for detached worktrees', async () => {
+      // Given a repository with a detached linked worktree.
+      const repoRoot = await createRepository();
+      const detachedWorktreePath = `${repoRoot}-json-detached`;
+      await runGit(repoRoot, ['worktree', 'add', '--detach', detachedWorktreePath, 'HEAD']);
+      const stdout: string[] = [];
+      const runRemoveCommand = createRemoveCommand({
+        promptForWorktree: async () => detachedWorktreePath,
+      });
+
+      // When gji remove --json --force runs for the detached worktree.
+      const result = await runRemoveCommand({
+        branch: detachedWorktreePath,
+        cwd: repoRoot,
+        force: true,
+        json: true,
+        stderr: () => undefined,
+        stdout: (chunk) => stdout.push(chunk),
+      });
+
+      // Then the JSON includes branch: null.
+      expect(result).toBe(0);
+      const output = JSON.parse(stdout.join(''));
+      expect(output).toEqual({ branch: null, path: detachedWorktreePath, deleted: true });
+    });
+
+    it('emits { error } to stderr and exits 1 when no branch is provided', async () => {
+      // Given a repository with a linked worktree and no branch argument.
+      const repoRoot = await createRepository();
+      await addLinkedWorktree(repoRoot, 'feature/json-remove-no-branch');
+      const stdout: string[] = [];
+      const stderr: string[] = [];
+      const runRemoveCommand = createRemoveCommand({
+        promptForWorktree: async () => { throw new Error('prompt must not be called in --json mode'); },
+      });
+
+      // When gji remove --json runs without a branch.
+      const result = await runRemoveCommand({
+        cwd: repoRoot,
+        json: true,
+        stderr: (chunk) => stderr.push(chunk),
+        stdout: (chunk) => stdout.push(chunk),
+      });
+
+      // Then it emits a JSON error and exits 1.
+      expect(result).toBe(1);
+      expect(stdout).toEqual([]);
+      const json = JSON.parse(stderr.join(''));
+      expect(json).toHaveProperty('error');
+      expect(typeof json.error).toBe('string');
+    });
+
+    it('emits { error } to stderr and exits 1 when --force is not set', async () => {
+      // Given a repository with a linked worktree.
+      const repoRoot = await createRepository();
+      const branch = 'feature/json-remove-no-force';
+      await addLinkedWorktree(repoRoot, branch);
+      const stdout: string[] = [];
+      const stderr: string[] = [];
+      const runRemoveCommand = createRemoveCommand({
+        confirmRemoval: async () => { throw new Error('confirmation must not be called in --json mode'); },
+      });
+
+      // When gji remove --json runs without --force.
+      const result = await runRemoveCommand({
+        branch,
+        cwd: repoRoot,
+        json: true,
+        stderr: (chunk) => stderr.push(chunk),
+        stdout: (chunk) => stdout.push(chunk),
+      });
+
+      // Then it emits a JSON error and exits 1.
+      expect(result).toBe(1);
+      expect(stdout).toEqual([]);
+      const json = JSON.parse(stderr.join(''));
+      expect(json).toHaveProperty('error');
+    });
+
+    it('emits { error } to stderr and exits 1 when the branch is not found', async () => {
+      // Given a repository and a branch that has no linked worktree.
+      const repoRoot = await createRepository();
+      await addLinkedWorktree(repoRoot, 'feature/json-remove-exists');
+      const stdout: string[] = [];
+      const stderr: string[] = [];
+
+      // When gji remove --json --force runs for a non-existent branch.
+      const result = await createRemoveCommand()({
+        branch: 'feature/json-remove-ghost',
+        cwd: repoRoot,
+        force: true,
+        json: true,
+        stderr: (chunk) => stderr.push(chunk),
+        stdout: (chunk) => stdout.push(chunk),
+      });
+
+      // Then it emits a JSON error mentioning the branch and exits 1.
+      expect(result).toBe(1);
+      expect(stdout).toEqual([]);
+      const json = JSON.parse(stderr.join(''));
+      expect(json).toHaveProperty('error');
+      expect(json.error).toContain('json-remove-ghost');
+    });
+  });
 });
 
 async function branchExists(repoRoot: string, branch: string): Promise<boolean> {
