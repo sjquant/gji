@@ -147,15 +147,15 @@ After removal, the shell-integrated command returns you to the repository root.
 
 - `gji --version` prints the installed CLI version
 - `gji init [shell]` prints shell integration for `zsh`, `bash`, or `fish`
-- `gji new [branch] [--detached]` creates a branch and linked worktree; with shell integration it moves into the new worktree, and `--detached` creates a detached worktree instead
-- `gji pr <ref>` accepts `123`, `#123`, or a full PR/MR URL, extracts the numeric ID, then fetches `origin/pull/<number>/head` and creates a linked `pr/<number>` worktree
+- `gji new [branch] [--detached] [--json]` creates a branch and linked worktree; with shell integration it moves into the new worktree, and `--detached` creates a detached worktree instead
+- `gji pr <ref> [--json]` accepts `123`, `#123`, or a full PR/MR URL, extracts the numeric ID, then fetches `origin/pull/<number>/head` and creates a linked `pr/<number>` worktree
 - `gji go [branch] [--print]` jumps to an existing worktree when shell integration is installed, or prints the matching worktree path otherwise
 - `gji root [--print]` jumps to the main repository root when shell integration is installed, or prints it otherwise
 - `gji status [--json]` prints repository metadata, worktree health, and upstream divergence
 - `gji sync [--all]` fetches from the configured remote and rebases or fast-forwards worktrees onto the configured default branch
 - `gji ls [--json]` lists active worktrees in a table or JSON
-- `gji clean` interactively prunes one or more linked worktrees, including detached entries, while excluding the current worktree
-- `gji remove [branch]` and `gji rm [branch]` remove a linked worktree and delete its branch when present; with shell integration they return to the repository root
+- `gji clean [--force] [--json]` interactively prunes one or more linked worktrees, including detached entries, while excluding the current worktree
+- `gji remove [branch] [--force] [--json]` and `gji rm [branch]` remove a linked worktree and delete its branch when present; with shell integration they return to the repository root
 - `gji config` reads or updates global defaults
 
 ## Configuration
@@ -243,6 +243,48 @@ Global and project-level hooks are merged per key — project values override gl
 ```
 
 ## JSON output
+
+All `--json` flags emit pretty-printed JSON. On success the object goes to stdout; on error `{ "error": "..." }` goes to stderr with exit code 1. This makes every command composable with `jq` and agent toolchains.
+
+### Creation commands
+
+`gji new --json <branch>` and `gji pr --json <ref>` emit on success:
+
+```json
+{
+  "branch": "feature/login-form",
+  "path": "/home/user/worktrees/myrepo/feature/login-form"
+}
+```
+
+`--json` suppresses the interactive branch prompt, install prompt, and path-conflict prompt. The branch argument is required in JSON mode.
+
+### Removal commands
+
+`gji remove --json --force <branch>` emits on success:
+
+```json
+{
+  "branch": "feature/login-form",
+  "path": "/home/user/worktrees/myrepo/feature/login-form",
+  "deleted": true
+}
+```
+
+`gji clean --json --force` emits on success:
+
+```json
+{
+  "removed": [
+    { "branch": "feature/login-form", "path": "/home/user/worktrees/myrepo/feature/login-form" },
+    { "branch": null, "path": "/home/user/worktrees/myrepo/detached-scratch" }
+  ]
+}
+```
+
+`--force` is required in JSON mode for both removal commands (same constraint as `GJI_NO_TUI=1`). `branch` is `null` for detached worktrees.
+
+### Read commands
 
 `gji ls --json` returns branch/path entries:
 
