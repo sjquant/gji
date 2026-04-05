@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 
 import { createCleanCommand } from './clean.js';
 import { createGoCommand } from './go.js';
+import { isHeadless } from './headless.js';
 import { createNewCommand } from './new.js';
 import { createRemoveCommand } from './remove.js';
 import { addLinkedWorktree, createRepository } from './repo.test-helpers.js';
@@ -9,6 +10,37 @@ import { addLinkedWorktree, createRepository } from './repo.test-helpers.js';
 afterEach(() => {
   delete process.env.GJI_NO_TUI;
   delete process.env.NO_COLOR;
+});
+
+describe('isHeadless', () => {
+  it('returns false when neither GJI_NO_TUI nor NO_COLOR is set', () => {
+    // Given neither env var is present.
+    delete process.env.GJI_NO_TUI;
+    delete process.env.NO_COLOR;
+    // Then isHeadless returns false.
+    expect(isHeadless()).toBe(false);
+  });
+
+  it('returns true when GJI_NO_TUI=1', () => {
+    // Given GJI_NO_TUI is set to "1".
+    process.env.GJI_NO_TUI = '1';
+    // Then isHeadless returns true.
+    expect(isHeadless()).toBe(true);
+  });
+
+  it('returns false when GJI_NO_TUI is set to a value other than "1"', () => {
+    // Given GJI_NO_TUI is set to a truthy but non-"1" value.
+    process.env.GJI_NO_TUI = 'true';
+    // Then isHeadless returns false (requires exact "1").
+    expect(isHeadless()).toBe(false);
+  });
+
+  it('returns true when NO_COLOR is set (any value)', () => {
+    // Given NO_COLOR is present (empty string is sufficient per spec).
+    process.env.NO_COLOR = '';
+    // Then isHeadless returns true.
+    expect(isHeadless()).toBe(true);
+  });
 });
 
 describe('headless mode (GJI_NO_TUI=1)', () => {
