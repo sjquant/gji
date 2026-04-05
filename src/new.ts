@@ -44,7 +44,7 @@ export function createNewCommand(
     const usesGeneratedDetachedName = options.detached && options.branch === undefined;
 
     if (!options.detached && !options.branch && isHeadless()) {
-      options.stderr('gji new: branch argument is required in non-interactive mode (GJI_NO_TUI=1 or NO_COLOR)\n');
+      options.stderr('gji new: branch argument is required in non-interactive mode (GJI_NO_TUI=1)\n');
       return 1;
     }
 
@@ -65,6 +65,11 @@ export function createNewCommand(
       : resolveWorktreePath(repository.repoRoot, worktreeName);
 
     if (!usesGeneratedDetachedName && await pathExists(worktreePath)) {
+      if (isHeadless()) {
+        options.stderr(`gji new: target worktree path already exists in non-interactive mode: ${worktreePath} (GJI_NO_TUI=1)\n`);
+        return 1;
+      }
+
       const choice = await prompt(worktreePath);
 
       if (choice === 'reuse') {

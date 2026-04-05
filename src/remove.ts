@@ -52,7 +52,7 @@ export function createRemoveCommand(
     }
 
     if (!options.branch && isHeadless()) {
-      options.stderr('gji remove: branch argument is required in non-interactive mode (GJI_NO_TUI=1 or NO_COLOR)\n');
+      options.stderr('gji remove: branch argument is required in non-interactive mode (GJI_NO_TUI=1)\n');
       return 1;
     }
 
@@ -73,7 +73,7 @@ export function createRemoveCommand(
     }
 
     if (!options.force && isHeadless()) {
-      options.stderr('gji remove: --force is required in non-interactive mode (GJI_NO_TUI=1 or NO_COLOR)\n');
+      options.stderr('gji remove: --force is required in non-interactive mode (GJI_NO_TUI=1)\n');
       return 1;
     }
 

@@ -7,6 +7,7 @@ import { loadEffectiveConfig } from './config.js';
 import { syncFiles } from './file-sync.js';
 import { type PathConflictChoice, pathExists, promptForPathConflict } from './conflict.js';
 import { extractHooks, runHook } from './hooks.js';
+import { isHeadless } from './headless.js';
 import { type InstallPromptDependencies, maybeRunInstallPrompt } from './install-prompt.js';
 import { detectRepository, resolveWorktreePath } from './repo.js';
 import { writeShellOutput } from './shell-handoff.js';
@@ -59,6 +60,11 @@ export function createPrCommand(
     const worktreePath = resolveWorktreePath(repository.repoRoot, branchName);
 
     if (await pathExists(worktreePath)) {
+      if (isHeadless()) {
+        options.stderr(`gji pr: target worktree path already exists in non-interactive mode: ${worktreePath} (GJI_NO_TUI=1)\n`);
+        return 1;
+      }
+
       const choice = await prompt(worktreePath);
 
       if (choice === 'reuse') {

@@ -47,11 +47,14 @@ export function createCleanCommand(
     }
 
     if (!options.force && isHeadless()) {
-      options.stderr('gji clean: --force is required in non-interactive mode (GJI_NO_TUI=1 or NO_COLOR)\n');
+      options.stderr('gji clean: --force is required in non-interactive mode (GJI_NO_TUI=1)\n');
       return 1;
     }
 
-    const selections = await promptForWorktrees(cleanupCandidates);
+    // With --force, skip selection prompt and target all candidates.
+    const selections = options.force
+      ? cleanupCandidates.map((w) => w.path)
+      : await promptForWorktrees(cleanupCandidates);
 
     if (!selections || selections.length === 0) {
       options.stderr('Aborted\n');

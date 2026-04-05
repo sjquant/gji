@@ -33,7 +33,7 @@ export function createGoCommand(
     ]);
 
     if (!options.branch && isHeadless()) {
-      options.stderr('gji go: branch argument is required in non-interactive mode (GJI_NO_TUI=1 or NO_COLOR)\n');
+      options.stderr('gji go: branch argument is required in non-interactive mode (GJI_NO_TUI=1)\n');
       return 1;
     }
 
