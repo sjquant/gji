@@ -47,7 +47,7 @@ export function createNewCommand(
     if (!options.detached && !options.branch && (options.json || isHeadless())) {
       const message = 'branch argument is required';
       if (options.json) {
-        options.stderr(`${JSON.stringify({ error: message })}\n`);
+        options.stderr(`${JSON.stringify({ error: message }, null, 2)}\n`);
       } else {
         options.stderr(`gji new: ${message} in non-interactive mode (GJI_NO_TUI=1)\n`);
       }
@@ -60,7 +60,7 @@ export function createNewCommand(
 
     if (!rawBranch) {
       if (options.json) {
-        options.stderr(`${JSON.stringify({ error: 'Aborted' })}\n`);
+        options.stderr(`${JSON.stringify({ error: 'Aborted' }, null, 2)}\n`);
       } else {
         options.stderr('Aborted\n');
       }
@@ -78,7 +78,7 @@ export function createNewCommand(
       if (options.json || isHeadless()) {
         const message = `target worktree path already exists: ${worktreePath}`;
         if (options.json) {
-          options.stderr(`${JSON.stringify({ error: message })}\n`);
+          options.stderr(`${JSON.stringify({ error: message }, null, 2)}\n`);
         } else {
           options.stderr(`gji new: ${message} in non-interactive mode (GJI_NO_TUI=1)\n`);
         }
@@ -128,7 +128,7 @@ export function createNewCommand(
     );
 
     if (options.json) {
-      options.stdout(`${JSON.stringify({ branch: worktreeName, path: worktreePath })}\n`);
+      options.stdout(`${JSON.stringify({ branch: worktreeName, path: worktreePath }, null, 2)}\n`);
     } else {
       await writeOutput(worktreePath, options.stdout);
     }

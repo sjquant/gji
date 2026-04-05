@@ -52,7 +52,7 @@ export function createPrCommand(
     if (!prNumber) {
       const message = `Invalid PR reference: ${options.number}`;
       if (options.json) {
-        options.stderr(`${JSON.stringify({ error: message })}\n`);
+        options.stderr(`${JSON.stringify({ error: message }, null, 2)}\n`);
       } else {
         options.stderr(`${message}\n`);
       }
@@ -69,7 +69,7 @@ export function createPrCommand(
       if (options.json || isHeadless()) {
         const message = `target worktree path already exists: ${worktreePath}`;
         if (options.json) {
-          options.stderr(`${JSON.stringify({ error: message })}\n`);
+          options.stderr(`${JSON.stringify({ error: message }, null, 2)}\n`);
         } else {
           options.stderr(`gji pr: ${message} in non-interactive mode (GJI_NO_TUI=1)\n`);
         }
@@ -96,7 +96,7 @@ export function createPrCommand(
     } catch {
       const message = `Failed to fetch PR #${prNumber} from origin`;
       if (options.json) {
-        options.stderr(`${JSON.stringify({ error: message })}\n`);
+        options.stderr(`${JSON.stringify({ error: message }, null, 2)}\n`);
       } else {
         options.stderr(`${message}\n`);
       }
@@ -135,7 +135,7 @@ export function createPrCommand(
     );
 
     if (options.json) {
-      options.stdout(`${JSON.stringify({ branch: branchName, path: worktreePath })}\n`);
+      options.stdout(`${JSON.stringify({ branch: branchName, path: worktreePath }, null, 2)}\n`);
     } else {
       await writeOutput(worktreePath, options.stdout);
     }

@@ -312,7 +312,8 @@ describe('gji pr', () => {
       // Then it emits a JSON object with branch and path, nothing to stderr.
       expect(result.exitCode).toBe(0);
       expect(stderr).toEqual([]);
-      expect(JSON.parse(stdout.join(''))).toEqual({ branch: 'pr/3001', path: worktreePath });
+      const output = JSON.parse(stdout.join(''));
+      expect(output).toEqual({ branch: 'pr/3001', path: worktreePath });
     });
 
     it('emits { error } to stderr and exits 1 for an invalid PR reference', async () => {

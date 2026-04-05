@@ -781,7 +781,8 @@ describe('gji new', () => {
       // Then it emits a JSON object with branch and path, nothing to stderr.
       expect(result.exitCode).toBe(0);
       expect(stderr).toEqual([]);
-      expect(JSON.parse(stdout.join(''))).toEqual({ branch: branchName, path: worktreePath });
+      const output = JSON.parse(stdout.join(''));
+      expect(output).toEqual({ branch: branchName, path: worktreePath });
     });
 
     it('emits { error } to stderr and exits 1 when no branch is provided', async () => {
