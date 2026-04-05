@@ -288,6 +288,108 @@ describe('gji pr', () => {
     await expect(currentBranch(worktreePath)).resolves.toBe('pr/123');
   });
 
+  describe('--json output', () => {
+    it('emits { branch, path } to stdout on success', async () => {
+      // Given a repository with a PR ref on origin.
+      const { repoRoot } = await createRepositoryWithOrigin();
+      const branchName = 'feature/json-pr-source';
+      const worktreePath = resolveWorktreePath(repoRoot, 'pr/3001');
+      const stdout: string[] = [];
+      const stderr: string[] = [];
+
+      await runGit(repoRoot, ['checkout', '-b', branchName]);
+      await commitFile(repoRoot, 'json-pr.txt', 'json pr\n', 'json pr');
+      await pushPullRequestRef(repoRoot, '3001');
+      await runGit(repoRoot, ['checkout', '-']);
+
+      // When gji pr --json succeeds.
+      const result = await runCli(['pr', '--json', '3001'], {
+        cwd: repoRoot,
+        stderr: (chunk) => stderr.push(chunk),
+        stdout: (chunk) => stdout.push(chunk),
+      });
+
+      // Then it emits a JSON object with branch and path, nothing to stderr.
+      expect(result.exitCode).toBe(0);
+      expect(stderr).toEqual([]);
+      expect(JSON.parse(stdout.join(''))).toEqual({ branch: 'pr/3001', path: worktreePath });
+    });
+
+    it('emits { error } to stderr and exits 1 for an invalid PR reference', async () => {
+      // Given a repository and an unrecognizable PR reference.
+      const repoRoot = await createRepository();
+      const stdout: string[] = [];
+      const stderr: string[] = [];
+
+      // When gji pr --json is called with invalid input.
+      const result = await runCli(['pr', '--json', 'not-a-pr'], {
+        cwd: repoRoot,
+        stderr: (chunk) => stderr.push(chunk),
+        stdout: (chunk) => stdout.push(chunk),
+      });
+
+      // Then it emits a JSON error to stderr and exits 1 without touching stdout.
+      expect(result.exitCode).toBe(1);
+      expect(stdout).toEqual([]);
+      const json = JSON.parse(stderr.join(''));
+      expect(json).toHaveProperty('error');
+      expect(typeof json.error).toBe('string');
+    });
+
+    it('emits { error } to stderr and exits 1 when the PR fetch fails', async () => {
+      // Given a repository with an origin remote but no PR ref for number 9998.
+      const { repoRoot } = await createRepositoryWithOrigin();
+      const stdout: string[] = [];
+      const stderr: string[] = [];
+
+      // When gji pr --json tries to fetch a non-existent PR.
+      const result = await runPrCommand({
+        cwd: repoRoot,
+        json: true,
+        number: '9998',
+        stderr: (chunk) => stderr.push(chunk),
+        stdout: (chunk) => stdout.push(chunk),
+      });
+
+      // Then it emits a JSON error mentioning the PR number.
+      expect(result).toBe(1);
+      expect(stdout).toEqual([]);
+      const json = JSON.parse(stderr.join(''));
+      expect(json).toHaveProperty('error');
+      expect(json.error).toContain('9998');
+    });
+
+    it('suppresses the install prompt in --json mode', async () => {
+      // Given a repository with a PR ref and a detected package manager.
+      const { repoRoot } = await createRepositoryWithOrigin();
+      await runGit(repoRoot, ['checkout', '-b', 'feature/json-pr-install']);
+      await commitFile(repoRoot, 'json-install.txt', 'content\n', 'json install');
+      await pushPullRequestRef(repoRoot, '3002');
+      await runGit(repoRoot, ['checkout', '-']);
+      let promptCalled = false;
+      const runPrCmd = createPrCommand({
+        detectInstallPackageManager: async () => ({ name: 'pnpm', installCommand: 'pnpm install' }),
+        promptForInstallChoice: async () => {
+          promptCalled = true;
+          return 'yes';
+        },
+      });
+
+      // When gji pr --json runs.
+      const result = await runPrCmd({
+        cwd: repoRoot,
+        json: true,
+        number: '3002',
+        stderr: () => undefined,
+        stdout: () => undefined,
+      });
+
+      // Then the install prompt was never shown.
+      expect(result).toBe(0);
+      expect(promptCalled).toBe(false);
+    });
+  });
+
   describe('install prompt', () => {
     const fakePm = { name: 'pnpm', installCommand: 'pnpm install' };
 

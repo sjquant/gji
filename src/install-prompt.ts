@@ -21,9 +21,10 @@ export async function maybeRunInstallPrompt(
   config: GjiConfig,
   stderr: (chunk: string) => void,
   dependencies: InstallPromptDependencies = {},
+  nonInteractive = false,
 ): Promise<void> {
   // Skip in non-interactive mode — no prompt can be shown.
-  if (isHeadless()) {
+  if (isHeadless() || nonInteractive) {
     return;
   }
 

@@ -19,6 +19,7 @@ const PR_OUTPUT_FILE_ENV = 'GJI_PR_OUTPUT_FILE';
 
 export interface PrCommandOptions {
   cwd: string;
+  json?: boolean;
   number: string;
   stderr: (chunk: string) => void;
   stdout: (chunk: string) => void;
@@ -49,7 +50,12 @@ export function createPrCommand(
     const prNumber = parsePrInput(options.number);
 
     if (!prNumber) {
-      options.stderr(`Invalid PR reference: ${options.number}\n`);
+      const message = `Invalid PR reference: ${options.number}`;
+      if (options.json) {
+        options.stderr(`${JSON.stringify({ error: message })}\n`);
+      } else {
+        options.stderr(`${message}\n`);
+      }
       return 1;
     }
 
@@ -60,8 +66,13 @@ export function createPrCommand(
     const worktreePath = resolveWorktreePath(repository.repoRoot, branchName);
 
     if (await pathExists(worktreePath)) {
-      if (isHeadless()) {
-        options.stderr(`gji pr: target worktree path already exists in non-interactive mode: ${worktreePath} (GJI_NO_TUI=1)\n`);
+      if (options.json || isHeadless()) {
+        const message = `target worktree path already exists: ${worktreePath}`;
+        if (options.json) {
+          options.stderr(`${JSON.stringify({ error: message })}\n`);
+        } else {
+          options.stderr(`gji pr: ${message} in non-interactive mode (GJI_NO_TUI=1)\n`);
+        }
         return 1;
       }
 
@@ -83,7 +94,12 @@ export function createPrCommand(
         { cwd: repository.repoRoot },
       );
     } catch {
-      options.stderr(`Failed to fetch PR #${prNumber} from origin\n`);
+      const message = `Failed to fetch PR #${prNumber} from origin`;
+      if (options.json) {
+        options.stderr(`${JSON.stringify({ error: message })}\n`);
+      } else {
+        options.stderr(`${message}\n`);
+      }
       return 1;
     }
 
@@ -108,7 +124,7 @@ export function createPrCommand(
       }
     }
 
-    await maybeRunInstallPrompt(worktreePath, repository.repoRoot, config, options.stderr, dependencies);
+    await maybeRunInstallPrompt(worktreePath, repository.repoRoot, config, options.stderr, dependencies, !!options.json);
 
     const hooks = extractHooks(config);
     await runHook(
@@ -118,7 +134,11 @@ export function createPrCommand(
       options.stderr,
     );
 
-    await writeOutput(worktreePath, options.stdout);
+    if (options.json) {
+      options.stdout(`${JSON.stringify({ branch: branchName, path: worktreePath })}\n`);
+    } else {
+      await writeOutput(worktreePath, options.stdout);
+    }
 
     return 0;
   };
