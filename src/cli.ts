@@ -135,6 +135,7 @@ function registerCommands(program: Command): void {
     .command('clean')
     .description('interactively prune linked worktrees')
     .option('-f, --force', 'bypass prompts, force-remove dirty worktrees, and force-delete unmerged branches')
+    .option('--json', 'emit JSON on success or error instead of human-readable output')
     .action(notImplemented('clean'));
 
   program
@@ -142,6 +143,7 @@ function registerCommands(program: Command): void {
     .alias('rm')
     .description('remove a linked worktree and delete its branch when present')
     .option('-f, --force', 'bypass prompts, force-remove a dirty worktree, and force-delete an unmerged branch')
+    .option('--json', 'emit JSON on success or error instead of human-readable output')
     .action(notImplemented('remove'));
 
   const configCommand = program
@@ -279,10 +281,11 @@ function attachCommandActions(
 
   program.commands
     .find((command) => command.name() === 'clean')
-    ?.action(async (commandOptions: { force?: boolean }) => {
+    ?.action(async (commandOptions: { force?: boolean; json?: boolean }) => {
       const exitCode = await runCleanCommand({
         cwd: options.cwd,
         force: commandOptions.force,
+        json: commandOptions.json,
         stderr: options.stderr,
         stdout: options.stdout,
       });
@@ -292,11 +295,12 @@ function attachCommandActions(
       }
     });
 
-  const runRemovalCommand = async (branch?: string, commandOptions: { force?: boolean } = {}) => {
+  const runRemovalCommand = async (branch?: string, commandOptions: { force?: boolean; json?: boolean } = {}) => {
     const exitCode = await runRemoveCommand({
       branch,
       cwd: options.cwd,
       force: commandOptions.force,
+      json: commandOptions.json,
       stderr: options.stderr,
       stdout: options.stdout,
     });

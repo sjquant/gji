@@ -16,6 +16,7 @@ import { defaultConfirmForceDeleteBranch, defaultConfirmForceRemoveWorktree } fr
 export interface CleanCommandOptions {
   cwd: string;
   force?: boolean;
+  json?: boolean;
   stderr: (chunk: string) => void;
   stdout: (chunk: string) => void;
 }
@@ -42,12 +43,17 @@ export function createCleanCommand(
     );
 
     if (cleanupCandidates.length === 0) {
-      options.stderr('No linked worktrees to clean\n');
+      emitError(options, 'No linked worktrees to clean');
       return 1;
     }
 
-    if (!options.force && isHeadless()) {
-      options.stderr('gji clean: --force is required in non-interactive mode (GJI_NO_TUI=1)\n');
+    if (!options.force && (options.json || isHeadless())) {
+      const message = '--force is required';
+      if (options.json) {
+        emitError(options, message);
+      } else {
+        options.stderr(`gji clean: ${message} in non-interactive mode (GJI_NO_TUI=1)\n`);
+      }
       return 1;
     }
 
@@ -74,6 +80,7 @@ export function createCleanCommand(
     }
 
     const removedPaths: string[] = [];
+    const removedWorktrees: WorktreeEntry[] = [];
 
     for (const worktree of selectedWorktrees) {
       try {
@@ -92,13 +99,16 @@ export function createCleanCommand(
         try {
           await forceRemoveWorktree(repository.repoRoot, worktree.path);
         } catch (forceError) {
-          reportRemovedPaths(removedPaths, options.stderr);
-          options.stderr(`Failed to remove worktree at ${worktree.path}: ${toMessage(forceError)}\n`);
+          if (!options.json) {
+            reportRemovedPaths(removedPaths, options.stderr);
+          }
+          emitError(options, `Failed to remove worktree at ${worktree.path}: ${toMessage(forceError)}`);
           return 1;
         }
       }
 
       removedPaths.push(worktree.path);
+      removedWorktrees.push(worktree);
 
       if (worktree.branch) {
         try {
@@ -121,7 +131,12 @@ export function createCleanCommand(
       }
     }
 
-    options.stdout(`${repository.repoRoot}\n`);
+    if (options.json) {
+      const removed = removedWorktrees.map((w) => ({ branch: w.branch, path: w.path }));
+      options.stdout(`${JSON.stringify({ removed }, null, 2)}\n`);
+    } else {
+      options.stdout(`${repository.repoRoot}\n`);
+    }
 
     return 0;
   };
@@ -155,6 +170,14 @@ function resolveSelectedWorktrees(
 function reportRemovedPaths(paths: string[], stderr: (chunk: string) => void): void {
   if (paths.length > 0) {
     stderr(`Already removed: ${paths.join(', ')}\n`);
+  }
+}
+
+function emitError(options: CleanCommandOptions, message: string): void {
+  if (options.json) {
+    options.stderr(`${JSON.stringify({ error: message }, null, 2)}\n`);
+  } else {
+    options.stderr(`${message}\n`);
   }
 }
 
