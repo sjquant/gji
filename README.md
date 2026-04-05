@@ -1,277 +1,276 @@
-# gji
+# gji — Git worktrees without the hassle
 
-Context switching without the mess.
+> Jump between tasks instantly. No stash. No reinstall. No mess.
 
-`gji` is a Git worktree CLI for people who jump between tasks all day. It gives each branch or PR its own directory, so you stop doing `stash`, `pop`, reinstall cycles, and fragile branch juggling.
+`gji` wraps Git worktrees into a fast, ergonomic CLI. Each branch gets its own directory, its own `node_modules`, and its own terminal — so switching context is a single command instead of a ritual.
 
-## Why
+```sh
+gji new feature/payment-refactor   # new branch + worktree, cd in
+gji pr 1234                        # review PR in isolation, cd in
+gji go main                        # jump back, shell changes directory
+gji remove feature/payment-refactor
+```
 
-Standard branch switching gets annoying when you are:
+---
 
-- fixing one bug while reviewing another branch
-- hopping between feature work and PR checks
-- using multiple terminals, editors, or AI agents at the same time
+**If `gji` has saved you from a `git stash` spiral, a ⭐ on [GitHub](https://github.com/sjquant/gji) means a lot — it helps other developers find this tool.**
 
-`gji` keeps those contexts isolated in separate worktrees with deterministic paths.
+---
+
+## The problem
+
+You are deep in a feature branch. A colleague asks for a quick review. You:
+
+1. stash your changes
+2. checkout their branch
+3. wait for `pnpm install` to finish
+4. review
+5. checkout back
+6. pop your stash
+7. realize something is broken
+
+**Or you use `gji` and it is just `gji pr 1234`.**
 
 ## Install
 
-Current source install:
-
 ```sh
-git clone https://github.com/sjquant/gji.git
-cd gji
-pnpm install
-pnpm build
-npm install -g .
+npm install -g @solaqua/gji
 ```
 
-Confirm the CLI is available:
+Then add shell integration so `gji go`, `gji new`, and `gji remove` can change your directory:
 
 ```sh
-gji --version
-gji --help
+# zsh
+echo 'eval "$(gji init zsh)"' >> ~/.zshrc && source ~/.zshrc
+
+# bash
+echo 'eval "$(gji init bash)"' >> ~/.bashrc && source ~/.bashrc
 ```
 
 ## Quick start
 
-Inside a Git repository:
-
 ```sh
-gji new feature/login-form
+# start a new task
+gji new feature/dark-mode
+
+# review a pull request
+gji pr 1234
+
+# see what's open
 gji status
+
+# jump between worktrees
+gji go feature/dark-mode
+gji go main
+
+# clean up when done
+gji remove feature/dark-mode
 ```
 
-That creates a linked worktree at a deterministic path:
+Worktrees land at a deterministic path so your editor bookmarks and scripts always know where to look:
 
-```text
+```
 ../worktrees/<repo>/<branch>
+```
+
+## Daily workflow
+
+```sh
+gji new feature/auth-refactor     # new branch + worktree
+gji new --detached                # scratch space, auto-named
+
+gji pr 1234                       # checkout PR locally
+gji pr https://github.com/org/repo/pull/1234  # or paste the URL
+
+gji go feature/auth-refactor      # jump to a worktree
+gji root                          # jump to repo root
+
+gji status                        # health overview + ahead/behind counts
+gji ls                            # compact list
+
+gji sync                          # rebase current worktree onto default branch
+gji sync --all                    # rebase every worktree
+
+gji clean                         # interactive bulk cleanup
+gji remove feature/auth-refactor  # remove one worktree and its branch
 ```
 
 ## Shell setup
 
-`gji new`, `gji go`, `gji root`, and `gji remove`/`gji rm` can only change your current directory when shell integration is installed. Without shell integration, the raw CLI prints the target path so it stays script-friendly.
-
-For zsh:
+Without shell integration `gji` prints paths and exits — which is fine for scripts but means it cannot `cd` you into a new worktree. Install the integration once:
 
 ```sh
+gji init zsh   # prints the shell function, review it if you like
+```
+
+To install automatically:
+
+```sh
+# zsh
 echo 'eval "$(gji init zsh)"' >> ~/.zshrc
-source ~/.zshrc
+
+# bash
+echo 'eval "$(gji init bash)"' >> ~/.bashrc
 ```
 
-After that:
-
-```sh
-gji new feature/login-form
-gji go feature/login-form
-gji root
-gji rm feature/login-form
-```
-
-changes your shell directory directly.
-
-If you reinstall or upgrade `gji`, refresh the shell function:
+After a reinstall or upgrade, re-source to pick up changes:
 
 ```sh
 eval "$(gji init zsh)"
 ```
 
-For scripts or explicit piping:
+For scripts that need the raw path, use `--print`:
 
 ```sh
-gji new feature/login-form
-gji go --print feature/login-form
-gji root --print
+path=$(gji go --print feature/dark-mode)
+path=$(gji root --print)
 ```
-
-`gji new` and `gji remove` print their destination paths in raw CLI mode, but in a shell-integrated session they change directory directly.
-
-## Daily workflow
-
-Start a task:
-
-```sh
-gji new feature/refactor-auth
-```
-
-Start a detached scratch worktree:
-
-```sh
-gji new --detached
-```
-
-Check what is active:
-
-```sh
-gji status
-gji ls
-```
-
-Pull a PR into its own worktree:
-
-```sh
-gji pr 123
-gji pr #123
-gji pr https://github.com/owner/repo/pull/123
-```
-
-Sync the current worktree with the latest default branch:
-
-```sh
-gji sync
-```
-
-Sync every worktree in the repository:
-
-```sh
-gji sync --all
-```
-
-Clean up stale linked worktrees interactively:
-
-```sh
-gji clean
-```
-
-Finish a single worktree explicitly:
-
-```sh
-gji remove feature/refactor-auth
-# or
-gji rm feature/refactor-auth
-```
-
-After removal, the shell-integrated command returns you to the repository root.
 
 ## Commands
 
-- `gji --version` prints the installed CLI version
-- `gji init [shell]` prints shell integration for `zsh`, `bash`, or `fish`
-- `gji new [branch] [--detached]` creates a branch and linked worktree; with shell integration it moves into the new worktree, and `--detached` creates a detached worktree instead
-- `gji pr <ref>` accepts `123`, `#123`, or a full PR/MR URL, extracts the numeric ID, then fetches `origin/pull/<number>/head` and creates a linked `pr/<number>` worktree
-- `gji go [branch] [--print]` jumps to an existing worktree when shell integration is installed, or prints the matching worktree path otherwise
-- `gji root [--print]` jumps to the main repository root when shell integration is installed, or prints it otherwise
-- `gji status [--json]` prints repository metadata, worktree health, and upstream divergence
-- `gji sync [--all]` fetches from the configured remote and rebases or fast-forwards worktrees onto the configured default branch
-- `gji ls [--json]` lists active worktrees in a table or JSON
-- `gji clean` interactively prunes one or more linked worktrees, including detached entries, while excluding the current worktree
-- `gji remove [branch]` and `gji rm [branch]` remove a linked worktree and delete its branch when present; with shell integration they return to the repository root
-- `gji config` reads or updates global defaults
+| Command | Description |
+|---|---|
+| `gji new [branch] [--detached] [--json]` | create branch + worktree, cd in |
+| `gji pr <ref> [--json]` | fetch PR ref, create worktree, cd in |
+| `gji go [branch] [--print]` | jump to a worktree |
+| `gji root [--print]` | jump to the main repo root |
+| `gji status [--json]` | repo overview, worktree health, ahead/behind |
+| `gji ls [--json]` | list active worktrees |
+| `gji sync [--all]` | fetch and rebase worktrees onto default branch |
+| `gji clean [--force] [--json]` | interactively prune stale worktrees |
+| `gji remove [branch] [--force] [--json]` | remove a worktree and its branch |
+| `gji config [get\|set\|unset] [key] [value]` | manage global defaults |
+| `gji init [shell]` | print or install shell integration |
 
 ## Configuration
 
-`gji` is usable without setup, but it supports defaults through:
+No setup required. Optional config lives in:
 
-- global config at `~/.config/gji/config.json`
-- repo-local config at `.gji.json`
+- `~/.config/gji/config.json` — global defaults
+- `.gji.json` — repo-local overrides (takes precedence)
 
-Repo-local values override global defaults.
+### Available keys
 
-Supported keys:
-
-- `branchPrefix`
-- `syncRemote`
-- `syncDefaultBranch`
-- `hooks`
-
-Example:
+| Key | Description |
+|---|---|
+| `branchPrefix` | prefix added to new branch names (e.g. `"feature/"`) |
+| `syncRemote` | remote for `gji sync` (default: `origin`) |
+| `syncDefaultBranch` | branch to rebase onto (default: remote `HEAD`) |
+| `syncFiles` | files to copy from main worktree into each new worktree |
+| `skipInstallPrompt` | `true` to disable the auto-install prompt permanently |
+| `hooks` | lifecycle scripts (see [Hooks](#hooks)) |
 
 ```json
 {
   "branchPrefix": "feature/",
   "syncRemote": "upstream",
-  "syncDefaultBranch": "main"
+  "syncDefaultBranch": "main",
+  "syncFiles": [".env.example", ".nvmrc"]
 }
 ```
 
-Behavior:
+### Config commands
 
-- if `syncRemote` is unset, `gji sync` defaults to `origin`
-- if `syncDefaultBranch` is unset, `gji sync` resolves the remote default branch from `HEAD`
+```sh
+gji config get
+gji config get branchPrefix
+gji config set branchPrefix feature/
+gji config unset branchPrefix
+```
 
 ## Hooks
 
-`hooks` runs shell commands at key points in the worktree lifecycle. Configure it in `.gji.json` or `~/.config/gji/config.json`:
+Run scripts automatically at key lifecycle moments:
 
 ```json
 {
   "hooks": {
     "afterCreate": "pnpm install",
-    "afterEnter": "echo switched to {{branch}}",
+    "afterEnter": "echo 'switched to {{branch}}'",
     "beforeRemove": "pnpm run cleanup"
   }
 }
 ```
 
-Hook keys:
-
-- `afterCreate` — runs after a new worktree is created, whether via `gji new` or `gji pr`
-- `afterEnter` — runs after switching to a worktree via `gji go`
-- `beforeRemove` — runs before a worktree is removed via `gji remove`
-
-Each hook receives context in two ways:
-
-**Template variables** (substituted into the command string):
-
-| Variable | Value |
+| Hook | When it runs |
 |---|---|
-| `{{branch}}` | branch name, or empty string for detached worktrees |
-| `{{path}}` | absolute path to the worktree |
-| `{{repo}}` | repository directory name |
+| `afterCreate` | after `gji new` or `gji pr` creates a worktree |
+| `afterEnter` | after `gji go` switches to a worktree |
+| `beforeRemove` | before `gji remove` deletes a worktree |
 
-**Environment variables** (available to the hook process):
+Hooks receive `{{branch}}`, `{{path}}`, `{{repo}}` as template variables and `GJI_BRANCH`, `GJI_PATH`, `GJI_REPO` as environment variables. A failing hook emits a warning but never aborts the command.
 
-| Variable | Value |
-|---|---|
-| `GJI_BRANCH` | branch name, or empty string for detached worktrees |
-| `GJI_PATH` | absolute path to the worktree |
-| `GJI_REPO` | repository directory name |
+Global and repo-local hooks deep-merge per key:
 
-Hooks run inside the worktree directory. A non-zero exit emits a warning but does not abort the command.
-
-Global and project-level hooks are merged per key — project values override global values for the same key, while keys only present in the global config still apply:
-
-```json
+```jsonc
 // ~/.config/gji/config.json
 { "hooks": { "afterCreate": "nvm use", "afterEnter": "echo hi" } }
 
 // .gji.json
 { "hooks": { "afterCreate": "pnpm install" } }
 
-// effective hooks
-{ "afterCreate": "pnpm install", "afterEnter": "echo hi" }
+// effective
+{ "hooks": { "afterCreate": "pnpm install", "afterEnter": "echo hi" } }
 ```
+
+## Install prompt
+
+When `gji new` or `gji pr` creates a worktree, `gji` detects the project's package manager from its lockfile and offers to run the install command:
+
+```
+Run `pnpm install` in the new worktree?
+› Yes       run once
+  No        skip this time
+  Always    save as afterCreate hook
+  Never     disable this prompt for this repo
+```
+
+**Always** saves `hooks.afterCreate` to `.gji.json`; **Never** writes `skipInstallPrompt: true`. Both are local-only — global config is never modified.
 
 ## JSON output
 
-`gji ls --json` returns branch/path entries:
+Every mutating command supports `--json` for scripting and AI agent use. Success goes to stdout, errors go to stderr with exit code 1.
 
 ```sh
-gji ls --json
+# create
+gji new --json feature/dark-mode
+# → { "branch": "feature/dark-mode", "path": "/…/worktrees/repo/feature/dark-mode" }
+
+# fetch PR
+gji pr --json 1234
+# → { "branch": "pr/1234", "path": "/…/worktrees/repo/pr/1234" }
+
+# remove
+gji remove --json --force feature/dark-mode
+# → { "branch": "feature/dark-mode", "path": "/…", "deleted": true }
+
+# bulk clean
+gji clean --json --force
+# → { "removed": [{ "branch": "...", "path": "..." }, …] }
+
+# error shape (any command)
+# stderr → { "error": "branch argument is required" }
 ```
 
-`gji status --json` returns a top-level object with:
+`--json` suppresses all interactive prompts. `--force` is required for `remove` and `clean` in JSON mode. `branch` is `null` for detached worktrees.
 
-- `repoRoot`
-- `currentRoot`
-- `worktrees`
+`gji ls --json` and `gji status --json` also produce structured output — see `gji status --json | jq` for the full schema.
 
-Each worktree entry contains:
+## Non-interactive / CI mode
 
-- `branch`: branch name or `null` for detached worktrees
-- `current`
-- `path`
-- `status`: `clean` or `dirty`
-- `upstream`: one of
-  - `{ "kind": "detached" }`
-  - `{ "kind": "no-upstream" }`
-  - `{ "kind": "tracked", "ahead": number, "behind": number }`
+```sh
+GJI_NO_TUI=1 gji new feature/ci-branch
+GJI_NO_TUI=1 gji remove --force feature/ci-branch
+GJI_NO_TUI=1 gji clean --force
+```
+
+`GJI_NO_TUI=1` disables all prompts. Commands that need confirmation require `--force`. `--json` implies the same behaviour.
 
 ## Notes
 
-- `gji` works from either the main repository root or any linked worktree
-- the current worktree is never offered as a `gji clean` removal candidate
-- `gji pr` accepts GitHub, GitLab, and Bitbucket-style PR/MR links, but still fetches from `origin` using GitHub-style `refs/pull/<number>/head`
+- Works from either the main repo root or inside any linked worktree
+- The current worktree is never offered as a `gji clean` candidate
+- `gji pr` parses GitHub, GitLab, and Bitbucket URLs but always fetches via `refs/pull/<number>/head` from `origin`
 
 ## License
 
