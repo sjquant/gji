@@ -59,7 +59,11 @@ export function createNewCommand(
       : options.branch ?? await promptForBranch(createBranchPlaceholder());
 
     if (!rawBranch) {
-      options.stderr('Aborted\n');
+      if (options.json) {
+        options.stderr(`${JSON.stringify({ error: 'Aborted' })}\n`);
+      } else {
+        options.stderr('Aborted\n');
+      }
       return 1;
     }
 
