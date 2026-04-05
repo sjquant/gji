@@ -2,6 +2,7 @@ import { basename } from 'node:path';
 
 import { isCancel, select } from '@clack/prompts';
 import { loadEffectiveConfig } from './config.js';
+import { isHeadless } from './headless.js';
 import { extractHooks, runHook } from './hooks.js';
 import { detectRepository, listWorktrees, type WorktreeEntry } from './repo.js';
 import { writeShellOutput } from './shell-handoff.js';
@@ -30,6 +31,11 @@ export function createGoCommand(
       listWorktrees(options.cwd),
       detectRepository(options.cwd),
     ]);
+
+    if (!options.branch && isHeadless()) {
+      options.stderr('gji go: branch argument is required in non-interactive mode (GJI_NO_TUI=1)\n');
+      return 1;
+    }
 
     const prompted = options.branch ? null : await prompt(worktrees);
     const resolvedPath = options.branch

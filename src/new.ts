@@ -7,6 +7,7 @@ import { isCancel, text } from '@clack/prompts';
 import { loadEffectiveConfig } from './config.js';
 import { syncFiles } from './file-sync.js';
 import { extractHooks, runHook } from './hooks.js';
+import { isHeadless } from './headless.js';
 import { type InstallPromptDependencies, maybeRunInstallPrompt } from './install-prompt.js';
 import { type PathConflictChoice, pathExists, promptForPathConflict } from './conflict.js';
 import { detectRepository, resolveWorktreePath } from './repo.js';
@@ -41,6 +42,12 @@ export function createNewCommand(
     const repository = await detectRepository(options.cwd);
     const config = await loadEffectiveConfig(repository.repoRoot);
     const usesGeneratedDetachedName = options.detached && options.branch === undefined;
+
+    if (!options.detached && !options.branch && isHeadless()) {
+      options.stderr('gji new: branch argument is required in non-interactive mode (GJI_NO_TUI=1)\n');
+      return 1;
+    }
+
     const rawBranch = options.detached
       ? options.branch ?? createBranchPlaceholder()
       : options.branch ?? await promptForBranch(createBranchPlaceholder());
@@ -58,6 +65,11 @@ export function createNewCommand(
       : resolveWorktreePath(repository.repoRoot, worktreeName);
 
     if (!usesGeneratedDetachedName && await pathExists(worktreePath)) {
+      if (isHeadless()) {
+        options.stderr(`gji new: target worktree path already exists in non-interactive mode: ${worktreePath} (GJI_NO_TUI=1)\n`);
+        return 1;
+      }
+
       const choice = await prompt(worktreePath);
 
       if (choice === 'reuse') {

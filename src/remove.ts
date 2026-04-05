@@ -4,6 +4,7 @@ import { confirm, isCancel, select } from '@clack/prompts';
 
 import { loadEffectiveConfig } from './config.js';
 import { extractHooks, runHook } from './hooks.js';
+import { isHeadless } from './headless.js';
 import type { WorktreeEntry } from './repo.js';
 import {
   deleteBranch,
@@ -50,6 +51,11 @@ export function createRemoveCommand(
       return 1;
     }
 
+    if (!options.branch && isHeadless()) {
+      options.stderr('gji remove: branch argument is required in non-interactive mode (GJI_NO_TUI=1)\n');
+      return 1;
+    }
+
     const selection = options.branch ?? (await promptForWorktree(linkedWorktrees));
 
     if (!selection) {
@@ -63,6 +69,11 @@ export function createRemoveCommand(
 
     if (!worktree) {
       options.stderr(`No linked worktree found for branch: ${selection}\n`);
+      return 1;
+    }
+
+    if (!options.force && isHeadless()) {
+      options.stderr('gji remove: --force is required in non-interactive mode (GJI_NO_TUI=1)\n');
       return 1;
     }
 

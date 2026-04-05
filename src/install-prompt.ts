@@ -3,6 +3,7 @@ import { spawn } from 'node:child_process';
 import { isCancel, select } from '@clack/prompts';
 
 import { type GjiConfig, loadConfig, updateLocalConfigKey } from './config.js';
+import { isHeadless } from './headless.js';
 import { detectPackageManager, type PackageManager } from './package-manager.js';
 
 export type InstallChoice = 'yes' | 'no' | 'always' | 'never';
@@ -21,6 +22,11 @@ export async function maybeRunInstallPrompt(
   stderr: (chunk: string) => void,
   dependencies: InstallPromptDependencies = {},
 ): Promise<void> {
+  // Skip in non-interactive mode — no prompt can be shown.
+  if (isHeadless()) {
+    return;
+  }
+
   // Skip if afterCreate hook is already configured in effective config.
   const hooks = isPlainObject(config.hooks) ? config.hooks : null;
   if (typeof hooks?.afterCreate === 'string' && hooks.afterCreate.length > 0) {
