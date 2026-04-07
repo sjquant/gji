@@ -101,19 +101,19 @@ export function shouldCreateVersionTag({
     };
   }
 
+  if (!tagExists) {
+    return {
+      create: true,
+      publish: true,
+      reason: currentVersion === previousVersion ? 'missing-version-tag' : 'version-bump',
+    };
+  }
+
   if (currentVersion === previousVersion) {
     return {
       create: false,
       publish: false,
       reason: 'version-unchanged',
-    };
-  }
-
-  if (!tagExists) {
-    return {
-      create: true,
-      publish: true,
-      reason: 'version-bump',
     };
   }
 
