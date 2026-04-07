@@ -24,18 +24,33 @@ describe('shouldCreateVersionTag', () => {
     });
   });
 
-  it('skips tag creation when the version did not change', () => {
+  it('skips tag creation when the version did not change and the tag already exists', () => {
     expect(
       shouldCreateVersionTag({
         currentVersion: '0.1.0-beta.9',
         previousVersion: '0.1.0-beta.9',
         ref: 'refs/heads/main',
-        tagExists: false,
+        tagExists: true,
       }),
     ).toEqual({
       create: false,
       publish: false,
       reason: 'version-unchanged',
+    });
+  });
+
+  it('creates a tag when the current package version is still untagged', () => {
+    expect(
+      shouldCreateVersionTag({
+        currentVersion: '0.2.0',
+        previousVersion: '0.2.0',
+        ref: 'refs/heads/main',
+        tagExists: false,
+      }),
+    ).toEqual({
+      create: true,
+      publish: true,
+      reason: 'missing-version-tag',
     });
   });
 

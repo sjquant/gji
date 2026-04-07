@@ -4,6 +4,16 @@ on:
   push:
     tags:
       - 'v*'
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Git ref or SHA to publish from
+        required: true
+        type: string
+      tag:
+        description: Version tag associated with the publish
+        required: true
+        type: string
   workflow_call:
     inputs:
       ref:
@@ -73,10 +83,10 @@ jobs:
 
       - name: Publish to npm
         if: steps.published.outputs.published != 'true'
-        run: npm publish --ignore-scripts --tag "${{ steps.npm_tag.outputs.tag }}"
+        run: npm publish --ignore-scripts --provenance --tag "${{ steps.npm_tag.outputs.tag }}"
 
-  publish-from-workflow-call:
-    if: github.event_name == 'workflow_call'
+  publish-from-inputs:
+    if: github.event_name == 'workflow_call' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
 
     steps:
@@ -135,4 +145,4 @@ jobs:
 
       - name: Publish to npm
         if: steps.published.outputs.published != 'true'
-        run: npm publish --ignore-scripts --tag "${{ steps.npm_tag.outputs.tag }}"
+        run: npm publish --ignore-scripts --provenance --tag "${{ steps.npm_tag.outputs.tag }}"

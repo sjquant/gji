@@ -65,7 +65,7 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-      - name: Create version tag for package.json bumps
+      - name: Create or reuse the current package version tag
         id: version_tag
         env:
           GITHUB_EVENT_BEFORE: ${{ github.event.before }}
