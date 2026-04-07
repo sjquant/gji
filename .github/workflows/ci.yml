@@ -60,12 +60,18 @@ jobs:
         with:
           node-version: 20
 
+      - name: Configure git identity
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
       - name: Create version tag for package.json bumps
         id: version_tag
         env:
           GITHUB_EVENT_BEFORE: ${{ github.event.before }}
           GITHUB_REF: ${{ github.ref }}
           GITHUB_SHA: ${{ github.sha }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: node scripts/version-tag.mjs
 
   publish-version-bump:
