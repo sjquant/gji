@@ -2,8 +2,6 @@
 
 Git worktree CLI for fast context switching. Wraps Git worktrees into an ergonomic CLI where each branch gets its own directory, `node_modules`, and terminal.
 
-See [package.json](./package.json) for full project metadata and dependencies.
-
 ## Project Tree
 
 ```
@@ -34,6 +32,8 @@ gji/
 ```
 
 ## Commands
+
+See [package.json](./package.json) for all scripts.
 
 ```sh
 pnpm test        # Run tests (vitest)
