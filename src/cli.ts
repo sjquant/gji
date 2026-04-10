@@ -86,6 +86,7 @@ function registerCommands(program: Command): void {
     .command('new [branch]')
     .description('create a new branch or detached linked worktree')
     .option('--detached', 'create a detached worktree without a branch')
+    .option('--dry-run', 'show what would be created without executing any git commands or writing files')
     .option('--json', 'emit JSON on success or error instead of human-readable output')
     .action(notImplemented('new'));
 
@@ -98,6 +99,7 @@ function registerCommands(program: Command): void {
   program
     .command('pr <number>')
     .description('fetch a pull request ref and create a linked worktree')
+    .option('--dry-run', 'show what would be created without executing any git commands or writing files')
     .option('--json', 'emit JSON on success or error instead of human-readable output')
     .action(notImplemented('pr'));
 
@@ -123,6 +125,7 @@ function registerCommands(program: Command): void {
     .command('sync')
     .description('fetch and update one or all worktrees')
     .option('--all', 'sync every worktree in the repository')
+    .option('--json', 'emit JSON on success or error instead of human-readable output')
     .action(notImplemented('sync'));
 
   program
@@ -135,6 +138,7 @@ function registerCommands(program: Command): void {
     .command('clean')
     .description('interactively prune linked worktrees')
     .option('-f, --force', 'bypass prompts, force-remove dirty worktrees, and force-delete unmerged branches')
+    .option('--dry-run', 'show what would be deleted without removing anything')
     .option('--json', 'emit JSON on success or error instead of human-readable output')
     .action(notImplemented('clean'));
 
@@ -143,6 +147,7 @@ function registerCommands(program: Command): void {
     .alias('rm')
     .description('remove a linked worktree and delete its branch when present')
     .option('-f, --force', 'bypass prompts, force-remove a dirty worktree, and force-delete an unmerged branch')
+    .option('--dry-run', 'show what would be deleted without removing anything')
     .option('--json', 'emit JSON on success or error instead of human-readable output')
     .action(notImplemented('remove'));
 
@@ -173,8 +178,8 @@ function attachCommandActions(
 ): void {
   program.commands
     .find((command) => command.name() === 'new')
-    ?.action(async (branch: string | undefined, commandOptions: { detached?: boolean; json?: boolean }) => {
-      const exitCode = await runNewCommand({ ...options, branch, detached: commandOptions.detached, json: commandOptions.json });
+    ?.action(async (branch: string | undefined, commandOptions: { detached?: boolean; dryRun?: boolean; json?: boolean }) => {
+      const exitCode = await runNewCommand({ ...options, branch, detached: commandOptions.detached, dryRun: commandOptions.dryRun, json: commandOptions.json });
 
       if (exitCode !== 0) {
         throw commanderExit(exitCode);
@@ -198,8 +203,8 @@ function attachCommandActions(
 
   program.commands
     .find((command) => command.name() === 'pr')
-    ?.action(async (number: string, commandOptions: { json?: boolean }) => {
-      const exitCode = await runPrCommand({ cwd: options.cwd, json: commandOptions.json, number, stderr: options.stderr, stdout: options.stdout });
+    ?.action(async (number: string, commandOptions: { dryRun?: boolean; json?: boolean }) => {
+      const exitCode = await runPrCommand({ cwd: options.cwd, dryRun: commandOptions.dryRun, json: commandOptions.json, number, stderr: options.stderr, stdout: options.stdout });
 
       if (exitCode !== 0) {
         throw commanderExit(exitCode);
@@ -252,10 +257,11 @@ function attachCommandActions(
 
   program.commands
     .find((command) => command.name() === 'sync')
-    ?.action(async (commandOptions: { all?: boolean }) => {
+    ?.action(async (commandOptions: { all?: boolean; json?: boolean }) => {
       const exitCode = await runSyncCommand({
         all: commandOptions.all,
         cwd: options.cwd,
+        json: commandOptions.json,
         stderr: options.stderr,
         stdout: options.stdout,
       });
@@ -281,9 +287,10 @@ function attachCommandActions(
 
   program.commands
     .find((command) => command.name() === 'clean')
-    ?.action(async (commandOptions: { force?: boolean; json?: boolean }) => {
+    ?.action(async (commandOptions: { dryRun?: boolean; force?: boolean; json?: boolean }) => {
       const exitCode = await runCleanCommand({
         cwd: options.cwd,
+        dryRun: commandOptions.dryRun,
         force: commandOptions.force,
         json: commandOptions.json,
         stderr: options.stderr,
@@ -295,10 +302,11 @@ function attachCommandActions(
       }
     });
 
-  const runRemovalCommand = async (branch?: string, commandOptions: { force?: boolean; json?: boolean } = {}) => {
+  const runRemovalCommand = async (branch?: string, commandOptions: { dryRun?: boolean; force?: boolean; json?: boolean } = {}) => {
     const exitCode = await runRemoveCommand({
       branch,
       cwd: options.cwd,
+      dryRun: commandOptions.dryRun,
       force: commandOptions.force,
       json: commandOptions.json,
       stderr: options.stderr,

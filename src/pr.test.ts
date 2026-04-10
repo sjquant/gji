@@ -675,4 +675,52 @@ describe('gji pr', () => {
       expect(stderr.join('')).toContain('command not found');
     });
   });
+
+  describe('--dry-run', () => {
+    it('emits what would be created without fetching or creating anything (text mode)', async () => {
+      // Given a repository root and a PR number.
+      const repoRoot = await createRepository();
+      const prNumber = '42';
+      const expectedBranch = `pr/${prNumber}`;
+      const expectedPath = resolveWorktreePath(repoRoot, expectedBranch);
+      const stdout: string[] = [];
+
+      // When gji pr --dry-run runs with that PR number.
+      const result = await runCli(['pr', '--dry-run', prNumber], {
+        cwd: repoRoot,
+        stderr: () => undefined,
+        stdout: (chunk) => stdout.push(chunk),
+      });
+
+      // Then it exits 0 and reports what would be created without fetching or creating.
+      expect(result.exitCode).toBe(0);
+      await expect(pathExists(expectedPath)).resolves.toBe(false);
+      expect(stdout.join('')).toContain(expectedPath);
+      expect(stdout.join('')).toContain(expectedBranch);
+    });
+
+    it('emits { branch, path, dryRun: true } to stdout with --json --dry-run', async () => {
+      // Given a repository root and a PR number.
+      const repoRoot = await createRepository();
+      const prNumber = '99';
+      const expectedBranch = `pr/${prNumber}`;
+      const expectedPath = resolveWorktreePath(repoRoot, expectedBranch);
+      const stdout: string[] = [];
+      const stderr: string[] = [];
+
+      // When gji pr --json --dry-run runs with that PR number.
+      const result = await runCli(['pr', '--json', '--dry-run', prNumber], {
+        cwd: repoRoot,
+        stderr: (chunk) => stderr.push(chunk),
+        stdout: (chunk) => stdout.push(chunk),
+      });
+
+      // Then it emits a JSON dry-run result without fetching or creating.
+      expect(result.exitCode).toBe(0);
+      expect(stderr).toEqual([]);
+      await expect(pathExists(expectedPath)).resolves.toBe(false);
+      const output = JSON.parse(stdout.join(''));
+      expect(output).toEqual({ branch: expectedBranch, path: expectedPath, dryRun: true });
+    });
+  });
 });

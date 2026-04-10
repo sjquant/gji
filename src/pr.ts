@@ -19,6 +19,7 @@ const PR_OUTPUT_FILE_ENV = 'GJI_PR_OUTPUT_FILE';
 
 export interface PrCommandOptions {
   cwd: string;
+  dryRun?: boolean;
   json?: boolean;
   number: string;
   stderr: (chunk: string) => void;
@@ -72,6 +73,7 @@ export function createPrCommand(
           options.stderr(`${JSON.stringify({ error: message }, null, 2)}\n`);
         } else {
           options.stderr(`gji pr: ${message} in non-interactive mode (GJI_NO_TUI=1)\n`);
+          options.stderr(`Hint: Use 'gji remove pr/${prNumber}' or 'gji clean' to remove the existing worktree\n`);
         }
         return 1;
       }
@@ -87,6 +89,15 @@ export function createPrCommand(
       return 1;
     }
 
+    if (options.dryRun) {
+      if (options.json) {
+        options.stdout(`${JSON.stringify({ branch: branchName, path: worktreePath, dryRun: true }, null, 2)}\n`);
+      } else {
+        options.stdout(`Would create worktree at ${worktreePath} (branch: ${branchName})\n`);
+      }
+      return 0;
+    }
+
     try {
       await execFileAsync(
         'git',
@@ -99,6 +110,7 @@ export function createPrCommand(
         options.stderr(`${JSON.stringify({ error: message }, null, 2)}\n`);
       } else {
         options.stderr(`${message}\n`);
+        options.stderr(`Hint: Verify the remote is reachable: git fetch origin\n`);
       }
       return 1;
     }

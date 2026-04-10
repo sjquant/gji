@@ -43,10 +43,12 @@ export function createGoCommand(
       : prompted ?? undefined;
 
     if (!resolvedPath) {
-      options.stderr(options.branch
-        ? `No worktree found for branch: ${options.branch}\n`
-        : 'Aborted\n',
-      );
+      if (options.branch) {
+        options.stderr(`No worktree found for branch: ${options.branch}\n`);
+        options.stderr(`Hint: Use 'gji ls' to see available worktrees\n`);
+      } else {
+        options.stderr('Aborted\n');
+      }
       return 1;
     }
 

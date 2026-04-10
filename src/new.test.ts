@@ -872,6 +872,78 @@ describe('gji new', () => {
     });
   });
 
+  describe('--dry-run', () => {
+    it('emits what would be created without creating anything (text mode)', async () => {
+      // Given a repository root and a new branch name.
+      const repoRoot = await createRepository();
+      const branchName = 'feature/dry-run-text';
+      const worktreePath = resolveWorktreePath(repoRoot, branchName);
+      const stdout: string[] = [];
+
+      // When gji new --dry-run runs with that branch.
+      const result = await runCli(['new', '--dry-run', branchName], {
+        cwd: repoRoot,
+        stderr: () => undefined,
+        stdout: (chunk) => stdout.push(chunk),
+      });
+
+      // Then it exits 0 and reports what would be created without creating the worktree.
+      expect(result.exitCode).toBe(0);
+      await expect(pathExists(worktreePath)).resolves.toBe(false);
+      expect(stdout.join('')).toContain(worktreePath);
+      expect(stdout.join('')).toContain(branchName);
+    });
+
+    it('emits { branch, path, dryRun: true } to stdout with --json --dry-run', async () => {
+      // Given a repository root and a new branch name.
+      const repoRoot = await createRepository();
+      const branchName = 'feature/dry-run-json';
+      const worktreePath = resolveWorktreePath(repoRoot, branchName);
+      const stdout: string[] = [];
+      const stderr: string[] = [];
+
+      // When gji new --json --dry-run runs with that branch.
+      const result = await runCli(['new', '--json', '--dry-run', branchName], {
+        cwd: repoRoot,
+        stderr: (chunk) => stderr.push(chunk),
+        stdout: (chunk) => stdout.push(chunk),
+      });
+
+      // Then it emits a JSON dry-run result without creating the worktree.
+      expect(result.exitCode).toBe(0);
+      expect(stderr).toEqual([]);
+      await expect(pathExists(worktreePath)).resolves.toBe(false);
+      const output = JSON.parse(stdout.join(''));
+      expect(output).toEqual({ branch: branchName, path: worktreePath, dryRun: true });
+    });
+
+    it('does not run install prompt or hooks in --dry-run mode', async () => {
+      // Given a repo where a package manager and afterCreate hook would normally run.
+      const repoRoot = await createRepository();
+      const branchName = 'feature/dry-run-no-hooks';
+      let promptCalled = false;
+      let hookRan = false;
+      const runNewCommand = createNewCommand({
+        detectInstallPackageManager: async () => ({ name: 'pnpm', installCommand: 'pnpm install' }),
+        promptForInstallChoice: async () => { promptCalled = true; return 'yes'; },
+      });
+
+      // When gji new --dry-run runs.
+      const result = await runNewCommand({
+        branch: branchName,
+        cwd: repoRoot,
+        dryRun: true,
+        stderr: () => undefined,
+        stdout: () => undefined,
+      });
+
+      // Then neither the install prompt nor hooks were invoked.
+      expect(result).toBe(0);
+      expect(promptCalled).toBe(false);
+      expect(hookRan).toBe(false);
+    });
+  });
+
   it('generates funny placeholder names as slug-safe mythic human-style branches', () => {
     // Given deterministic random choices.
     const placeholders = [
