@@ -723,4 +723,45 @@ describe('gji pr', () => {
       expect(output).toEqual({ branch: expectedBranch, path: expectedPath, dryRun: true });
     });
   });
+
+  describe('Hint: lines', () => {
+    it('emits a Hint: line when the PR fetch fails (text mode)', async () => {
+      // Given a repository with an origin remote but no PR #9999 ref.
+      const { repoRoot } = await createRepositoryWithOrigin();
+      const stderr: string[] = [];
+
+      // When gji pr runs for a non-existent PR number.
+      const result = await runCli(['pr', '9999'], {
+        cwd: repoRoot,
+        stderr: (chunk) => stderr.push(chunk),
+        stdout: () => undefined,
+      });
+
+      // Then it exits 1 and emits a Hint: line for the fetch failure.
+      expect(result.exitCode).toBe(1);
+      const stderrText = stderr.join('');
+      expect(stderrText).toContain('Failed to fetch PR #9999');
+      expect(stderrText).toContain('Hint:');
+      expect(stderrText).toContain('git fetch origin');
+    });
+
+    it('does NOT emit a Hint: line in --json mode when the PR fetch fails', async () => {
+      // Given a repository with an origin remote but no PR #9999 ref.
+      const { repoRoot } = await createRepositoryWithOrigin();
+      const stderr: string[] = [];
+
+      // When gji pr --json runs for a non-existent PR number.
+      const result = await runCli(['pr', '--json', '9999'], {
+        cwd: repoRoot,
+        stderr: (chunk) => stderr.push(chunk),
+        stdout: () => undefined,
+      });
+
+      // Then it exits 1 with a valid JSON error and no Hint: text mixed in.
+      expect(result.exitCode).toBe(1);
+      const json = JSON.parse(stderr.join(''));
+      expect(json).toHaveProperty('error');
+      expect(stderr.join('')).not.toContain('Hint:');
+    });
+  });
 });

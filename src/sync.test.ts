@@ -8,6 +8,7 @@ import {
   addLinkedWorktree,
   cloneRepository,
   commitFile,
+  createRepository,
   createRepositoryWithOrigin,
   currentBranch,
   pathExists,
@@ -306,6 +307,46 @@ describe('gji sync --json', () => {
     const json = JSON.parse(stderr.join(''));
     expect(json).toHaveProperty('error');
     expect(typeof json.error).toBe('string');
+  });
+});
+
+describe('gji sync Hint: lines', () => {
+  it('emits a Hint: line when the remote is unreachable (text mode)', async () => {
+    // Given a repository without any remote configured.
+    const repoRoot = await createRepository();
+    const stderr: string[] = [];
+
+    // When gji sync runs with no remote.
+    const result = await runCli(['sync'], {
+      cwd: repoRoot,
+      stderr: (chunk) => stderr.push(chunk),
+      stdout: () => undefined,
+    });
+
+    // Then it exits 1 and emits a Hint: line suggesting how to add the remote.
+    expect(result.exitCode).toBe(1);
+    const stderrText = stderr.join('');
+    expect(stderrText).toContain('Hint:');
+    expect(stderrText).toContain('git remote add');
+  });
+
+  it('does NOT emit a Hint: line in --json mode when the remote is unreachable', async () => {
+    // Given a repository without any remote configured.
+    const repoRoot = await createRepository();
+    const stderr: string[] = [];
+
+    // When gji sync --json runs with no remote.
+    const result = await runCli(['sync', '--json'], {
+      cwd: repoRoot,
+      stderr: (chunk) => stderr.push(chunk),
+      stdout: () => undefined,
+    });
+
+    // Then it exits 1 with a valid JSON error and no Hint: text mixed in.
+    expect(result.exitCode).toBe(1);
+    const json = JSON.parse(stderr.join(''));
+    expect(json).toHaveProperty('error');
+    expect(stderr.join('')).not.toContain('Hint:');
   });
 });
 

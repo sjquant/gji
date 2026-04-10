@@ -942,6 +942,64 @@ describe('gji new', () => {
     });
   });
 
+  describe('Hint: lines', () => {
+    afterEach(() => {
+      delete process.env.GJI_NO_TUI;
+    });
+
+    it('emits a Hint: line when the target path already exists in headless mode', async () => {
+      // Given GJI_NO_TUI=1 and a branch whose worktree already exists.
+      process.env.GJI_NO_TUI = '1';
+      const repoRoot = await createRepository();
+      const branch = 'feature/hint-conflict';
+      await addLinkedWorktree(repoRoot, branch);
+      const stderr: string[] = [];
+      const runNewCommand = createNewCommand({
+        promptForPathConflict: async () => { throw new Error('must not be called'); },
+      });
+
+      // When gji new runs with that conflicting branch in headless mode.
+      const result = await runNewCommand({
+        branch,
+        cwd: repoRoot,
+        stderr: (chunk) => stderr.push(chunk),
+        stdout: () => undefined,
+      });
+
+      // Then it exits 1 and the Hint: line names the exact commands to resolve it.
+      expect(result).toBe(1);
+      const stderrText = stderr.join('');
+      expect(stderrText).toContain('Hint:');
+      expect(stderrText).toContain('gji remove');
+    });
+
+    it('does NOT emit a Hint: line in --json mode when the target path already exists', async () => {
+      // Given a branch whose worktree already exists.
+      const repoRoot = await createRepository();
+      const branch = 'feature/hint-conflict-json';
+      await addLinkedWorktree(repoRoot, branch);
+      const stderr: string[] = [];
+      const runNewCommand = createNewCommand({
+        promptForPathConflict: async () => { throw new Error('must not be called'); },
+      });
+
+      // When gji new --json runs with that conflicting branch.
+      const result = await runNewCommand({
+        branch,
+        cwd: repoRoot,
+        json: true,
+        stderr: (chunk) => stderr.push(chunk),
+        stdout: () => undefined,
+      });
+
+      // Then it exits 1 with a valid JSON error and no Hint: text mixed in.
+      expect(result).toBe(1);
+      const json = JSON.parse(stderr.join(''));
+      expect(json).toHaveProperty('error');
+      expect(stderr.join('')).not.toContain('Hint:');
+    });
+  });
+
   it('generates funny placeholder names as slug-safe mythic human-style branches', () => {
     // Given deterministic random choices.
     const placeholders = [
