@@ -78,7 +78,7 @@ export async function runSyncCommand(options: SyncCommandOptions): Promise<numbe
   }
 
   if (options.json) {
-    const updated = updatedWorktrees.map((w) => ({ branch: w.branch, path: w.path }));
+    const updated = updatedWorktrees.map((w) => ({ branch: w.branch as string, path: w.path }));
     options.stdout(`${JSON.stringify({ updated }, null, 2)}\n`);
   }
 

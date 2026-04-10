@@ -1,7 +1,7 @@
 # TASKS
 
 **## Status**
-IN PROGRESS
+COMPLETE
 
 ## Tasks
 
@@ -59,11 +59,11 @@ IN PROGRESS
 
 - [DONE] Add `--json` output to `gji remove`: on success emit `{ branch: string, path: string, deleted: true }`; on error emit `{ error: string }`. Add `--json` to `gji clean`: emit `{ removed: Array<{ branch: string, path: string }> }`. In all cases JSON mode must suppress interactive prompts (behave as if `GJI_NO_TUI=1`). Add tests for each.
 
-- [ ] Add `--json` to `gji sync`: emit `{ updated: Array<{ branch: string, path: string }> }`; on error emit `{ error: string }`. JSON mode must suppress interactive prompts. Add tests.
+- [DONE] Add `--json` to `gji sync`: emit `{ updated: Array<{ branch: string, path: string }> }`; on error emit `{ error: string }`. JSON mode must suppress interactive prompts. Add tests.
 
-- [ ] Add `--dry-run` to `gji new` and `gji pr`: print (or emit via `--json`) what would be created without executing any git commands or writing files. Add `--dry-run` to `gji remove` and `gji clean`: print what would be deleted without removing anything. Dry-run must be usable with `--json` so agents can validate their parameter mapping before committing to a destructive action. Add tests covering dry-run output for each command.
+- [DONE] Add `--dry-run` to `gji new` and `gji pr`: print (or emit via `--json`) what would be created without executing any git commands or writing files. Add `--dry-run` to `gji remove` and `gji clean`: print what would be deleted without removing anything. Dry-run must be usable with `--json` so agents can validate their parameter mapping before committing to a destructive action. Add tests covering dry-run output for each command.
 
-- [ ] Improve error messages with actionable `Hint:` lines on stderr. Key cases to cover: missing git remote (hint `git remote add origin <url>`), PR fetch failure (hint `git fetch origin` or check remote URL), worktree path conflict when not using `--force` (hint the exact `gji remove <branch>` or `gji clean` command to resolve it), and `gji go` with an unknown branch (hint `gji ls` to see available worktrees). The `Hint:` prefix must be consistent so agents can reliably parse it.
+- [DONE] Improve error messages with actionable `Hint:` lines on stderr. Key cases to cover: missing git remote (hint `git remote add origin <url>`), PR fetch failure (hint `git fetch origin` or check remote URL), worktree path conflict when not using `--force` (hint the exact `gji remove <branch>` or `gji clean` command to resolve it), and `gji go` with an unknown branch (hint `gji ls` to see available worktrees). The `Hint:` prefix must be consistent so agents can reliably parse it.
 
 ## Handoff Notes
 
