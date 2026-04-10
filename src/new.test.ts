@@ -922,7 +922,6 @@ describe('gji new', () => {
       const repoRoot = await createRepository();
       const branchName = 'feature/dry-run-no-hooks';
       let promptCalled = false;
-      let hookRan = false;
       const runNewCommand = createNewCommand({
         detectInstallPackageManager: async () => ({ name: 'pnpm', installCommand: 'pnpm install' }),
         promptForInstallChoice: async () => { promptCalled = true; return 'yes'; },
@@ -937,10 +936,9 @@ describe('gji new', () => {
         stdout: () => undefined,
       });
 
-      // Then neither the install prompt nor hooks were invoked.
+      // Then the install prompt was not invoked and no worktree was created.
       expect(result).toBe(0);
       expect(promptCalled).toBe(false);
-      expect(hookRan).toBe(false);
     });
   });
 
