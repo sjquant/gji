@@ -872,6 +872,134 @@ describe('gji new', () => {
     });
   });
 
+  describe('--dry-run', () => {
+    it('emits what would be created without creating anything (text mode)', async () => {
+      // Given a repository root and a new branch name.
+      const repoRoot = await createRepository();
+      const branchName = 'feature/dry-run-text';
+      const worktreePath = resolveWorktreePath(repoRoot, branchName);
+      const stdout: string[] = [];
+
+      // When gji new --dry-run runs with that branch.
+      const result = await runCli(['new', '--dry-run', branchName], {
+        cwd: repoRoot,
+        stderr: () => undefined,
+        stdout: (chunk) => stdout.push(chunk),
+      });
+
+      // Then it exits 0 and reports what would be created without creating the worktree.
+      expect(result.exitCode).toBe(0);
+      await expect(pathExists(worktreePath)).resolves.toBe(false);
+      expect(stdout.join('')).toContain(worktreePath);
+      expect(stdout.join('')).toContain(branchName);
+    });
+
+    it('emits { branch, path, dryRun: true } to stdout with --json --dry-run', async () => {
+      // Given a repository root and a new branch name.
+      const repoRoot = await createRepository();
+      const branchName = 'feature/dry-run-json';
+      const worktreePath = resolveWorktreePath(repoRoot, branchName);
+      const stdout: string[] = [];
+      const stderr: string[] = [];
+
+      // When gji new --json --dry-run runs with that branch.
+      const result = await runCli(['new', '--json', '--dry-run', branchName], {
+        cwd: repoRoot,
+        stderr: (chunk) => stderr.push(chunk),
+        stdout: (chunk) => stdout.push(chunk),
+      });
+
+      // Then it emits a JSON dry-run result without creating the worktree.
+      expect(result.exitCode).toBe(0);
+      expect(stderr).toEqual([]);
+      await expect(pathExists(worktreePath)).resolves.toBe(false);
+      const output = JSON.parse(stdout.join(''));
+      expect(output).toEqual({ branch: branchName, path: worktreePath, dryRun: true });
+    });
+
+    it('does not run install prompt or hooks in --dry-run mode', async () => {
+      // Given a repo where a package manager and afterCreate hook would normally run.
+      const repoRoot = await createRepository();
+      const branchName = 'feature/dry-run-no-hooks';
+      let promptCalled = false;
+      const runNewCommand = createNewCommand({
+        detectInstallPackageManager: async () => ({ name: 'pnpm', installCommand: 'pnpm install' }),
+        promptForInstallChoice: async () => { promptCalled = true; return 'yes'; },
+      });
+
+      // When gji new --dry-run runs.
+      const result = await runNewCommand({
+        branch: branchName,
+        cwd: repoRoot,
+        dryRun: true,
+        stderr: () => undefined,
+        stdout: () => undefined,
+      });
+
+      // Then the install prompt was not invoked and no worktree was created.
+      expect(result).toBe(0);
+      expect(promptCalled).toBe(false);
+    });
+  });
+
+  describe('Hint: lines', () => {
+    afterEach(() => {
+      delete process.env.GJI_NO_TUI;
+    });
+
+    it('emits a Hint: line when the target path already exists in headless mode', async () => {
+      // Given GJI_NO_TUI=1 and a branch whose worktree already exists.
+      process.env.GJI_NO_TUI = '1';
+      const repoRoot = await createRepository();
+      const branch = 'feature/hint-conflict';
+      await addLinkedWorktree(repoRoot, branch);
+      const stderr: string[] = [];
+      const runNewCommand = createNewCommand({
+        promptForPathConflict: async () => { throw new Error('must not be called'); },
+      });
+
+      // When gji new runs with that conflicting branch in headless mode.
+      const result = await runNewCommand({
+        branch,
+        cwd: repoRoot,
+        stderr: (chunk) => stderr.push(chunk),
+        stdout: () => undefined,
+      });
+
+      // Then it exits 1 and the Hint: line names the exact commands to resolve it.
+      expect(result).toBe(1);
+      const stderrText = stderr.join('');
+      expect(stderrText).toContain('Hint:');
+      expect(stderrText).toContain('gji remove');
+    });
+
+    it('does NOT emit a Hint: line in --json mode when the target path already exists', async () => {
+      // Given a branch whose worktree already exists.
+      const repoRoot = await createRepository();
+      const branch = 'feature/hint-conflict-json';
+      await addLinkedWorktree(repoRoot, branch);
+      const stderr: string[] = [];
+      const runNewCommand = createNewCommand({
+        promptForPathConflict: async () => { throw new Error('must not be called'); },
+      });
+
+      // When gji new --json runs with that conflicting branch.
+      const result = await runNewCommand({
+        branch,
+        cwd: repoRoot,
+        json: true,
+        stderr: (chunk) => stderr.push(chunk),
+        stdout: () => undefined,
+      });
+
+      // Then it exits 1 with a valid JSON error and no Hint: text mixed in.
+      expect(result).toBe(1);
+      const json = JSON.parse(stderr.join(''));
+      expect(json).toHaveProperty('error');
+      expect(stderr.join('')).not.toContain('Hint:');
+    });
+  });
+
   it('generates funny placeholder names as slug-safe mythic human-style branches', () => {
     // Given deterministic random choices.
     const placeholders = [

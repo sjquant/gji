@@ -21,6 +21,7 @@ import { writeShellOutput } from './shell-handoff.js';
 export interface RemoveCommandOptions {
   branch?: string;
   cwd: string;
+  dryRun?: boolean;
   force?: boolean;
   json?: boolean;
   stderr: (chunk: string) => void;
@@ -78,7 +79,7 @@ export function createRemoveCommand(
       return 1;
     }
 
-    if (!options.force && (options.json || isHeadless())) {
+    if (!options.dryRun && !options.force && (options.json || isHeadless())) {
       const message = '--force is required';
       if (options.json) {
         emitError(options, message);
@@ -88,9 +89,19 @@ export function createRemoveCommand(
       return 1;
     }
 
-    if (!options.force && !(await confirmRemoval(worktree))) {
+    if (!options.dryRun && !options.force && !(await confirmRemoval(worktree))) {
       options.stderr('Aborted\n');
       return 1;
+    }
+
+    if (options.dryRun) {
+      if (options.json) {
+        options.stdout(`${JSON.stringify({ branch: worktree.branch, path: worktree.path, dryRun: true }, null, 2)}\n`);
+      } else {
+        const desc = worktree.branch ? `branch: ${worktree.branch}` : 'detached';
+        options.stdout(`Would remove worktree at ${worktree.path} (${desc})\n`);
+      }
+      return 0;
     }
 
     const config = await loadEffectiveConfig(repository.repoRoot);

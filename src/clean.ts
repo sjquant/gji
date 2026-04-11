@@ -15,6 +15,7 @@ import { defaultConfirmForceDeleteBranch, defaultConfirmForceRemoveWorktree } fr
 
 export interface CleanCommandOptions {
   cwd: string;
+  dryRun?: boolean;
   force?: boolean;
   json?: boolean;
   stderr: (chunk: string) => void;
@@ -47,7 +48,7 @@ export function createCleanCommand(
       return 1;
     }
 
-    if (!options.force && (options.json || isHeadless())) {
+    if (!options.dryRun && !options.force && (options.json || isHeadless())) {
       const message = '--force is required';
       if (options.json) {
         emitError(options, message);
@@ -57,8 +58,9 @@ export function createCleanCommand(
       return 1;
     }
 
-    // With --force, skip selection prompt and target all candidates.
-    const selections = options.force
+    // With --force, or dry-run in headless/json mode, skip selection prompt and target all candidates.
+    const shouldSelectAll = options.force || (options.dryRun && (options.json || isHeadless()));
+    const selections = shouldSelectAll
       ? cleanupCandidates.map((w) => w.path)
       : await promptForWorktrees(cleanupCandidates);
 
@@ -74,9 +76,22 @@ export function createCleanCommand(
       return 1;
     }
 
-    if (!options.force && !(await confirmRemoval(selectedWorktrees))) {
+    if (!options.dryRun && !options.force && !(await confirmRemoval(selectedWorktrees))) {
       options.stderr('Aborted\n');
       return 1;
+    }
+
+    if (options.dryRun) {
+      if (options.json) {
+        const removed = selectedWorktrees.map((w) => ({ branch: w.branch, path: w.path }));
+        options.stdout(`${JSON.stringify({ removed, dryRun: true }, null, 2)}\n`);
+      } else {
+        for (const w of selectedWorktrees) {
+          const desc = w.branch ? `branch: ${w.branch}` : 'detached';
+          options.stdout(`Would remove worktree at ${w.path} (${desc})\n`);
+        }
+      }
+      return 0;
     }
 
     const removedPaths: string[] = [];

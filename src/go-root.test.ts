@@ -204,4 +204,24 @@ describe('gji go', () => {
       }
     }
   });
+
+  it('emits a Hint: line when a branch is not found', async () => {
+    // Given a repository with no worktree for the requested branch.
+    const repoRoot = await createRepository();
+    const stderr: string[] = [];
+
+    // When gji go runs with an unknown branch name.
+    const result = await runCli(['go', 'nonexistent-branch'], {
+      cwd: repoRoot,
+      stderr: (chunk) => stderr.push(chunk),
+      stdout: () => undefined,
+    });
+
+    // Then it exits 1 and emits a Hint: line pointing to gji ls.
+    expect(result.exitCode).toBe(1);
+    const stderrText = stderr.join('');
+    expect(stderrText).toContain('No worktree found for branch: nonexistent-branch');
+    expect(stderrText).toContain('Hint:');
+    expect(stderrText).toContain('gji ls');
+  });
 });

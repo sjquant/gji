@@ -21,6 +21,7 @@ export interface NewCommandOptions {
   branch?: string;
   cwd: string;
   detached?: boolean;
+  dryRun?: boolean;
   json?: boolean;
   stderr: (chunk: string) => void;
   stdout: (chunk: string) => void;
@@ -81,6 +82,7 @@ export function createNewCommand(
           options.stderr(`${JSON.stringify({ error: message }, null, 2)}\n`);
         } else {
           options.stderr(`gji new: ${message} in non-interactive mode (GJI_NO_TUI=1)\n`);
+          options.stderr(`Hint: Use 'gji remove ${worktreeName}' or 'gji clean' to remove the existing worktree\n`);
         }
         return 1;
       }
@@ -94,6 +96,15 @@ export function createNewCommand(
 
       options.stderr(`Aborted because target worktree path already exists: ${worktreePath}\n`);
       return 1;
+    }
+
+    if (options.dryRun) {
+      if (options.json) {
+        options.stdout(`${JSON.stringify({ branch: worktreeName, path: worktreePath, dryRun: true }, null, 2)}\n`);
+      } else {
+        options.stdout(`Would create worktree at ${worktreePath} (branch: ${worktreeName})\n`);
+      }
+      return 0;
     }
 
     await mkdir(dirname(worktreePath), { recursive: true });

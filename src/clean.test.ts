@@ -415,6 +415,80 @@ describe('gji clean', () => {
       expect(output.removed).toContainEqual({ branch: null, path: detachedWorktreePath });
     });
   });
+
+  describe('--dry-run', () => {
+    it('emits what would be removed without removing anything (text mode)', async () => {
+      // Given a repository with a linked worktree.
+      const repoRoot = await createRepository();
+      const branch = 'feature/dry-run-clean-text';
+      const worktreePath = await addLinkedWorktree(repoRoot, branch);
+      const stdout: string[] = [];
+      const runCleanCommand = createCleanCommand({
+        confirmRemoval: async () => { throw new Error('confirmation must not run in dry-run mode'); },
+        promptForWorktrees: async () => [worktreePath],
+      });
+
+      // When gji clean --dry-run runs.
+      const result = await runCleanCommand({
+        cwd: repoRoot,
+        dryRun: true,
+        stderr: () => undefined,
+        stdout: (chunk) => stdout.push(chunk),
+      });
+
+      // Then it exits 0 and reports what would be removed without removing.
+      expect(result).toBe(0);
+      await expect(pathExists(worktreePath)).resolves.toBe(true);
+      await expect(branchExists(repoRoot, branch)).resolves.toBe(true);
+      expect(stdout.join('')).toContain(worktreePath);
+    });
+
+    it('emits { removed, dryRun: true } to stdout with --json --dry-run', async () => {
+      // Given a repository with a linked worktree.
+      const repoRoot = await createRepository();
+      const branch = 'feature/dry-run-clean-json';
+      const worktreePath = await addLinkedWorktree(repoRoot, branch);
+      const stdout: string[] = [];
+      const stderr: string[] = [];
+
+      // When gji clean --json --dry-run runs (selects all candidates automatically).
+      const result = await createCleanCommand()({
+        cwd: repoRoot,
+        dryRun: true,
+        json: true,
+        stderr: (chunk) => stderr.push(chunk),
+        stdout: (chunk) => stdout.push(chunk),
+      });
+
+      // Then it emits a JSON dry-run result without removing.
+      expect(result).toBe(0);
+      expect(stderr).toEqual([]);
+      await expect(pathExists(worktreePath)).resolves.toBe(true);
+      const output = JSON.parse(stdout.join(''));
+      expect(output).toHaveProperty('dryRun', true);
+      expect(output.removed).toContainEqual({ branch, path: worktreePath });
+    });
+
+    it('does not require --force in --json --dry-run mode', async () => {
+      // Given a repository with a linked worktree.
+      const repoRoot = await createRepository();
+      await addLinkedWorktree(repoRoot, 'feature/dry-run-clean-no-force');
+      const stderr: string[] = [];
+
+      // When gji clean --json --dry-run runs without --force.
+      const result = await createCleanCommand()({
+        cwd: repoRoot,
+        dryRun: true,
+        json: true,
+        stderr: (chunk) => stderr.push(chunk),
+        stdout: () => undefined,
+      });
+
+      // Then it succeeds without requiring --force.
+      expect(result).toBe(0);
+      expect(stderr).toEqual([]);
+    });
+  });
 });
 
 async function branchExists(repoRoot: string, branch: string): Promise<boolean> {

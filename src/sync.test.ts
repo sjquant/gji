@@ -8,6 +8,7 @@ import {
   addLinkedWorktree,
   cloneRepository,
   commitFile,
+  createRepository,
   createRepositoryWithOrigin,
   currentBranch,
   pathExists,
@@ -197,6 +198,155 @@ describe('gji sync', () => {
     expect(result.exitCode).toBe(0);
     expect(stdout.join('')).toBe(`${targetWorktreePath}\n`);
     await expect(pathExists(join(targetWorktreePath, 'configured-sync.txt'))).resolves.toBe(true);
+  });
+});
+
+describe('gji sync --json', () => {
+  it('emits { updated } to stdout on success', async () => {
+    // Given a repository with a linked worktree behind the default branch.
+    const { repoRoot } = await createRepositoryWithOrigin();
+    const defaultBranch = await currentBranch(repoRoot);
+    const featureBranch = 'feature/json-sync-success';
+    const worktreePath = await addLinkedWorktree(repoRoot, featureBranch);
+    const stdout: string[] = [];
+    const stderr: string[] = [];
+
+    await commitFile(repoRoot, 'json-sync.txt', 'updated\n', 'json sync update');
+    await runGit(repoRoot, ['push', 'origin', defaultBranch]);
+
+    // When gji sync --json runs inside the linked worktree.
+    const result = await runCli(['sync', '--json'], {
+      cwd: worktreePath,
+      stderr: (chunk) => stderr.push(chunk),
+      stdout: (chunk) => stdout.push(chunk),
+    });
+
+    // Then it emits JSON with updated array; nothing to stderr.
+    expect(result.exitCode).toBe(0);
+    expect(stderr).toEqual([]);
+    const output = JSON.parse(stdout.join(''));
+    expect(output).toHaveProperty('updated');
+    expect(output.updated).toHaveLength(1);
+    expect(output.updated[0]).toEqual({ branch: featureBranch, path: worktreePath });
+  });
+
+  it('emits { updated } for all worktrees with --all --json', async () => {
+    // Given a repository with two linked worktrees behind the default branch.
+    const { repoRoot } = await createRepositoryWithOrigin();
+    const defaultBranch = await currentBranch(repoRoot);
+    const firstBranch = 'feature/json-all-one';
+    const secondBranch = 'feature/json-all-two';
+    const firstPath = await addLinkedWorktree(repoRoot, firstBranch);
+    const secondPath = await addLinkedWorktree(repoRoot, secondBranch);
+    const stdout: string[] = [];
+    const stderr: string[] = [];
+
+    await commitFile(repoRoot, 'json-all.txt', 'all\n', 'json all update');
+    await runGit(repoRoot, ['push', 'origin', defaultBranch]);
+
+    // When gji sync --all --json runs from the repo root.
+    const result = await runCli(['sync', '--all', '--json'], {
+      cwd: repoRoot,
+      stderr: (chunk) => stderr.push(chunk),
+      stdout: (chunk) => stdout.push(chunk),
+    });
+
+    // Then it emits a single JSON object listing all updated worktrees.
+    expect(result.exitCode).toBe(0);
+    expect(stderr).toEqual([]);
+    const output = JSON.parse(stdout.join(''));
+    expect(output).toHaveProperty('updated');
+    const paths = output.updated.map((w: { path: string }) => w.path).sort();
+    expect(paths).toEqual([repoRoot, firstPath, secondPath].sort());
+  });
+
+  it('emits { error } to stderr and exits 1 when the worktree is dirty', async () => {
+    // Given a repository with a dirty linked worktree.
+    const { repoRoot } = await createRepositoryWithOrigin();
+    const branchName = 'feature/json-sync-dirty';
+    const worktreePath = await addLinkedWorktree(repoRoot, branchName);
+    const stdout: string[] = [];
+    const stderr: string[] = [];
+
+    await writeFile(join(worktreePath, 'dirty.txt'), 'dirty\n', 'utf8');
+
+    // When gji sync --json runs inside that dirty worktree.
+    const result = await runCli(['sync', '--json'], {
+      cwd: worktreePath,
+      stderr: (chunk) => stderr.push(chunk),
+      stdout: (chunk) => stdout.push(chunk),
+    });
+
+    // Then it emits a JSON error and exits 1.
+    expect(result.exitCode).toBe(1);
+    expect(stdout).toEqual([]);
+    const json = JSON.parse(stderr.join(''));
+    expect(json).toHaveProperty('error');
+    expect(typeof json.error).toBe('string');
+  });
+
+  it('emits { error } to stderr and exits 1 when the worktree is detached', async () => {
+    // Given a detached worktree as the current working tree.
+    const { repoRoot } = await createRepositoryWithOrigin();
+    const detachedPath = `${repoRoot}-json-detached`;
+    const stdout: string[] = [];
+    const stderr: string[] = [];
+
+    await runGit(repoRoot, ['worktree', 'add', '--detach', detachedPath, 'HEAD']);
+
+    // When gji sync --json runs inside that detached worktree.
+    const result = await runCli(['sync', '--json'], {
+      cwd: detachedPath,
+      stderr: (chunk) => stderr.push(chunk),
+      stdout: (chunk) => stdout.push(chunk),
+    });
+
+    // Then it emits a JSON error and exits 1.
+    expect(result.exitCode).toBe(1);
+    expect(stdout).toEqual([]);
+    const json = JSON.parse(stderr.join(''));
+    expect(json).toHaveProperty('error');
+    expect(typeof json.error).toBe('string');
+  });
+});
+
+describe('gji sync Hint: lines', () => {
+  it('emits a Hint: line when the remote is unreachable (text mode)', async () => {
+    // Given a repository without any remote configured.
+    const repoRoot = await createRepository();
+    const stderr: string[] = [];
+
+    // When gji sync runs with no remote.
+    const result = await runCli(['sync'], {
+      cwd: repoRoot,
+      stderr: (chunk) => stderr.push(chunk),
+      stdout: () => undefined,
+    });
+
+    // Then it exits 1 and emits a Hint: line suggesting how to add the remote.
+    expect(result.exitCode).toBe(1);
+    const stderrText = stderr.join('');
+    expect(stderrText).toContain('Hint:');
+    expect(stderrText).toContain('git remote add');
+  });
+
+  it('does NOT emit a Hint: line in --json mode when the remote is unreachable', async () => {
+    // Given a repository without any remote configured.
+    const repoRoot = await createRepository();
+    const stderr: string[] = [];
+
+    // When gji sync --json runs with no remote.
+    const result = await runCli(['sync', '--json'], {
+      cwd: repoRoot,
+      stderr: (chunk) => stderr.push(chunk),
+      stdout: () => undefined,
+    });
+
+    // Then it exits 1 with a valid JSON error and no Hint: text mixed in.
+    expect(result.exitCode).toBe(1);
+    const json = JSON.parse(stderr.join(''));
+    expect(json).toHaveProperty('error');
+    expect(stderr.join('')).not.toContain('Hint:');
   });
 });
 
