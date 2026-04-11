@@ -31,6 +31,25 @@ describe('runCli', () => {
     expect(output).toContain('rm');
   });
 
+  it('describes gji pr as accepting generic PR references', async () => {
+    const stdout: string[] = [];
+    const stderr: string[] = [];
+
+    const result = await runCli(['--help'], {
+      stderr: (chunk) => stderr.push(chunk),
+      stdout: (chunk) => stdout.push(chunk),
+    });
+
+    const output = stdout.join('');
+
+    expect(result.exitCode).toBe(0);
+    expect(stderr).toEqual([]);
+    expect(output).toContain('pr [options] <ref>');
+    expect(output).toContain('number');
+    expect(output).toContain('#number');
+    expect(output).toContain('URL');
+  });
+
   it('prints the package version', async () => {
     const stdout: string[] = [];
     const stderr: string[] = [];
