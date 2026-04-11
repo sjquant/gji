@@ -97,8 +97,8 @@ function registerCommands(program: Command): void {
     .action(notImplemented('init'));
 
   program
-    .command('pr <number>')
-    .description('fetch a pull request ref and create a linked worktree')
+    .command('pr <ref>')
+    .description('fetch a pull request by number, #number, or URL into a linked worktree')
     .option('--dry-run', 'show what would be created without executing any git commands or writing files')
     .option('--json', 'emit JSON on success or error instead of human-readable output')
     .action(notImplemented('pr'));
