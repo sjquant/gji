@@ -41,8 +41,6 @@ jobs:
       contents: write
     outputs:
       created: ${{ steps.version_tag.outputs.created }}
-      publish: ${{ steps.version_tag.outputs.publish }}
-      ref: ${{ steps.version_tag.outputs.ref }}
       tag: ${{ steps.version_tag.outputs.tag }}
       version: ${{ steps.version_tag.outputs.version }}
 
@@ -73,15 +71,3 @@ jobs:
           GITHUB_SHA: ${{ github.sha }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: node scripts/version-tag.mjs
-
-  publish-version-bump:
-    needs: tag-version
-    if: needs.tag-version.outputs.publish == 'true'
-    permissions:
-      contents: read
-      id-token: write
-    uses: ./.github/workflows/publish.yml
-    with:
-      ref: ${{ needs.tag-version.outputs.ref }}
-      tag: ${{ needs.tag-version.outputs.tag }}
-    secrets: inherit
