@@ -1,12 +1,23 @@
-import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 
 import { runCli } from './cli.js';
+import { GLOBAL_CONFIG_FILE_PATH } from './config.js';
 import { resolveWorktreePath } from './repo.js';
 import { createRepository } from './repo.test-helpers.js';
+
+const originalHome = process.env.HOME;
+
+afterEach(() => {
+  if (originalHome === undefined) {
+    delete process.env.HOME;
+    return;
+  }
+  process.env.HOME = originalHome;
+});
 
 describe('gji trigger-hook', () => {
   it('runs the afterCreate hook in the current worktree', async () => {
@@ -164,9 +175,11 @@ describe('gji trigger-hook', () => {
       stderr: (c) => stderr.push(c),
     });
 
-    // Then the command exits non-zero with a helpful message.
+    // Then the command exits non-zero with an error naming the bad hook and listing valid ones.
     expect(result.exitCode).toBe(1);
-    expect(stderr.join('')).toContain('onSpookyEvent');
+    expect(stderr.join('')).toContain(
+      "unknown hook 'onSpookyEvent'. Valid hooks: afterCreate, afterEnter, beforeRemove",
+    );
   });
 
   it('works from the main repo root (not only from linked worktrees)', async () => {
@@ -184,6 +197,37 @@ describe('gji trigger-hook', () => {
     const result = await runCli(['trigger-hook', 'afterCreate'], { cwd: repoRoot });
 
     // Then the hook runs in the main worktree too.
+    expect(result.exitCode).toBe(0);
+    await expect(readFile(markerFile)).resolves.toBeDefined();
+  });
+
+  it('picks up a hook defined only in per-repo global config', async () => {
+    // Given a global config with a per-repo afterCreate hook and no local .gji.json.
+    const home = await mkdtemp(join(tmpdir(), 'gji-home-'));
+    const repoRoot = await createRepository();
+    const branchName = 'feature/per-repo-hook';
+    const worktreePath = resolveWorktreePath(repoRoot, branchName);
+    const markerFile = join(worktreePath, '.per-repo-hook-ran');
+    process.env.HOME = home;
+
+    await runCli(['new', branchName], { cwd: repoRoot });
+
+    const globalConfigPath = GLOBAL_CONFIG_FILE_PATH(home);
+    await mkdir(dirname(globalConfigPath), { recursive: true });
+    await writeFile(
+      globalConfigPath,
+      JSON.stringify({
+        repos: {
+          [repoRoot]: { hooks: { afterCreate: `touch "${markerFile}"` } },
+        },
+      }),
+      'utf8',
+    );
+
+    // When trigger-hook is run inside the linked worktree.
+    const result = await runCli(['trigger-hook', 'afterCreate'], { cwd: worktreePath });
+
+    // Then the per-repo global hook ran even without a local .gji.json.
     expect(result.exitCode).toBe(0);
     await expect(readFile(markerFile)).resolves.toBeDefined();
   });
