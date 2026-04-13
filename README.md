@@ -93,6 +93,8 @@ gji sync --all                    # rebase every worktree
 
 gji clean                         # interactive bulk cleanup
 gji remove feature/auth-refactor  # remove one worktree and its branch
+
+gji trigger-hook afterCreate      # re-run setup in the current worktree
 ```
 
 ## Shell setup
@@ -139,6 +141,7 @@ path=$(gji root --print)
 | `gji sync [--all]` | fetch and rebase worktrees onto default branch |
 | `gji clean [--force] [--json]` | interactively prune stale worktrees |
 | `gji remove [branch] [--force] [--json]` | remove a worktree and its branch |
+| `gji trigger-hook <hook>` | run a hook in the current worktree |
 | `gji config [get\|set\|unset] [key] [value]` | manage global defaults |
 | `gji init [shell]` | print or install shell integration |
 
@@ -159,6 +162,7 @@ No setup required. Optional config lives in:
 | `syncFiles` | files to copy from main worktree into each new worktree |
 | `skipInstallPrompt` | `true` to disable the auto-install prompt permanently |
 | `hooks` | lifecycle scripts (see [Hooks](#hooks)) |
+| `repos` | per-repo overrides inside the global config (see below) |
 
 ```json
 {
@@ -168,6 +172,26 @@ No setup required. Optional config lives in:
   "syncFiles": [".env.example", ".nvmrc"]
 }
 ```
+
+### Per-repo overrides in global config
+
+If you work across many repositories, you can scope config to a specific repo inside `~/.config/gji/config.json` without adding a `.gji.json` to that repo:
+
+```json
+{
+  "branchPrefix": "feature/",
+  "repos": {
+    "/home/me/code/my-repo": {
+      "branchPrefix": "fix/",
+      "hooks": {
+        "afterCreate": "npm install"
+      }
+    }
+  }
+}
+```
+
+Precedence (lowest → highest): **global defaults → per-repo global → local `.gji.json`**. Hooks from all three layers are merged per key — different keys all apply, same key the higher-precedence layer wins.
 
 ### Config commands
 
@@ -200,18 +224,33 @@ Run scripts automatically at key lifecycle moments:
 
 Hooks receive `{{branch}}`, `{{path}}`, `{{repo}}` as template variables and `GJI_BRANCH`, `GJI_PATH`, `GJI_REPO` as environment variables. A failing hook emits a warning but never aborts the command.
 
-Global and repo-local hooks deep-merge per key:
+Hooks from all three config layers merge per key — different keys from different layers both apply, same key the higher-precedence layer wins:
 
 ```jsonc
 // ~/.config/gji/config.json
 { "hooks": { "afterCreate": "nvm use", "afterEnter": "echo hi" } }
 
+// per-repo entry in ~/.config/gji/config.json
+{ "repos": { "/my/repo": { "hooks": { "afterCreate": "npm install" } } } }
+
 // .gji.json
-{ "hooks": { "afterCreate": "pnpm install" } }
+{ "hooks": { "beforeRemove": "echo bye" } }
 
 // effective
-{ "hooks": { "afterCreate": "pnpm install", "afterEnter": "echo hi" } }
+{ "hooks": { "afterCreate": "npm install", "afterEnter": "echo hi", "beforeRemove": "echo bye" } }
 ```
+
+### Triggering hooks manually
+
+Run any hook in the current worktree on demand:
+
+```sh
+gji trigger-hook afterCreate   # re-run the setup script
+gji trigger-hook afterEnter    # re-run the enter script
+gji trigger-hook beforeRemove  # dry-run the cleanup script
+```
+
+This is useful after cloning on a new machine, recovering a broken worktree, or letting an AI agent bootstrap an already-existing worktree without needing interactive prompts.
 
 ## Install prompt
 
