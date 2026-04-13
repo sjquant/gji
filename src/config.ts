@@ -31,13 +31,30 @@ export async function loadEffectiveConfig(
     loadConfig(root),
   ]);
 
-  const merged = mergeConfig(globalConfig.config, localConfig.config);
+  // Extract per-repo override keyed by the absolute repo path.
+  const repos = globalConfig.config.repos;
+  const perRepoConfig: Record<string, unknown> = isPlainObject(repos) && isPlainObject(repos[root])
+    ? repos[root] as Record<string, unknown>
+    : {};
 
-  const globalHooks = isPlainObject(globalConfig.config.hooks) ? globalConfig.config.hooks : {};
+  // Strip the internal `repos` registry from the global base before merging.
+  const globalBase: Record<string, unknown> = { ...globalConfig.config };
+  delete globalBase.repos;
+
+  // Precedence (lowest → highest): global base → per-repo global → local.
+  const merged = mergeConfig(globalBase, perRepoConfig, localConfig.config);
+
+  // Hooks need deep-merging so different keys from different layers all apply.
+  const globalHooks = isPlainObject(globalBase.hooks) ? globalBase.hooks : {};
+  const perRepoHooks = isPlainObject(perRepoConfig.hooks) ? perRepoConfig.hooks : {};
   const localHooks = isPlainObject(localConfig.config.hooks) ? localConfig.config.hooks : {};
 
-  if (Object.keys(globalHooks).length > 0 || Object.keys(localHooks).length > 0) {
-    merged.hooks = { ...globalHooks, ...localHooks };
+  if (
+    Object.keys(globalHooks).length > 0 ||
+    Object.keys(perRepoHooks).length > 0 ||
+    Object.keys(localHooks).length > 0
+  ) {
+    merged.hooks = { ...globalHooks, ...perRepoHooks, ...localHooks };
   }
 
   return merged;

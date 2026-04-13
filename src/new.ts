@@ -23,6 +23,7 @@ export interface NewCommandOptions {
   detached?: boolean;
   dryRun?: boolean;
   json?: boolean;
+  reuse?: boolean;
   stderr: (chunk: string) => void;
   stdout: (chunk: string) => void;
 }
@@ -76,6 +77,19 @@ export function createNewCommand(
       : resolveWorktreePath(repository.repoRoot, worktreeName);
 
     if (!usesGeneratedDetachedName && await pathExists(worktreePath)) {
+      // --reuse: run afterCreate hook in the existing worktree and return its path.
+      if (options.reuse) {
+        const hooks = extractHooks(config);
+        await runHook(
+          hooks.afterCreate,
+          worktreePath,
+          { branch: worktreeName, path: worktreePath, repo: basename(repository.repoRoot) },
+          options.stderr,
+        );
+        await writeOutput(worktreePath, options.stdout);
+        return 0;
+      }
+
       if (options.json || isHeadless()) {
         const message = `target worktree path already exists: ${worktreePath}`;
         if (options.json) {
@@ -83,6 +97,7 @@ export function createNewCommand(
         } else {
           options.stderr(`gji new: ${message} in non-interactive mode (GJI_NO_TUI=1)\n`);
           options.stderr(`Hint: Use 'gji remove ${worktreeName}' or 'gji clean' to remove the existing worktree\n`);
+          options.stderr(`Hint: Pass --reuse to run hooks in the existing worktree instead\n`);
         }
         return 1;
       }
@@ -90,6 +105,13 @@ export function createNewCommand(
       const choice = await prompt(worktreePath);
 
       if (choice === 'reuse') {
+        const hooks = extractHooks(config);
+        await runHook(
+          hooks.afterCreate,
+          worktreePath,
+          { branch: worktreeName, path: worktreePath, repo: basename(repository.repoRoot) },
+          options.stderr,
+        );
         await writeOutput(worktreePath, options.stdout);
         return 0;
       }
