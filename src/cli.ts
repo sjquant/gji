@@ -12,6 +12,7 @@ import { runRemoveCommand } from './remove.js';
 import { runRootCommand } from './root.js';
 import { runStatusCommand } from './status.js';
 import { runSyncCommand } from './sync.js';
+import { runTriggerHookCommand } from './trigger-hook.js';
 
 export interface RunCliOptions {
   cwd?: string;
@@ -88,7 +89,6 @@ function registerCommands(program: Command): void {
     .option('--detached', 'create a detached worktree without a branch')
     .option('--dry-run', 'show what would be created without executing any git commands or writing files')
     .option('--json', 'emit JSON on success or error instead of human-readable output')
-    .option('--reuse', 'if the worktree already exists, run hooks inside it instead of erroring')
     .action(notImplemented('new'));
 
   program
@@ -152,6 +152,11 @@ function registerCommands(program: Command): void {
     .option('--json', 'emit JSON on success or error instead of human-readable output')
     .action(notImplemented('remove'));
 
+  program
+    .command('trigger-hook <hook>')
+    .description('run a named hook (afterCreate, afterEnter, beforeRemove) in the current worktree')
+    .action(notImplemented('trigger-hook'));
+
   const configCommand = program
     .command('config')
     .description('manage global config defaults')
@@ -179,8 +184,8 @@ function attachCommandActions(
 ): void {
   program.commands
     .find((command) => command.name() === 'new')
-    ?.action(async (branch: string | undefined, commandOptions: { detached?: boolean; dryRun?: boolean; json?: boolean; reuse?: boolean }) => {
-      const exitCode = await runNewCommand({ ...options, branch, detached: commandOptions.detached, dryRun: commandOptions.dryRun, json: commandOptions.json, reuse: commandOptions.reuse });
+    ?.action(async (branch: string | undefined, commandOptions: { detached?: boolean; dryRun?: boolean; json?: boolean }) => {
+      const exitCode = await runNewCommand({ ...options, branch, detached: commandOptions.detached, dryRun: commandOptions.dryRun, json: commandOptions.json });
 
       if (exitCode !== 0) {
         throw commanderExit(exitCode);
@@ -322,6 +327,20 @@ function attachCommandActions(
   program.commands
     .find((command) => command.name() === 'remove')
     ?.action(runRemovalCommand);
+
+  program.commands
+    .find((command) => command.name() === 'trigger-hook')
+    ?.action(async (hook: string) => {
+      const exitCode = await runTriggerHookCommand({
+        cwd: options.cwd,
+        hook,
+        stderr: options.stderr,
+      });
+
+      if (exitCode !== 0) {
+        throw commanderExit(exitCode);
+      }
+    });
 
   const configCommand = program.commands.find((command) => command.name() === 'config');
 
