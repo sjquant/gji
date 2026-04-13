@@ -32,9 +32,10 @@ export async function loadEffectiveConfig(
   ]);
 
   // Extract per-repo override keyed by the absolute repo path.
+  // Keys may use ~ as shorthand for the home directory (e.g. ~/code/my-repo).
   const repos = globalConfig.config.repos;
-  const perRepoConfig: Record<string, unknown> = isPlainObject(repos) && isPlainObject(repos[root])
-    ? repos[root] as Record<string, unknown>
+  const perRepoConfig: Record<string, unknown> = isPlainObject(repos)
+    ? findPerRepoConfig(repos, root, home)
     : {};
 
   // Strip the internal `repos` registry from the global base before merging.
@@ -193,6 +194,28 @@ function mergeConfig(...values: Record<string, unknown>[]): GjiConfig {
     }),
     { ...DEFAULT_CONFIG },
   );
+}
+
+function findPerRepoConfig(
+  repos: Record<string, unknown>,
+  repoRoot: string,
+  home: string,
+): Record<string, unknown> {
+  for (const [key, value] of Object.entries(repos)) {
+    const expandedKey = expandTilde(key, home);
+    if (expandedKey === repoRoot && isPlainObject(value)) {
+      return value as Record<string, unknown>;
+    }
+  }
+
+  return {};
+}
+
+function expandTilde(value: string, home: string): string {
+  if (value === '~') return home;
+  if (value.startsWith('~/')) return join(home, value.slice(2));
+
+  return value;
 }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {

@@ -334,6 +334,28 @@ describe('loadEffectiveConfig – per-repo global config', () => {
     expect('repos' in config).toBe(false);
   });
 
+  it('matches a tilde-prefixed repo key against the absolute repo path', async () => {
+    // Given a global config where the repo is keyed with ~/… instead of an absolute path.
+    const home = await mkdtemp(join(tmpdir(), 'gji-home-'));
+    const repoRoot = join(home, 'code', 'my-repo');
+    const globalConfigPath = GLOBAL_CONFIG_FILE_PATH(home);
+    process.env.HOME = home;
+
+    await mkdir(repoRoot, { recursive: true });
+    await mkdir(dirname(globalConfigPath), { recursive: true });
+    await writeFile(
+      globalConfigPath,
+      JSON.stringify({ repos: { '~/code/my-repo': { branchPrefix: 'tilde/' } } }),
+      'utf8',
+    );
+
+    // When loadEffectiveConfig is called with the absolute repo path.
+    const config = await loadEffectiveConfig(repoRoot, home);
+
+    // Then the tilde-prefixed entry matches and its config is applied.
+    expect(config.branchPrefix).toBe('tilde/');
+  });
+
   it('ignores per-repo entry that is not a plain object (string, array, number)', async () => {
     // Given a global config where repos[root] is not an object.
     const home = await mkdtemp(join(tmpdir(), 'gji-home-'));
