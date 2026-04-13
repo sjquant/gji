@@ -44,7 +44,9 @@ export async function loadEffectiveConfig(
   // Precedence (lowest → highest): global base → per-repo global → local.
   const merged = mergeConfig(globalBase, perRepoConfig, localConfig.config);
 
-  // Hooks need deep-merging so different keys from different layers all apply.
+  // Hooks are spread across all three layers so that different hook keys from
+  // different layers both apply (e.g. global afterEnter + local afterCreate).
+  // Within each key the higher-precedence layer wins (same spread order).
   const globalHooks = isPlainObject(globalBase.hooks) ? globalBase.hooks : {};
   const perRepoHooks = isPlainObject(perRepoConfig.hooks) ? perRepoConfig.hooks : {};
   const localHooks = isPlainObject(localConfig.config.hooks) ? localConfig.config.hooks : {};

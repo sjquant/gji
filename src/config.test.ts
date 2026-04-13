@@ -332,4 +332,30 @@ describe('loadEffectiveConfig – per-repo global config', () => {
     // Then the repos key is not present in the effective config.
     expect('repos' in config).toBe(false);
   });
+
+  it('ignores per-repo entry that is not a plain object (string, array, number)', async () => {
+    // Given a global config where repos[root] is not an object.
+    const home = await mkdtemp(join(tmpdir(), 'gji-home-'));
+    const repoRoot = await mkdtemp(join(tmpdir(), 'gji-repo-'));
+    const globalConfigPath = GLOBAL_CONFIG_FILE_PATH(home);
+    process.env.HOME = home;
+
+    await mkdir(dirname(globalConfigPath), { recursive: true });
+    await writeFile(
+      globalConfigPath,
+      JSON.stringify({
+        branchPrefix: 'global/',
+        repos: {
+          [repoRoot]: 'not-an-object',
+        },
+      }),
+      'utf8',
+    );
+
+    // When loadEffectiveConfig is called.
+    const config = await loadEffectiveConfig(repoRoot, home);
+
+    // Then it falls back to the global base and does not throw.
+    expect(config.branchPrefix).toBe('global/');
+  });
 });

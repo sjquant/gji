@@ -4,7 +4,7 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { isCancel, text } from '@clack/prompts';
 
-import { loadEffectiveConfig } from './config.js';
+import { type GjiConfig, loadEffectiveConfig } from './config.js';
 import { syncFiles } from './file-sync.js';
 import { extractHooks, runHook } from './hooks.js';
 import { isHeadless } from './headless.js';
@@ -78,15 +78,11 @@ export function createNewCommand(
 
     if (!usesGeneratedDetachedName && await pathExists(worktreePath)) {
       // --reuse: run afterCreate hook in the existing worktree and return its path.
+      // Intentionally skips syncFiles and install-prompt: the worktree already
+      // exists so syncing tracked files could overwrite user edits, and the
+      // install prompt requires interactive input that AI agents cannot provide.
       if (options.reuse) {
-        const hooks = extractHooks(config);
-        await runHook(
-          hooks.afterCreate,
-          worktreePath,
-          { branch: worktreeName, path: worktreePath, repo: basename(repository.repoRoot) },
-          options.stderr,
-        );
-        await writeOutput(worktreePath, options.stdout);
+        await reuseWorktree(config, worktreePath, worktreeName, repository.repoRoot, options.stderr, options.stdout);
         return 0;
       }
 
@@ -105,14 +101,7 @@ export function createNewCommand(
       const choice = await prompt(worktreePath);
 
       if (choice === 'reuse') {
-        const hooks = extractHooks(config);
-        await runHook(
-          hooks.afterCreate,
-          worktreePath,
-          { branch: worktreeName, path: worktreePath, repo: basename(repository.repoRoot) },
-          options.stderr,
-        );
-        await writeOutput(worktreePath, options.stdout);
+        await reuseWorktree(config, worktreePath, worktreeName, repository.repoRoot, options.stderr, options.stdout);
         return 0;
       }
 
@@ -274,6 +263,24 @@ async function localBranchExists(repoRoot: string, branchName: string): Promise<
   } catch {
     return false;
   }
+}
+
+async function reuseWorktree(
+  config: GjiConfig,
+  worktreePath: string,
+  worktreeName: string,
+  repoRoot: string,
+  stderr: (chunk: string) => void,
+  stdout: (chunk: string) => void,
+): Promise<void> {
+  const hooks = extractHooks(config);
+  await runHook(
+    hooks.afterCreate,
+    worktreePath,
+    { branch: worktreeName, path: worktreePath, repo: basename(repoRoot) },
+    stderr,
+  );
+  await writeOutput(worktreePath, stdout);
 }
 
 async function writeOutput(
