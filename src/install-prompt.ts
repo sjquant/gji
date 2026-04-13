@@ -2,7 +2,7 @@ import { spawn } from 'node:child_process';
 
 import { isCancel, select } from '@clack/prompts';
 
-import { type GjiConfig, loadConfig, updateLocalConfigKey } from './config.js';
+import { type GjiConfig, loadConfig, loadGlobalConfig, updateGlobalRepoConfigKey, updateLocalConfigKey } from './config.js';
 import { isHeadless } from './headless.js';
 import { detectPackageManager, type PackageManager } from './package-manager.js';
 
@@ -13,6 +13,7 @@ export interface InstallPromptDependencies {
   promptForInstallChoice?: (pm: PackageManager) => Promise<InstallChoice | null>;
   runInstallCommand?: (command: string, cwd: string, stderr: (chunk: string) => void) => Promise<void>;
   writeConfigKey?: (root: string, key: string, value: unknown) => Promise<void>;
+  writeGlobalRepoConfigKey?: (repoRoot: string, key: string, value: unknown) => Promise<void>;
 }
 
 export async function maybeRunInstallPrompt(
@@ -62,14 +63,22 @@ export async function maybeRunInstallPrompt(
     }
   }
 
+  const saveGlobal = config.installSaveTarget === 'global';
   const writeKey = dependencies.writeConfigKey ?? defaultWriteConfigKey;
+  const writeGlobalKey = dependencies.writeGlobalRepoConfigKey ?? defaultWriteGlobalRepoConfigKey;
 
   if (choice === 'always') {
     try {
-      // Read local config hooks to deep-merge so other hook keys (e.g. afterEnter) are preserved.
-      const { config: localConfig } = await loadConfig(repoRoot);
-      const existingLocalHooks = isPlainObject(localConfig.hooks) ? localConfig.hooks : {};
-      await writeKey(repoRoot, 'hooks', { ...existingLocalHooks, afterCreate: pm.installCommand });
+      if (saveGlobal) {
+        // Deep-merge with any existing per-repo global hooks so other keys are preserved.
+        const existingHooks = await loadExistingGlobalRepoHooks(repoRoot);
+        await writeGlobalKey(repoRoot, 'hooks', { ...existingHooks, afterCreate: pm.installCommand });
+      } else {
+        // Read local config hooks to deep-merge so other hook keys (e.g. afterEnter) are preserved.
+        const { config: localConfig } = await loadConfig(repoRoot);
+        const existingLocalHooks = isPlainObject(localConfig.hooks) ? localConfig.hooks : {};
+        await writeKey(repoRoot, 'hooks', { ...existingLocalHooks, afterCreate: pm.installCommand });
+      }
     } catch (error) {
       stderr(`gji: failed to save config: ${error instanceof Error ? error.message : String(error)}\n`);
     }
@@ -77,7 +86,11 @@ export async function maybeRunInstallPrompt(
 
   if (choice === 'never') {
     try {
-      await writeKey(repoRoot, 'skipInstallPrompt', true);
+      if (saveGlobal) {
+        await writeGlobalKey(repoRoot, 'skipInstallPrompt', true);
+      } else {
+        await writeKey(repoRoot, 'skipInstallPrompt', true);
+      }
     } catch (error) {
       stderr(`gji: failed to save config: ${error instanceof Error ? error.message : String(error)}\n`);
     }
@@ -116,6 +129,22 @@ async function defaultWriteConfigKey(
   value: unknown,
 ): Promise<void> {
   await updateLocalConfigKey(root, key, value);
+}
+
+async function defaultWriteGlobalRepoConfigKey(
+  repoRoot: string,
+  key: string,
+  value: unknown,
+): Promise<void> {
+  await updateGlobalRepoConfigKey(repoRoot, key, value);
+}
+
+async function loadExistingGlobalRepoHooks(repoRoot: string): Promise<Record<string, unknown>> {
+  const { config: globalConfig } = await loadGlobalConfig();
+  const repos = isPlainObject(globalConfig.repos) ? globalConfig.repos : {};
+  const perRepo = isPlainObject(repos[repoRoot]) ? repos[repoRoot] as Record<string, unknown> : {};
+
+  return isPlainObject(perRepo.hooks) ? perRepo.hooks : {};
 }
 
 async function defaultPromptForInstallChoice(pm: PackageManager): Promise<InstallChoice | null> {

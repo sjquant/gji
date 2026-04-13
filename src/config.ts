@@ -131,6 +131,25 @@ export async function updateGlobalConfigKey(
   return nextConfig;
 }
 
+export async function updateGlobalRepoConfigKey(
+  repoRoot: string,
+  key: string,
+  value: unknown,
+  home: string = homedir(),
+): Promise<GjiConfig> {
+  const loaded = await loadGlobalConfig(home);
+  const repos = isPlainObject(loaded.config.repos) ? { ...loaded.config.repos } : {};
+  const existing = isPlainObject(repos[repoRoot]) ? repos[repoRoot] as Record<string, unknown> : {};
+
+  repos[repoRoot] = { ...existing, [key]: value };
+
+  const nextConfig = { ...loaded.config, repos };
+
+  await saveGlobalConfig(nextConfig, home);
+
+  return nextConfig;
+}
+
 export function GLOBAL_CONFIG_FILE_PATH(home: string = homedir()): string {
   return join(home, GLOBAL_CONFIG_DIRECTORY, GLOBAL_CONFIG_NAME);
 }

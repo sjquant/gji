@@ -5,6 +5,8 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { runCli } from './cli.js';
+import { GLOBAL_CONFIG_FILE_PATH } from './config.js';
+import { runInitCommand } from './init.js';
 
 const originalHome = process.env.HOME;
 const originalShell = process.env.SHELL;
@@ -82,6 +84,109 @@ describe('gji init', () => {
 
     expect(content.match(/# >>> gji init >>>/g)).toHaveLength(1);
     expect(content.match(/# <<< gji init <<</g)).toHaveLength(1);
+  });
+});
+
+describe('gji init --write preferences prompt', () => {
+  it('saves the chosen installSaveTarget to global config after writing the shell integration', async () => {
+    // Given an isolated home with no existing global config.
+    const home = await mkdtemp(join(tmpdir(), 'gji-home-'));
+    process.env.HOME = home;
+    const cwd = await mkdtemp(join(tmpdir(), 'gji-cwd-'));
+
+    // When gji init --write runs and the user chooses "global".
+    const result = await runInitCommand({
+      cwd,
+      home,
+      shell: 'zsh',
+      write: true,
+      stdout: () => undefined,
+      promptForInstallSaveTarget: async () => 'global',
+    });
+
+    // Then installSaveTarget: "global" is written to global config.
+    expect(result).toBe(0);
+    const globalConfig = JSON.parse(
+      await readFile(GLOBAL_CONFIG_FILE_PATH(home), 'utf8'),
+    ) as Record<string, unknown>;
+    expect(globalConfig.installSaveTarget).toBe('global');
+  });
+
+  it('skips the preferences prompt when installSaveTarget is already configured', async () => {
+    // Given a global config that already has installSaveTarget set.
+    const home = await mkdtemp(join(tmpdir(), 'gji-home-'));
+    process.env.HOME = home;
+    const cwd = await mkdtemp(join(tmpdir(), 'gji-cwd-'));
+    let promptCalled = false;
+
+    // Pre-populate the global config.
+    await runInitCommand({
+      cwd,
+      home,
+      shell: 'zsh',
+      write: true,
+      stdout: () => undefined,
+      promptForInstallSaveTarget: async () => 'local',
+    });
+
+    // When gji init --write runs again.
+    await runInitCommand({
+      cwd,
+      home,
+      shell: 'zsh',
+      write: true,
+      stdout: () => undefined,
+      promptForInstallSaveTarget: async () => { promptCalled = true; return 'global'; },
+    });
+
+    // Then the prompt was not shown a second time.
+    expect(promptCalled).toBe(false);
+  });
+
+  it('skips the preferences prompt when not in --write mode', async () => {
+    // Given an init run without --write (print-to-stdout mode).
+    let promptCalled = false;
+    const stdout: string[] = [];
+
+    // When gji init runs without --write.
+    const result = await runInitCommand({
+      cwd: '/tmp',
+      home: '/tmp',
+      shell: 'zsh',
+      stdout: (chunk) => stdout.push(chunk),
+      promptForInstallSaveTarget: async () => { promptCalled = true; return 'global'; },
+    });
+
+    // Then the shell script is printed and no preference prompt appears.
+    expect(result).toBe(0);
+    expect(promptCalled).toBe(false);
+    expect(stdout.join('')).toContain('gji init');
+  });
+
+  it('does not save anything when the preferences prompt is cancelled', async () => {
+    // Given an isolated home with no existing global config.
+    const home = await mkdtemp(join(tmpdir(), 'gji-home-'));
+    process.env.HOME = home;
+    const cwd = await mkdtemp(join(tmpdir(), 'gji-cwd-'));
+
+    // When the user cancels the preferences prompt (returns null).
+    await runInitCommand({
+      cwd,
+      home,
+      shell: 'zsh',
+      write: true,
+      stdout: () => undefined,
+      promptForInstallSaveTarget: async () => null,
+    });
+
+    // Then no installSaveTarget is written to global config (file may not exist at all).
+    let globalConfig: Record<string, unknown> = {};
+    try {
+      globalConfig = JSON.parse(await readFile(GLOBAL_CONFIG_FILE_PATH(home), 'utf8')) as Record<string, unknown>;
+    } catch {
+      // File was never created — that's fine, installSaveTarget is absent either way.
+    }
+    expect('installSaveTarget' in globalConfig).toBe(false);
   });
 });
 

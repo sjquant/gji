@@ -11,6 +11,7 @@ import {
   loadConfig,
   loadEffectiveConfig,
   saveLocalConfig,
+  updateGlobalRepoConfigKey,
   updateLocalConfigKey,
 } from './config.js';
 
@@ -357,5 +358,74 @@ describe('loadEffectiveConfig – per-repo global config', () => {
 
     // Then it falls back to the global base and does not throw.
     expect(config.branchPrefix).toBe('global/');
+  });
+});
+
+describe('updateGlobalRepoConfigKey', () => {
+  it('creates a repos entry when the global config has no repos section', async () => {
+    // Given a global config with no repos section.
+    const home = await mkdtemp(join(tmpdir(), 'gji-home-'));
+    const repoRoot = '/home/me/code/my-repo';
+    const globalConfigPath = GLOBAL_CONFIG_FILE_PATH(home);
+
+    await mkdir(dirname(globalConfigPath), { recursive: true });
+    await writeFile(globalConfigPath, JSON.stringify({ branchPrefix: 'feat/' }), 'utf8');
+
+    // When a repo-scoped key is updated.
+    await updateGlobalRepoConfigKey(repoRoot, 'branchPrefix', 'fix/', home);
+
+    // Then the global config has a repos entry for that path.
+    const written = JSON.parse(await readFile(globalConfigPath, 'utf8')) as Record<string, unknown>;
+    const repos = written.repos as Record<string, unknown>;
+    expect((repos[repoRoot] as Record<string, unknown>).branchPrefix).toBe('fix/');
+    // And the top-level key is untouched.
+    expect(written.branchPrefix).toBe('feat/');
+  });
+
+  it('adds to an existing repos section without overwriting other repos', async () => {
+    // Given a global config that already has a repos entry for a different repo.
+    const home = await mkdtemp(join(tmpdir(), 'gji-home-'));
+    const otherRepo = '/other/repo';
+    const repoRoot = '/my/repo';
+    const globalConfigPath = GLOBAL_CONFIG_FILE_PATH(home);
+
+    await mkdir(dirname(globalConfigPath), { recursive: true });
+    await writeFile(
+      globalConfigPath,
+      JSON.stringify({ repos: { [otherRepo]: { branchPrefix: 'other/' } } }),
+      'utf8',
+    );
+
+    // When a key is updated for a different repo.
+    await updateGlobalRepoConfigKey(repoRoot, 'branchPrefix', 'mine/', home);
+
+    // Then both repos are present.
+    const written = JSON.parse(await readFile(globalConfigPath, 'utf8')) as Record<string, unknown>;
+    const repos = written.repos as Record<string, unknown>;
+    expect((repos[otherRepo] as Record<string, unknown>).branchPrefix).toBe('other/');
+    expect((repos[repoRoot] as Record<string, unknown>).branchPrefix).toBe('mine/');
+  });
+
+  it('preserves other keys in an existing repo entry', async () => {
+    // Given a global config with a per-repo entry that already has a hooks key.
+    const home = await mkdtemp(join(tmpdir(), 'gji-home-'));
+    const repoRoot = '/my/repo';
+    const globalConfigPath = GLOBAL_CONFIG_FILE_PATH(home);
+
+    await mkdir(dirname(globalConfigPath), { recursive: true });
+    await writeFile(
+      globalConfigPath,
+      JSON.stringify({ repos: { [repoRoot]: { hooks: { afterCreate: 'npm install' } } } }),
+      'utf8',
+    );
+
+    // When a different key is written for the same repo.
+    await updateGlobalRepoConfigKey(repoRoot, 'branchPrefix', 'feat/', home);
+
+    // Then both keys exist in the repo entry.
+    const written = JSON.parse(await readFile(globalConfigPath, 'utf8')) as Record<string, unknown>;
+    const entry = (written.repos as Record<string, unknown>)[repoRoot] as Record<string, unknown>;
+    expect(entry.branchPrefix).toBe('feat/');
+    expect((entry.hooks as Record<string, unknown>).afterCreate).toBe('npm install');
   });
 });

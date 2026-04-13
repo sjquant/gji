@@ -161,6 +161,7 @@ No setup required. Optional config lives in:
 | `syncDefaultBranch` | branch to rebase onto (default: remote `HEAD`) |
 | `syncFiles` | files to copy from main worktree into each new worktree |
 | `skipInstallPrompt` | `true` to disable the auto-install prompt permanently |
+| `installSaveTarget` | `"local"` or `"global"` — where **Always**/**Never** choices are persisted (default: `"local"`); set once during `gji init --write` |
 | `hooks` | lifecycle scripts (see [Hooks](#hooks)) |
 | `repos` | per-repo overrides inside the global config (see below) |
 
@@ -264,7 +265,7 @@ Run `pnpm install` in the new worktree?
   Never     disable this prompt for this repo
 ```
 
-**Always** saves `hooks.afterCreate` to `.gji.json`; **Never** writes `skipInstallPrompt: true`. Both are local-only — global config is never modified.
+**Always** saves `hooks.afterCreate`; **Never** writes `skipInstallPrompt: true`. Where they are saved depends on `installSaveTarget` (see [Available keys](#available-keys)) — defaults to `.gji.json`.
 
 ## JSON output
 

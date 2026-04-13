@@ -760,6 +760,102 @@ describe('gji new', () => {
       expect(stderr.join('')).toContain('gji:');
       expect(stderr.join('')).toContain('command not found');
     });
+
+    it('writes "always" to per-repo global config when installSaveTarget is "global"', async () => {
+      // Given a repo with installSaveTarget: "global" in global config and a detected package manager.
+      const home = await mkdtemp(join(tmpdir(), 'gji-home-'));
+      const repoRoot = await createRepository();
+      const branchName = 'feature/install-global-always';
+      const globalConfigPath = GLOBAL_CONFIG_FILE_PATH(home);
+      process.env.HOME = home;
+
+      await mkdir(dirname(globalConfigPath), { recursive: true });
+      await writeFile(
+        globalConfigPath,
+        JSON.stringify({ installSaveTarget: 'global' }),
+        'utf8',
+      );
+
+      const writtenGlobalKeys: Array<{ key: string; value: unknown }> = [];
+      let writtenLocalKey = false;
+      const runNewCmd = createNewCommand({
+        detectInstallPackageManager: async () => ({ name: 'pnpm', installCommand: 'pnpm install' }),
+        promptForInstallChoice: async () => 'always',
+        runInstallCommand: async () => undefined,
+        writeConfigKey: async () => { writtenLocalKey = true; },
+        writeGlobalRepoConfigKey: async (_repoRoot, key, value) => {
+          writtenGlobalKeys.push({ key, value });
+        },
+      });
+
+      // When gji new runs with "always" and installSaveTarget: "global".
+      const result = await runNewCmd({ branch: branchName, cwd: repoRoot, stderr: () => undefined, stdout: () => undefined });
+
+      // Then hooks.afterCreate is written to the global per-repo config, not local.
+      expect(result).toBe(0);
+      expect(writtenLocalKey).toBe(false);
+      expect(writtenGlobalKeys).toHaveLength(1);
+      expect(writtenGlobalKeys[0].key).toBe('hooks');
+      expect((writtenGlobalKeys[0].value as Record<string, unknown>).afterCreate).toBe('pnpm install');
+    });
+
+    it('writes "never" to per-repo global config when installSaveTarget is "global"', async () => {
+      // Given a repo with installSaveTarget: "global" and a detected package manager.
+      const home = await mkdtemp(join(tmpdir(), 'gji-home-'));
+      const repoRoot = await createRepository();
+      const branchName = 'feature/install-global-never';
+      const globalConfigPath = GLOBAL_CONFIG_FILE_PATH(home);
+      process.env.HOME = home;
+
+      await mkdir(dirname(globalConfigPath), { recursive: true });
+      await writeFile(globalConfigPath, JSON.stringify({ installSaveTarget: 'global' }), 'utf8');
+
+      const writtenGlobalKeys: Array<{ key: string; value: unknown }> = [];
+      let writtenLocalKey = false;
+      const runNewCmd = createNewCommand({
+        detectInstallPackageManager: async () => ({ name: 'pnpm', installCommand: 'pnpm install' }),
+        promptForInstallChoice: async () => 'never',
+        runInstallCommand: async () => undefined,
+        writeConfigKey: async () => { writtenLocalKey = true; },
+        writeGlobalRepoConfigKey: async (_repoRoot, key, value) => {
+          writtenGlobalKeys.push({ key, value });
+        },
+      });
+
+      // When gji new runs with "never" and installSaveTarget: "global".
+      const result = await runNewCmd({ branch: branchName, cwd: repoRoot, stderr: () => undefined, stdout: () => undefined });
+
+      // Then skipInstallPrompt is written to per-repo global config, not local.
+      expect(result).toBe(0);
+      expect(writtenLocalKey).toBe(false);
+      expect(writtenGlobalKeys).toHaveLength(1);
+      expect(writtenGlobalKeys[0].key).toBe('skipInstallPrompt');
+      expect(writtenGlobalKeys[0].value).toBe(true);
+    });
+
+    it('defaults to local when installSaveTarget is absent', async () => {
+      // Given a repo with no installSaveTarget configured.
+      const repoRoot = await createRepository();
+      const branchName = 'feature/install-default-local';
+      const writtenLocalKeys: Array<{ key: string; value: unknown }> = [];
+      let writtenGlobalKey = false;
+      const runNewCmd = createNewCommand({
+        detectInstallPackageManager: async () => ({ name: 'pnpm', installCommand: 'pnpm install' }),
+        promptForInstallChoice: async () => 'always',
+        runInstallCommand: async () => undefined,
+        writeConfigKey: async (_root, key, value) => { writtenLocalKeys.push({ key, value }); },
+        writeGlobalRepoConfigKey: async () => { writtenGlobalKey = true; },
+      });
+
+      // When gji new runs with "always" but no installSaveTarget.
+      const result = await runNewCmd({ branch: branchName, cwd: repoRoot, stderr: () => undefined, stdout: () => undefined });
+
+      // Then the existing local write behavior is preserved.
+      expect(result).toBe(0);
+      expect(writtenGlobalKey).toBe(false);
+      expect(writtenLocalKeys).toHaveLength(1);
+      expect(writtenLocalKeys[0].key).toBe('hooks');
+    });
   });
 
   describe('--json output', () => {

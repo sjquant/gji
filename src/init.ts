@@ -2,6 +2,10 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 
+import { isCancel, select } from '@clack/prompts';
+
+import { loadGlobalConfig, updateGlobalConfigKey } from './config.js';
+
 export type SupportedShell = 'bash' | 'fish' | 'zsh';
 
 const START_MARKER = '# >>> gji init >>>';
@@ -53,8 +57,12 @@ const SHELL_WRAPPED_COMMANDS: ShellWrappedCommand[] = [
   },
 ];
 
+export type InstallSaveTarget = 'local' | 'global';
+
 export interface InitCommandOptions {
   cwd: string;
+  home?: string;
+  promptForInstallSaveTarget?: () => Promise<InstallSaveTarget | null>;
   shell?: string;
   stderr?: (chunk: string) => void;
   stdout: (chunk: string) => void;
@@ -63,6 +71,7 @@ export interface InitCommandOptions {
 
 export async function runInitCommand(options: InitCommandOptions): Promise<number> {
   const shell = resolveShell(options.shell, process.env.SHELL);
+  const home = options.home ?? homedir();
 
   if (!shell) {
     options.stderr?.(
@@ -78,7 +87,7 @@ export async function runInitCommand(options: InitCommandOptions): Promise<numbe
     return 0;
   }
 
-  const rcPath = resolveShellConfigPath(shell, homedir());
+  const rcPath = resolveShellConfigPath(shell, home);
   await mkdir(dirname(rcPath), { recursive: true });
 
   const current = await readExistingConfig(rcPath);
@@ -86,6 +95,22 @@ export async function runInitCommand(options: InitCommandOptions): Promise<numbe
   await writeFile(rcPath, next, 'utf8');
 
   options.stdout(`${rcPath}\n`);
+
+  // After the shell integration is in place, ask once where to save hooks/prefs.
+  // Skip if already configured. When using the default interactive prompt, also
+  // require a real TTY so we don't block in piped/headless environments.
+  const { config: globalConfig } = await loadGlobalConfig(home);
+  const hasCustomPrompt = options.promptForInstallSaveTarget !== undefined;
+  const canPrompt = hasCustomPrompt || process.stdout.isTTY === true;
+
+  if (!('installSaveTarget' in globalConfig) && canPrompt) {
+    const prompt = options.promptForInstallSaveTarget ?? defaultPromptForInstallSaveTarget;
+    const target = await prompt();
+    if (target) {
+      await updateGlobalConfigKey('installSaveTarget', target, home);
+    }
+  }
+
   return 0;
 }
 
@@ -257,4 +282,20 @@ function indentBlock(value: string, spaces: number): string {
     .split('\n')
     .map((line) => line.length === 0 ? '' : `${prefix}${line}`)
     .join('\n');
+}
+
+async function defaultPromptForInstallSaveTarget(): Promise<InstallSaveTarget | null> {
+  const choice = await select<InstallSaveTarget>({
+    message: 'Where should saved hooks and preferences be stored by default?',
+    options: [
+      { value: 'local', label: '.gji.json', hint: 'local — committed, shared with the team' },
+      { value: 'global', label: '~/.config/gji/config.json', hint: 'global — personal, never committed' },
+    ],
+  });
+
+  if (isCancel(choice)) {
+    return null;
+  }
+
+  return choice;
 }
