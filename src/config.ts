@@ -31,13 +31,33 @@ export async function loadEffectiveConfig(
     loadConfig(root),
   ]);
 
-  const merged = mergeConfig(globalConfig.config, localConfig.config);
+  // Extract per-repo override keyed by the absolute repo path.
+  // Keys may use ~ as shorthand for the home directory (e.g. ~/code/my-repo).
+  const repos = globalConfig.config.repos;
+  const perRepoConfig: Record<string, unknown> = isPlainObject(repos)
+    ? findPerRepoConfig(repos, root, home)
+    : {};
 
-  const globalHooks = isPlainObject(globalConfig.config.hooks) ? globalConfig.config.hooks : {};
+  // Strip the internal `repos` registry from the global base before merging.
+  const globalBase: Record<string, unknown> = { ...globalConfig.config };
+  delete globalBase.repos;
+
+  // Precedence (lowest → highest): global base → per-repo global → local.
+  const merged = mergeConfig(globalBase, perRepoConfig, localConfig.config);
+
+  // Hooks are spread across all three layers so that different hook keys from
+  // different layers both apply (e.g. global afterEnter + local afterCreate).
+  // Within each key the higher-precedence layer wins (same spread order).
+  const globalHooks = isPlainObject(globalBase.hooks) ? globalBase.hooks : {};
+  const perRepoHooks = isPlainObject(perRepoConfig.hooks) ? perRepoConfig.hooks : {};
   const localHooks = isPlainObject(localConfig.config.hooks) ? localConfig.config.hooks : {};
 
-  if (Object.keys(globalHooks).length > 0 || Object.keys(localHooks).length > 0) {
-    merged.hooks = { ...globalHooks, ...localHooks };
+  if (
+    Object.keys(globalHooks).length > 0 ||
+    Object.keys(perRepoHooks).length > 0 ||
+    Object.keys(localHooks).length > 0
+  ) {
+    merged.hooks = { ...globalHooks, ...perRepoHooks, ...localHooks };
   }
 
   return merged;
@@ -112,6 +132,25 @@ export async function updateGlobalConfigKey(
   return nextConfig;
 }
 
+export async function updateGlobalRepoConfigKey(
+  repoRoot: string,
+  key: string,
+  value: unknown,
+  home: string = homedir(),
+): Promise<GjiConfig> {
+  const loaded = await loadGlobalConfig(home);
+  const repos = isPlainObject(loaded.config.repos) ? { ...loaded.config.repos } : {};
+  const existing = isPlainObject(repos[repoRoot]) ? repos[repoRoot] as Record<string, unknown> : {};
+
+  repos[repoRoot] = { ...existing, [key]: value };
+
+  const nextConfig = { ...loaded.config, repos };
+
+  await saveGlobalConfig(nextConfig, home);
+
+  return nextConfig;
+}
+
 export function GLOBAL_CONFIG_FILE_PATH(home: string = homedir()): string {
   return join(home, GLOBAL_CONFIG_DIRECTORY, GLOBAL_CONFIG_NAME);
 }
@@ -155,6 +194,28 @@ function mergeConfig(...values: Record<string, unknown>[]): GjiConfig {
     }),
     { ...DEFAULT_CONFIG },
   );
+}
+
+function findPerRepoConfig(
+  repos: Record<string, unknown>,
+  repoRoot: string,
+  home: string,
+): Record<string, unknown> {
+  for (const [key, value] of Object.entries(repos)) {
+    const expandedKey = expandTilde(key, home);
+    if (expandedKey === repoRoot && isPlainObject(value)) {
+      return value as Record<string, unknown>;
+    }
+  }
+
+  return {};
+}
+
+function expandTilde(value: string, home: string): string {
+  if (value === '~') return home;
+  if (value.startsWith('~/')) return join(home, value.slice(2));
+
+  return value;
 }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {

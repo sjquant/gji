@@ -12,6 +12,7 @@ import { runRemoveCommand } from './remove.js';
 import { runRootCommand } from './root.js';
 import { runStatusCommand } from './status.js';
 import { runSyncCommand } from './sync.js';
+import { runTriggerHookCommand } from './trigger-hook.js';
 
 export interface RunCliOptions {
   cwd?: string;
@@ -150,6 +151,11 @@ function registerCommands(program: Command): void {
     .option('--dry-run', 'show what would be deleted without removing anything')
     .option('--json', 'emit JSON on success or error instead of human-readable output')
     .action(notImplemented('remove'));
+
+  program
+    .command('trigger-hook <hook>')
+    .description('run a named hook (afterCreate, afterEnter, beforeRemove) in the current worktree')
+    .action(notImplemented('trigger-hook'));
 
   const configCommand = program
     .command('config')
@@ -321,6 +327,20 @@ function attachCommandActions(
   program.commands
     .find((command) => command.name() === 'remove')
     ?.action(runRemovalCommand);
+
+  program.commands
+    .find((command) => command.name() === 'trigger-hook')
+    ?.action(async (hook: string) => {
+      const exitCode = await runTriggerHookCommand({
+        cwd: options.cwd,
+        hook,
+        stderr: options.stderr,
+      });
+
+      if (exitCode !== 0) {
+        throw commanderExit(exitCode);
+      }
+    });
 
   const configCommand = program.commands.find((command) => command.name() === 'config');
 
