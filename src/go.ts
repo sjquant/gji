@@ -37,7 +37,7 @@ export function createGoCommand(
       return 1;
     }
 
-    const prompted = options.branch ? null : await prompt(worktrees);
+    const prompted = options.branch ? null : await prompt(sortByCurrentFirst(worktrees));
     const resolvedPath = options.branch
       ? worktrees.find((entry) => entry.branch === options.branch)?.path
       : prompted ?? undefined;
@@ -78,7 +78,7 @@ async function promptForWorktree(
     options: worktrees.map((worktree) => ({
       value: worktree.path,
       label: worktree.branch ?? '(detached)',
-      hint: worktree.path,
+      hint: worktree.isCurrent ? `${worktree.path} (current)` : worktree.path,
     })),
   });
 
@@ -87,4 +87,12 @@ async function promptForWorktree(
   }
 
   return choice;
+}
+
+function sortByCurrentFirst(worktrees: WorktreeEntry[]): WorktreeEntry[] {
+  return [...worktrees].sort((a, b) => {
+    if (a.isCurrent && !b.isCurrent) return -1;
+    if (!a.isCurrent && b.isCurrent) return 1;
+    return 0;
+  });
 }

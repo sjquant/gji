@@ -205,6 +205,29 @@ describe('gji go', () => {
     }
   });
 
+  it('places the current worktree first in the interactive prompt', async () => {
+    // Given a repository with two linked worktrees, with one being the current cwd.
+    const repoRoot = await createRepository();
+    const branchA = 'feature/go-order-a';
+    const branchB = 'feature/go-order-b';
+    const worktreeA = await addLinkedWorktree(repoRoot, branchA);
+    await addLinkedWorktree(repoRoot, branchB);
+    let capturedWorktrees: Array<{ branch: string | null; isCurrent: boolean }> = [];
+    const runGoCommand = createGoCommand({
+      promptForWorktree: async (worktrees) => {
+        capturedWorktrees = worktrees.map((w) => ({ branch: w.branch, isCurrent: w.isCurrent }));
+        return worktreeA;
+      },
+    });
+
+    // When gji go runs interactively from inside worktreeA.
+    await runGoCommand({ cwd: worktreeA, stderr: () => undefined, stdout: () => undefined });
+
+    // Then the current worktree (worktreeA) appears first with isCurrent: true.
+    expect(capturedWorktrees[0]).toEqual({ branch: branchA, isCurrent: true });
+    expect(capturedWorktrees.slice(1).every((w) => !w.isCurrent)).toBe(true);
+  });
+
   it('emits a Hint: line when a branch is not found', async () => {
     // Given a repository with no worktree for the requested branch.
     const repoRoot = await createRepository();

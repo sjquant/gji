@@ -63,7 +63,7 @@ export function createRemoveCommand(
       return 1;
     }
 
-    const selection = options.branch ?? (await promptForWorktree(linkedWorktrees));
+    const selection = options.branch ?? (await promptForWorktree(sortByCurrentFirst(linkedWorktrees)));
 
     if (!selection) {
       options.stderr('Aborted\n');
@@ -169,13 +169,21 @@ async function defaultPromptForWorktree(worktrees: WorktreeEntry[]): Promise<str
   const choice = await select<string>({
     message: 'Choose a worktree to finish',
     options: worktrees.map((worktree) => ({
-      hint: worktree.path,
+      hint: worktree.isCurrent ? `${worktree.path} (current)` : worktree.path,
       label: worktree.branch ?? '(detached)',
       value: worktree.path,
     })),
   });
 
   return isCancel(choice) ? null : choice;
+}
+
+function sortByCurrentFirst(worktrees: WorktreeEntry[]): WorktreeEntry[] {
+  return [...worktrees].sort((a, b) => {
+    if (a.isCurrent && !b.isCurrent) return -1;
+    if (!a.isCurrent && b.isCurrent) return 1;
+    return 0;
+  });
 }
 
 async function defaultConfirmRemoval(worktree: WorktreeEntry): Promise<boolean> {

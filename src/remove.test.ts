@@ -35,6 +35,30 @@ describe('gji remove', () => {
     expect(stdout.join('').trim()).toBe(repoRoot);
   });
 
+  it('places the current linked worktree first in the interactive prompt', async () => {
+    // Given a repository with two linked worktrees, running from inside one of them.
+    const repoRoot = await createRepository();
+    const branchA = 'feature/remove-order-a';
+    const branchB = 'feature/remove-order-b';
+    const worktreeA = await addLinkedWorktree(repoRoot, branchA);
+    await addLinkedWorktree(repoRoot, branchB);
+    let capturedWorktrees: Array<{ branch: string | null; isCurrent: boolean }> = [];
+    const runRemoveCommand = createRemoveCommand({
+      confirmRemoval: async () => true,
+      promptForWorktree: async (worktrees) => {
+        capturedWorktrees = worktrees.map((w) => ({ branch: w.branch, isCurrent: w.isCurrent }));
+        return worktreeA;
+      },
+    });
+
+    // When gji remove runs interactively from inside worktreeA.
+    await runRemoveCommand({ cwd: worktreeA, stderr: () => undefined, stdout: () => undefined });
+
+    // Then the current linked worktree (worktreeA) appears first with isCurrent: true.
+    expect(capturedWorktrees[0]).toEqual({ branch: branchA, isCurrent: true });
+    expect(capturedWorktrees.slice(1).every((w) => !w.isCurrent)).toBe(true);
+  });
+
   it('prompts for linked worktrees including detached entries', async () => {
     // Given a repository root with linked branch worktrees plus a detached worktree.
     const repoRoot = await createRepository();
