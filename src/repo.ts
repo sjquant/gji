@@ -11,6 +11,7 @@ export interface RepositoryContext {
 
 export interface WorktreeEntry {
   branch: string | null;
+  isCurrent: boolean;
   path: string;
 }
 
@@ -46,7 +47,10 @@ export function resolveWorktreePath(repoRoot: string, branch: string): string {
 }
 
 export async function listWorktrees(cwd: string): Promise<WorktreeEntry[]> {
-  const output = await runGit(cwd, ['worktree', 'list', '--porcelain']);
+  const [output, currentRoot] = await Promise.all([
+    runGit(cwd, ['worktree', 'list', '--porcelain']),
+    runGit(cwd, ['rev-parse', '--show-toplevel']),
+  ]);
   const entries = output.split('\n\n').filter(Boolean);
 
   return entries.map((entry) => {
@@ -55,6 +59,7 @@ export async function listWorktrees(cwd: string): Promise<WorktreeEntry[]> {
 
     return {
       branch: branchRef ? branchRef.replace('refs/heads/', '') : null,
+      isCurrent: path === currentRoot,
       path,
     };
   });
