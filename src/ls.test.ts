@@ -25,13 +25,13 @@ describe('gji ls', () => {
       stdout: (chunk) => stdout.push(chunk),
     });
 
-    // Then it prints the worktrees as exact JSON data.
+    // Then it prints the worktrees as exact JSON data with the current worktree first.
     expect(result.exitCode).toBe(0);
     expect(stdout.join('')).toBe(
       `${JSON.stringify([
-        { branch: defaultBranch, path: repoRoot },
-        { branch: bugfixBranch, path: bugfixWorktreePath },
-        { branch: featureBranch, path: featureWorktreePath },
+        { branch: defaultBranch, isCurrent: true, path: repoRoot },
+        { branch: bugfixBranch, isCurrent: false, path: bugfixWorktreePath },
+        { branch: featureBranch, isCurrent: false, path: featureWorktreePath },
       ], null, 2)}\n`,
     );
   });
@@ -67,17 +67,15 @@ describe('gji ls', () => {
       defaultBranch.length,
       ...branchNames.map((branch) => branch.length),
     );
+    // Current worktree (repoRoot) is listed first; others are sorted by path.
+    const sortedOthers = [...worktrees].sort((left, right) => comparePaths(left.path, right.path));
     const expected = [
-      `${'BRANCH'.padEnd(branchWidth, ' ')} PATH`,
-      ...[
-        { branch: defaultBranch, path: repoRoot },
-        ...worktrees,
-      ]
-        .sort((left, right) => comparePaths(left.path, right.path))
-        .map((worktree) => `${worktree.branch.padEnd(branchWidth, ' ')} ${worktree.path}`),
+      `  ${'BRANCH'.padEnd(branchWidth, ' ')} PATH`,
+      `* ${defaultBranch.padEnd(branchWidth, ' ')} ${repoRoot}`,
+      ...sortedOthers.map((worktree) => `  ${worktree.branch.padEnd(branchWidth, ' ')} ${worktree.path}`),
     ];
 
-    // Then it prints every active worktree in a branch/path table.
+    // Then it prints every active worktree in a branch/path table, current first with a * marker.
     expect(result.exitCode).toBe(0);
     expect(lines).toEqual(expected);
   });
@@ -104,15 +102,15 @@ describe('gji ls', () => {
       featureBranch.length,
       '(detached)'.length,
     );
+    // repoRoot is current; others sorted by path: detachedWorktreePath < featureWorktreePath.
+    const sortedOthers = [
+      { branch: '(detached)', path: detachedWorktreePath },
+      { branch: featureBranch, path: featureWorktreePath },
+    ].sort((left, right) => comparePaths(left.path, right.path));
     const expected = [
-      `${'BRANCH'.padEnd(branchWidth, ' ')} PATH`,
-      ...[
-        { branch: defaultBranch, path: repoRoot },
-        { branch: featureBranch, path: featureWorktreePath },
-        { branch: '(detached)', path: detachedWorktreePath },
-      ]
-        .sort((left, right) => comparePaths(left.path, right.path))
-        .map((worktree) => `${worktree.branch.padEnd(branchWidth, ' ')} ${worktree.path}`),
+      `  ${'BRANCH'.padEnd(branchWidth, ' ')} PATH`,
+      `* ${defaultBranch.padEnd(branchWidth, ' ')} ${repoRoot}`,
+      ...sortedOthers.map((worktree) => `  ${worktree.branch.padEnd(branchWidth, ' ')} ${worktree.path}`),
     ].join('\n');
 
     // Then it keeps the branch-backed worktree and labels the detached one clearly.
@@ -137,13 +135,13 @@ describe('gji ls', () => {
       stdout: (chunk) => stdout.push(chunk),
     });
 
-    // Then it preserves the detached entry with a null branch value.
+    // Then it preserves the detached entry with a null branch value, current worktree first.
     expect(result.exitCode).toBe(0);
     expect(stdout.join('')).toBe(
       `${JSON.stringify([
-        { branch: defaultBranch, path: repoRoot },
-        { branch: null, path: detachedWorktreePath },
-        { branch: featureBranch, path: featureWorktreePath },
+        { branch: defaultBranch, isCurrent: true, path: repoRoot },
+        { branch: null, isCurrent: false, path: detachedWorktreePath },
+        { branch: featureBranch, isCurrent: false, path: featureWorktreePath },
       ], null, 2)}\n`,
     );
   });
@@ -162,12 +160,12 @@ describe('gji ls', () => {
       stdout: (chunk) => stdout.push(chunk),
     });
 
-    // Then it prints the repository-wide worktree list, not only the current entry.
+    // Then it prints the repository-wide worktree list with the current worktree first.
     expect(result.exitCode).toBe(0);
     expect(stdout.join('')).toBe(
       `${JSON.stringify([
-        { branch: defaultBranch, path: repoRoot },
-        { branch: featureBranch, path: featureWorktreePath },
+        { branch: featureBranch, isCurrent: true, path: featureWorktreePath },
+        { branch: defaultBranch, isCurrent: false, path: repoRoot },
       ], null, 2)}\n`,
     );
   });

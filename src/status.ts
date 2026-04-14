@@ -25,7 +25,7 @@ export async function runStatusCommand(options: StatusCommandOptions): Promise<n
   const repository = await detectRepository(options.cwd);
   const worktrees = sortWorktreesByPath(await listWorktrees(options.cwd));
   const rows = await Promise.all(
-    worktrees.map(async (worktree) => buildStatusRow(worktree, repository.currentRoot)),
+    worktrees.map(async (worktree) => buildStatusRow(worktree)),
   );
 
   if (options.json) {
@@ -84,13 +84,12 @@ export function formatStatusJson(
 
 async function buildStatusRow(
   worktree: WorktreeEntry,
-  currentRoot: string,
 ): Promise<WorktreeStatusRow> {
   const health = await readWorktreeHealth(worktree.path);
 
   return {
     branch: worktree.branch,
-    current: worktree.path === currentRoot,
+    current: worktree.isCurrent,
     path: worktree.path,
     status: health.status,
     upstream: buildUpstreamState(worktree.branch, health),
