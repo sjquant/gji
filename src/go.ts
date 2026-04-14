@@ -4,7 +4,7 @@ import { isCancel, select } from '@clack/prompts';
 import { loadEffectiveConfig } from './config.js';
 import { isHeadless } from './headless.js';
 import { extractHooks, runHook } from './hooks.js';
-import { detectRepository, listWorktrees, type WorktreeEntry } from './repo.js';
+import { detectRepository, listWorktrees, sortByCurrentFirst, type WorktreeEntry } from './repo.js';
 import { writeShellOutput } from './shell-handoff.js';
 
 export interface GoCommandOptions {
@@ -89,10 +89,3 @@ async function promptForWorktree(
   return choice;
 }
 
-function sortByCurrentFirst(worktrees: WorktreeEntry[]): WorktreeEntry[] {
-  return [...worktrees].sort((a, b) => {
-    if (a.isCurrent && !b.isCurrent) return -1;
-    if (!a.isCurrent && b.isCurrent) return 1;
-    return 0;
-  });
-}

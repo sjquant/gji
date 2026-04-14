@@ -65,6 +65,14 @@ export async function listWorktrees(cwd: string): Promise<WorktreeEntry[]> {
   });
 }
 
+export function sortByCurrentFirst(worktrees: WorktreeEntry[]): WorktreeEntry[] {
+  return [...worktrees].sort((a, b) => {
+    if (a.isCurrent && !b.isCurrent) return -1;
+    if (!a.isCurrent && b.isCurrent) return 1;
+    return 0;
+  });
+}
+
 function findPorcelainValue(block: string, key: string): string {
   const value = findOptionalPorcelainValue(block, key);
 
