@@ -1,6 +1,6 @@
 {
   "name": "@solaqua/gji",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "description": "Git worktree CLI for fast context switching.",
   "license": "MIT",
   "author": "sjquant",
