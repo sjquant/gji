@@ -4,7 +4,7 @@ import { isCancel, select } from '@clack/prompts';
 import { loadEffectiveConfig } from './config.js';
 import { isHeadless } from './headless.js';
 import { extractHooks, runHook } from './hooks.js';
-import { detectRepository, listWorktrees, type WorktreeEntry } from './repo.js';
+import { detectRepository, listWorktrees, sortByCurrentFirst, type WorktreeEntry } from './repo.js';
 import { writeShellOutput } from './shell-handoff.js';
 
 export interface GoCommandOptions {
@@ -37,7 +37,7 @@ export function createGoCommand(
       return 1;
     }
 
-    const prompted = options.branch ? null : await prompt(worktrees);
+    const prompted = options.branch ? null : await prompt(sortByCurrentFirst(worktrees));
     const resolvedPath = options.branch
       ? worktrees.find((entry) => entry.branch === options.branch)?.path
       : prompted ?? undefined;
@@ -78,7 +78,7 @@ async function promptForWorktree(
     options: worktrees.map((worktree) => ({
       value: worktree.path,
       label: worktree.branch ?? '(detached)',
-      hint: worktree.path,
+      hint: worktree.isCurrent ? `${worktree.path} (current)` : worktree.path,
     })),
   });
 
@@ -88,3 +88,4 @@ async function promptForWorktree(
 
   return choice;
 }
+

@@ -5,7 +5,7 @@ import { confirm, isCancel, select } from '@clack/prompts';
 import { loadEffectiveConfig } from './config.js';
 import { extractHooks, runHook } from './hooks.js';
 import { isHeadless } from './headless.js';
-import type { WorktreeEntry } from './repo.js';
+import { sortByCurrentFirst, type WorktreeEntry } from './repo.js';
 import {
   deleteBranch,
   forceDeleteBranch,
@@ -63,7 +63,7 @@ export function createRemoveCommand(
       return 1;
     }
 
-    const selection = options.branch ?? (await promptForWorktree(linkedWorktrees));
+    const selection = options.branch ?? (await promptForWorktree(sortByCurrentFirst(linkedWorktrees)));
 
     if (!selection) {
       options.stderr('Aborted\n');
@@ -169,7 +169,7 @@ async function defaultPromptForWorktree(worktrees: WorktreeEntry[]): Promise<str
   const choice = await select<string>({
     message: 'Choose a worktree to finish',
     options: worktrees.map((worktree) => ({
-      hint: worktree.path,
+      hint: worktree.isCurrent ? `${worktree.path} (current)` : worktree.path,
       label: worktree.branch ?? '(detached)',
       value: worktree.path,
     })),
@@ -177,6 +177,7 @@ async function defaultPromptForWorktree(worktrees: WorktreeEntry[]): Promise<str
 
   return isCancel(choice) ? null : choice;
 }
+
 
 async function defaultConfirmRemoval(worktree: WorktreeEntry): Promise<boolean> {
   const choice = await confirm({
