@@ -1,7 +1,6 @@
 name: Publish
 
 on:
-  pull_request:
   push:
     branches:
       - main
@@ -19,7 +18,7 @@ permissions:
 
 jobs:
   test:
-    if: github.event_name != 'workflow_dispatch'
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
 
     steps:
