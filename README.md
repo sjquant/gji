@@ -73,6 +73,8 @@ Worktrees land at a deterministic path so your editor bookmarks and scripts alwa
 ../worktrees/<repo>/<branch>
 ```
 
+Set `worktreePath` in your config to use a different base (e.g. `"~/worktrees"` → `~/worktrees/<branch>`).
+
 ## Daily workflow
 
 ```sh
@@ -132,7 +134,7 @@ path=$(gji root --print)
 
 | Command | Description |
 |---|---|
-| `gji new [branch] [--detached] [--json]` | create branch + worktree, cd in |
+| `gji new [branch] [--detached] [--json]` | create branch + worktree, cd in (validates branch name against Git rules) |
 | `gji pr <ref> [--json]` | fetch PR ref, create worktree, cd in |
 | `gji go [branch] [--print]` | jump to a worktree |
 | `gji root [--print]` | jump to the main repo root |
@@ -157,6 +159,7 @@ No setup required. Optional config lives in:
 | Key | Description |
 |---|---|
 | `branchPrefix` | prefix added to new branch names (e.g. `"feature/"`) |
+| `worktreePath` | base directory for new worktrees (absolute or `~/…`); overrides the default `../worktrees/<repo>/` layout |
 | `syncRemote` | remote for `gji sync` (default: `origin`) |
 | `syncDefaultBranch` | branch to rebase onto (default: remote `HEAD`) |
 | `syncFiles` | files to copy from main worktree into each new worktree |
