@@ -4,7 +4,7 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { isCancel, text } from '@clack/prompts';
 
-import { loadEffectiveConfig } from './config.js';
+import { loadEffectiveConfig, resolveConfigString } from './config.js';
 import { syncFiles } from './file-sync.js';
 import { extractHooks, runHook } from './hooks.js';
 import { isHeadless } from './headless.js';
@@ -80,10 +80,9 @@ export function createNewCommand(
       }
     }
 
+    const rawBasePath = resolveConfigString(config, 'worktreePath');
     const configuredBasePath =
-      typeof config.worktreePath === 'string' && config.worktreePath.length > 0
-        ? config.worktreePath
-        : undefined;
+      rawBasePath?.startsWith('/') || rawBasePath?.startsWith('~') ? rawBasePath : undefined;
     const worktreeName = options.detached
       ? rawBranch
       : applyConfiguredBranchPrefix(rawBranch, config.branchPrefix);

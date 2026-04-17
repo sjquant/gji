@@ -74,6 +74,20 @@ export async function loadEffectiveConfig(
   // Precedence (lowest → highest): global base → per-repo global → local.
   const merged = mergeConfig(globalBase, perRepoConfig, localConfig.config);
 
+  // Warn about relative worktreePath: it must be absolute or tilde-prefixed.
+  const worktreePathValue = merged.worktreePath;
+  if (
+    onWarning &&
+    typeof worktreePathValue === 'string' &&
+    worktreePathValue.length > 0 &&
+    !worktreePathValue.startsWith('/') &&
+    !worktreePathValue.startsWith('~')
+  ) {
+    onWarning(
+      `gji: "worktreePath" must be an absolute path or start with ~, got "${worktreePathValue}" — using default\n`,
+    );
+  }
+
   // Hooks are spread across all three layers so that different hook keys from
   // different layers both apply (e.g. global afterEnter + local afterCreate).
   // Within each key the higher-precedence layer wins (same spread order).
@@ -190,6 +204,11 @@ export function parseConfigValue(value: string): unknown {
   } catch {
     return value;
   }
+}
+
+export function resolveConfigString(config: GjiConfig, key: string): string | undefined {
+  const value = config[key];
+  return typeof value === 'string' && value.length > 0 ? value : undefined;
 }
 
 async function loadConfigFile(path: string): Promise<LoadedConfig> {

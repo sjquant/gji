@@ -10,6 +10,7 @@ import {
   GLOBAL_CONFIG_FILE_PATH,
   KNOWN_CONFIG_KEYS,
   loadConfig,
+  resolveConfigString,
   loadEffectiveConfig,
   saveLocalConfig,
   updateGlobalRepoConfigKey,
@@ -24,6 +25,24 @@ afterEach(() => {
     return;
   }
   process.env.HOME = originalHome;
+});
+
+describe('resolveConfigString', () => {
+  it('returns the string value when the key exists and is non-empty', () => {
+    expect(resolveConfigString({ branchPrefix: 'feat/' }, 'branchPrefix')).toBe('feat/');
+  });
+
+  it('returns undefined for a missing key', () => {
+    expect(resolveConfigString({}, 'branchPrefix')).toBeUndefined();
+  });
+
+  it('returns undefined for an empty string value', () => {
+    expect(resolveConfigString({ branchPrefix: '' }, 'branchPrefix')).toBeUndefined();
+  });
+
+  it('returns undefined for a non-string value', () => {
+    expect(resolveConfigString({ branchPrefix: 42 }, 'branchPrefix')).toBeUndefined();
+  });
 });
 
 describe('loadConfig', () => {

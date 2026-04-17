@@ -1117,6 +1117,55 @@ describe('gji new', () => {
       await expect(pathExists(join(customBase, 'feature', 'custom-base'))).resolves.toBe(true);
       await expect(pathExists(resolveWorktreePath(repoRoot, branchName))).resolves.toBe(false);
     });
+
+    it('creates the worktree under a tilde-prefixed custom base path from config', async () => {
+      // Given a local config with a tilde-prefixed worktreePath under HOME.
+      const home = await mkdtemp(join(tmpdir(), 'gji-home-'));
+      process.env.HOME = home;
+      const repoRoot = await createRepository();
+      const branchName = 'feature/tilde-base';
+
+      await writeFile(
+        join(repoRoot, '.gji.json'),
+        JSON.stringify({ worktreePath: '~/wt' }),
+        'utf8',
+      );
+
+      // When gji new creates a worktree.
+      const result = await runCli(['new', branchName], { cwd: repoRoot });
+
+      // Then the worktree is created under ~/wt/feature/tilde-base.
+      expect(result.exitCode).toBe(0);
+      await expect(pathExists(join(home, 'wt', 'feature', 'tilde-base'))).resolves.toBe(true);
+    });
+
+    it('falls back to default and warns when worktreePath is a relative path', async () => {
+      // Given a local config with a relative worktreePath.
+      const repoRoot = await createRepository();
+      const stderr: string[] = [];
+      const branchName = 'feature/relative-base';
+      const runNew = createNewCommand({});
+
+      await writeFile(
+        join(repoRoot, '.gji.json'),
+        JSON.stringify({ worktreePath: 'some/relative/path' }),
+        'utf8',
+      );
+
+      // When gji new runs.
+      const result = await runNew({
+        branch: branchName,
+        cwd: repoRoot,
+        stderr: (chunk) => stderr.push(chunk),
+        stdout: () => undefined,
+      });
+
+      // Then it exits 0 using the default path and warns about the relative worktreePath.
+      expect(result).toBe(0);
+      expect(stderr.join('')).toContain('worktreePath');
+      expect(stderr.join('')).toContain('some/relative/path');
+      await expect(pathExists(resolveWorktreePath(repoRoot, branchName))).resolves.toBe(true);
+    });
   });
 
   describe('branch name validation', () => {
