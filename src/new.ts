@@ -10,7 +10,7 @@ import { extractHooks, runHook } from './hooks.js';
 import { isHeadless } from './headless.js';
 import { type InstallPromptDependencies, maybeRunInstallPrompt } from './install-prompt.js';
 import { type PathConflictChoice, pathExists, promptForPathConflict } from './conflict.js';
-import { detectRepository, resolveWorktreePath } from './repo.js';
+import { detectRepository, resolveWorktreePath, validateBranchName } from './repo.js';
 import { writeShellOutput } from './shell-handoff.js';
 
 const execFileAsync = promisify(execFile);
@@ -42,7 +42,7 @@ export function createNewCommand(
 
   return async function runNewCommand(options: NewCommandOptions): Promise<number> {
     const repository = await detectRepository(options.cwd);
-    const config = await loadEffectiveConfig(repository.repoRoot);
+    const config = await loadEffectiveConfig(repository.repoRoot, undefined, options.stderr);
     const usesGeneratedDetachedName = options.detached && options.branch === undefined;
 
     if (!options.detached && !options.branch && (options.json || isHeadless())) {
@@ -68,12 +68,28 @@ export function createNewCommand(
       return 1;
     }
 
+    if (!options.detached) {
+      const branchError = validateBranchName(rawBranch);
+      if (branchError) {
+        if (options.json) {
+          options.stderr(`${JSON.stringify({ error: branchError }, null, 2)}\n`);
+        } else {
+          options.stderr(`gji new: ${branchError}\n`);
+        }
+        return 1;
+      }
+    }
+
+    const configuredBasePath =
+      typeof config.worktreePath === 'string' && config.worktreePath.length > 0
+        ? config.worktreePath
+        : undefined;
     const worktreeName = options.detached
       ? rawBranch
       : applyConfiguredBranchPrefix(rawBranch, config.branchPrefix);
     const worktreePath = usesGeneratedDetachedName
-      ? await resolveUniqueDetachedWorktreePath(repository.repoRoot, worktreeName)
-      : resolveWorktreePath(repository.repoRoot, worktreeName);
+      ? await resolveUniqueDetachedWorktreePath(repository.repoRoot, worktreeName, configuredBasePath)
+      : resolveWorktreePath(repository.repoRoot, worktreeName, configuredBasePath);
 
     if (!usesGeneratedDetachedName && await pathExists(worktreePath)) {
       if (options.json || isHeadless()) {
@@ -210,12 +226,13 @@ function applyConfiguredBranchPrefix(branch: string, branchPrefix: unknown): str
 async function resolveUniqueDetachedWorktreePath(
   repoRoot: string,
   baseName: string,
+  basePath?: string,
 ): Promise<string> {
   let attempt = 1;
 
   while (true) {
     const candidateName = attempt === 1 ? baseName : `${baseName}-${attempt}`;
-    const candidatePath = resolveWorktreePath(repoRoot, candidateName);
+    const candidatePath = resolveWorktreePath(repoRoot, candidateName, basePath);
 
     if (!await pathExists(candidatePath)) {
       return candidatePath;
@@ -230,7 +247,10 @@ async function defaultPromptForBranch(placeholder: string): Promise<string | nul
     defaultValue: placeholder,
     message: 'Name the new branch',
     placeholder,
-    validate: (value) => value.trim().length === 0 ? 'Branch name must not be empty.' : undefined,
+    validate: (value) => {
+      const trimmed = value.trim();
+      return validateBranchName(trimmed) ?? undefined;
+    },
   });
 
   if (isCancel(choice)) {

@@ -54,7 +54,7 @@ export function createGoCommand(
 
     const chosenWorktree = worktrees.find((w) => w.path === resolvedPath);
 
-    const config = await loadEffectiveConfig(repository.repoRoot);
+    const config = await loadEffectiveConfig(repository.repoRoot, undefined, options.stderr);
     const hooks = extractHooks(config);
     await runHook(
       hooks.afterEnter,

@@ -61,10 +61,14 @@ export function createPrCommand(
     }
 
     const repository = await detectRepository(options.cwd);
-    const config = await loadEffectiveConfig(repository.repoRoot);
+    const config = await loadEffectiveConfig(repository.repoRoot, undefined, options.stderr);
     const branchName = `pr/${prNumber}`;
     const remoteRef = `refs/remotes/origin/pull/${prNumber}/head`;
-    const worktreePath = resolveWorktreePath(repository.repoRoot, branchName);
+    const configuredBasePath =
+      typeof config.worktreePath === 'string' && config.worktreePath.length > 0
+        ? config.worktreePath
+        : undefined;
+    const worktreePath = resolveWorktreePath(repository.repoRoot, branchName, configuredBasePath);
 
     if (await pathExists(worktreePath)) {
       if (options.json || isHeadless()) {

@@ -6,6 +6,22 @@ export const CONFIG_FILE_NAME = '.gji.json';
 export const GLOBAL_CONFIG_DIRECTORY = '.config/gji';
 export const GLOBAL_CONFIG_NAME = 'config.json';
 
+export const KNOWN_CONFIG_KEYS: ReadonlySet<string> = new Set([
+  'branchPrefix',
+  'hooks',
+  'installSaveTarget',
+  'skipInstallPrompt',
+  'syncDefaultBranch',
+  'syncFiles',
+  'syncRemote',
+  'worktreePath',
+]);
+
+const KNOWN_GLOBAL_CONFIG_KEYS: ReadonlySet<string> = new Set([
+  ...KNOWN_CONFIG_KEYS,
+  'repos',
+]);
+
 export type GjiConfig = Record<string, unknown>;
 
 export interface LoadedConfig {
@@ -25,6 +41,7 @@ export async function loadConfig(root: string): Promise<LoadedConfig> {
 export async function loadEffectiveConfig(
   root: string,
   home: string = homedir(),
+  onWarning?: (message: string) => void,
 ): Promise<GjiConfig> {
   const [globalConfig, localConfig] = await Promise.all([
     loadGlobalConfig(home),
@@ -41,6 +58,18 @@ export async function loadEffectiveConfig(
   // Strip the internal `repos` registry from the global base before merging.
   const globalBase: Record<string, unknown> = { ...globalConfig.config };
   delete globalBase.repos;
+
+  if (onWarning) {
+    if (globalConfig.exists) {
+      warnUnknownKeys(globalBase, globalConfig.path, KNOWN_GLOBAL_CONFIG_KEYS, onWarning);
+      if (Object.keys(perRepoConfig).length > 0) {
+        warnUnknownKeys(perRepoConfig, globalConfig.path, KNOWN_CONFIG_KEYS, onWarning);
+      }
+    }
+    if (localConfig.exists) {
+      warnUnknownKeys(localConfig.config, localConfig.path, KNOWN_CONFIG_KEYS, onWarning);
+    }
+  }
 
   // Precedence (lowest → highest): global base → per-repo global → local.
   const merged = mergeConfig(globalBase, perRepoConfig, localConfig.config);
@@ -228,4 +257,53 @@ function isMissingFileError(error: unknown): error is NodeJS.ErrnoException {
     'code' in error &&
     error.code === 'ENOENT'
   );
+}
+
+function warnUnknownKeys(
+  config: Record<string, unknown>,
+  filePath: string,
+  knownKeys: ReadonlySet<string>,
+  onWarning: (message: string) => void,
+): void {
+  for (const key of Object.keys(config)) {
+    if (!knownKeys.has(key)) {
+      const suggestion = closestKey(key, knownKeys);
+      const hint = suggestion ? ` (did you mean "${suggestion}"?)` : '';
+      onWarning(`gji: unknown config key "${key}" in ${filePath}${hint}\n`);
+    }
+  }
+}
+
+function closestKey(unknown: string, knownKeys: ReadonlySet<string>): string | null {
+  let best: string | null = null;
+  let bestDist = Infinity;
+
+  for (const key of knownKeys) {
+    const dist = levenshtein(unknown, key);
+    if (dist < bestDist) {
+      bestDist = dist;
+      best = key;
+    }
+  }
+
+  return bestDist <= Math.max(2, Math.floor(unknown.length / 2)) ? best : null;
+}
+
+function levenshtein(a: string, b: string): number {
+  const m = a.length;
+  const n = b.length;
+  const dp: number[][] = Array.from({ length: m + 1 }, (_, i) =>
+    Array.from({ length: n + 1 }, (_, j) => (i === 0 ? j : j === 0 ? i : 0)),
+  );
+
+  for (let i = 1; i <= m; i++) {
+    for (let j = 1; j <= n; j++) {
+      dp[i][j] =
+        a[i - 1] === b[j - 1]
+          ? dp[i - 1][j - 1]
+          : 1 + Math.min(dp[i - 1][j], dp[i][j - 1], dp[i - 1][j - 1]);
+    }
+  }
+
+  return dp[m][n];
 }
