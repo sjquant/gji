@@ -1,4 +1,5 @@
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
+import { homedir } from 'node:os';
 import { runGit } from './git.js';
 
 export interface RepositoryContext {
@@ -32,7 +33,7 @@ export async function detectRepository(cwd: string): Promise<RepositoryContext> 
   };
 }
 
-export function resolveWorktreePath(repoRoot: string, branch: string): string {
+export function resolveWorktreePath(repoRoot: string, branch: string, basePath?: string): string {
   const segments = branch.split('/').filter(Boolean);
 
   if (segments.length === 0) {
@@ -43,7 +44,53 @@ export function resolveWorktreePath(repoRoot: string, branch: string): string {
     throw new Error(`Branch name '${branch}' contains an invalid path segment.`);
   }
 
-  return join(dirname(repoRoot), 'worktrees', basename(repoRoot), ...segments);
+  const base = basePath
+    ? expandTildeInPath(basePath)
+    : join(dirname(repoRoot), 'worktrees', basename(repoRoot));
+
+  return join(base, ...segments);
+}
+
+export function validateBranchName(name: string): string | null {
+  if (name.length === 0) {
+    return 'Branch name must not be empty.';
+  }
+  if (/[\x00-\x1f\x7f ~^:?*[\\\s]/.test(name)) {
+    return `Branch name '${name}' contains an invalid character.`;
+  }
+  if (name.startsWith('-')) {
+    return `Branch name '${name}' must not start with a dash.`;
+  }
+  if (name.startsWith('/') || name.endsWith('/') || name.includes('//')) {
+    return `Branch name '${name}' has invalid slash placement.`;
+  }
+  if (name.includes('..')) {
+    return `Branch name '${name}' must not contain '..'.`;
+  }
+  if (name.endsWith('.')) {
+    return `Branch name '${name}' must not end with '.'.`;
+  }
+  if (name.includes('@{')) {
+    return `Branch name '${name}' must not contain '@{'.`;
+  }
+  if (name === '@') {
+    return "Branch name cannot be '@'.";
+  }
+  for (const segment of name.split('/')) {
+    if (segment.startsWith('.')) {
+      return `Branch name '${name}' contains a path component starting with '.'.`;
+    }
+    if (segment.endsWith('.lock')) {
+      return `Branch name '${name}' contains a path component ending with '.lock'.`;
+    }
+  }
+  return null;
+}
+
+function expandTildeInPath(p: string): string {
+  if (p === '~') return homedir();
+  if (p.startsWith('~/')) return join(homedir(), p.slice(2));
+  return p;
 }
 
 export async function listWorktrees(cwd: string): Promise<WorktreeEntry[]> {

@@ -8,7 +8,9 @@ import {
   CONFIG_FILE_NAME,
   DEFAULT_CONFIG,
   GLOBAL_CONFIG_FILE_PATH,
+  KNOWN_CONFIG_KEYS,
   loadConfig,
+  resolveConfigString,
   loadEffectiveConfig,
   saveLocalConfig,
   updateGlobalRepoConfigKey,
@@ -23,6 +25,24 @@ afterEach(() => {
     return;
   }
   process.env.HOME = originalHome;
+});
+
+describe('resolveConfigString', () => {
+  it('returns the string value when the key exists and is non-empty', () => {
+    expect(resolveConfigString({ branchPrefix: 'feat/' }, 'branchPrefix')).toBe('feat/');
+  });
+
+  it('returns undefined for a missing key', () => {
+    expect(resolveConfigString({}, 'branchPrefix')).toBeUndefined();
+  });
+
+  it('returns undefined for an empty string value', () => {
+    expect(resolveConfigString({ branchPrefix: '' }, 'branchPrefix')).toBeUndefined();
+  });
+
+  it('returns undefined for a non-string value', () => {
+    expect(resolveConfigString({ branchPrefix: 42 }, 'branchPrefix')).toBeUndefined();
+  });
 });
 
 describe('loadConfig', () => {
@@ -449,5 +469,103 @@ describe('updateGlobalRepoConfigKey', () => {
     const entry = (written.repos as Record<string, unknown>)[repoRoot] as Record<string, unknown>;
     expect(entry.branchPrefix).toBe('feat/');
     expect((entry.hooks as Record<string, unknown>).afterCreate).toBe('npm install');
+  });
+});
+
+describe('KNOWN_CONFIG_KEYS', () => {
+  it('includes the keys used by commands', () => {
+    for (const key of ['branchPrefix', 'hooks', 'syncFiles', 'syncRemote', 'worktreePath']) {
+      expect(KNOWN_CONFIG_KEYS.has(key)).toBe(true);
+    }
+  });
+});
+
+describe('loadEffectiveConfig – onWarning callback', () => {
+  it('emits a warning for an unknown key in local config', async () => {
+    // Given a local config with a key that looks like a typo of "branchPrefix".
+    const home = await mkdtemp(join(tmpdir(), 'gji-home-'));
+    const repoRoot = await mkdtemp(join(tmpdir(), 'gji-repo-'));
+    const warnings: string[] = [];
+
+    await writeFile(
+      join(repoRoot, CONFIG_FILE_NAME),
+      JSON.stringify({ branchPrefx: 'feat/' }),
+      'utf8',
+    );
+
+    // When loadEffectiveConfig is called with an onWarning callback.
+    await loadEffectiveConfig(repoRoot, home, (msg) => warnings.push(msg));
+
+    // Then the warning mentions the unknown key and suggests a correction.
+    expect(warnings.join('')).toContain('"branchPrefx"');
+    expect(warnings.join('')).toContain('"branchPrefix"');
+  });
+
+  it('emits a warning for an unknown key in global config', async () => {
+    // Given a global config with an unrecognised key.
+    const home = await mkdtemp(join(tmpdir(), 'gji-home-'));
+    const repoRoot = await mkdtemp(join(tmpdir(), 'gji-repo-'));
+    const globalConfigPath = GLOBAL_CONFIG_FILE_PATH(home);
+    const warnings: string[] = [];
+
+    await mkdir(dirname(globalConfigPath), { recursive: true });
+    await writeFile(
+      globalConfigPath,
+      JSON.stringify({ synkRemote: 'upstream' }),
+      'utf8',
+    );
+
+    // When loadEffectiveConfig is called.
+    await loadEffectiveConfig(repoRoot, home, (msg) => warnings.push(msg));
+
+    // Then a warning is emitted for the unknown global key.
+    expect(warnings.join('')).toContain('"synkRemote"');
+  });
+
+  it('emits no warnings when all keys are known', async () => {
+    // Given a local config with only valid keys.
+    const home = await mkdtemp(join(tmpdir(), 'gji-home-'));
+    const repoRoot = await mkdtemp(join(tmpdir(), 'gji-repo-'));
+    const warnings: string[] = [];
+
+    await writeFile(
+      join(repoRoot, CONFIG_FILE_NAME),
+      JSON.stringify({ branchPrefix: 'feat/', hooks: { afterCreate: 'echo hi' } }),
+      'utf8',
+    );
+
+    // When loadEffectiveConfig is called.
+    await loadEffectiveConfig(repoRoot, home, (msg) => warnings.push(msg));
+
+    // Then no warnings are emitted.
+    expect(warnings).toHaveLength(0);
+  });
+
+  it('does not call onWarning at all when no config files exist', async () => {
+    // Given no config files anywhere.
+    const home = await mkdtemp(join(tmpdir(), 'gji-home-'));
+    const repoRoot = await mkdtemp(join(tmpdir(), 'gji-repo-'));
+    const warnings: string[] = [];
+
+    // When loadEffectiveConfig is called.
+    await loadEffectiveConfig(repoRoot, home, (msg) => warnings.push(msg));
+
+    // Then no warnings are emitted.
+    expect(warnings).toHaveLength(0);
+  });
+
+  it('does not emit warnings when no onWarning callback is provided', async () => {
+    // Given a local config with an unknown key but no callback registered.
+    const home = await mkdtemp(join(tmpdir(), 'gji-home-'));
+    const repoRoot = await mkdtemp(join(tmpdir(), 'gji-repo-'));
+
+    await writeFile(
+      join(repoRoot, CONFIG_FILE_NAME),
+      JSON.stringify({ unknownKey: true }),
+      'utf8',
+    );
+
+    // When loadEffectiveConfig is called without a callback.
+    await expect(loadEffectiveConfig(repoRoot, home)).resolves.toBeDefined();
   });
 });

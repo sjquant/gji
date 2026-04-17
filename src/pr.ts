@@ -3,7 +3,7 @@ import { basename, dirname } from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 
-import { loadEffectiveConfig } from './config.js';
+import { loadEffectiveConfig, resolveConfigString } from './config.js';
 import { syncFiles } from './file-sync.js';
 import { type PathConflictChoice, pathExists, promptForPathConflict } from './conflict.js';
 import { extractHooks, runHook } from './hooks.js';
@@ -61,10 +61,13 @@ export function createPrCommand(
     }
 
     const repository = await detectRepository(options.cwd);
-    const config = await loadEffectiveConfig(repository.repoRoot);
+    const config = await loadEffectiveConfig(repository.repoRoot, undefined, options.stderr);
     const branchName = `pr/${prNumber}`;
     const remoteRef = `refs/remotes/origin/pull/${prNumber}/head`;
-    const worktreePath = resolveWorktreePath(repository.repoRoot, branchName);
+    const rawBasePath = resolveConfigString(config, 'worktreePath');
+    const configuredBasePath =
+      rawBasePath?.startsWith('/') || rawBasePath?.startsWith('~') ? rawBasePath : undefined;
+    const worktreePath = resolveWorktreePath(repository.repoRoot, branchName, configuredBasePath);
 
     if (await pathExists(worktreePath)) {
       if (options.json || isHeadless()) {

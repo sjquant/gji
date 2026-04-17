@@ -1096,6 +1096,159 @@ describe('gji new', () => {
     });
   });
 
+  describe('worktreePath config', () => {
+    it('creates the worktree under a custom base path from config', async () => {
+      // Given a local config with a custom worktreePath and a new branch.
+      const repoRoot = await createRepository();
+      const customBase = await mkdtemp(join(tmpdir(), 'gji-custom-base-'));
+      const branchName = 'feature/custom-base';
+
+      await writeFile(
+        join(repoRoot, '.gji.json'),
+        JSON.stringify({ worktreePath: customBase }),
+        'utf8',
+      );
+
+      // When gji new creates a worktree.
+      const result = await runCli(['new', branchName], { cwd: repoRoot });
+
+      // Then the worktree is created inside the custom base, not the default location.
+      expect(result.exitCode).toBe(0);
+      await expect(pathExists(join(customBase, 'feature', 'custom-base'))).resolves.toBe(true);
+      await expect(pathExists(resolveWorktreePath(repoRoot, branchName))).resolves.toBe(false);
+    });
+
+    it('creates the worktree under a tilde-prefixed custom base path from config', async () => {
+      // Given a local config with a tilde-prefixed worktreePath under HOME.
+      const home = await mkdtemp(join(tmpdir(), 'gji-home-'));
+      process.env.HOME = home;
+      const repoRoot = await createRepository();
+      const branchName = 'feature/tilde-base';
+
+      await writeFile(
+        join(repoRoot, '.gji.json'),
+        JSON.stringify({ worktreePath: '~/wt' }),
+        'utf8',
+      );
+
+      // When gji new creates a worktree.
+      const result = await runCli(['new', branchName], { cwd: repoRoot });
+
+      // Then the worktree is created under ~/wt/feature/tilde-base.
+      expect(result.exitCode).toBe(0);
+      await expect(pathExists(join(home, 'wt', 'feature', 'tilde-base'))).resolves.toBe(true);
+    });
+
+    it('falls back to default and warns when worktreePath is a relative path', async () => {
+      // Given a local config with a relative worktreePath.
+      const repoRoot = await createRepository();
+      const stderr: string[] = [];
+      const branchName = 'feature/relative-base';
+      const runNew = createNewCommand({});
+
+      await writeFile(
+        join(repoRoot, '.gji.json'),
+        JSON.stringify({ worktreePath: 'some/relative/path' }),
+        'utf8',
+      );
+
+      // When gji new runs.
+      const result = await runNew({
+        branch: branchName,
+        cwd: repoRoot,
+        stderr: (chunk) => stderr.push(chunk),
+        stdout: () => undefined,
+      });
+
+      // Then it exits 0 using the default path and warns about the relative worktreePath.
+      expect(result).toBe(0);
+      expect(stderr.join('')).toContain('worktreePath');
+      expect(stderr.join('')).toContain('some/relative/path');
+      await expect(pathExists(resolveWorktreePath(repoRoot, branchName))).resolves.toBe(true);
+    });
+  });
+
+  describe('branch name validation', () => {
+    it('rejects a branch name with a space', async () => {
+      // Given a repository and a branch name containing a space.
+      const repoRoot = await createRepository();
+      const stderr: string[] = [];
+      const runNew = createNewCommand({});
+
+      // When gji new is called with that branch name.
+      const result = await runNew({
+        branch: 'bad branch',
+        cwd: repoRoot,
+        stderr: (chunk) => stderr.push(chunk),
+        stdout: () => undefined,
+      });
+
+      // Then it exits 1 with an error about the invalid character.
+      expect(result).toBe(1);
+      expect(stderr.join('')).toContain('invalid character');
+    });
+
+    it('rejects a branch name starting with a dash', async () => {
+      // Given a repository and a branch name starting with a dash.
+      const repoRoot = await createRepository();
+      const stderr: string[] = [];
+      const runNew = createNewCommand({});
+
+      // When gji new is called with that branch name.
+      const result = await runNew({
+        branch: '-bad',
+        cwd: repoRoot,
+        stderr: (chunk) => stderr.push(chunk),
+        stdout: () => undefined,
+      });
+
+      // Then it exits 1 with an error about starting with a dash.
+      expect(result).toBe(1);
+      expect(stderr.join('')).toContain('dash');
+    });
+
+    it('emits JSON error for an invalid branch name in --json mode', async () => {
+      // Given a repository and --json mode.
+      const repoRoot = await createRepository();
+      const stderr: string[] = [];
+      const runNew = createNewCommand({});
+
+      // When gji new --json is called with an invalid branch name.
+      const result = await runNew({
+        branch: 'bad..branch',
+        cwd: repoRoot,
+        json: true,
+        stderr: (chunk) => stderr.push(chunk),
+        stdout: () => undefined,
+      });
+
+      // Then it exits 1 and the stderr is valid JSON with an error field.
+      expect(result).toBe(1);
+      const json = JSON.parse(stderr.join(''));
+      expect(json).toHaveProperty('error');
+    });
+
+    it('does not validate the name as a branch name for detached worktrees', async () => {
+      // Detached worktree names are directory names, not branch names — git naming
+      // rules don't apply, so names that would be invalid branches (e.g. containing
+      // a dot prefix on a segment) are still accepted as worktree directory names.
+      const repoRoot = await createRepository();
+      const runNew = createNewCommand({});
+
+      // When gji new --detach is called with a name that would fail branch validation.
+      const result = await runNew({
+        branch: 'scratch',
+        cwd: repoRoot,
+        detached: true,
+        stderr: () => undefined,
+        stdout: () => undefined,
+      });
+
+      // Then it exits 0 (detached names skip branch-rule validation).
+      expect(result).toBe(0);
+    });
+  });
+
   it('generates funny placeholder names as slug-safe mythic human-style branches', () => {
     // Given deterministic random choices.
     const placeholders = [

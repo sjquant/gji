@@ -104,7 +104,7 @@ export function createRemoveCommand(
       return 0;
     }
 
-    const config = await loadEffectiveConfig(repository.repoRoot);
+    const config = await loadEffectiveConfig(repository.repoRoot, undefined, options.stderr);
     const hooks = extractHooks(config);
     await runHook(
       hooks.beforeRemove,
