@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 import { runCli } from './cli.js';
-import { createGoCommand } from './go.js';
+import { createGoCommand, formatUpstreamHint } from './go.js';
 import { addLinkedWorktree, createRepository, pathExists } from './repo.test-helpers.js';
 import { runRootCommand } from './root.js';
 
@@ -246,5 +246,37 @@ describe('gji go', () => {
     expect(stderrText).toContain('No worktree found for branch: nonexistent-branch');
     expect(stderrText).toContain('Hint:');
     expect(stderrText).toContain('gji ls');
+  });
+});
+
+describe('formatUpstreamHint', () => {
+  const base = { ahead: 0, behind: 0, status: 'clean' as const };
+
+  it('returns null for detached worktrees (branch is null)', () => {
+    expect(formatUpstreamHint(null, { ...base, hasUpstream: false, upstreamGone: false })).toBeNull();
+  });
+
+  it('returns "no upstream" when branch has no upstream configured', () => {
+    expect(formatUpstreamHint('main', { ...base, hasUpstream: false, upstreamGone: false })).toBe('no upstream');
+  });
+
+  it('returns "upstream gone" when the remote branch was deleted', () => {
+    expect(formatUpstreamHint('main', { ...base, hasUpstream: true, upstreamGone: true })).toBe('upstream gone');
+  });
+
+  it('returns "up to date" when ahead and behind are both 0', () => {
+    expect(formatUpstreamHint('main', { ...base, hasUpstream: true, upstreamGone: false })).toBe('up to date');
+  });
+
+  it('returns "ahead N" when only ahead', () => {
+    expect(formatUpstreamHint('main', { ...base, hasUpstream: true, upstreamGone: false, ahead: 3 })).toBe('ahead 3');
+  });
+
+  it('returns "behind N" when only behind', () => {
+    expect(formatUpstreamHint('main', { ...base, hasUpstream: true, upstreamGone: false, behind: 2 })).toBe('behind 2');
+  });
+
+  it('returns "ahead N, behind M" when diverged', () => {
+    expect(formatUpstreamHint('main', { ...base, hasUpstream: true, upstreamGone: false, ahead: 4, behind: 1 })).toBe('ahead 4, behind 1');
   });
 });

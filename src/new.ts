@@ -93,16 +93,20 @@ export function createNewCommand(
 
     if (!usesGeneratedDetachedName && await pathExists(worktreePath)) {
       if (options.force) {
-        try {
-          await execFileAsync('git', ['worktree', 'remove', '--force', worktreePath], { cwd: repository.repoRoot });
-        } catch {
-          // Path may exist but not be a registered worktree; proceed anyway.
-        }
-        if (!options.detached) {
+        if (!options.dryRun) {
           try {
-            await execFileAsync('git', ['branch', '-D', worktreeName], { cwd: repository.repoRoot });
-          } catch {
-            // Branch may not exist; proceed anyway.
+            await execFileAsync('git', ['worktree', 'remove', '--force', worktreePath], { cwd: repository.repoRoot });
+          } catch (err) {
+            if (!isNotRegisteredWorktreeError(err)) {
+              options.stderr(`Warning: could not remove existing worktree at ${worktreePath}: ${toExecMessage(err)}\n`);
+            }
+          }
+          if (!options.detached) {
+            try {
+              await execFileAsync('git', ['branch', '-D', worktreeName], { cwd: repository.repoRoot });
+            } catch {
+              // Branch may not exist; proceed anyway.
+            }
           }
         }
       } else if (options.json || isHeadless()) {
@@ -293,4 +297,17 @@ async function writeOutput(
   stdout: (chunk: string) => void,
 ): Promise<void> {
   await writeShellOutput(NEW_OUTPUT_FILE_ENV, worktreePath, stdout);
+}
+
+function isNotRegisteredWorktreeError(error: unknown): boolean {
+  const stderr = hasExecStderr(error) ? error.stderr : String(error);
+  return stderr.includes('is not a working tree') || stderr.includes('not a linked working tree');
+}
+
+function hasExecStderr(error: unknown): error is { stderr: string } {
+  return error instanceof Error && 'stderr' in error && typeof (error as { stderr: unknown }).stderr === 'string';
+}
+
+function toExecMessage(error: unknown): string {
+  return hasExecStderr(error) ? error.stderr.trim() : String(error);
 }

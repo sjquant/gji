@@ -99,7 +99,7 @@ async function promptForWorktree(
   return choice;
 }
 
-function formatUpstreamHint(branch: string | null, health: WorktreeHealth): string | null {
+export function formatUpstreamHint(branch: string | null, health: WorktreeHealth): string | null {
   if (branch === null) return null;
   if (!health.hasUpstream) return 'no upstream';
   if (health.upstreamGone) return 'upstream gone';
