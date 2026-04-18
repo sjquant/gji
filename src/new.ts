@@ -98,7 +98,12 @@ export function createNewCommand(
             await execFileAsync('git', ['worktree', 'remove', '--force', worktreePath], { cwd: repository.repoRoot });
           } catch (err) {
             if (!isNotRegisteredWorktreeError(err)) {
-              options.stderr(`Warning: could not remove existing worktree at ${worktreePath}: ${toExecMessage(err)}\n`);
+              const msg = `could not remove existing worktree at ${worktreePath}: ${toExecMessage(err)}`;
+              if (options.json) {
+                options.stderr(`${JSON.stringify({ warning: msg }, null, 2)}\n`);
+              } else {
+                options.stderr(`Warning: ${msg}\n`);
+              }
             }
           }
           if (!options.detached) {

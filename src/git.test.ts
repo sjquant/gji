@@ -13,11 +13,11 @@ describe('readWorktreeHealth', () => {
     // Given a repo with a branch pushed and tracked.
     const { repoRoot } = await createRepositoryWithOrigin();
     const branch = 'feature/tracked';
-    await addLinkedWorktree(repoRoot, branch);
+    const worktreePath = await addLinkedWorktree(repoRoot, branch);
     await runGit(repoRoot, ['push', '-u', 'origin', branch]);
 
-    // When reading health of the tracked worktree.
-    const health = await readWorktreeHealth(repoRoot);
+    // When reading health of that worktree.
+    const health = await readWorktreeHealth(worktreePath);
 
     // Then upstreamGone is false because the upstream exists.
     expect(health.hasUpstream).toBe(true);

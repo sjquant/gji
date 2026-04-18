@@ -16,10 +16,12 @@ interface WorktreeStatusRow {
   upstream: UpstreamState;
 }
 
+// Serialized as-is into --json output. Adding a new variant is a schema addition
+// and should be noted in the changelog so consumers can handle the new kind.
 type UpstreamState =
-  | { kind: 'detached' }
-  | { kind: 'no-upstream' }
-  | { kind: 'stale' }
+  | { kind: 'detached' }    // HEAD is detached — no branch, no upstream
+  | { kind: 'no-upstream' } // branch exists but has no remote tracking ref
+  | { kind: 'stale' }       // upstream was configured but the remote branch was deleted
   | { kind: 'tracked'; ahead: number; behind: number };
 
 export async function runStatusCommand(options: StatusCommandOptions): Promise<number> {

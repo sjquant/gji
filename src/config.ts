@@ -1,6 +1,6 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 
 export const CONFIG_FILE_NAME = '.gji.json';
 export const GLOBAL_CONFIG_DIRECTORY = '.config/gji';
@@ -197,7 +197,7 @@ export async function updateGlobalRepoConfigKey(
 export function GLOBAL_CONFIG_FILE_PATH(home: string = homedir()): string {
   const configDir = process.env.GJI_CONFIG_DIR;
   if (configDir) {
-    return join(configDir, GLOBAL_CONFIG_NAME);
+    return join(resolve(configDir), GLOBAL_CONFIG_NAME);
   }
   return join(home, GLOBAL_CONFIG_DIRECTORY, GLOBAL_CONFIG_NAME);
 }
