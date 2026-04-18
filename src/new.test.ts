@@ -365,6 +365,29 @@ describe('gji new', () => {
     );
   });
 
+  it('removes and recreates the worktree when --force is used and path already exists', async () => {
+    // Given an existing worktree for a branch.
+    const repoRoot = await createRepository();
+    const branchName = 'feature/force-recreate';
+    const worktreePath = await addLinkedWorktree(repoRoot, branchName);
+    const stdout: string[] = [];
+    const stderr: string[] = [];
+
+    // When gji new --force runs for that same branch.
+    const result = await runCli(['new', '--force', branchName], {
+      cwd: repoRoot,
+      stderr: (chunk) => stderr.push(chunk),
+      stdout: (chunk) => stdout.push(chunk),
+    });
+
+    // Then it removes and recreates the worktree without prompting.
+    expect(result.exitCode).toBe(0);
+    expect(stderr).toEqual([]);
+    await expect(pathExists(worktreePath)).resolves.toBe(true);
+    await expect(currentBranch(worktreePath)).resolves.toBe(branchName);
+    expect(stdout.join('')).toBe(`${worktreePath}\n`);
+  });
+
   it('creates a linked worktree for a branch that already exists locally', async () => {
     // Given a repository with a local branch that has no worktree checked out yet.
     const repoRoot = await createRepository();

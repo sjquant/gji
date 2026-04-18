@@ -1,5 +1,6 @@
 import { confirm, isCancel, multiselect } from '@clack/prompts';
 
+import { readWorktreeHealth } from './git.js';
 import { isHeadless } from './headless.js';
 import type { WorktreeEntry } from './repo.js';
 import {
@@ -203,13 +204,21 @@ function toMessage(error: unknown): string {
 async function defaultPromptForWorktrees(
   worktrees: WorktreeEntry[],
 ): Promise<string[] | null> {
+  const healthResults = await Promise.allSettled(
+    worktrees.map((w) => readWorktreeHealth(w.path)),
+  );
+
   const choice = await multiselect<string>({
     message: 'Choose worktrees to clean',
-    options: worktrees.map((worktree) => ({
-      hint: worktree.path,
-      label: worktree.branch ?? '(detached)',
-      value: worktree.path,
-    })),
+    options: worktrees.map((worktree, i) => {
+      const health = healthResults[i].status === 'fulfilled' ? healthResults[i].value : null;
+      const isStale = health?.upstreamGone === true;
+      return {
+        hint: isStale ? `${worktree.path} (upstream gone)` : worktree.path,
+        label: worktree.branch ?? '(detached)',
+        value: worktree.path,
+      };
+    }),
     required: true,
   });
 

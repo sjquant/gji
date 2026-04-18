@@ -195,6 +195,10 @@ export async function updateGlobalRepoConfigKey(
 }
 
 export function GLOBAL_CONFIG_FILE_PATH(home: string = homedir()): string {
+  const configDir = process.env.GJI_CONFIG_DIR;
+  if (configDir) {
+    return join(configDir, GLOBAL_CONFIG_NAME);
+  }
   return join(home, GLOBAL_CONFIG_DIRECTORY, GLOBAL_CONFIG_NAME);
 }
 

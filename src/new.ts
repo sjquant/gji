@@ -22,6 +22,7 @@ export interface NewCommandOptions {
   cwd: string;
   detached?: boolean;
   dryRun?: boolean;
+  force?: boolean;
   json?: boolean;
   stderr: (chunk: string) => void;
   stdout: (chunk: string) => void;
@@ -91,7 +92,20 @@ export function createNewCommand(
       : resolveWorktreePath(repository.repoRoot, worktreeName, configuredBasePath);
 
     if (!usesGeneratedDetachedName && await pathExists(worktreePath)) {
-      if (options.json || isHeadless()) {
+      if (options.force) {
+        try {
+          await execFileAsync('git', ['worktree', 'remove', '--force', worktreePath], { cwd: repository.repoRoot });
+        } catch {
+          // Path may exist but not be a registered worktree; proceed anyway.
+        }
+        if (!options.detached) {
+          try {
+            await execFileAsync('git', ['branch', '-D', worktreeName], { cwd: repository.repoRoot });
+          } catch {
+            // Branch may not exist; proceed anyway.
+          }
+        }
+      } else if (options.json || isHeadless()) {
         const message = `target worktree path already exists: ${worktreePath}`;
         if (options.json) {
           options.stderr(`${JSON.stringify({ error: message }, null, 2)}\n`);
@@ -101,17 +115,17 @@ export function createNewCommand(
           options.stderr(`Hint: Use 'gji trigger-hook afterCreate' inside the worktree to re-run setup hooks\n`);
         }
         return 1;
+      } else {
+        const choice = await prompt(worktreePath);
+
+        if (choice === 'reuse') {
+          await writeOutput(worktreePath, options.stdout);
+          return 0;
+        }
+
+        options.stderr(`Aborted because target worktree path already exists: ${worktreePath}\n`);
+        return 1;
       }
-
-      const choice = await prompt(worktreePath);
-
-      if (choice === 'reuse') {
-        await writeOutput(worktreePath, options.stdout);
-        return 0;
-      }
-
-      options.stderr(`Aborted because target worktree path already exists: ${worktreePath}\n`);
-      return 1;
     }
 
     if (options.dryRun) {

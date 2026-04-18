@@ -19,6 +19,7 @@ interface WorktreeStatusRow {
 type UpstreamState =
   | { kind: 'detached' }
   | { kind: 'no-upstream' }
+  | { kind: 'stale' }
   | { kind: 'tracked'; ahead: number; behind: number };
 
 export async function runStatusCommand(options: StatusCommandOptions): Promise<number> {
@@ -113,6 +114,10 @@ function buildUpstreamState(branch: string | null, health: WorktreeHealth): Upst
     return { kind: 'no-upstream' };
   }
 
+  if (health.upstreamGone) {
+    return { kind: 'stale' };
+  }
+
   return {
     ahead: health.ahead,
     behind: health.behind,
@@ -127,6 +132,10 @@ function formatUpstreamState(upstream: UpstreamState): string {
 
   if (upstream.kind === 'no-upstream') {
     return 'no-upstream';
+  }
+
+  if (upstream.kind === 'stale') {
+    return 'gone';
   }
 
   if (upstream.ahead === 0 && upstream.behind === 0) {

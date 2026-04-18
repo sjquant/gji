@@ -6,10 +6,10 @@ import { describe, expect, it } from 'vitest';
 import { runCli } from './cli.js';
 import {
   addLinkedWorktree,
+  cloneRepository,
   commitFile,
   createRepository,
   createRepositoryWithOrigin,
-  cloneRepository,
   currentBranch,
   runGit,
 } from './repo.test-helpers.js';
@@ -188,6 +188,51 @@ describe('gji status', () => {
             path: detachedWorktreePath,
             status: 'clean',
             upstream: 'n/a',
+          },
+        ],
+      }),
+    );
+  });
+
+  it('shows gone as the upstream state for worktrees whose remote branch was deleted', async () => {
+    // Given a repository with a branch whose remote was deleted and pruned.
+    const { originRoot, repoRoot } = await createRepositoryWithOrigin();
+    const defaultBranch = await currentBranch(repoRoot);
+    const goneBranch = 'feature/status-gone';
+    const goneWorktreePath = await addLinkedWorktree(repoRoot, goneBranch);
+    const stdout: string[] = [];
+    const upstreamClone = await cloneRepository(originRoot);
+
+    await runGit(repoRoot, ['push', '-u', 'origin', goneBranch]);
+    await runGit(upstreamClone, ['push', 'origin', '--delete', goneBranch]);
+    await runGit(repoRoot, ['fetch', '--prune', 'origin']);
+
+    // When gji status runs from the repository root.
+    const result = await runCli(['status'], {
+      cwd: repoRoot,
+      stdout: (chunk) => stdout.push(chunk),
+    });
+
+    // Then it reports "gone" as the upstream state for the stale worktree.
+    expect(result.exitCode).toBe(0);
+    expect(stdout.join('')).toBe(
+      buildExpectedStatusOutput({
+        currentRoot: repoRoot,
+        repoRoot,
+        rows: [
+          {
+            branch: defaultBranch,
+            current: true,
+            path: repoRoot,
+            status: 'clean',
+            upstream: 'up to date',
+          },
+          {
+            branch: goneBranch,
+            current: false,
+            path: goneWorktreePath,
+            status: 'clean',
+            upstream: 'gone',
           },
         ],
       }),

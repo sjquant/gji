@@ -2,6 +2,7 @@ import { basename } from 'node:path';
 
 import { isCancel, select } from '@clack/prompts';
 import { loadEffectiveConfig } from './config.js';
+import { readWorktreeHealth, type WorktreeHealth } from './git.js';
 import { isHeadless } from './headless.js';
 import { extractHooks, runHook } from './hooks.js';
 import { detectRepository, listWorktrees, sortByCurrentFirst, type WorktreeEntry } from './repo.js';
@@ -73,13 +74,22 @@ export const runGoCommand = createGoCommand();
 async function promptForWorktree(
   worktrees: WorktreeEntry[],
 ): Promise<string | null> {
+  const healthResults = await Promise.allSettled(
+    worktrees.map((w) => readWorktreeHealth(w.path)),
+  );
+
   const choice = await select<string>({
     message: 'Choose a worktree',
-    options: worktrees.map((worktree) => ({
-      value: worktree.path,
-      label: worktree.branch ?? '(detached)',
-      hint: worktree.isCurrent ? `${worktree.path} (current)` : worktree.path,
-    })),
+    options: worktrees.map((worktree, i) => {
+      const health = healthResults[i].status === 'fulfilled' ? healthResults[i].value : null;
+      const pathHint = worktree.isCurrent ? `${worktree.path} (current)` : worktree.path;
+      const upstream = health ? formatUpstreamHint(worktree.branch, health) : null;
+      return {
+        value: worktree.path,
+        label: worktree.branch ?? '(detached)',
+        hint: upstream ? `${upstream} · ${pathHint}` : pathHint,
+      };
+    }),
   });
 
   if (isCancel(choice)) {
@@ -87,5 +97,15 @@ async function promptForWorktree(
   }
 
   return choice;
+}
+
+function formatUpstreamHint(branch: string | null, health: WorktreeHealth): string | null {
+  if (branch === null) return null;
+  if (!health.hasUpstream) return 'no upstream';
+  if (health.upstreamGone) return 'upstream gone';
+  if (health.ahead === 0 && health.behind === 0) return 'up to date';
+  if (health.ahead === 0) return `behind ${health.behind}`;
+  if (health.behind === 0) return `ahead ${health.ahead}`;
+  return `ahead ${health.ahead}, behind ${health.behind}`;
 }
 
