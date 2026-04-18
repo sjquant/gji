@@ -569,3 +569,58 @@ describe('loadEffectiveConfig – onWarning callback', () => {
     await expect(loadEffectiveConfig(repoRoot, home)).resolves.toBeDefined();
   });
 });
+
+describe('GJI_CONFIG_DIR env var', () => {
+  const originalGjiConfigDir = process.env.GJI_CONFIG_DIR;
+
+  afterEach(() => {
+    if (originalGjiConfigDir === undefined) {
+      delete process.env.GJI_CONFIG_DIR;
+    } else {
+      process.env.GJI_CONFIG_DIR = originalGjiConfigDir;
+    }
+  });
+
+  it('GLOBAL_CONFIG_FILE_PATH returns path inside GJI_CONFIG_DIR when set', () => {
+    // Given GJI_CONFIG_DIR is set to a custom directory.
+    const customDir = '/custom/config/dir';
+    process.env.GJI_CONFIG_DIR = customDir;
+
+    // When the global config file path is resolved.
+    const result = GLOBAL_CONFIG_FILE_PATH();
+
+    // Then it points into the custom directory.
+    expect(result).toBe(join(customDir, 'config.json'));
+  });
+
+  it('GLOBAL_CONFIG_FILE_PATH falls back to ~/.config/gji/config.json when GJI_CONFIG_DIR is not set', () => {
+    // Given GJI_CONFIG_DIR is not set.
+    delete process.env.GJI_CONFIG_DIR;
+    const home = '/some/home';
+
+    // When the global config file path is resolved.
+    const result = GLOBAL_CONFIG_FILE_PATH(home);
+
+    // Then it uses the default home-relative path.
+    expect(result).toBe(join(home, '.config', 'gji', 'config.json'));
+  });
+
+  it('loadGlobalConfig reads config from GJI_CONFIG_DIR when set', async () => {
+    // Given a config file inside GJI_CONFIG_DIR.
+    const configDir = await mkdtemp(join(tmpdir(), 'gji-config-dir-'));
+    process.env.GJI_CONFIG_DIR = configDir;
+
+    await writeFile(
+      join(configDir, 'config.json'),
+      JSON.stringify({ branchPrefix: 'env/' }),
+      'utf8',
+    );
+
+    // When loadEffectiveConfig runs (which calls loadGlobalConfig internally).
+    const repoRoot = await mkdtemp(join(tmpdir(), 'gji-repo-'));
+    const config = await loadEffectiveConfig(repoRoot);
+
+    // Then it uses the branchPrefix from the GJI_CONFIG_DIR config.
+    expect(config.branchPrefix).toBe('env/');
+  });
+});

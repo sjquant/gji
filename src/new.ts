@@ -22,6 +22,7 @@ export interface NewCommandOptions {
   cwd: string;
   detached?: boolean;
   dryRun?: boolean;
+  force?: boolean;
   json?: boolean;
   stderr: (chunk: string) => void;
   stdout: (chunk: string) => void;
@@ -91,7 +92,29 @@ export function createNewCommand(
       : resolveWorktreePath(repository.repoRoot, worktreeName, configuredBasePath);
 
     if (!usesGeneratedDetachedName && await pathExists(worktreePath)) {
-      if (options.json || isHeadless()) {
+      if (options.force) {
+        if (!options.dryRun) {
+          try {
+            await execFileAsync('git', ['worktree', 'remove', '--force', worktreePath], { cwd: repository.repoRoot });
+          } catch (err) {
+            if (!isNotRegisteredWorktreeError(err)) {
+              const msg = `could not remove existing worktree at ${worktreePath}: ${toExecMessage(err)}`;
+              if (options.json) {
+                options.stderr(`${JSON.stringify({ warning: msg }, null, 2)}\n`);
+              } else {
+                options.stderr(`Warning: ${msg}\n`);
+              }
+            }
+          }
+          if (!options.detached) {
+            try {
+              await execFileAsync('git', ['branch', '-D', worktreeName], { cwd: repository.repoRoot });
+            } catch {
+              // Branch may not exist; proceed anyway.
+            }
+          }
+        }
+      } else if (options.json || isHeadless()) {
         const message = `target worktree path already exists: ${worktreePath}`;
         if (options.json) {
           options.stderr(`${JSON.stringify({ error: message }, null, 2)}\n`);
@@ -101,17 +124,17 @@ export function createNewCommand(
           options.stderr(`Hint: Use 'gji trigger-hook afterCreate' inside the worktree to re-run setup hooks\n`);
         }
         return 1;
+      } else {
+        const choice = await prompt(worktreePath);
+
+        if (choice === 'reuse') {
+          await writeOutput(worktreePath, options.stdout);
+          return 0;
+        }
+
+        options.stderr(`Aborted because target worktree path already exists: ${worktreePath}\n`);
+        return 1;
       }
-
-      const choice = await prompt(worktreePath);
-
-      if (choice === 'reuse') {
-        await writeOutput(worktreePath, options.stdout);
-        return 0;
-      }
-
-      options.stderr(`Aborted because target worktree path already exists: ${worktreePath}\n`);
-      return 1;
     }
 
     if (options.dryRun) {
@@ -279,4 +302,17 @@ async function writeOutput(
   stdout: (chunk: string) => void,
 ): Promise<void> {
   await writeShellOutput(NEW_OUTPUT_FILE_ENV, worktreePath, stdout);
+}
+
+function isNotRegisteredWorktreeError(error: unknown): boolean {
+  const stderr = hasExecStderr(error) ? error.stderr : String(error);
+  return stderr.includes('is not a working tree') || stderr.includes('not a linked working tree');
+}
+
+function hasExecStderr(error: unknown): error is { stderr: string } {
+  return error instanceof Error && 'stderr' in error && typeof (error as { stderr: unknown }).stderr === 'string';
+}
+
+function toExecMessage(error: unknown): string {
+  return hasExecStderr(error) ? error.stderr.trim() : String(error);
 }

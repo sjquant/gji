@@ -365,6 +365,29 @@ describe('gji new', () => {
     );
   });
 
+  it('removes and recreates the worktree when --force is used and path already exists', async () => {
+    // Given an existing worktree for a branch.
+    const repoRoot = await createRepository();
+    const branchName = 'feature/force-recreate';
+    const worktreePath = await addLinkedWorktree(repoRoot, branchName);
+    const stdout: string[] = [];
+    const stderr: string[] = [];
+
+    // When gji new --force runs for that same branch.
+    const result = await runCli(['new', '--force', branchName], {
+      cwd: repoRoot,
+      stderr: (chunk) => stderr.push(chunk),
+      stdout: (chunk) => stdout.push(chunk),
+    });
+
+    // Then it removes and recreates the worktree without prompting.
+    expect(result.exitCode).toBe(0);
+    expect(stderr).toEqual([]);
+    await expect(pathExists(worktreePath)).resolves.toBe(true);
+    await expect(currentBranch(worktreePath)).resolves.toBe(branchName);
+    expect(stdout.join('')).toBe(`${worktreePath}\n`);
+  });
+
   it('creates a linked worktree for a branch that already exists locally', async () => {
     // Given a repository with a local branch that has no worktree checked out yet.
     const repoRoot = await createRepository();
@@ -1035,6 +1058,26 @@ describe('gji new', () => {
       // Then the install prompt was not invoked and no worktree was created.
       expect(result).toBe(0);
       expect(promptCalled).toBe(false);
+    });
+
+    it('does not remove an existing worktree when --force --dry-run are combined', async () => {
+      // Given an existing worktree for a branch.
+      const repoRoot = await createRepository();
+      const branchName = 'feature/force-dry-run';
+      const worktreePath = await addLinkedWorktree(repoRoot, branchName);
+      const stdout: string[] = [];
+
+      // When gji new --force --dry-run runs for that same branch.
+      const result = await runCli(['new', '--force', '--dry-run', branchName], {
+        cwd: repoRoot,
+        stdout: (chunk) => stdout.push(chunk),
+      });
+
+      // Then it exits 0, reports what would be created, and leaves the existing worktree intact.
+      expect(result.exitCode).toBe(0);
+      await expect(pathExists(worktreePath)).resolves.toBe(true);
+      await expect(currentBranch(worktreePath)).resolves.toBe(branchName);
+      expect(stdout.join('')).toContain(worktreePath);
     });
   });
 

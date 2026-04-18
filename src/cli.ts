@@ -86,6 +86,7 @@ function registerCommands(program: Command): void {
   program
     .command('new [branch]')
     .description('create a new branch or detached linked worktree')
+    .option('-f, --force', 'remove and recreate the worktree if the target path already exists')
     .option('--detached', 'create a detached worktree without a branch')
     .option('--dry-run', 'show what would be created without executing any git commands or writing files')
     .option('--json', 'emit JSON on success or error instead of human-readable output')
@@ -184,8 +185,8 @@ function attachCommandActions(
 ): void {
   program.commands
     .find((command) => command.name() === 'new')
-    ?.action(async (branch: string | undefined, commandOptions: { detached?: boolean; dryRun?: boolean; json?: boolean }) => {
-      const exitCode = await runNewCommand({ ...options, branch, detached: commandOptions.detached, dryRun: commandOptions.dryRun, json: commandOptions.json });
+    ?.action(async (branch: string | undefined, commandOptions: { detached?: boolean; dryRun?: boolean; force?: boolean; json?: boolean }) => {
+      const exitCode = await runNewCommand({ ...options, branch, detached: commandOptions.detached, dryRun: commandOptions.dryRun, force: commandOptions.force, json: commandOptions.json });
 
       if (exitCode !== 0) {
         throw commanderExit(exitCode);
