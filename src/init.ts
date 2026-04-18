@@ -2,9 +2,9 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 
-import { isCancel, select } from '@clack/prompts';
+import { intro, isCancel, outro, select, text } from '@clack/prompts';
 
-import { loadGlobalConfig, updateGlobalConfigKey } from './config.js';
+import { loadConfig, loadGlobalConfig, saveLocalConfig, updateGlobalConfigKey } from './config.js';
 
 export type SupportedShell = 'bash' | 'fish' | 'zsh';
 
@@ -59,10 +59,21 @@ const SHELL_WRAPPED_COMMANDS: ShellWrappedCommand[] = [
 
 export type InstallSaveTarget = 'local' | 'global';
 
+export interface SetupWizardResult {
+  branchPrefix?: string;
+  hooks?: {
+    afterCreate?: string;
+    afterEnter?: string;
+    beforeRemove?: string;
+  };
+  installSaveTarget: InstallSaveTarget;
+  worktreePath?: string;
+}
+
 export interface InitCommandOptions {
   cwd: string;
   home?: string;
-  promptForInstallSaveTarget?: () => Promise<InstallSaveTarget | null>;
+  promptForSetup?: () => Promise<SetupWizardResult | null>;
   shell?: string;
   stderr?: (chunk: string) => void;
   stdout: (chunk: string) => void;
@@ -96,20 +107,24 @@ export async function runInitCommand(options: InitCommandOptions): Promise<numbe
 
   options.stdout(`${rcPath}\n`);
 
-  // After the shell integration is in place, ask once where to save hooks/prefs.
-  // Skip if already configured. When using the default interactive prompt, also
-  // require a real TTY so we don't block in piped/headless environments.
+  // Run the setup wizard on the first-ever init (not on subsequent re-runs).
   const { config: globalConfig } = await loadGlobalConfig(home);
-  const hasCustomPrompt = options.promptForInstallSaveTarget !== undefined;
+  const alreadyConfigured =
+    'shellIntegration' in globalConfig || 'installSaveTarget' in globalConfig;
+  const hasCustomPrompt = options.promptForSetup !== undefined;
   const canPrompt = hasCustomPrompt || process.stdout.isTTY === true;
 
-  if (!('installSaveTarget' in globalConfig) && canPrompt) {
-    const prompt = options.promptForInstallSaveTarget ?? defaultPromptForInstallSaveTarget;
-    const target = await prompt();
-    if (target) {
-      await updateGlobalConfigKey('installSaveTarget', target, home);
+  if (!alreadyConfigured && canPrompt) {
+    const prompt = options.promptForSetup ?? defaultPromptForSetup;
+    const result = await prompt();
+    if (result) {
+      await updateGlobalConfigKey('installSaveTarget', result.installSaveTarget, home);
+      await saveWizardConfig(result, options.cwd, home);
     }
   }
+
+  // Mark shell integration as installed so the first-run nudge is suppressed.
+  await updateGlobalConfigKey('shellIntegration', true, home);
 
   return 0;
 }
@@ -162,6 +177,34 @@ export function upsertShellIntegration(existingConfig: string, script: string): 
   }
 
   return ensureTrailingNewline(`${prefix}\n\n${trimmedScript}`);
+}
+
+async function saveWizardConfig(
+  result: SetupWizardResult,
+  cwd: string,
+  home: string,
+): Promise<void> {
+  const values: Record<string, unknown> = {};
+
+  if (result.branchPrefix) values.branchPrefix = result.branchPrefix;
+  if (result.worktreePath) values.worktreePath = result.worktreePath;
+
+  const hooks: Record<string, string> = {};
+  if (result.hooks?.afterCreate) hooks.afterCreate = result.hooks.afterCreate;
+  if (result.hooks?.afterEnter) hooks.afterEnter = result.hooks.afterEnter;
+  if (result.hooks?.beforeRemove) hooks.beforeRemove = result.hooks.beforeRemove;
+  if (Object.keys(hooks).length > 0) values.hooks = hooks;
+
+  if (Object.keys(values).length === 0) return;
+
+  if (result.installSaveTarget === 'local') {
+    const loaded = await loadConfig(cwd);
+    await saveLocalConfig(cwd, { ...loaded.config, ...values });
+  } else {
+    for (const [key, value] of Object.entries(values)) {
+      await updateGlobalConfigKey(key, value, home);
+    }
+  }
 }
 
 function resolveShell(
@@ -284,18 +327,83 @@ function indentBlock(value: string, spaces: number): string {
     .join('\n');
 }
 
-async function defaultPromptForInstallSaveTarget(): Promise<InstallSaveTarget | null> {
-  const choice = await select<InstallSaveTarget>({
-    message: 'Where should saved hooks and preferences be stored by default?',
+async function defaultPromptForSetup(): Promise<SetupWizardResult | null> {
+  intro('gji setup');
+
+  const installSaveTarget = await select<InstallSaveTarget>({
+    message: 'Where should preferences be saved?',
     options: [
-      { value: 'local', label: '.gji.json', hint: 'local — committed, shared with the team' },
-      { value: 'global', label: '~/.config/gji/config.json', hint: 'global — personal, never committed' },
+      { value: 'global', label: '~/.config/gji/config.json', hint: 'personal — never committed' },
+      { value: 'local', label: '.gji.json', hint: 'repo — committed with the project' },
     ],
   });
 
-  if (isCancel(choice)) {
+  if (isCancel(installSaveTarget)) {
+    outro('Setup skipped.');
     return null;
   }
 
-  return choice;
+  const branchPrefix = await text({
+    message: 'Default branch prefix?',
+    placeholder: 'e.g. feat/ or fix/ — leave blank to skip',
+  });
+
+  if (isCancel(branchPrefix)) {
+    outro('Setup skipped.');
+    return null;
+  }
+
+  const worktreePath = await text({
+    message: 'Worktree base path?',
+    placeholder: 'leave blank to use the default path',
+  });
+
+  if (isCancel(worktreePath)) {
+    outro('Setup skipped.');
+    return null;
+  }
+
+  const afterCreate = await text({
+    message: 'afterCreate hook — run after creating a worktree?',
+    placeholder: 'e.g. pnpm install — leave blank to skip',
+  });
+
+  if (isCancel(afterCreate)) {
+    outro('Setup skipped.');
+    return null;
+  }
+
+  const afterEnter = await text({
+    message: 'afterEnter hook — run after entering a worktree?',
+    placeholder: 'e.g. nvm use — leave blank to skip',
+  });
+
+  if (isCancel(afterEnter)) {
+    outro('Setup skipped.');
+    return null;
+  }
+
+  const beforeRemove = await text({
+    message: 'beforeRemove hook — run before removing a worktree?',
+    placeholder: 'leave blank to skip',
+  });
+
+  if (isCancel(beforeRemove)) {
+    outro('Setup skipped.');
+    return null;
+  }
+
+  outro('Setup complete!');
+
+  const hooks: SetupWizardResult['hooks'] = {};
+  if (afterCreate) hooks.afterCreate = afterCreate;
+  if (afterEnter) hooks.afterEnter = afterEnter;
+  if (beforeRemove) hooks.beforeRemove = beforeRemove;
+
+  return {
+    branchPrefix: branchPrefix || undefined,
+    hooks: Object.keys(hooks).length > 0 ? hooks : undefined,
+    installSaveTarget,
+    worktreePath: worktreePath || undefined,
+  };
 }

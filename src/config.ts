@@ -10,6 +10,7 @@ export const KNOWN_CONFIG_KEYS: ReadonlySet<string> = new Set([
   'branchPrefix',
   'hooks',
   'installSaveTarget',
+  'shellIntegration',
   'skipInstallPrompt',
   'syncDefaultBranch',
   'syncFiles',

@@ -199,6 +199,7 @@ function attachCommandActions(
       const exitCode = await runInitCommand({
         cwd: options.cwd,
         shell,
+        stderr: options.stderr,
         stdout: options.stdout,
         write: commandOptions.write,
       });
