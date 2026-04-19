@@ -91,7 +91,7 @@ jobs:
     needs: tag-version
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      contents: write
       id-token: write
 
     steps:
@@ -143,6 +143,10 @@ jobs:
         if: steps.published.outputs.published != 'true'
         run: pnpm build
 
+      - name: Generate man pages
+        if: steps.published.outputs.published != 'true'
+        run: pnpm generate-man
+
       - name: Resolve npm dist-tag
         if: steps.published.outputs.published != 'true'
         id: npm_tag
@@ -165,3 +169,13 @@ jobs:
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: npm publish --ignore-scripts --provenance --tag "${{ steps.npm_tag.outputs.tag }}"
+
+      - name: Create GitHub release
+        if: steps.published.outputs.published != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "${{ steps.meta.outputs.tag }}" \
+            --title "${{ steps.meta.outputs.tag }}" \
+            --generate-notes \
+            --verify-tag
