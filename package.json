@@ -24,8 +24,12 @@
   ],
   "files": [
     "dist",
+    "man",
     "README.md",
     "LICENSE"
+  ],
+  "man": [
+    "man/man1/gji.1"
   ],
   "publishConfig": {
     "access": "public"
@@ -38,7 +42,8 @@
   },
   "scripts": {
     "build": "node scripts/clean-dist.mjs && tsc -p tsconfig.build.json",
-    "prepublishOnly": "pnpm test && pnpm build",
+    "generate-man": "node scripts/generate-man.mjs",
+    "prepublishOnly": "pnpm test && pnpm build && pnpm generate-man",
     "test": "vitest run --passWithNoTests",
     "test:watch": "vitest"
   },

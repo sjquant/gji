@@ -87,65 +87,97 @@ describe('gji init', () => {
   });
 });
 
-describe('gji init --write preferences prompt', () => {
-  it('saves the chosen installSaveTarget to global config after writing the shell integration', async () => {
+describe('gji init --write setup wizard', () => {
+  it('saves installSaveTarget and config values to global config', async () => {
     // Given an isolated home with no existing global config.
     const home = await mkdtemp(join(tmpdir(), 'gji-home-'));
-    process.env.HOME = home;
     const cwd = await mkdtemp(join(tmpdir(), 'gji-cwd-'));
 
-    // When gji init --write runs and the user chooses "global".
+    // When gji init --write runs and the wizard returns global preferences.
     const result = await runInitCommand({
       cwd,
       home,
       shell: 'zsh',
       write: true,
       stdout: () => undefined,
-      promptForInstallSaveTarget: async () => 'global',
+      promptForSetup: async () => ({
+        installSaveTarget: 'global',
+        branchPrefix: 'feat/',
+        worktreePath: '~/worktrees',
+        hooks: { afterCreate: 'pnpm install' },
+      }),
     });
 
-    // Then installSaveTarget: "global" is written to global config.
+    // Then the values are written to global config.
     expect(result).toBe(0);
     const globalConfig = JSON.parse(
       await readFile(GLOBAL_CONFIG_FILE_PATH(home), 'utf8'),
     ) as Record<string, unknown>;
     expect(globalConfig.installSaveTarget).toBe('global');
+    expect(globalConfig.branchPrefix).toBe('feat/');
+    expect(globalConfig.worktreePath).toBe('~/worktrees');
+    expect(globalConfig.hooks).toEqual({ afterCreate: 'pnpm install' });
+    expect(globalConfig.shellIntegration).toBe(true);
   });
 
-  it('skips the preferences prompt when installSaveTarget is already configured', async () => {
-    // Given a global config that already has installSaveTarget set.
+  it('saves config values to local .gji.json when installSaveTarget is local', async () => {
+    // Given an isolated home and cwd.
     const home = await mkdtemp(join(tmpdir(), 'gji-home-'));
-    process.env.HOME = home;
     const cwd = await mkdtemp(join(tmpdir(), 'gji-cwd-'));
-    let promptCalled = false;
 
-    // Pre-populate the global config.
+    // When the wizard chooses local save target with a branch prefix.
     await runInitCommand({
       cwd,
       home,
       shell: 'zsh',
       write: true,
       stdout: () => undefined,
-      promptForInstallSaveTarget: async () => 'local',
+      promptForSetup: async () => ({
+        installSaveTarget: 'local',
+        branchPrefix: 'fix/',
+      }),
     });
 
-    // When gji init --write runs again.
-    await runInitCommand({
-      cwd,
-      home,
-      shell: 'zsh',
-      write: true,
-      stdout: () => undefined,
-      promptForInstallSaveTarget: async () => { promptCalled = true; return 'global'; },
-    });
-
-    // Then the prompt was not shown a second time.
-    expect(promptCalled).toBe(false);
+    // Then branchPrefix is written to the local .gji.json.
+    const localConfig = JSON.parse(
+      await readFile(join(cwd, '.gji.json'), 'utf8'),
+    ) as Record<string, unknown>;
+    expect(localConfig.branchPrefix).toBe('fix/');
   });
 
-  it('skips the preferences prompt when not in --write mode', async () => {
+  it('skips the wizard when shell integration is already configured', async () => {
+    // Given a home where a previous gji init --write already ran.
+    const home = await mkdtemp(join(tmpdir(), 'gji-home-'));
+    const cwd = await mkdtemp(join(tmpdir(), 'gji-cwd-'));
+    let wizardCallCount = 0;
+
+    // First run sets shellIntegration: true.
+    await runInitCommand({
+      cwd,
+      home,
+      shell: 'zsh',
+      write: true,
+      stdout: () => undefined,
+      promptForSetup: async () => { wizardCallCount++; return { installSaveTarget: 'global' }; },
+    });
+
+    // Second run should skip the wizard.
+    await runInitCommand({
+      cwd,
+      home,
+      shell: 'zsh',
+      write: true,
+      stdout: () => undefined,
+      promptForSetup: async () => { wizardCallCount++; return { installSaveTarget: 'global' }; },
+    });
+
+    // Then the wizard was only called once (on first init).
+    expect(wizardCallCount).toBe(1);
+  });
+
+  it('skips the wizard when not in --write mode', async () => {
     // Given an init run without --write (print-to-stdout mode).
-    let promptCalled = false;
+    let wizardCalled = false;
     const stdout: string[] = [];
 
     // When gji init runs without --write.
@@ -154,39 +186,58 @@ describe('gji init --write preferences prompt', () => {
       home: '/tmp',
       shell: 'zsh',
       stdout: (chunk) => stdout.push(chunk),
-      promptForInstallSaveTarget: async () => { promptCalled = true; return 'global'; },
+      promptForSetup: async () => { wizardCalled = true; return { installSaveTarget: 'global' }; },
     });
 
-    // Then the shell script is printed and no preference prompt appears.
+    // Then the shell script is printed and the wizard is not called.
     expect(result).toBe(0);
-    expect(promptCalled).toBe(false);
+    expect(wizardCalled).toBe(false);
     expect(stdout.join('')).toContain('gji init');
   });
 
-  it('does not save anything when the preferences prompt is cancelled', async () => {
+  it('does not save anything when the wizard is cancelled', async () => {
     // Given an isolated home with no existing global config.
     const home = await mkdtemp(join(tmpdir(), 'gji-home-'));
-    process.env.HOME = home;
     const cwd = await mkdtemp(join(tmpdir(), 'gji-cwd-'));
 
-    // When the user cancels the preferences prompt (returns null).
+    // When the wizard is cancelled (returns null).
     await runInitCommand({
       cwd,
       home,
       shell: 'zsh',
       write: true,
       stdout: () => undefined,
-      promptForInstallSaveTarget: async () => null,
+      promptForSetup: async () => null,
     });
 
-    // Then no installSaveTarget is written to global config (file may not exist at all).
-    let globalConfig: Record<string, unknown> = {};
-    try {
-      globalConfig = JSON.parse(await readFile(GLOBAL_CONFIG_FILE_PATH(home), 'utf8')) as Record<string, unknown>;
-    } catch {
-      // File was never created — that's fine, installSaveTarget is absent either way.
-    }
+    // Then no config values are written (only shellIntegration is set).
+    const globalConfig = JSON.parse(
+      await readFile(GLOBAL_CONFIG_FILE_PATH(home), 'utf8'),
+    ) as Record<string, unknown>;
     expect('installSaveTarget' in globalConfig).toBe(false);
+    expect(globalConfig.shellIntegration).toBe(true);
+  });
+
+  it('sets shellIntegration: true in global config after writing', async () => {
+    // Given an isolated home with no existing global config.
+    const home = await mkdtemp(join(tmpdir(), 'gji-home-'));
+    const cwd = await mkdtemp(join(tmpdir(), 'gji-cwd-'));
+
+    // When gji init --write runs (no wizard needed).
+    await runInitCommand({
+      cwd,
+      home,
+      shell: 'zsh',
+      write: true,
+      stdout: () => undefined,
+      promptForSetup: async () => null,
+    });
+
+    // Then shellIntegration is marked as true.
+    const globalConfig = JSON.parse(
+      await readFile(GLOBAL_CONFIG_FILE_PATH(home), 'utf8'),
+    ) as Record<string, unknown>;
+    expect(globalConfig.shellIntegration).toBe(true);
   });
 });
 
