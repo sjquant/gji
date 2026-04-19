@@ -133,4 +133,4 @@ jobs:
           gh release create "${{ steps.meta.outputs.tag }}" \
             --title "${{ steps.meta.outputs.tag }}" \
             --generate-notes \
-            --target "${{ github.sha }}"
+            --target "$(git rev-parse HEAD)"
