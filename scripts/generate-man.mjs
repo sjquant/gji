@@ -6,13 +6,22 @@
  * Output: man/man1/gji.1  +  man/man1/gji-<command>.1 for every subcommand.
  */
 import { createRequire } from 'node:module';
-import { writeFile, mkdir } from 'node:fs/promises';
+import { access, writeFile, mkdir } from 'node:fs/promises';
+import { execSync } from 'node:child_process';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const projectRoot = join(__dirname, '..');
 const require = createRequire(import.meta.url);
+
+const distCli = join(projectRoot, 'dist', 'cli.js');
+try {
+  await access(distCli);
+} catch {
+  console.error('Error: dist/cli.js not found. Run `pnpm build` first.');
+  process.exit(1);
+}
 
 const { createProgram } = await import(`${projectRoot}/dist/cli.js`);
 const pkg = require('../package.json');
@@ -22,9 +31,29 @@ const MONTH_NAMES = [
   'January', 'February', 'March', 'April', 'May', 'June',
   'July', 'August', 'September', 'October', 'November', 'December',
 ];
-const today = new Date();
-const dateStr = `${MONTH_NAMES[today.getMonth()]} ${today.getFullYear()}`;
+
+/**
+ * Return the month+year of the git tag for this version so the date is stable
+ * for a given release. Falls back to the current date for untagged dev builds.
+ */
+function releaseDateStr(version) {
+  try {
+    const iso = execSync(`git log -1 --format=%cI "v${version}"`, {
+      cwd: projectRoot,
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim();
+    if (iso) {
+      const d = new Date(iso);
+      return `${MONTH_NAMES[d.getUTCMonth()]} ${d.getUTCFullYear()}`;
+    }
+  } catch { /* tag not found — fall through */ }
+  const d = new Date();
+  return `${MONTH_NAMES[d.getMonth()]} ${d.getFullYear()}`;
+}
+
 const version = String(pkg.version ?? '0.0.0');
+const dateStr = releaseDateStr(version);
 
 /** Escape special roff characters. */
 function esc(str) {

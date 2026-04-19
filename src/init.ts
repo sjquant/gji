@@ -4,7 +4,7 @@ import { dirname, join } from 'node:path';
 
 import { intro, isCancel, outro, select, text } from '@clack/prompts';
 
-import { loadConfig, loadGlobalConfig, saveLocalConfig, updateGlobalConfigKey } from './config.js';
+import { loadConfig, loadGlobalConfig, saveGlobalConfig, saveLocalConfig, updateGlobalConfigKey } from './config.js';
 
 export type SupportedShell = 'bash' | 'fish' | 'zsh';
 
@@ -201,9 +201,8 @@ async function saveWizardConfig(
     const loaded = await loadConfig(cwd);
     await saveLocalConfig(cwd, { ...loaded.config, ...values });
   } else {
-    for (const [key, value] of Object.entries(values)) {
-      await updateGlobalConfigKey(key, value, home);
-    }
+    const { config: existing } = await loadGlobalConfig(home);
+    await saveGlobalConfig({ ...existing, ...values }, home);
   }
 }
 

@@ -11,7 +11,10 @@ async function main(): Promise<void> {
 
     // Warn once (until fixed) when shell integration hasn't been set up.
     // Only shown in interactive terminals — suppressed in pipes and after gji init --write.
-    if (process.stderr.isTTY === true && argv[0] !== 'init') {
+    const isMetaArg = argv[0] === 'init'
+      || argv[0] === '--version' || argv[0] === '-V'
+      || argv[0] === '--help'    || argv[0] === '-h';
+    if (process.stderr.isTTY === true && !isMetaArg) {
       await warnIfMissingShellIntegration();
     }
 
