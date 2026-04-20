@@ -1,0 +1,61 @@
+---
+sidebar_position: 3
+title: Quick Start
+description: Start a feature, review a pull request, jump between worktrees, and clean up after the task.
+---
+
+# Quick start
+
+Copy this workflow if you want to understand `gji` in under two minutes.
+
+## Start a task
+
+```bash
+gji new feature/dark-mode
+```
+
+That creates a branch, creates a worktree, and moves your shell into it when shell integration is enabled.
+
+## Review a pull request
+
+```bash
+gji pr 1234
+gji pr https://github.com/org/repo/pull/1234
+```
+
+## Jump between contexts
+
+```bash
+gji go feature/dark-mode
+gji go main
+gji root
+```
+
+## Check what is open
+
+```bash
+gji status
+gji ls
+```
+
+## Keep branches current
+
+```bash
+gji sync
+gji sync --all
+```
+
+## Clean up when done
+
+```bash
+gji remove feature/dark-mode
+gji clean
+```
+
+## Detached scratch space
+
+```bash
+gji new --detached
+```
+
+Use this when you need a temporary worktree for investigation without naming a long-lived branch up front.

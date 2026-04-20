@@ -1,0 +1,51 @@
+---
+sidebar_position: 4
+title: Commands
+description: Reference for gji commands, navigation, cleanup, sync, hooks, and configuration.
+---
+
+# Commands
+
+## Everyday commands
+
+| Command | What it does |
+| --- | --- |
+| `gji new [branch] [--detached] [--json]` | Create a branch and worktree, then enter it. |
+| `gji pr <ref> [--json]` | Fetch a pull request ref and open it in a dedicated worktree. |
+| `gji go [branch] [--print]` | Jump to a worktree or print its path for scripting. |
+| `gji root [--print]` | Jump back to the main repo root. |
+| `gji status [--json]` | Show repo health, active worktrees, and ahead/behind counts. |
+| `gji ls [--json]` | Show a compact worktree list. |
+| `gji sync [--all]` | Fetch and rebase worktrees onto the default branch. |
+| `gji clean [--force] [--json]` | Interactively prune stale worktrees. |
+| `gji remove [branch] [--force] [--json]` | Remove a worktree and its branch. |
+| `gji trigger-hook <hook>` | Re-run a configured hook in the current worktree. |
+| `gji config [get\|set\|unset] [key] [value]` | Read and update configuration values. |
+| `gji init [shell]` | Print or install shell integration. |
+
+## Common patterns
+
+### Start feature work
+
+```bash
+gji new feature/auth-refactor
+```
+
+### Open a pull request for review
+
+```bash
+gji pr 1234
+```
+
+### Re-run your setup hook
+
+```bash
+gji trigger-hook afterCreate
+```
+
+### Script against printed paths
+
+```bash
+repo_root=$(gji root --print)
+feature_path=$(gji go --print feature/auth-refactor)
+```

@@ -1,0 +1,105 @@
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
+
+:root {
+  --ifm-color-primary: #0d7a63;
+  --ifm-color-primary-dark: #0b6d59;
+  --ifm-color-primary-darker: #096551;
+  --ifm-color-primary-darkest: #074d3d;
+  --ifm-color-primary-light: #188b72;
+  --ifm-color-primary-lighter: #20957b;
+  --ifm-color-primary-lightest: #31aa8c;
+  --ifm-code-font-size: 95%;
+  --ifm-background-color: #f8f5ef;
+  --ifm-background-surface-color: #ffffff;
+  --ifm-font-family-base: 'Plus Jakarta Sans', 'Segoe UI', sans-serif;
+  --ifm-font-family-monospace: 'IBM Plex Mono', 'SFMono-Regular', monospace;
+  --ifm-heading-font-family: 'Plus Jakarta Sans', 'Segoe UI', sans-serif;
+  --ifm-navbar-background-color: rgba(248, 245, 239, 0.82);
+  --ifm-footer-background-color: #111827;
+  --ifm-heading-color: #172033;
+  --ifm-font-color-base: #314056;
+  --ifm-link-color: #0d7a63;
+  --ifm-menu-color-active: #0d7a63;
+  --ifm-toc-link-color: #516076;
+  --ifm-toc-border-color: rgba(23, 32, 51, 0.08);
+  --ifm-card-border-radius: 1rem;
+  --ifm-global-radius: 1rem;
+  --docusaurus-highlighted-code-line-bg: rgba(15, 23, 42, 0.08);
+  --gji-heading-font: 'Plus Jakarta Sans', 'Segoe UI', sans-serif;
+  --gji-accent: #c17b47;
+  --gji-accent-strong: #9d5d2c;
+  --gji-ink-strong: #172033;
+  --gji-ink: #445166;
+  --gji-muted: #66748b;
+  --gji-border: rgba(23, 32, 51, 0.12);
+  --gji-surface: #f2ede4;
+}
+
+[data-theme='dark'] {
+  --ifm-color-primary: #5bd8ba;
+  --ifm-color-primary-dark: #42d2b1;
+  --ifm-color-primary-darker: #37cfac;
+  --ifm-color-primary-darkest: #29b795;
+  --ifm-color-primary-light: #74dec3;
+  --ifm-color-primary-lighter: #7fe1c7;
+  --ifm-color-primary-lightest: #a3ead7;
+  --ifm-background-color: #0d1522;
+  --ifm-background-surface-color: #101b2b;
+  --ifm-navbar-background-color: rgba(13, 21, 34, 0.78);
+  --ifm-heading-color: #f2f4f9;
+  --ifm-font-color-base: #c1cad9;
+  --ifm-link-color: #74dec3;
+  --ifm-menu-color-active: #74dec3;
+  --ifm-toc-link-color: #9ba8bc;
+  --ifm-toc-border-color: rgba(255, 255, 255, 0.08);
+  --docusaurus-highlighted-code-line-bg: rgba(255, 255, 255, 0.08);
+  --gji-accent: #d4925f;
+  --gji-accent-strong: #efb27f;
+  --gji-ink-strong: #f2f4f9;
+  --gji-ink: #c1cad9;
+  --gji-muted: #9ba8bc;
+  --gji-border: rgba(255, 255, 255, 0.09);
+  --gji-surface: #142034;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  font-feature-settings: 'ss01' on, 'cv05' on;
+}
+
+.navbar {
+  backdrop-filter: blur(18px);
+  border-bottom: 1px solid var(--gji-border);
+}
+
+.footer {
+  border-top: 1px solid var(--gji-border);
+}
+
+.markdown h1,
+.markdown h2,
+.markdown h3,
+.markdown h4 {
+  letter-spacing: -0.03em;
+}
+
+.theme-code-block,
+pre {
+  border: 1px solid var(--gji-border);
+  border-radius: 1rem;
+}
+
+.table-of-contents {
+  font-size: 0.93rem;
+}
+
+.menu__link--active:not(.menu__link--sublist) {
+  background: rgba(13, 122, 99, 0.08);
+}
+
+[data-theme='dark'] .menu__link--active:not(.menu__link--sublist) {
+  background: rgba(91, 216, 186, 0.12);
+}

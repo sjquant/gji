@@ -1,0 +1,56 @@
+---
+title: Configuration
+description: Configure branch prefixes, sync targets, copied files, prompts, and per-repo overrides in gji.
+---
+
+# Configuration
+
+No setup is required to start using `gji`, but optional configuration makes repeated workflows faster.
+
+## Config files
+
+- `~/.config/gji/config.json` for global defaults.
+- `.gji.json` in a repository for repo-local overrides.
+
+## Available keys
+
+| Key | Meaning |
+| --- | --- |
+| `branchPrefix` | Prefix added to new branch names, such as `feature/`. |
+| `syncRemote` | Remote used by `gji sync`. |
+| `syncDefaultBranch` | Branch used as the rebase target. |
+| `syncFiles` | Files copied from the main worktree into new worktrees. |
+| `skipInstallPrompt` | Disable the automatic install prompt permanently. |
+| `installSaveTarget` | Persist install prompt choices locally or globally. |
+| `hooks` | Lifecycle commands for create, enter, and remove events. |
+| `repos` | Per-repository overrides inside the global config. |
+
+## Example
+
+```json
+{
+  "branchPrefix": "feature/",
+  "syncRemote": "origin",
+  "syncDefaultBranch": "main",
+  "syncFiles": [".env.example", ".nvmrc"]
+}
+```
+
+## Precedence
+
+Configuration is resolved in this order:
+
+1. Global defaults
+2. Per-repo overrides inside the global config
+3. Local `.gji.json`
+
+Hooks merge by key across those layers, while normal scalar values are overridden by the highest-precedence layer.
+
+## CLI helpers
+
+```bash
+gji config get
+gji config get branchPrefix
+gji config set branchPrefix feature/
+gji config unset branchPrefix
+```

@@ -1,0 +1,54 @@
+---
+title: Hooks
+description: Automate worktree setup and cleanup with afterCreate, afterEnter, and beforeRemove hooks.
+---
+
+# Hooks
+
+Hooks let `gji` run your setup and cleanup commands automatically at key lifecycle moments.
+
+## Example
+
+```json
+{
+  "hooks": {
+    "afterCreate": "pnpm install",
+    "afterEnter": "echo 'switched to {{branch}}'",
+    "beforeRemove": "pnpm run cleanup"
+  }
+}
+```
+
+## Available hooks
+
+| Hook | When it runs |
+| --- | --- |
+| `afterCreate` | After `gji new` or `gji pr` creates a worktree. |
+| `afterEnter` | After `gji go` switches to a worktree. |
+| `beforeRemove` | Before `gji remove` deletes a worktree. |
+
+## Template values
+
+Hooks receive these template variables:
+
+- `{{branch}}`
+- `{{path}}`
+- `{{repo}}`
+
+The same values are also available as environment variables:
+
+- `GJI_BRANCH`
+- `GJI_PATH`
+- `GJI_REPO`
+
+## Manual execution
+
+You can rerun any hook in the current worktree:
+
+```bash
+gji trigger-hook afterCreate
+gji trigger-hook afterEnter
+gji trigger-hook beforeRemove
+```
+
+This is useful after cloning on a new machine or when you need to rebuild a worktree’s setup without recreating it.

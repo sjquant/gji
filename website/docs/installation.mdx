@@ -1,0 +1,55 @@
+---
+sidebar_position: 2
+title: Installation
+description: Install gji globally and enable shell integration for directory handoff commands.
+---
+
+# Installation
+
+## Requirements
+
+- Node.js `18` or newer for the CLI package.
+- `zsh` or `bash` if you want `gji go`, `gji new`, and `gji remove` to change the current shell directory.
+- Git worktree support in your local Git installation.
+
+## Install the CLI
+
+```bash
+npm install -g @solaqua/gji
+```
+
+## Enable shell integration
+
+`gji` can print paths for scripts without shell integration, but interactive navigation is much better once the shell hook is installed.
+
+### zsh
+
+```bash
+echo 'eval "$(gji init zsh)"' >> ~/.zshrc
+source ~/.zshrc
+```
+
+### bash
+
+```bash
+echo 'eval "$(gji init bash)"' >> ~/.bashrc
+source ~/.bashrc
+```
+
+## Verify the setup
+
+```bash
+gji status
+gji init zsh
+```
+
+If shell integration is active, commands like `gji new feature/foo` and `gji go main` can hand your shell to the target path directly.
+
+## Script-friendly mode
+
+Use `--print` when you want the raw path instead of shell handoff:
+
+```bash
+path=$(gji go --print feature/dark-mode)
+path=$(gji root --print)
+```

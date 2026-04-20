@@ -1,0 +1,273 @@
+.page {
+  background:
+    radial-gradient(circle at top left, rgba(193, 123, 71, 0.12), transparent 28rem),
+    linear-gradient(180deg, var(--gji-surface) 0%, var(--ifm-background-color) 18rem);
+}
+
+.hero {
+  padding: 5rem 0 3rem;
+}
+
+.heroInner {
+  align-items: stretch;
+  display: flex;
+  gap: 2rem;
+}
+
+.heroCopy {
+  flex: 1.15;
+}
+
+.eyebrow,
+.sectionLabel {
+  color: var(--gji-accent-strong);
+  font-size: 0.82rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  margin-bottom: 0.75rem;
+  text-transform: uppercase;
+}
+
+.heroTitle,
+.sectionTitle {
+  color: var(--gji-ink-strong);
+  font-family: var(--gji-heading-font);
+  font-weight: 700;
+  letter-spacing: -0.04em;
+  line-height: 0.95;
+  margin: 0;
+}
+
+.heroTitle {
+  font-size: clamp(3.2rem, 8vw, 5.8rem);
+  max-width: 12ch;
+}
+
+.heroLead {
+  color: var(--gji-ink);
+  font-size: 1.15rem;
+  line-height: 1.7;
+  margin: 1.5rem 0 0;
+  max-width: 42rem;
+}
+
+.ctaRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.9rem;
+  margin-top: 2rem;
+}
+
+.primaryButton,
+.secondaryButton {
+  border: 1px solid transparent;
+  border-radius: 999px;
+  font-weight: 700;
+  min-width: 10rem;
+}
+
+.primaryButton {
+  background: var(--gji-accent);
+  color: #ffffff;
+}
+
+.primaryButton:hover {
+  background: var(--gji-accent-strong);
+  color: #ffffff;
+}
+
+.secondaryButton {
+  background: transparent;
+  border-color: var(--gji-border);
+  color: var(--gji-ink-strong);
+}
+
+.secondaryButton:hover {
+  border-color: var(--gji-accent);
+  color: var(--gji-accent-strong);
+}
+
+.heroMeta {
+  color: var(--gji-muted);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.9rem 1.4rem;
+  font-size: 0.95rem;
+  margin-top: 1.4rem;
+}
+
+.commandPanel {
+  background: linear-gradient(180deg, rgba(19, 25, 35, 0.96), rgba(14, 19, 28, 0.98));
+  border: 1px solid rgba(196, 204, 217, 0.12);
+  border-radius: 1.5rem;
+  box-shadow: 0 2rem 5rem rgba(15, 23, 42, 0.16);
+  color: #f5f7fb;
+  flex: 0.95;
+  padding: 1.2rem;
+}
+
+.commandHeader {
+  align-items: center;
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}
+
+.commandDot {
+  background: rgba(255, 255, 255, 0.26);
+  border-radius: 50%;
+  height: 0.7rem;
+  width: 0.7rem;
+}
+
+.commandLabel {
+  color: rgba(255, 255, 255, 0.72);
+  font-size: 0.88rem;
+  margin-left: auto;
+  text-transform: uppercase;
+}
+
+.commandBlock {
+  background: rgba(255, 255, 255, 0.04);
+  border-radius: 1rem;
+  margin: 0;
+  overflow-x: auto;
+  padding: 1.25rem;
+}
+
+.commandNote {
+  color: rgba(255, 255, 255, 0.76);
+  font-size: 0.95rem;
+  margin: 1rem 0 0;
+}
+
+.band,
+.section,
+.sectionAlt {
+  padding: 1.5rem 0 3.5rem;
+}
+
+.bandGrid {
+  align-items: center;
+  display: grid;
+  gap: 1.25rem;
+  grid-template-columns: 1.2fr 1fr 1fr;
+}
+
+.problemBox,
+.solutionBox,
+.stepCard,
+.featureCard,
+.docsCard {
+  border: 1px solid var(--gji-border);
+  border-radius: 1.25rem;
+  padding: 1.4rem;
+}
+
+.problemBox,
+.docsCard {
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.solutionBox,
+.featureCard {
+  background: linear-gradient(180deg, rgba(232, 243, 239, 0.92), rgba(255, 255, 255, 0.84));
+}
+
+.problemLabel {
+  color: var(--gji-accent-strong);
+  font-size: 0.82rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.sectionTitle {
+  font-size: clamp(2rem, 4vw, 3.2rem);
+  margin-bottom: 1.5rem;
+  max-width: 14ch;
+}
+
+.stepGrid,
+.cardGrid,
+.docsGrid {
+  display: grid;
+  gap: 1rem;
+}
+
+.stepGrid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.cardGrid,
+.docsGrid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.docsIntro {
+  align-items: end;
+  display: flex;
+  gap: 1rem;
+  justify-content: space-between;
+}
+
+.inlineLink,
+.docsLink {
+  color: var(--gji-accent-strong);
+  font-weight: 700;
+}
+
+.docsLink {
+  display: inline-flex;
+  margin-top: 0.8rem;
+}
+
+.stepCard h3,
+.featureCard h3,
+.docsCard h3 {
+  color: var(--gji-ink-strong);
+  font-family: var(--gji-heading-font);
+  font-size: 1.25rem;
+  margin-bottom: 0.55rem;
+}
+
+.stepCard p,
+.featureCard p,
+.docsCard p,
+.problemBox p,
+.solutionBox p {
+  color: var(--gji-ink);
+  margin: 0;
+}
+
+@media screen and (max-width: 996px) {
+  .hero {
+    padding-top: 3.25rem;
+  }
+
+  .heroInner,
+  .bandGrid,
+  .stepGrid,
+  .cardGrid,
+  .docsGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .heroInner,
+  .docsIntro {
+    display: block;
+  }
+
+  .commandPanel {
+    margin-top: 1.5rem;
+  }
+
+  .sectionTitle {
+    max-width: none;
+  }
+
+  .inlineLink {
+    display: inline-flex;
+    margin-top: 0.5rem;
+  }
+}
