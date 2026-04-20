@@ -37,7 +37,15 @@ You are deep in a feature branch. A colleague asks for a quick review. You:
 npm install -g @solaqua/gji
 ```
 
-Then add shell integration so `gji go`, `gji new`, and `gji remove` can change your directory:
+Or install into `~/.local` with the curl bootstrapper:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/sjquant/gji/main/install.sh | sh
+```
+
+The installer auto-detects `macOS`/`Linux` and `x64`/`arm64`, installs `gji` into `~/.local/share/gji`, links `~/.local/bin/gji`, and updates the current shell's startup file for `bash`, `zsh`, or `fish`. It requires `node` and `npm` to already be available. Set `GJI_NO_SHELL_SETUP=1` if you want to skip shell config changes.
+
+If you installed with `npm`, add shell integration so `gji go`, `gji new`, and `gji remove` can change your directory:
 
 ```sh
 # zsh
