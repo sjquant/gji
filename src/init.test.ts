@@ -35,9 +35,13 @@ describe('gji init', () => {
       stdout: (chunk) => stdout.push(chunk),
     });
 
-    // Then it prints the shell integration wrapper.
+    // Then it prints the shell integration wrapper and completions.
     expect(result.exitCode).toBe(0);
-    expect(stdout.join('')).toBe(expectedZshIntegration());
+    expect(stdout.join('')).toContain('# >>> gji init >>>');
+    expect(stdout.join('')).toContain('gji() {');
+    expect(stdout.join('')).toContain('__gji_worktree_branches() {');
+    expect(stdout.join('')).toContain('compdef _gji_completion gji');
+    expect(stdout.join('')).toContain('# <<< gji init <<<');
   });
 
   it('auto-detects the shell from SHELL when no shell is provided', async () => {
@@ -50,9 +54,10 @@ describe('gji init', () => {
       stdout: (chunk) => stdout.push(chunk),
     });
 
-    // Then it prints the detected shell integration wrapper.
+    // Then it prints the detected shell integration wrapper and completions.
     expect(result.exitCode).toBe(0);
-    expect(stdout.join('')).toBe(expectedZshIntegration());
+    expect(stdout.join('')).toContain('gji() {');
+    expect(stdout.join('')).toContain('compdef _gji_completion gji');
   });
 
   it('writes zsh integration to the shell rc file with --write', async () => {
@@ -64,9 +69,9 @@ describe('gji init', () => {
     // When gji init writes the zsh integration to disk.
     const result = await runCli(['init', 'zsh', '--write'], { cwd });
 
-    // Then the zsh rc file contains the integration wrapper.
+    // Then the zsh rc file contains the integration wrapper and completions.
     expect(result.exitCode).toBe(0);
-    await expect(readFile(join(home, '.zshrc'), 'utf8')).resolves.toBe(expectedZshIntegration());
+    await expect(readFile(join(home, '.zshrc'), 'utf8')).resolves.toContain('compdef _gji_completion gji');
   });
 
   it('does not duplicate the zsh integration block when --write runs twice', async () => {
@@ -84,6 +89,52 @@ describe('gji init', () => {
 
     expect(content.match(/# >>> gji init >>>/g)).toHaveLength(1);
     expect(content.match(/# <<< gji init <<</g)).toHaveLength(1);
+  });
+
+  it('prints bash completions as part of the bash integration', async () => {
+    // Given a command output collector.
+    const stdout: string[] = [];
+
+    // When gji init runs for bash explicitly.
+    const result = await runCli(['init', 'bash'], {
+      stdout: (chunk) => stdout.push(chunk),
+    });
+
+    // Then the script includes the bash completion hook.
+    expect(result.exitCode).toBe(0);
+    expect(stdout.join('')).toContain('_gji_completion() {');
+    expect(stdout.join('')).toContain('complete -F _gji_completion gji');
+  });
+
+  it('prints zsh completions with subcommand-aware positional arguments', async () => {
+    // Given a command output collector.
+    const stdout: string[] = [];
+
+    // When gji init runs for zsh explicitly.
+    const result = await runCli(['init', 'zsh'], {
+      stdout: (chunk) => stdout.push(chunk),
+    });
+
+    // Then the zsh completion script completes values after the subcommand token.
+    expect(result.exitCode).toBe(0);
+    expect(stdout.join('')).toContain("'2:shell:(bash fish zsh)'");
+    expect(stdout.join('')).toContain("'2:branch:->worktrees'");
+    expect(stdout.join('')).toContain("'2:action:(get set unset)' '3:key:->config_keys' '4:value: '");
+  });
+
+  it('prints fish completions as part of the fish integration', async () => {
+    // Given a command output collector.
+    const stdout: string[] = [];
+
+    // When gji init runs for fish explicitly.
+    const result = await runCli(['init', 'fish'], {
+      stdout: (chunk) => stdout.push(chunk),
+    });
+
+    // Then the script includes fish completion definitions.
+    expect(result.exitCode).toBe(0);
+    expect(stdout.join('')).toContain('function __gji_worktree_branches');
+    expect(stdout.join('')).toContain("complete -c gji -n '__fish_use_subcommand' -a 'new'");
   });
 });
 
@@ -189,97 +240,3 @@ describe('gji init --write preferences prompt', () => {
     expect('installSaveTarget' in globalConfig).toBe(false);
   });
 });
-
-function expectedZshIntegration(): string {
-  return `# >>> gji init >>>
-gji() {
-  if [ "$1" = "new" ]; then
-    shift
-    if [ "\${1:-}" = "--help" ]; then
-      command gji new "$@"
-      return $?
-    fi
-
-    local target
-    local output_file
-    output_file="$(mktemp -t gji-new.XXXXXX)" || return 1
-    GJI_NEW_OUTPUT_FILE="$output_file" command gji new "$@" || { local exit_code=$?; rm -f "$output_file"; return $exit_code; }
-    target="$(cat "$output_file")"
-    rm -f "$output_file"
-    cd "$target" || return $?
-    return 0
-  fi
-
-  if [ "$1" = "pr" ]; then
-    shift
-    if [ "\${1:-}" = "--help" ]; then
-      command gji pr "$@"
-      return $?
-    fi
-
-    local target
-    local output_file
-    output_file="$(mktemp -t gji-pr.XXXXXX)" || return 1
-    GJI_PR_OUTPUT_FILE="$output_file" command gji pr "$@" || { local exit_code=$?; rm -f "$output_file"; return $exit_code; }
-    target="$(cat "$output_file")"
-    rm -f "$output_file"
-    cd "$target" || return $?
-    return 0
-  fi
-
-  if [ "$1" = "go" ]; then
-    shift
-    if [ "\${1:-}" = "--print" ]; then
-      command gji go "$@"
-      return $?
-    fi
-
-    local target
-    local output_file
-    output_file="$(mktemp -t gji-go.XXXXXX)" || return 1
-    GJI_GO_OUTPUT_FILE="$output_file" command gji go "$@" || { local exit_code=$?; rm -f "$output_file"; return $exit_code; }
-    target="$(cat "$output_file")"
-    rm -f "$output_file"
-    cd "$target" || return $?
-    return 0
-  fi
-
-  if [ "$1" = "root" ]; then
-    shift
-    if [ "\${1:-}" = "--print" ]; then
-      command gji root "$@"
-      return $?
-    fi
-
-    local target
-    local output_file
-    output_file="$(mktemp -t gji-root.XXXXXX)" || return 1
-    GJI_ROOT_OUTPUT_FILE="$output_file" command gji root "$@" || { local exit_code=$?; rm -f "$output_file"; return $exit_code; }
-    target="$(cat "$output_file")"
-    rm -f "$output_file"
-    cd "$target" || return $?
-    return 0
-  fi
-
-  if [ "$1" = "remove" ] || [ "$1" = "rm" ]; then
-    shift
-    if [ "\${1:-}" = "--help" ]; then
-      command gji remove "$@"
-      return $?
-    fi
-
-    local target
-    local output_file
-    output_file="$(mktemp -t gji-remove.XXXXXX)" || return 1
-    GJI_REMOVE_OUTPUT_FILE="$output_file" command gji remove "$@" || { local exit_code=$?; rm -f "$output_file"; return $exit_code; }
-    target="$(cat "$output_file")"
-    rm -f "$output_file"
-    cd "$target" || return $?
-    return 0
-  fi
-
-  command gji "$@"
-}
-# <<< gji init <<<
-`;
-}

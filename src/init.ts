@@ -5,6 +5,7 @@ import { dirname, join } from 'node:path';
 import { isCancel, select } from '@clack/prompts';
 
 import { loadGlobalConfig, updateGlobalConfigKey } from './config.js';
+import { renderShellCompletion } from './shell-completion.js';
 
 export type SupportedShell = 'bash' | 'fish' | 'zsh';
 
@@ -118,6 +119,7 @@ export function renderShellIntegration(shell: SupportedShell): string {
   const commandBlocks = SHELL_WRAPPED_COMMANDS.map((command) =>
     shell === 'fish' ? renderFishWrapper(command) : renderPosixWrapper(command),
   ).join('\n\n');
+  const completionBlock = renderShellCompletion(shell);
 
   switch (shell) {
     case 'fish':
@@ -127,6 +129,8 @@ ${indentBlock(commandBlocks, 4)}
 
     command gji $argv
 end
+
+${completionBlock}
 ${END_MARKER}
 `;
     case 'bash':
@@ -137,6 +141,8 @@ ${indentBlock(commandBlocks, 2)}
 
   command gji "$@"
 }
+
+${completionBlock}
 ${END_MARKER}
 `;
   }

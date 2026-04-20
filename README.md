@@ -37,7 +37,7 @@ You are deep in a feature branch. A colleague asks for a quick review. You:
 npm install -g @solaqua/gji
 ```
 
-Then add shell integration so `gji go`, `gji new`, and `gji remove` can change your directory:
+Then add shell integration so `gji go`, `gji new`, and `gji remove` can change your directory. The generated script also installs shell completions:
 
 ```sh
 # zsh
@@ -45,6 +45,9 @@ echo 'eval "$(gji init zsh)"' >> ~/.zshrc && source ~/.zshrc
 
 # bash
 echo 'eval "$(gji init bash)"' >> ~/.bashrc && source ~/.bashrc
+
+# fish
+gji init fish >> ~/.config/fish/config.fish && source ~/.config/fish/config.fish
 ```
 
 ## Quick start
@@ -105,6 +108,8 @@ Without shell integration `gji` prints paths and exits — which is fine for scr
 gji init zsh   # prints the shell function, review it if you like
 ```
 
+The generated shell script includes command and option completions for bash, zsh, and fish.
+
 To install automatically:
 
 ```sh
@@ -113,6 +118,9 @@ echo 'eval "$(gji init zsh)"' >> ~/.zshrc
 
 # bash
 echo 'eval "$(gji init bash)"' >> ~/.bashrc
+
+# fish
+gji init fish >> ~/.config/fish/config.fish
 ```
 
 After a reinstall or upgrade, re-source to pick up changes:
