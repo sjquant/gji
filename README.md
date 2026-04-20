@@ -45,6 +45,10 @@ echo 'eval "$(gji init zsh)"' >> ~/.zshrc && source ~/.zshrc
 
 # bash
 echo 'eval "$(gji init bash)"' >> ~/.bashrc && source ~/.bashrc
+
+# fish
+gji init fish --write
+source ~/.config/fish/config.fish
 ```
 
 ## Quick start
@@ -115,12 +119,16 @@ echo 'eval "$(gji init zsh)"' >> ~/.zshrc
 
 # bash
 echo 'eval "$(gji init bash)"' >> ~/.bashrc
+
+# fish
+gji init fish --write
 ```
 
 After a reinstall or upgrade, re-source to pick up changes:
 
 ```sh
 eval "$(gji init zsh)"
+gji init fish | source
 ```
 
 For scripts that need the raw path, use `--print`:
