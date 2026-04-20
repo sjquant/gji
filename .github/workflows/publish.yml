@@ -116,9 +116,10 @@ jobs:
         run: |
           VERSION="${{ steps.meta.outputs.version }}"
           TARBALL="gji-v${VERSION}.tar.gz"
-          mkdir -p homebrew-release/bin homebrew-release/man/man1
+          mkdir -p homebrew-release/bin homebrew-release/libexec homebrew-release/man/man1
           cp dist/gji homebrew-release/bin/gji
-          cp dist/gji-bundle.mjs homebrew-release/bin/gji-bundle.mjs
+          chmod 755 homebrew-release/bin/gji
+          cp dist/gji-bundle.mjs homebrew-release/libexec/gji-bundle.mjs
           cp man/man1/*.1 homebrew-release/man/man1/ 2>/dev/null || true
           tar -czf "$TARBALL" -C homebrew-release .
           SHA256=$(sha256sum "$TARBALL" | cut -d' ' -f1)
@@ -164,7 +165,7 @@ jobs:
             "${{ steps.tarball.outputs.tarball }}" --clobber
 
       - name: Update Homebrew formula
-        if: steps.published.outputs.result != 'true'
+        if: steps.published.outputs.result != 'true' && steps.tarball.outputs.sha256 != ''
         run: |
           VERSION="${{ steps.meta.outputs.version }}"
           TAG="${{ steps.meta.outputs.tag }}"
