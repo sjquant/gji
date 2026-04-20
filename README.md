@@ -306,6 +306,8 @@ GJI_NO_TUI=1 gji clean --force
 
 `GJI_NO_TUI=1` disables all prompts. Commands that need confirmation require `--force`. `--json` implies the same behaviour.
 
+Update notifications are also suppressed automatically in non-interactive and `--json` runs. Users can opt out explicitly with `NO_UPDATE_NOTIFIER=1` or `--no-update-notifier`.
+
 ## Notes
 
 - Works from either the main repo root or inside any linked worktree
