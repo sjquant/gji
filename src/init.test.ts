@@ -40,6 +40,20 @@ describe('gji init', () => {
     expect(stdout.join('')).toBe(expectedZshIntegration());
   });
 
+  it('prints fish integration code explicitly', async () => {
+    // Given a command output collector.
+    const stdout: string[] = [];
+
+    // When gji init runs for fish explicitly.
+    const result = await runCli(['init', 'fish'], {
+      stdout: (chunk) => stdout.push(chunk),
+    });
+
+    // Then it prints the shell integration wrapper.
+    expect(result.exitCode).toBe(0);
+    expect(stdout.join('')).toBe(expectedFishIntegration());
+  });
+
   it('auto-detects the shell from SHELL when no shell is provided', async () => {
     // Given a zsh SHELL environment and a command output collector.
     const stdout: string[] = [];
@@ -55,6 +69,21 @@ describe('gji init', () => {
     expect(stdout.join('')).toBe(expectedZshIntegration());
   });
 
+  it('auto-detects fish from SHELL when no shell is provided', async () => {
+    // Given a fish SHELL environment and a command output collector.
+    const stdout: string[] = [];
+    process.env.SHELL = '/opt/homebrew/bin/fish';
+
+    // When gji init runs without an explicit shell argument.
+    const result = await runCli(['init'], {
+      stdout: (chunk) => stdout.push(chunk),
+    });
+
+    // Then it prints the detected shell integration wrapper.
+    expect(result.exitCode).toBe(0);
+    expect(stdout.join('')).toBe(expectedFishIntegration());
+  });
+
   it('writes zsh integration to the shell rc file with --write', async () => {
     // Given an isolated home directory and working directory.
     const home = await mkdtemp(join(tmpdir(), 'gji-home-'));
@@ -67,6 +96,22 @@ describe('gji init', () => {
     // Then the zsh rc file contains the integration wrapper.
     expect(result.exitCode).toBe(0);
     await expect(readFile(join(home, '.zshrc'), 'utf8')).resolves.toBe(expectedZshIntegration());
+  });
+
+  it('writes fish integration to the shell config file with --write', async () => {
+    // Given an isolated home directory and working directory.
+    const home = await mkdtemp(join(tmpdir(), 'gji-home-'));
+    process.env.HOME = home;
+    const cwd = await mkdtemp(join(tmpdir(), 'gji-cwd-'));
+
+    // When gji init writes the fish integration to disk.
+    const result = await runCli(['init', 'fish', '--write'], { cwd });
+
+    // Then the fish config contains the integration wrapper.
+    expect(result.exitCode).toBe(0);
+    await expect(
+      readFile(join(home, '.config', 'fish', 'config.fish'), 'utf8'),
+    ).resolves.toBe(expectedFishIntegration());
   });
 
   it('does not duplicate the zsh integration block when --write runs twice', async () => {
@@ -280,6 +325,120 @@ gji() {
 
   command gji "$@"
 }
+# <<< gji init <<<
+`;
+}
+
+function expectedFishIntegration(): string {
+  return `# >>> gji init >>>
+function gji --wraps gji --description 'gji shell integration'
+    if test (count $argv) -gt 0; and test $argv[1] = new
+        set -e argv[1]
+        if test (count $argv) -gt 0; and test $argv[1] = --help
+            command gji new $argv
+            return $status
+        end
+
+        set -l output_file (mktemp -t gji-new.XXXXXX)
+        or return 1
+        env GJI_NEW_OUTPUT_FILE=$output_file command gji new $argv
+        or begin
+            set -l status_code $status
+            rm -f $output_file
+            return $status_code
+        end
+        set -l target (cat $output_file)
+        rm -f $output_file
+        cd $target
+        return $status
+    end
+
+    if test (count $argv) -gt 0; and test $argv[1] = pr
+        set -e argv[1]
+        if test (count $argv) -gt 0; and test $argv[1] = --help
+            command gji pr $argv
+            return $status
+        end
+
+        set -l output_file (mktemp -t gji-pr.XXXXXX)
+        or return 1
+        env GJI_PR_OUTPUT_FILE=$output_file command gji pr $argv
+        or begin
+            set -l status_code $status
+            rm -f $output_file
+            return $status_code
+        end
+        set -l target (cat $output_file)
+        rm -f $output_file
+        cd $target
+        return $status
+    end
+
+    if test (count $argv) -gt 0; and test $argv[1] = go
+        set -e argv[1]
+        if test (count $argv) -gt 0; and test $argv[1] = --print
+            command gji go $argv
+            return $status
+        end
+
+        set -l output_file (mktemp -t gji-go.XXXXXX)
+        or return 1
+        env GJI_GO_OUTPUT_FILE=$output_file command gji go $argv
+        or begin
+            set -l status_code $status
+            rm -f $output_file
+            return $status_code
+        end
+        set -l target (cat $output_file)
+        rm -f $output_file
+        cd $target
+        return $status
+    end
+
+    if test (count $argv) -gt 0; and test $argv[1] = root
+        set -e argv[1]
+        if test (count $argv) -gt 0; and test $argv[1] = --print
+            command gji root $argv
+            return $status
+        end
+
+        set -l output_file (mktemp -t gji-root.XXXXXX)
+        or return 1
+        env GJI_ROOT_OUTPUT_FILE=$output_file command gji root $argv
+        or begin
+            set -l status_code $status
+            rm -f $output_file
+            return $status_code
+        end
+        set -l target (cat $output_file)
+        rm -f $output_file
+        cd $target
+        return $status
+    end
+
+    if test (count $argv) -gt 0; and test $argv[1] = remove; or test $argv[1] = rm
+        set -e argv[1]
+        if test (count $argv) -gt 0; and test $argv[1] = --help
+            command gji remove $argv
+            return $status
+        end
+
+        set -l output_file (mktemp -t gji-remove.XXXXXX)
+        or return 1
+        env GJI_REMOVE_OUTPUT_FILE=$output_file command gji remove $argv
+        or begin
+            set -l status_code $status
+            rm -f $output_file
+            return $status_code
+        end
+        set -l target (cat $output_file)
+        rm -f $output_file
+        cd $target
+        return $status
+    end
+
+    command gji $argv
+end
 # <<< gji init <<<
 `;
 }
