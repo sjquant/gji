@@ -227,6 +227,94 @@ describe('gji pr', () => {
     await expect(currentBranch(worktreePath)).resolves.toBe('pr/555');
   });
 
+  it('fetches a GitLab merge request ref from origin and creates a linked worktree', async () => {
+    // Given a repository with an origin remote exposing refs/merge-requests/556/head.
+    const { repoRoot } = await createRepositoryWithOrigin();
+    const branchName = 'feature/gitlab-mr-source';
+    const worktreePath = resolveWorktreePath(repoRoot, 'pr/556');
+
+    await runGit(repoRoot, ['checkout', '-b', branchName]);
+    await commitFile(repoRoot, 'gitlab-mr.txt', 'gitlab mr\n', 'gitlab mr');
+    await pushPullRequestRef(repoRoot, '556', 'gitlab');
+    await runGit(repoRoot, ['checkout', '-']);
+
+    // When gji pr is called with a GitLab merge request URL.
+    const result = await runCli(['pr', 'https://gitlab.com/owner/repo/-/merge_requests/556'], {
+      cwd: repoRoot,
+    });
+
+    // Then it creates the worktree by fetching the GitLab merge request ref.
+    expect(result.exitCode).toBe(0);
+    await expect(pathExists(worktreePath)).resolves.toBe(true);
+    await expect(currentBranch(worktreePath)).resolves.toBe('pr/556');
+  });
+
+  it('fetches a Bitbucket pull request ref from origin and creates a linked worktree', async () => {
+    // Given a repository with an origin remote exposing refs/pull-requests/557/from.
+    const { repoRoot } = await createRepositoryWithOrigin();
+    const branchName = 'feature/bitbucket-pr-source';
+    const worktreePath = resolveWorktreePath(repoRoot, 'pr/557');
+
+    await runGit(repoRoot, ['checkout', '-b', branchName]);
+    await commitFile(repoRoot, 'bitbucket-pr.txt', 'bitbucket pr\n', 'bitbucket pr');
+    await pushPullRequestRef(repoRoot, '557', 'bitbucket');
+    await runGit(repoRoot, ['checkout', '-']);
+
+    // When gji pr is called with a Bitbucket pull request URL.
+    const result = await runCli(['pr', 'https://bitbucket.org/owner/repo/pull-requests/557'], {
+      cwd: repoRoot,
+    });
+
+    // Then it creates the worktree by fetching the Bitbucket pull request ref.
+    expect(result.exitCode).toBe(0);
+    await expect(pathExists(worktreePath)).resolves.toBe(true);
+    await expect(currentBranch(worktreePath)).resolves.toBe('pr/557');
+  });
+
+  it('falls back to a GitLab merge request ref for plain numeric input', async () => {
+    // Given a repository with an origin remote exposing refs/merge-requests/558/head.
+    const { repoRoot } = await createRepositoryWithOrigin();
+    const branchName = 'feature/gitlab-numeric-source';
+    const worktreePath = resolveWorktreePath(repoRoot, 'pr/558');
+
+    await runGit(repoRoot, ['checkout', '-b', branchName]);
+    await commitFile(repoRoot, 'gitlab-numeric.txt', 'gitlab numeric\n', 'gitlab numeric');
+    await pushPullRequestRef(repoRoot, '558', 'gitlab');
+    await runGit(repoRoot, ['checkout', '-']);
+
+    // When gji pr is called with a plain numeric reference.
+    const result = await runCli(['pr', '558'], {
+      cwd: repoRoot,
+    });
+
+    // Then it falls back from GitHub to the GitLab merge request ref and creates the worktree.
+    expect(result.exitCode).toBe(0);
+    await expect(pathExists(worktreePath)).resolves.toBe(true);
+    await expect(currentBranch(worktreePath)).resolves.toBe('pr/558');
+  });
+
+  it('falls back to a Bitbucket pull request ref for plain numeric input', async () => {
+    // Given a repository with an origin remote exposing refs/pull-requests/559/from.
+    const { repoRoot } = await createRepositoryWithOrigin();
+    const branchName = 'feature/bitbucket-numeric-source';
+    const worktreePath = resolveWorktreePath(repoRoot, 'pr/559');
+
+    await runGit(repoRoot, ['checkout', '-b', branchName]);
+    await commitFile(repoRoot, 'bitbucket-numeric.txt', 'bitbucket numeric\n', 'bitbucket numeric');
+    await pushPullRequestRef(repoRoot, '559', 'bitbucket');
+    await runGit(repoRoot, ['checkout', '-']);
+
+    // When gji pr is called with a plain numeric reference.
+    const result = await runCli(['pr', '559'], {
+      cwd: repoRoot,
+    });
+
+    // Then it falls back through the forge ref namespaces and creates the worktree from Bitbucket.
+    expect(result.exitCode).toBe(0);
+    await expect(pathExists(worktreePath)).resolves.toBe(true);
+    await expect(currentBranch(worktreePath)).resolves.toBe('pr/559');
+  });
+
   it('accepts a #-prefixed PR number', async () => {
     // Given a repository with a PR ref on origin.
     const { repoRoot } = await createRepositoryWithOrigin();

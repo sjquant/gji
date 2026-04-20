@@ -310,7 +310,7 @@ GJI_NO_TUI=1 gji clean --force
 
 - Works from either the main repo root or inside any linked worktree
 - The current worktree is never offered as a `gji clean` candidate
-- `gji pr` parses GitHub, GitLab, and Bitbucket URLs but always fetches via `refs/pull/<number>/head` from `origin`
+- `gji pr` fetches from `origin` using the first matching forge ref namespace: GitHub `refs/pull/<number>/head`, GitLab `refs/merge-requests/<number>/head`, then Bitbucket `refs/pull-requests/<number>/from`
 
 ## License
 
