@@ -110,6 +110,10 @@ jobs:
         if: steps.published.outputs.result != 'true'
         run: pnpm bundle
 
+      - name: Smoke-test bundle
+        if: steps.published.outputs.result != 'true'
+        run: node dist/gji --version
+
       - name: Create Homebrew tarball
         if: steps.published.outputs.result != 'true'
         id: tarball
