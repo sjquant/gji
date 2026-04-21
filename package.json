@@ -42,6 +42,7 @@
   },
   "scripts": {
     "build": "node scripts/clean-dist.mjs && tsc -p tsconfig.build.json",
+    "generate:readme-demos": "node scripts/generate-readme-demos.mjs",
     "generate-man": "node scripts/generate-man.mjs",
     "docs:build": "pnpm --dir website build",
     "docs:start": "pnpm --dir website start",

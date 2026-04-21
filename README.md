@@ -1,6 +1,6 @@
 # gji — Git worktrees without the hassle
 
-> Jump between tasks instantly. No stash. No reinstall. No mess.
+> Jump between tasks instantly. No stash. No branch juggling. No mess.
 
 `gji` wraps Git worktrees into a fast, ergonomic CLI. Each branch gets its own directory, its own `node_modules`, and its own terminal — so switching context is a single command instead of a ritual.
 
@@ -10,6 +10,23 @@ gji pr 1234                        # review PR in isolation, cd in
 gji go main                        # jump back, shell changes directory
 gji remove feature/payment-refactor
 ```
+
+## Before / After
+
+<table>
+  <tr>
+    <td width="50%" valign="top">
+      <strong>Before</strong><br />
+      <img src=".github/assets/readme-before.gif" alt="Traditional branch review flow with git stash, branch switching, reinstalling dependencies, and a merge conflict on stash pop." />
+    </td>
+    <td width="50%" valign="top">
+      <strong>After</strong><br />
+      <img src=".github/assets/readme-after.gif" alt="gji creating an isolated pull request worktree from the terminal in a few commands." />
+    </td>
+  </tr>
+</table>
+
+Maintainer note: `pnpm generate:readme-demos` currently expects macOS, `zsh`, Google Chrome, `asciinema`, and `ffmpeg`.
 
 ---
 
@@ -23,13 +40,13 @@ You are deep in a feature branch. A colleague asks for a quick review. You:
 
 1. stash your changes
 2. checkout their branch
-3. wait for `pnpm install` to finish
+3. wait for `npm install` to finish
 4. review
 5. checkout back
 6. pop your stash
 7. realize something is broken
 
-**Or you use `gji` and it is just `gji pr 1234`.**
+**Or you use `gji`, run `gji pr 1234`, and let the fresh worktree boot itself.**
 
 ## Install
 
