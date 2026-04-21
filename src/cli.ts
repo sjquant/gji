@@ -1,9 +1,11 @@
 import { createRequire } from 'node:module';
 import { Command } from 'commander';
+import updateNotifier from 'update-notifier';
 
 import { runCleanCommand } from './clean.js';
 import { runConfigCommand } from './config-command.js';
 import { runGoCommand } from './go.js';
+import { isHeadless } from './headless.js';
 import { runInitCommand } from './init.js';
 import { runLsCommand } from './ls.js';
 import { runNewCommand } from './new.js';
@@ -13,6 +15,11 @@ import { runRootCommand } from './root.js';
 import { runStatusCommand } from './status.js';
 import { runSyncCommand } from './sync.js';
 import { runTriggerHookCommand } from './trigger-hook.js';
+
+interface PackageMetadata {
+  name: string;
+  version: string;
+}
 
 export interface RunCliOptions {
   cwd?: string;
@@ -24,14 +31,20 @@ export interface RunCliResult {
   exitCode: number;
 }
 
+interface CommandActionOptions {
+  cwd: string;
+  stderr: (chunk: string) => void;
+  stdout: (chunk: string) => void;
+}
+
 export function createProgram(): Command {
   const program = new Command();
-  const packageVersion = readPackageVersion();
+  const packageMetadata = readPackageMetadata();
 
   program
     .name('gji')
     .description('Context switching without the mess.')
-    .version(packageVersion)
+    .version(packageMetadata.version)
     .showHelpAfterError()
     .showSuggestionAfterError();
 
@@ -40,17 +53,25 @@ export function createProgram(): Command {
   return program;
 }
 
-function readPackageVersion(): string {
+function readPackageMetadata(): PackageMetadata {
   const require = createRequire(import.meta.url);
-  const packageJson = require('../package.json') as { version?: unknown };
+  const packageJson = require('../package.json') as {
+    name?: unknown;
+    version?: unknown;
+  };
 
-  return typeof packageJson.version === 'string' ? packageJson.version : '0.0.0';
+  return {
+    name: typeof packageJson.name === 'string' ? packageJson.name : 'gji',
+    version: typeof packageJson.version === 'string' ? packageJson.version : '0.0.0',
+  };
 }
 
 export async function runCli(
   argv: string[],
   options: RunCliOptions = {},
 ): Promise<RunCliResult> {
+  await maybeNotifyForUpdates(argv);
+
   const program = createProgram();
   const cwd = options.cwd ?? process.cwd();
   const stdout = options.stdout ?? (() => undefined);
@@ -80,6 +101,47 @@ export async function runCli(
 
     throw error;
   }
+}
+
+async function maybeNotifyForUpdates(
+  argv: string[],
+): Promise<void> {
+  if (shouldSkipUpdateNotification(argv)) {
+    return;
+  }
+
+  try {
+    defaultNotifyForUpdates(readPackageMetadata());
+  } catch {
+    // Ignore notifier failures so startup behaviour stays stable.
+  }
+}
+
+function shouldSkipUpdateNotification(argv: string[]): boolean {
+  return (
+    argv.length === 0
+    || argv.includes('--json')
+    || argv.some(isHelpOrVersionArgument)
+    || isHeadless()
+    || process.stdout.isTTY !== true
+    || process.stderr.isTTY !== true
+  );
+}
+
+function isHelpOrVersionArgument(argument: string): boolean {
+  return (
+    argument === '--help'
+    || argument === '-h'
+    || argument === 'help'
+    || argument === '--version'
+    || argument === '-V'
+  );
+}
+
+function defaultNotifyForUpdates(pkg: PackageMetadata): void {
+  const notifier = updateNotifier({ pkg });
+
+  notifier.notify();
 }
 
 function registerCommands(program: Command): void {
@@ -181,7 +243,7 @@ function registerCommands(program: Command): void {
 
 function attachCommandActions(
   program: Command,
-  options: Required<RunCliOptions>,
+  options: CommandActionOptions,
 ): void {
   program.commands
     .find((command) => command.name() === 'new')
