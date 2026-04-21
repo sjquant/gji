@@ -106,6 +106,30 @@ jobs:
         if: steps.published.outputs.result != 'true'
         run: pnpm generate-man
 
+      - name: Bundle for Homebrew
+        if: steps.published.outputs.result != 'true'
+        run: pnpm bundle
+
+      - name: Smoke-test bundle
+        if: steps.published.outputs.result != 'true'
+        run: node dist/gji --version
+
+      - name: Create Homebrew tarball
+        if: steps.published.outputs.result != 'true'
+        id: tarball
+        run: |
+          VERSION="${{ steps.meta.outputs.version }}"
+          TARBALL="gji-v${VERSION}.tar.gz"
+          mkdir -p homebrew-release/bin homebrew-release/libexec homebrew-release/man/man1
+          cp dist/gji homebrew-release/bin/gji
+          chmod 755 homebrew-release/bin/gji
+          cp dist/gji-bundle.mjs homebrew-release/libexec/gji-bundle.mjs
+          cp man/man1/*.1 homebrew-release/man/man1/ 2>/dev/null || true
+          tar -czf "$TARBALL" -C homebrew-release .
+          SHA256=$(sha256sum "$TARBALL" | cut -d' ' -f1)
+          echo "tarball=$TARBALL" >> "$GITHUB_OUTPUT"
+          echo "sha256=$SHA256" >> "$GITHUB_OUTPUT"
+
       - name: Resolve npm dist-tag
         if: steps.published.outputs.result != 'true'
         id: npm_tag
@@ -126,6 +150,7 @@ jobs:
         run: npm publish --ignore-scripts --provenance --tag "${{ steps.npm_tag.outputs.tag }}"
 
       - name: Create GitHub release
+        if: steps.published.outputs.result != 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -134,3 +159,26 @@ jobs:
             --title "${{ steps.meta.outputs.tag }}" \
             --generate-notes \
             --target "$(git rev-parse HEAD)"
+
+      - name: Upload Homebrew tarball to release
+        if: steps.published.outputs.result != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release upload "${{ steps.meta.outputs.tag }}" \
+            "${{ steps.tarball.outputs.tarball }}" --clobber
+
+      - name: Update Homebrew formula
+        if: steps.published.outputs.result != 'true' && steps.tarball.outputs.sha256 != ''
+        run: |
+          VERSION="${{ steps.meta.outputs.version }}"
+          TAG="${{ steps.meta.outputs.tag }}"
+          SHA256="${{ steps.tarball.outputs.sha256 }}"
+          URL="https://github.com/sjquant/gji/releases/download/${TAG}/gji-v${VERSION}.tar.gz"
+          sed -i "s|url \".*\"|url \"${URL}\"|" Formula/gji.rb
+          sed -i "s|sha256 \".*\"|sha256 \"${SHA256}\"|" Formula/gji.rb
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Formula/gji.rb
+          git diff --staged --quiet || git commit -m "chore: update Homebrew formula to ${TAG}"
+          git push origin main

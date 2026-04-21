@@ -1,0 +1,106 @@
+---
+title: Comparison
+description: See when to use gji instead of raw git worktree, lazygit, or ghq, and where they complement each other.
+---
+
+# Comparison
+
+`gji` wins when the problem is not "Can Git do this?" but "How fast can I switch into the next task without breaking the one I already have open?"
+
+It gives you the power of Git worktrees in a form that actually feels good to use every day:
+
+- branch or PR to ready-to-use worktree in one command
+- predictable paths that play nicely with editors, terminals, and scripts
+- shell handoff so you land in the new directory immediately
+- cleanup and sync flows built for real day-to-day maintenance
+- hooks that make new worktrees feel ready instead of empty
+
+## Why this matters in the AI era
+
+AI does not reduce context switching. It increases it.
+
+You are more likely to have several repository states active at once:
+
+- your own feature work
+- one or more pull requests to inspect
+- an experimental branch for agent-generated code
+- a safe place to verify edits, installs, or migrations without disturbing everything else
+
+That is why Git worktrees matter more now than they used to.
+
+The problem is that raw worktrees are still too manual for high-frequency use. `gji` closes that gap and makes parallel work feel lightweight enough to become your default.
+
+## Why people choose `gji`
+
+Most tools in this space are either too low level or aimed at a different problem.
+
+`gji` is built for one very specific high-frequency workflow:
+
+- you are already in the middle of something
+- another branch or PR needs attention
+- you do not want to stash, checkout, reinstall, and undo your own context
+- you want the new task isolated and ready now
+
+That is where `gji` feels better than the alternatives.
+
+## At a glance
+
+| Tool | Best at | Why `gji` feels better for branch and PR switching |
+| --- | --- | --- |
+| Raw `git worktree` | Low-level Git control | `gji` removes the ceremony and gives you a smoother default workflow |
+| `lazygit` | General Git UI | `gji` is faster when the goal is "open the right task in its own directory now" |
+| `ghq` | Organizing repositories | `gji` solves a different layer: isolating work inside one repository |
+
+## `gji` vs raw `git worktree`
+
+Raw `git worktree` is powerful. `gji` is that power with the friction removed.
+
+With raw Git, you still have to remember the path layout, the fetch flow, the branch setup, the cleanup commands, and how to land in the new directory.
+
+With `gji`, the common path is already designed:
+
+- `gji new` for a new branch and worktree
+- `gji pr` for a pull request in isolation
+- `gji go` to jump back instantly
+- `gji sync` and `gji clean` to keep the whole set healthy
+
+The advantage is simple: less remembering, less typing, less accidental disruption.
+
+## `gji` vs `lazygit`
+
+`lazygit` is excellent when you are already inside the right checkout and want to do Git work comfortably.
+
+`gji` is better one step earlier:
+
+- getting the branch or PR into its own directory
+- moving your shell there immediately
+- keeping paths predictable across many active tasks
+- cleaning up stale worktrees without manual Git housekeeping
+
+They are not enemies. Many people will use `gji` to enter the right worktree, then run `lazygit` inside it.
+
+## `gji` vs `ghq`
+
+`ghq` helps you manage many repositories.
+
+`gji` helps you manage many active tasks inside one repository.
+
+That makes them complementary:
+
+- use `ghq` to decide where repos live
+- use `gji` to keep branches and PRs isolated once you are inside a repo
+
+If `ghq` gives you a clean repo layout, `gji` gives you a clean workflow inside each repo.
+
+## Choose `gji` if you want this outcome
+
+Choose `gji` if you want:
+
+- faster branch and PR switching
+- a cleaner way to work on multiple human and AI-assisted tasks in parallel
+- less stash and checkout churn
+- isolated dependencies and generated files per task
+- stable, scriptable worktree paths
+- a worktree workflow that feels like a product, not a pile of Git commands
+
+`gji` is the shortest path from "I need another isolated working copy" to "I am already in it."

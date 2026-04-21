@@ -43,6 +43,7 @@
   "scripts": {
     "build": "node scripts/clean-dist.mjs && tsc -p tsconfig.build.json",
     "generate:readme-demos": "node scripts/generate-readme-demos.mjs",
+    "bundle": "node scripts/bundle.mjs",
     "generate-man": "node scripts/generate-man.mjs",
     "docs:build": "pnpm --dir website build",
     "docs:start": "pnpm --dir website start",
@@ -58,7 +59,11 @@
   },
   "devDependencies": {
     "@types/node": "^24.6.0",
+    "esbuild": "^0.27.0",
     "typescript": "^5.9.3",
     "vitest": "^3.2.4"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": ["esbuild"]
   }
 }

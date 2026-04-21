@@ -3,6 +3,7 @@ import { Command } from 'commander';
 import updateNotifier from 'update-notifier';
 
 import { runCleanCommand } from './clean.js';
+import { runCompletionCommand } from './completion.js';
 import { runConfigCommand } from './config-command.js';
 import { runGoCommand } from './go.js';
 import { isHeadless } from './headless.js';
@@ -161,6 +162,11 @@ function registerCommands(program: Command): void {
     .action(notImplemented('init'));
 
   program
+    .command('completion [shell]')
+    .description('print shell completion definitions')
+    .action(notImplemented('completion'));
+
+  program
     .command('pr <ref>')
     .description('fetch a pull request by number, #number, or URL into a linked worktree')
     .option('--dry-run', 'show what would be created without executing any git commands or writing files')
@@ -264,6 +270,20 @@ function attachCommandActions(
         stderr: options.stderr,
         stdout: options.stdout,
         write: commandOptions.write,
+      });
+
+      if (exitCode !== 0) {
+        throw commanderExit(exitCode);
+      }
+    });
+
+  program.commands
+    .find((command) => command.name() === 'completion')
+    ?.action(async (shell: string | undefined) => {
+      const exitCode = await runCompletionCommand({
+        shell,
+        stderr: options.stderr,
+        stdout: options.stdout,
       });
 
       if (exitCode !== 0) {

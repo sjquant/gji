@@ -4,6 +4,8 @@
 
 `gji` wraps Git worktrees into a fast, ergonomic CLI. Each branch gets its own directory, its own `node_modules`, and its own terminal — so switching context is a single command instead of a ritual.
 
+That matters even more in AI-assisted workflows, where one repository often has several active tasks in parallel: your main feature, a PR review, a scratch experiment, or an agent-driven refactor. `gji` keeps each one isolated and easy to enter.
+
 ```sh
 gji new feature/payment-refactor   # new branch + worktree, cd in
 gji pr 1234                        # review PR in isolation, cd in
@@ -48,6 +50,19 @@ You are deep in a feature branch. A colleague asks for a quick review. You:
 
 **Or you use `gji`, run `gji pr 1234`, and let the fresh worktree boot itself.**
 
+## Why it matters more now
+
+AI increases the amount of parallel work around a codebase.
+
+It is increasingly normal to have:
+
+1. your own branch open
+2. another branch for review
+3. a scratch space for testing an AI-generated change
+4. a separate worktree for validating a risky migration or refactor
+
+That makes Git worktrees more important, because a single shared checkout becomes the bottleneck. `gji` turns worktrees into a daily workflow instead of a Git power-user feature.
+
 ## Install
 
 ```sh
@@ -58,14 +73,32 @@ Then add shell integration so `gji go`, `gji new`, and `gji remove` can change y
 
 ```sh
 # zsh
-echo 'eval "$(gji init zsh)"' >> ~/.zshrc && source ~/.zshrc
+echo 'eval "$(gji init zsh)"' >> ~/.zshrc
 
 # bash
-echo 'eval "$(gji init bash)"' >> ~/.bashrc && source ~/.bashrc
+echo 'eval "$(gji init bash)"' >> ~/.bashrc
 
 # fish
 gji init fish --write
 source ~/.config/fish/config.fish
+```
+
+Install completions as separate files:
+
+```sh
+# zsh
+mkdir -p ~/.zsh/completions
+gji completion zsh > ~/.zsh/completions/_gji
+# add this before running compinit in ~/.zshrc
+fpath=(~/.zsh/completions $fpath)
+
+# bash
+mkdir -p ~/.local/share/bash-completion/completions
+gji completion bash > ~/.local/share/bash-completion/completions/gji
+
+# fish
+mkdir -p ~/.config/fish/completions
+gji completion fish > ~/.config/fish/completions/gji.fish
 ```
 
 ## Quick start
@@ -120,6 +153,20 @@ gji remove feature/auth-refactor  # remove one worktree and its branch
 gji trigger-hook afterCreate      # re-run setup in the current worktree
 ```
 
+## Comparison
+
+`gji` sits between raw Git primitives and larger Git or repository tools:
+
+- **vs raw `git worktree`**: same underlying capability, but with branch-first commands, shell handoff, PR checkout, hooks, sync, and cleanup built into the workflow
+- **vs `lazygit`**: `lazygit` is a broad Git UI; `gji` is narrower and faster for opening, jumping between, and removing isolated branch directories
+- **vs `ghq`**: `ghq` organizes repositories; `gji` organizes active branches and PRs within one repository
+
+Use `gji` when your bottleneck is repeated context switching between features, reviews, and maintenance work without disturbing what is already open.
+
+It is especially useful when those contexts are happening in parallel across both human and AI-assisted work.
+
+See the full comparison in [website/docs/comparison.mdx](./website/docs/comparison.mdx).
+
 ## Shell setup
 
 Without shell integration `gji` prints paths and exits — which is fine for scripts but means it cannot `cd` you into a new worktree. Install the integration once:
@@ -128,7 +175,7 @@ Without shell integration `gji` prints paths and exits — which is fine for scr
 gji init zsh   # prints the shell function, review it if you like
 ```
 
-To install automatically:
+Install the wrapper once:
 
 ```sh
 # zsh
@@ -141,11 +188,37 @@ echo 'eval "$(gji init bash)"' >> ~/.bashrc
 gji init fish --write
 ```
 
-After a reinstall or upgrade, re-source to pick up changes:
+Install completions separately so your shell rc stays small:
 
 ```sh
+# zsh
+mkdir -p ~/.zsh/completions
+gji completion zsh > ~/.zsh/completions/_gji
+# add this before running compinit in ~/.zshrc
+fpath=(~/.zsh/completions $fpath)
+
+# bash
+mkdir -p ~/.local/share/bash-completion/completions
+gji completion bash > ~/.local/share/bash-completion/completions/gji
+
+# fish
+mkdir -p ~/.config/fish/completions
+gji completion fish > ~/.config/fish/completions/gji.fish
+```
+
+After a reinstall or upgrade, refresh both the wrapper and the completion file:
+
+```sh
+# zsh
 eval "$(gji init zsh)"
-gji init fish | source
+gji completion zsh > ~/.zsh/completions/_gji
+# if zsh is already running, refresh completion discovery too
+autoload -Uz compinit && compinit
+
+# fish
+gji init fish --write
+gji completion fish > ~/.config/fish/completions/gji.fish
+source ~/.config/fish/config.fish
 ```
 
 For scripts that need the raw path, use `--print`:
@@ -171,6 +244,7 @@ path=$(gji root --print)
 | `gji trigger-hook <hook>` | run a hook in the current worktree |
 | `gji config [get\|set\|unset] [key] [value]` | manage global defaults |
 | `gji init [shell]` | print or install shell integration |
+| `gji completion [shell]` | print shell completion definitions |
 
 ## Configuration
 
