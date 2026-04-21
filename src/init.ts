@@ -5,8 +5,7 @@ import { dirname, join } from 'node:path';
 import { intro, isCancel, outro, select, text } from '@clack/prompts';
 
 import { loadConfig, loadGlobalConfig, saveGlobalConfig, saveLocalConfig, updateGlobalConfigKey } from './config.js';
-
-export type SupportedShell = 'bash' | 'fish' | 'zsh';
+import { resolveSupportedShell, type SupportedShell } from './shell.js';
 
 const START_MARKER = '# >>> gji init >>>';
 const END_MARKER = '# <<< gji init <<<';
@@ -81,7 +80,7 @@ export interface InitCommandOptions {
 }
 
 export async function runInitCommand(options: InitCommandOptions): Promise<number> {
-  const shell = resolveShell(options.shell, process.env.SHELL);
+  const shell = resolveSupportedShell(options.shell, process.env.SHELL);
   const home = options.home ?? homedir();
 
   if (!shell) {
@@ -205,37 +204,6 @@ async function saveWizardConfig(
     await saveGlobalConfig({ ...existing, ...values }, home);
   }
 }
-
-function resolveShell(
-  requestedShell: string | undefined,
-  detectedShell: string | undefined,
-): SupportedShell | null {
-  const requested = normalizeShell(requestedShell);
-
-  if (requested) {
-    return requested;
-  }
-
-  return normalizeShell(detectedShell);
-}
-
-function normalizeShell(value: string | undefined): SupportedShell | null {
-  if (!value) {
-    return null;
-  }
-
-  const candidate = value.split('/').at(-1)?.toLowerCase();
-
-  switch (candidate) {
-    case 'bash':
-    case 'fish':
-    case 'zsh':
-      return candidate;
-    default:
-      return null;
-  }
-}
-
 function resolveShellConfigPath(shell: SupportedShell, home: string): string {
   switch (shell) {
     case 'bash':

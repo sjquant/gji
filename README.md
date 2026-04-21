@@ -56,14 +56,32 @@ Then add shell integration so `gji go`, `gji new`, and `gji remove` can change y
 
 ```sh
 # zsh
-echo 'eval "$(gji init zsh)"' >> ~/.zshrc && source ~/.zshrc
+echo 'eval "$(gji init zsh)"' >> ~/.zshrc
 
 # bash
-echo 'eval "$(gji init bash)"' >> ~/.bashrc && source ~/.bashrc
+echo 'eval "$(gji init bash)"' >> ~/.bashrc
 
 # fish
 gji init fish --write
 source ~/.config/fish/config.fish
+```
+
+Install completions as separate files:
+
+```sh
+# zsh
+mkdir -p ~/.zsh/completions
+gji completion zsh > ~/.zsh/completions/_gji
+# add this before running compinit in ~/.zshrc
+fpath=(~/.zsh/completions $fpath)
+
+# bash
+mkdir -p ~/.local/share/bash-completion/completions
+gji completion bash > ~/.local/share/bash-completion/completions/gji
+
+# fish
+mkdir -p ~/.config/fish/completions
+gji completion fish > ~/.config/fish/completions/gji.fish
 ```
 
 ## Quick start
@@ -140,7 +158,7 @@ Without shell integration `gji` prints paths and exits — which is fine for scr
 gji init zsh   # prints the shell function, review it if you like
 ```
 
-To install automatically:
+Install the wrapper once:
 
 ```sh
 # zsh
@@ -153,11 +171,37 @@ echo 'eval "$(gji init bash)"' >> ~/.bashrc
 gji init fish --write
 ```
 
-After a reinstall or upgrade, re-source to pick up changes:
+Install completions separately so your shell rc stays small:
 
 ```sh
+# zsh
+mkdir -p ~/.zsh/completions
+gji completion zsh > ~/.zsh/completions/_gji
+# add this before running compinit in ~/.zshrc
+fpath=(~/.zsh/completions $fpath)
+
+# bash
+mkdir -p ~/.local/share/bash-completion/completions
+gji completion bash > ~/.local/share/bash-completion/completions/gji
+
+# fish
+mkdir -p ~/.config/fish/completions
+gji completion fish > ~/.config/fish/completions/gji.fish
+```
+
+After a reinstall or upgrade, refresh both the wrapper and the completion file:
+
+```sh
+# zsh
 eval "$(gji init zsh)"
-gji init fish | source
+gji completion zsh > ~/.zsh/completions/_gji
+# if zsh is already running, refresh completion discovery too
+autoload -Uz compinit && compinit
+
+# fish
+gji init fish --write
+gji completion fish > ~/.config/fish/completions/gji.fish
+source ~/.config/fish/config.fish
 ```
 
 For scripts that need the raw path, use `--print`:
@@ -183,6 +227,7 @@ path=$(gji root --print)
 | `gji trigger-hook <hook>` | run a hook in the current worktree |
 | `gji config [get\|set\|unset] [key] [value]` | manage global defaults |
 | `gji init [shell]` | print or install shell integration |
+| `gji completion [shell]` | print shell completion definitions |
 
 ## Configuration
 
