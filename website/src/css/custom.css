@@ -173,12 +173,20 @@ code {
   height: 1.95rem;
   justify-content: center;
   min-width: 1.95rem;
+  opacity: 0.96;
   padding: 0.35rem;
 }
 
 .theme-code-block [class*='buttonGroup'] > button:hover {
   background: rgba(255, 255, 255, 0.1);
   border-color: rgba(255, 255, 255, 0.12);
+  opacity: 1;
+}
+
+.theme-code-block [class*='buttonGroup'] > button:focus-visible {
+  background: rgba(255, 255, 255, 0.12);
+  border-color: rgba(255, 255, 255, 0.2);
+  opacity: 1;
 }
 
 .theme-code-block [class*='buttonGroup'] svg {
