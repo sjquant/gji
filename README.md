@@ -37,17 +37,35 @@ You are deep in a feature branch. A colleague asks for a quick review. You:
 npm install -g @solaqua/gji
 ```
 
-Then add shell integration so `gji go`, `gji new`, and `gji remove` can change your directory. The generated script also installs shell completions:
+Then add shell integration so `gji go`, `gji new`, and `gji remove` can change your directory:
 
 ```sh
 # zsh
-echo 'eval "$(gji init zsh)"' >> ~/.zshrc && source ~/.zshrc
+echo 'eval "$(gji init zsh)"' >> ~/.zshrc
 
 # bash
-echo 'eval "$(gji init bash)"' >> ~/.bashrc && source ~/.bashrc
+echo 'eval "$(gji init bash)"' >> ~/.bashrc
 
 # fish
-gji init fish >> ~/.config/fish/config.fish && source ~/.config/fish/config.fish
+gji init fish >> ~/.config/fish/config.fish
+```
+
+Install completions as separate files:
+
+```sh
+# zsh
+mkdir -p ~/.zsh/completions
+gji completion zsh > ~/.zsh/completions/_gji
+# add this before running compinit in ~/.zshrc
+fpath=(~/.zsh/completions $fpath)
+
+# bash
+mkdir -p ~/.local/share/bash-completion/completions
+gji completion bash > ~/.local/share/bash-completion/completions/gji
+
+# fish
+mkdir -p ~/.config/fish/completions
+gji completion fish > ~/.config/fish/completions/gji.fish
 ```
 
 ## Quick start
@@ -108,9 +126,7 @@ Without shell integration `gji` prints paths and exits — which is fine for scr
 gji init zsh   # prints the shell function, review it if you like
 ```
 
-The generated shell script includes command and option completions for bash, zsh, and fish.
-
-To install automatically:
+Install the wrapper once:
 
 ```sh
 # zsh
@@ -123,10 +139,31 @@ echo 'eval "$(gji init bash)"' >> ~/.bashrc
 gji init fish >> ~/.config/fish/config.fish
 ```
 
-After a reinstall or upgrade, re-source to pick up changes:
+Install completions separately so your shell rc stays small:
+
+```sh
+# zsh
+mkdir -p ~/.zsh/completions
+gji completion zsh > ~/.zsh/completions/_gji
+# add this before running compinit in ~/.zshrc
+fpath=(~/.zsh/completions $fpath)
+
+# bash
+mkdir -p ~/.local/share/bash-completion/completions
+gji completion bash > ~/.local/share/bash-completion/completions/gji
+
+# fish
+mkdir -p ~/.config/fish/completions
+gji completion fish > ~/.config/fish/completions/gji.fish
+```
+
+After a reinstall or upgrade, refresh both the wrapper and the completion file:
 
 ```sh
 eval "$(gji init zsh)"
+gji completion zsh > ~/.zsh/completions/_gji
+# if zsh is already running, refresh completion discovery too
+autoload -Uz compinit && compinit
 ```
 
 For scripts that need the raw path, use `--print`:
@@ -152,6 +189,7 @@ path=$(gji root --print)
 | `gji trigger-hook <hook>` | run a hook in the current worktree |
 | `gji config [get\|set\|unset] [key] [value]` | manage global defaults |
 | `gji init [shell]` | print or install shell integration |
+| `gji completion [shell]` | print shell completion definitions |
 
 ## Configuration
 

@@ -2,6 +2,7 @@ import { createRequire } from 'node:module';
 import { Command } from 'commander';
 
 import { runCleanCommand } from './clean.js';
+import { runCompletionCommand } from './completion.js';
 import { runConfigCommand } from './config-command.js';
 import { runGoCommand } from './go.js';
 import { runInitCommand } from './init.js';
@@ -96,6 +97,11 @@ function registerCommands(program: Command): void {
     .description('print or install shell integration')
     .option('--write', 'write the integration to the shell config file')
     .action(notImplemented('init'));
+
+  program
+    .command('completion [shell]')
+    .description('print shell completion definitions')
+    .action(notImplemented('completion'));
 
   program
     .command('pr <ref>')
@@ -200,6 +206,20 @@ function attachCommandActions(
         shell,
         stdout: options.stdout,
         write: commandOptions.write,
+      });
+
+      if (exitCode !== 0) {
+        throw commanderExit(exitCode);
+      }
+    });
+
+  program.commands
+    .find((command) => command.name() === 'completion')
+    ?.action(async (shell: string | undefined) => {
+      const exitCode = await runCompletionCommand({
+        shell,
+        stderr: options.stderr,
+        stdout: options.stdout,
       });
 
       if (exitCode !== 0) {

@@ -5,9 +5,7 @@ import { dirname, join } from 'node:path';
 import { isCancel, select } from '@clack/prompts';
 
 import { loadGlobalConfig, updateGlobalConfigKey } from './config.js';
-import { renderShellCompletion } from './shell-completion.js';
-
-export type SupportedShell = 'bash' | 'fish' | 'zsh';
+import { resolveSupportedShell, type SupportedShell } from './shell.js';
 
 const START_MARKER = '# >>> gji init >>>';
 const END_MARKER = '# <<< gji init <<<';
@@ -71,7 +69,7 @@ export interface InitCommandOptions {
 }
 
 export async function runInitCommand(options: InitCommandOptions): Promise<number> {
-  const shell = resolveShell(options.shell, process.env.SHELL);
+  const shell = resolveSupportedShell(options.shell, process.env.SHELL);
   const home = options.home ?? homedir();
 
   if (!shell) {
@@ -119,7 +117,6 @@ export function renderShellIntegration(shell: SupportedShell): string {
   const commandBlocks = SHELL_WRAPPED_COMMANDS.map((command) =>
     shell === 'fish' ? renderFishWrapper(command) : renderPosixWrapper(command),
   ).join('\n\n');
-  const completionBlock = renderShellCompletion(shell);
 
   switch (shell) {
     case 'fish':
@@ -129,8 +126,6 @@ ${indentBlock(commandBlocks, 4)}
 
     command gji $argv
 end
-
-${completionBlock}
 ${END_MARKER}
 `;
     case 'bash':
@@ -141,8 +136,6 @@ ${indentBlock(commandBlocks, 2)}
 
   command gji "$@"
 }
-
-${completionBlock}
 ${END_MARKER}
 `;
   }
@@ -168,36 +161,6 @@ export function upsertShellIntegration(existingConfig: string, script: string): 
   }
 
   return ensureTrailingNewline(`${prefix}\n\n${trimmedScript}`);
-}
-
-function resolveShell(
-  requestedShell: string | undefined,
-  detectedShell: string | undefined,
-): SupportedShell | null {
-  const requested = normalizeShell(requestedShell);
-
-  if (requested) {
-    return requested;
-  }
-
-  return normalizeShell(detectedShell);
-}
-
-function normalizeShell(value: string | undefined): SupportedShell | null {
-  if (!value) {
-    return null;
-  }
-
-  const candidate = value.split('/').at(-1)?.toLowerCase();
-
-  switch (candidate) {
-    case 'bash':
-    case 'fish':
-    case 'zsh':
-      return candidate;
-    default:
-      return null;
-  }
 }
 
 function resolveShellConfigPath(shell: SupportedShell, home: string): string {

@@ -1,6 +1,7 @@
 const TOP_LEVEL_COMMANDS = [
   { name: 'new', description: 'create a new branch or detached linked worktree' },
   { name: 'init', description: 'print or install shell integration' },
+  { name: 'completion', description: 'print shell completion definitions' },
   { name: 'pr', description: 'fetch a pull request into a linked worktree' },
   { name: 'go', description: 'print or select a worktree path' },
   { name: 'root', description: 'print the main repository root path' },
@@ -66,6 +67,9 @@ _gji_completion() {
       ;;
     init)
       COMPREPLY=( $(compgen -W "${shells} --write --help" -- "$cur") )
+      ;;
+    completion)
+      COMPREPLY=( $(compgen -W "${shells} --help" -- "$cur") )
       ;;
     pr)
       COMPREPLY=( $(compgen -W "--dry-run --json --help" -- "$cur") )
@@ -143,6 +147,10 @@ complete -c gji -n '__fish_seen_subcommand_from new' -l json -d 'emit JSON on su
 complete -c gji -n '__fish_seen_subcommand_from init' -l write -d 'write the integration to the shell config file'
 ${shellLines}
 
+complete -c gji -n '__fish_seen_subcommand_from completion' -a 'bash' -d 'shell'
+complete -c gji -n '__fish_seen_subcommand_from completion' -a 'fish' -d 'shell'
+complete -c gji -n '__fish_seen_subcommand_from completion' -a 'zsh' -d 'shell'
+
 complete -c gji -n '__fish_seen_subcommand_from pr' -l dry-run -d 'show what would be created without executing any git commands or writing files'
 complete -c gji -n '__fish_seen_subcommand_from pr' -l json -d 'emit JSON on success or error instead of human-readable output'
 
@@ -205,6 +213,9 @@ _gji_completion() {
       ;;
     init)
       _arguments '--write[write the integration to the shell config file]' '2:shell:(${shells})'
+      ;;
+    completion)
+      _arguments '2:shell:(${shells})'
       ;;
     pr)
       _arguments '--dry-run[show what would be created without executing any git commands or writing files]' '--json[emit JSON on success or error instead of human-readable output]' '2:ref: '

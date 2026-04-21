@@ -35,12 +35,12 @@ describe('gji init', () => {
       stdout: (chunk) => stdout.push(chunk),
     });
 
-    // Then it prints the shell integration wrapper and completions.
+    // Then it prints the shell integration wrapper without bundled completions.
     expect(result.exitCode).toBe(0);
     expect(stdout.join('')).toContain('# >>> gji init >>>');
     expect(stdout.join('')).toContain('gji() {');
-    expect(stdout.join('')).toContain('__gji_worktree_branches() {');
-    expect(stdout.join('')).toContain('compdef _gji_completion gji');
+    expect(stdout.join('')).not.toContain('__gji_worktree_branches() {');
+    expect(stdout.join('')).not.toContain('compdef _gji_completion gji');
     expect(stdout.join('')).toContain('# <<< gji init <<<');
   });
 
@@ -54,10 +54,10 @@ describe('gji init', () => {
       stdout: (chunk) => stdout.push(chunk),
     });
 
-    // Then it prints the detected shell integration wrapper and completions.
+    // Then it prints the detected shell integration wrapper without bundled completions.
     expect(result.exitCode).toBe(0);
     expect(stdout.join('')).toContain('gji() {');
-    expect(stdout.join('')).toContain('compdef _gji_completion gji');
+    expect(stdout.join('')).not.toContain('compdef _gji_completion gji');
   });
 
   it('writes zsh integration to the shell rc file with --write', async () => {
@@ -69,9 +69,9 @@ describe('gji init', () => {
     // When gji init writes the zsh integration to disk.
     const result = await runCli(['init', 'zsh', '--write'], { cwd });
 
-    // Then the zsh rc file contains the integration wrapper and completions.
+    // Then the zsh rc file contains the integration wrapper without completions.
     expect(result.exitCode).toBe(0);
-    await expect(readFile(join(home, '.zshrc'), 'utf8')).resolves.toContain('compdef _gji_completion gji');
+    await expect(readFile(join(home, '.zshrc'), 'utf8')).resolves.not.toContain('compdef _gji_completion gji');
   });
 
   it('does not duplicate the zsh integration block when --write runs twice', async () => {
@@ -91,7 +91,7 @@ describe('gji init', () => {
     expect(content.match(/# <<< gji init <<</g)).toHaveLength(1);
   });
 
-  it('prints bash completions as part of the bash integration', async () => {
+  it('prints bash integration without bundling bash completions', async () => {
     // Given a command output collector.
     const stdout: string[] = [];
 
@@ -100,29 +100,13 @@ describe('gji init', () => {
       stdout: (chunk) => stdout.push(chunk),
     });
 
-    // Then the script includes the bash completion hook.
+    // Then the script contains only the bash wrapper code.
     expect(result.exitCode).toBe(0);
-    expect(stdout.join('')).toContain('_gji_completion() {');
-    expect(stdout.join('')).toContain('complete -F _gji_completion gji');
+    expect(stdout.join('')).not.toContain('_gji_completion() {');
+    expect(stdout.join('')).not.toContain('complete -F _gji_completion gji');
   });
 
-  it('prints zsh completions with subcommand-aware positional arguments', async () => {
-    // Given a command output collector.
-    const stdout: string[] = [];
-
-    // When gji init runs for zsh explicitly.
-    const result = await runCli(['init', 'zsh'], {
-      stdout: (chunk) => stdout.push(chunk),
-    });
-
-    // Then the zsh completion script completes values after the subcommand token.
-    expect(result.exitCode).toBe(0);
-    expect(stdout.join('')).toContain("'2:shell:(bash fish zsh)'");
-    expect(stdout.join('')).toContain("'2:branch:->worktrees'");
-    expect(stdout.join('')).toContain("'2:action:(get set unset)' '3:key:->config_keys' '4:value: '");
-  });
-
-  it('prints fish completions as part of the fish integration', async () => {
+  it('prints fish integration without bundling fish completions', async () => {
     // Given a command output collector.
     const stdout: string[] = [];
 
@@ -131,10 +115,10 @@ describe('gji init', () => {
       stdout: (chunk) => stdout.push(chunk),
     });
 
-    // Then the script includes fish completion definitions.
+    // Then the script contains only the fish wrapper code.
     expect(result.exitCode).toBe(0);
-    expect(stdout.join('')).toContain('function __gji_worktree_branches');
-    expect(stdout.join('')).toContain("complete -c gji -n '__fish_use_subcommand' -a 'new'");
+    expect(stdout.join('')).not.toContain('function __gji_worktree_branches');
+    expect(stdout.join('')).not.toContain("complete -c gji -n '__fish_use_subcommand' -a 'new'");
   });
 });
 
