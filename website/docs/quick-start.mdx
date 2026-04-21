@@ -16,6 +16,12 @@ gji new feature/dark-mode
 
 That creates a branch, creates a worktree, and moves your shell into it when shell integration is enabled.
 
+If you want temporary investigation space without naming a branch yet:
+
+```bash
+gji new --detached
+```
+
 ## Review a pull request
 
 ```bash
@@ -38,6 +44,8 @@ gji status
 gji ls
 ```
 
+Use `status` when you want more operational detail and `ls` when you want the compact view.
+
 ## Keep branches current
 
 ```bash
@@ -52,10 +60,4 @@ gji remove feature/dark-mode
 gji clean
 ```
 
-## Detached scratch space
-
-```bash
-gji new --detached
-```
-
-Use this when you need a temporary worktree for investigation without naming a long-lived branch up front.
+`clean` is the right choice when you want to prune several stale worktrees in one interactive pass.

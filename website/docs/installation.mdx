@@ -18,6 +18,14 @@ description: Install gji globally and enable shell integration for directory han
 npm install -g @solaqua/gji
 ```
 
+## What to expect after install
+
+After the package is installed:
+
+- `gji status` works immediately
+- path-printing modes like `gji root --print` work immediately
+- direct directory handoff still requires shell integration
+
 ## Enable shell integration
 
 `gji` can print paths for scripts without shell integration, but interactive navigation is much better once the shell hook is installed.
@@ -44,6 +52,22 @@ gji init zsh
 ```
 
 If shell integration is active, commands like `gji new feature/foo` and `gji go main` can hand your shell to the target path directly.
+
+## Optional next step: automate setup in each new worktree
+
+Many users want installs or environment setup to happen automatically.
+
+Add an `afterCreate` hook:
+
+```json
+{
+  "hooks": {
+    "afterCreate": "pnpm install"
+  }
+}
+```
+
+That way new worktrees come up ready to use.
 
 ## Script-friendly mode
 

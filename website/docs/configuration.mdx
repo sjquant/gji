@@ -12,6 +12,8 @@ No setup is required to start using `gji`, but optional configuration makes repe
 - `~/.config/gji/config.json` for global defaults.
 - `.gji.json` in a repository for repo-local overrides.
 
+Use the global file for defaults you want everywhere. Use `.gji.json` when one repository needs a different workflow.
+
 ## Available keys
 
 | Key | Meaning |
@@ -36,6 +38,24 @@ No setup is required to start using `gji`, but optional configuration makes repe
 }
 ```
 
+## Per-repo overrides in global config
+
+If you work across many repositories, you can scope config inside the global file without adding a `.gji.json` to each repo:
+
+```json
+{
+  "branchPrefix": "feature/",
+  "repos": {
+    "/home/me/code/my-repo": {
+      "branchPrefix": "fix/",
+      "hooks": {
+        "afterCreate": "npm install"
+      }
+    }
+  }
+}
+```
+
 ## Precedence
 
 Configuration is resolved in this order:
@@ -45,6 +65,31 @@ Configuration is resolved in this order:
 3. Local `.gji.json`
 
 Hooks merge by key across those layers, while normal scalar values are overridden by the highest-precedence layer.
+
+## Common patterns
+
+### Prefix all new branches
+
+```bash
+gji config set branchPrefix feature/
+```
+
+### Rebase onto a non-default remote branch
+
+```json
+{
+  "syncRemote": "upstream",
+  "syncDefaultBranch": "main"
+}
+```
+
+### Copy bootstrap files into each new worktree
+
+```json
+{
+  "syncFiles": [".env.example", ".nvmrc"]
+}
+```
 
 ## CLI helpers
 

@@ -1,30 +1,36 @@
 .page {
   background:
-    radial-gradient(circle at top left, rgba(193, 123, 71, 0.12), transparent 28rem),
-    linear-gradient(180deg, var(--gji-surface) 0%, var(--ifm-background-color) 18rem);
+    radial-gradient(circle at top left, rgba(197, 112, 48, 0.14), transparent 26rem),
+    radial-gradient(circle at top right, rgba(11, 109, 89, 0.08), transparent 28rem),
+    linear-gradient(180deg, var(--gji-surface) 0%, var(--ifm-background-color) 22rem);
 }
 
 .hero {
-  padding: 5rem 0 3rem;
+  padding: 4.5rem 0 2rem;
 }
 
 .heroInner {
   align-items: stretch;
   display: flex;
-  gap: 2rem;
+  gap: 3rem;
 }
 
 .heroCopy {
-  flex: 1.15;
+  flex: 1.05;
 }
 
 .eyebrow,
 .sectionLabel {
   color: var(--gji-accent-strong);
+  display: inline-flex;
   font-size: 0.82rem;
   font-weight: 700;
   letter-spacing: 0.12em;
   margin-bottom: 0.75rem;
+  padding: 0.35rem 0.65rem;
+  background: rgba(157, 93, 44, 0.08);
+  border: 1px solid rgba(157, 93, 44, 0.12);
+  border-radius: 0.45rem;
   text-transform: uppercase;
 }
 
@@ -39,16 +45,25 @@
 }
 
 .heroTitle {
-  font-size: clamp(3.2rem, 8vw, 5.8rem);
-  max-width: 12ch;
+  font-size: clamp(3rem, 6.8vw, 5.2rem);
+  max-width: 10.5ch;
 }
 
 .heroLead {
   color: var(--gji-ink);
-  font-size: 1.15rem;
-  line-height: 1.7;
+  font-size: 1.18rem;
+  line-height: 1.8;
   margin: 1.5rem 0 0;
-  max-width: 42rem;
+  max-width: 34rem;
+}
+
+.heroLead code {
+  background: rgba(23, 32, 51, 0.06);
+  border: 1px solid rgba(23, 32, 51, 0.08);
+  border-radius: 0.3rem;
+  color: var(--gji-ink-strong);
+  font-size: 0.95em;
+  padding: 0.15rem 0.45rem;
 }
 
 .ctaRow {
@@ -61,13 +76,15 @@
 .primaryButton,
 .secondaryButton {
   border: 1px solid transparent;
-  border-radius: 999px;
+  border-radius: 0.55rem;
+  box-shadow: 0 0.7rem 1.75rem rgba(23, 32, 51, 0.08);
   font-weight: 700;
   min-width: 10rem;
 }
 
 .primaryButton {
   background: var(--gji-accent);
+  border-color: rgba(157, 93, 44, 0.18);
   color: #ffffff;
 }
 
@@ -77,29 +94,40 @@
 }
 
 .secondaryButton {
-  background: transparent;
-  border-color: var(--gji-border);
+  background: #ffffff;
+  border-color: rgba(23, 32, 51, 0.1);
   color: var(--gji-ink-strong);
 }
 
 .secondaryButton:hover {
-  border-color: var(--gji-accent);
-  color: var(--gji-accent-strong);
+  background: rgba(23, 32, 51, 0.03);
+  border-color: rgba(23, 32, 51, 0.18);
+  color: var(--gji-ink-strong);
 }
 
 .heroMeta {
-  color: var(--gji-muted);
+  color: var(--gji-ink);
   display: flex;
   flex-wrap: wrap;
   gap: 0.9rem 1.4rem;
-  font-size: 0.95rem;
-  margin-top: 1.4rem;
+  font-size: 0.94rem;
+  font-weight: 600;
+  margin-top: 1.6rem;
+}
+
+.heroMeta span {
+  align-items: center;
+  background: rgba(255, 255, 255, 0.82);
+  border: 1px solid rgba(23, 32, 51, 0.08);
+  border-radius: 0.45rem;
+  display: inline-flex;
+  padding: 0.5rem 0.85rem;
 }
 
 .commandPanel {
   background: linear-gradient(180deg, rgba(19, 25, 35, 0.96), rgba(14, 19, 28, 0.98));
   border: 1px solid rgba(196, 204, 217, 0.12);
-  border-radius: 1.5rem;
+  border-radius: 0.8rem;
   box-shadow: 0 2rem 5rem rgba(15, 23, 42, 0.16);
   color: #f5f7fb;
   flex: 0.95;
@@ -121,36 +149,83 @@
 }
 
 .commandLabel {
-  color: rgba(255, 255, 255, 0.72);
-  font-size: 0.88rem;
+  color: rgba(255, 255, 255, 0.78);
+  font-size: 0.82rem;
+  font-weight: 600;
   margin-left: auto;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
 }
 
 .commandBlock {
-  background: rgba(255, 255, 255, 0.04);
-  border-radius: 1rem;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 0.55rem;
   margin: 0;
   overflow-x: auto;
   padding: 1.25rem;
 }
 
+.commandBlock code {
+  color: #f8fafc;
+  font-size: 1rem;
+  line-height: 1.7;
+}
+
 .commandNote {
-  color: rgba(255, 255, 255, 0.76);
+  color: rgba(255, 255, 255, 0.84);
   font-size: 0.95rem;
   margin: 1rem 0 0;
+}
+
+.commandNote code {
+  background: rgba(255, 255, 255, 0.12);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 0.4rem;
+  color: #f8fafc;
+  display: inline-flex;
+  padding: 0.15rem 0.6rem;
+}
+
+.proofStrip {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin-top: 1.75rem;
+}
+
+.proofPill {
+  background: rgba(255, 255, 255, 0.8);
+  border: 1px solid rgba(23, 32, 51, 0.08);
+  border-radius: 0.6rem;
+  box-shadow: 0 1rem 2.2rem rgba(23, 32, 51, 0.05);
+  padding: 1rem 1.1rem;
+}
+
+.proofPill h2 {
+  color: var(--gji-ink-strong);
+  font-family: var(--gji-heading-font);
+  font-size: 1rem;
+  margin: 0 0 0.35rem;
+}
+
+.proofPill p {
+  color: var(--gji-ink);
+  font-size: 0.93rem;
+  line-height: 1.6;
+  margin: 0;
 }
 
 .band,
 .section,
 .sectionAlt {
-  padding: 1.5rem 0 3.5rem;
+  padding: 2.2rem 0 4rem;
 }
 
 .bandGrid {
   align-items: center;
   display: grid;
-  gap: 1.25rem;
+  gap: 1.4rem;
   grid-template-columns: 1.2fr 1fr 1fr;
 }
 
@@ -160,22 +235,23 @@
 .featureCard,
 .docsCard {
   border: 1px solid var(--gji-border);
-  border-radius: 1.25rem;
-  padding: 1.4rem;
+  border-radius: 0.65rem;
+  box-shadow: 0 1.1rem 2.6rem rgba(23, 32, 51, 0.04);
+  padding: 1.5rem;
 }
 
 .problemBox,
 .docsCard {
-  background: rgba(255, 255, 255, 0.72);
+  background: rgba(255, 255, 255, 0.86);
 }
 
 .solutionBox,
 .featureCard {
-  background: linear-gradient(180deg, rgba(232, 243, 239, 0.92), rgba(255, 255, 255, 0.84));
+  background: linear-gradient(180deg, rgba(233, 244, 240, 0.95), rgba(255, 255, 255, 0.92));
 }
 
 .problemLabel {
-  color: var(--gji-accent-strong);
+  color: var(--ifm-color-primary-darkest);
   font-size: 0.82rem;
   font-weight: 700;
   letter-spacing: 0.12em;
@@ -183,9 +259,9 @@
 }
 
 .sectionTitle {
-  font-size: clamp(2rem, 4vw, 3.2rem);
+  font-size: clamp(2.15rem, 4vw, 3.25rem);
   margin-bottom: 1.5rem;
-  max-width: 14ch;
+  max-width: 15ch;
 }
 
 .stepGrid,
@@ -215,11 +291,20 @@
 .docsLink {
   color: var(--gji-accent-strong);
   font-weight: 700;
+  text-underline-offset: 0.22rem;
 }
 
 .docsLink {
   display: inline-flex;
   margin-top: 0.8rem;
+  position: relative;
+}
+
+.docsLink::after,
+.inlineLink::after {
+  content: '->';
+  display: inline-block;
+  margin-left: 0.35rem;
 }
 
 .stepCard h3,
@@ -227,8 +312,9 @@
 .docsCard h3 {
   color: var(--gji-ink-strong);
   font-family: var(--gji-heading-font);
-  font-size: 1.25rem;
-  margin-bottom: 0.55rem;
+  font-size: 1.28rem;
+  line-height: 1.2;
+  margin-bottom: 0.65rem;
 }
 
 .stepCard p,
@@ -237,7 +323,92 @@
 .problemBox p,
 .solutionBox p {
   color: var(--gji-ink);
+  line-height: 1.65;
   margin: 0;
+}
+
+[data-theme='dark'] .page {
+  background:
+    radial-gradient(circle at top left, rgba(212, 146, 95, 0.16), transparent 28rem),
+    radial-gradient(circle at top right, rgba(91, 216, 186, 0.08), transparent 30rem),
+    linear-gradient(180deg, #101a2a 0%, var(--ifm-background-color) 22rem);
+}
+
+[data-theme='dark'] .eyebrow,
+[data-theme='dark'] .sectionLabel {
+  background: rgba(212, 146, 95, 0.12);
+  border-color: rgba(212, 146, 95, 0.22);
+  color: #efb27f;
+}
+
+[data-theme='dark'] .heroLead code {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.1);
+  color: #f2f4f9;
+}
+
+[data-theme='dark'] .secondaryButton {
+  background: rgba(16, 27, 43, 0.96);
+  border-color: rgba(255, 255, 255, 0.12);
+  color: #f2f4f9;
+}
+
+[data-theme='dark'] .secondaryButton:hover {
+  background: rgba(20, 33, 52, 1);
+  border-color: rgba(255, 255, 255, 0.18);
+  color: #f2f4f9;
+}
+
+[data-theme='dark'] .heroMeta span {
+  background: rgba(16, 27, 43, 0.92);
+  border-color: rgba(255, 255, 255, 0.08);
+  color: #d5dcea;
+}
+
+[data-theme='dark'] .proofPill,
+[data-theme='dark'] .problemBox,
+[data-theme='dark'] .docsCard {
+  background: rgba(16, 27, 43, 0.9);
+  border-color: rgba(255, 255, 255, 0.08);
+  box-shadow: 0 1.1rem 2.6rem rgba(0, 0, 0, 0.2);
+}
+
+[data-theme='dark'] .solutionBox,
+[data-theme='dark'] .featureCard {
+  background: linear-gradient(180deg, rgba(22, 34, 52, 0.96), rgba(16, 27, 43, 0.92));
+  border-color: rgba(91, 216, 186, 0.16);
+  box-shadow: 0 1.1rem 2.6rem rgba(0, 0, 0, 0.22);
+}
+
+[data-theme='dark'] .stepCard {
+  background: rgba(16, 27, 43, 0.82);
+  border-color: rgba(255, 255, 255, 0.08);
+  box-shadow: 0 1.1rem 2.6rem rgba(0, 0, 0, 0.16);
+}
+
+[data-theme='dark'] .proofPill h2,
+[data-theme='dark'] .stepCard h3,
+[data-theme='dark'] .featureCard h3,
+[data-theme='dark'] .docsCard h3 {
+  color: #f2f4f9;
+}
+
+[data-theme='dark'] .proofPill p,
+[data-theme='dark'] .stepCard p,
+[data-theme='dark'] .featureCard p,
+[data-theme='dark'] .docsCard p,
+[data-theme='dark'] .problemBox p,
+[data-theme='dark'] .solutionBox p {
+  color: #c9d2e2;
+}
+
+[data-theme='dark'] .problemLabel {
+  color: #7fe1c7;
+}
+
+[data-theme='dark'] .inlineLink,
+[data-theme='dark'] .docsLink {
+  color: #efb27f;
 }
 
 @media screen and (max-width: 996px) {
@@ -246,6 +417,7 @@
   }
 
   .heroInner,
+  .proofStrip,
   .bandGrid,
   .stepGrid,
   .cardGrid,
@@ -260,6 +432,10 @@
 
   .commandPanel {
     margin-top: 1.5rem;
+  }
+
+  .proofStrip {
+    margin-top: 1.25rem;
   }
 
   .sectionTitle {

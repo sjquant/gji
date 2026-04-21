@@ -23,6 +23,40 @@ description: Reference for gji commands, navigation, cleanup, sync, hooks, and c
 | `gji config [get\|set\|unset] [key] [value]` | Read and update configuration values. |
 | `gji init [shell]` | Print or install shell integration. |
 
+## Command groups
+
+### Creation and entry
+
+- `gji new`
+- `gji pr`
+- `gji go`
+- `gji root`
+
+These are the commands you use for opening or switching context.
+
+### Inspection
+
+- `gji status`
+- `gji ls`
+
+Use these when you need to understand the current set of worktrees and their state.
+
+### Maintenance
+
+- `gji sync`
+- `gji clean`
+- `gji remove`
+- `gji trigger-hook`
+
+These are the commands that keep the worktree set healthy over time.
+
+### Configuration and shell setup
+
+- `gji config`
+- `gji init`
+
+Use these to shape default behavior and shell handoff.
+
 ## Common patterns
 
 ### Start feature work
@@ -49,3 +83,15 @@ gji trigger-hook afterCreate
 repo_root=$(gji root --print)
 feature_path=$(gji go --print feature/auth-refactor)
 ```
+
+## JSON output
+
+Several commands support `--json` so shell scripts and tools can consume structured output directly:
+
+- `gji new --json`
+- `gji pr --json`
+- `gji status --json`
+- `gji ls --json`
+- `gji clean --json`
+- `gji remove --json`
+- `gji sync --json`

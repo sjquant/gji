@@ -40,6 +40,7 @@ const config: Config = {
       } satisfies Preset.Options,
     ],
   ],
+  plugins: ['./plugins/clipboard-fallback'],
   themeConfig: {
     colorMode: {
       defaultMode: 'light',
@@ -53,10 +54,39 @@ const config: Config = {
       },
       items: [
         {
-          type: 'docSidebar',
-          sidebarId: 'docsSidebar',
+          type: 'dropdown',
           position: 'left',
           label: 'Docs',
+          items: [
+            {
+              label: 'Overview',
+              to: '/docs/intro',
+            },
+            {
+              label: 'Installation',
+              to: '/docs/installation',
+            },
+            {
+              label: 'Quick Start',
+              to: '/docs/quick-start',
+            },
+            {
+              label: 'Daily Workflow',
+              to: '/docs/daily-workflow',
+            },
+            {
+              label: 'Commands',
+              to: '/docs/commands',
+            },
+            {
+              label: 'Configuration',
+              to: '/docs/configuration',
+            },
+            {
+              label: 'Troubleshooting',
+              to: '/docs/troubleshooting',
+            },
+          ],
         },
         {
           href: 'https://www.npmjs.com/package/@solaqua/gji',
@@ -120,7 +150,7 @@ const config: Config = {
       copyright: `Copyright © ${new Date().getFullYear()} sjquant. Built with Docusaurus.`,
     },
     prism: {
-      theme: prismThemes.github,
+      theme: prismThemes.dracula,
       darkTheme: prismThemes.dracula,
     },
   } satisfies Preset.ThemeConfig,

@@ -21,6 +21,21 @@ const commandHighlights = [
   'gji sync --all',
 ];
 
+const proofPoints = [
+  {
+    value: 'One command',
+    label: 'to open a feature worktree or PR review checkout cleanly',
+  },
+  {
+    value: 'Separate installs',
+    label: 'so branch-specific dependencies and build state stay isolated',
+  },
+  {
+    value: 'Stable paths',
+    label: 'that make editor bookmarks, hooks, and scripts predictable',
+  },
+];
+
 const workflowSteps = [
   {
     title: 'Open a new task cleanly',
@@ -182,6 +197,14 @@ function HeroSection(): ReactNode {
             Deterministic path layout: <code>../worktrees/&lt;repo&gt;/&lt;branch&gt;</code>
           </p>
         </div>
+      </div>
+      <div className={clsx('container', styles.proofStrip)}>
+        {proofPoints.map((point) => (
+          <article key={point.value} className={styles.proofPill}>
+            <h2>{point.value}</h2>
+            <p>{point.label}</p>
+          </article>
+        ))}
       </div>
     </section>
   );

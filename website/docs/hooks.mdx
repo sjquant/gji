@@ -19,6 +19,8 @@ Hooks let `gji` run your setup and cleanup commands automatically at key lifecyc
 }
 ```
 
+This is the simplest way to make each new worktree feel “ready” instead of empty.
+
 ## Available hooks
 
 | Hook | When it runs |
@@ -41,6 +43,18 @@ The same values are also available as environment variables:
 - `GJI_PATH`
 - `GJI_REPO`
 
+## Layering behavior
+
+Hooks can come from:
+
+1. global config
+2. per-repo global overrides
+3. local `.gji.json`
+
+Different hook keys merge together. The same hook key is overridden by the highest-precedence layer.
+
+That makes it possible to have a general default like `afterEnter`, while one repository overrides only `afterCreate`.
+
 ## Manual execution
 
 You can rerun any hook in the current worktree:
@@ -52,3 +66,25 @@ gji trigger-hook beforeRemove
 ```
 
 This is useful after cloning on a new machine or when you need to rebuild a worktree’s setup without recreating it.
+
+## Practical examples
+
+### Install dependencies for each new worktree
+
+```json
+{
+  "hooks": {
+    "afterCreate": "pnpm install"
+  }
+}
+```
+
+### Print context on entry
+
+```json
+{
+  "hooks": {
+    "afterEnter": "echo \"switched to {{branch}} at {{path}}\""
+  }
+}
+```

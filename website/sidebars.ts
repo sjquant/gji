@@ -2,14 +2,20 @@ import type {SidebarsConfig} from '@docusaurus/plugin-content-docs';
 
 const sidebars: SidebarsConfig = {
   docsSidebar: [
-    'intro',
-    'installation',
-    'quick-start',
-    'commands',
     {
       type: 'category',
-      label: 'Guides',
-      items: ['configuration', 'hooks', 'faq'],
+      label: 'Get Started',
+      items: ['intro', 'installation', 'shell-integration', 'quick-start'],
+    },
+    {
+      type: 'category',
+      label: 'Workflows',
+      items: ['daily-workflow', 'sync-and-cleanup'],
+    },
+    {
+      type: 'category',
+      label: 'Reference',
+      items: ['commands', 'configuration', 'hooks', 'troubleshooting', 'faq'],
     },
   ],
 };

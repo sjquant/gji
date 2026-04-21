@@ -30,6 +30,15 @@ Without worktrees, “quickly check one thing” usually turns into this:
 - Keep branch-specific `node_modules`, generated files, and editor state separate.
 - Rebase or clean up worktrees without manual path juggling.
 
+## Where it fits best
+
+`gji` is especially useful if you regularly do one or more of these:
+
+- review pull requests while another feature is already open locally
+- maintain several long-lived branches in the same repository
+- work in projects where reinstalling dependencies is slow enough to be annoying
+- use editor workspaces, bookmarks, or scripts that benefit from stable branch paths
+
 ## Core workflow
 
 ```bash
@@ -50,6 +59,8 @@ That keeps shell aliases, editor bookmarks, and setup scripts predictable.
 ## Next steps
 
 - Follow the [installation guide](./installation).
+- Install [shell integration](./shell-integration) so directory handoff works correctly.
 - Copy the [quick start](./quick-start) into your shell history.
+- Use the [daily workflow](./daily-workflow) guide once the basics are installed.
 - See the full [command reference](./commands).
 - Configure [hooks](./hooks) and repo defaults once you are using it daily.
