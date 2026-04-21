@@ -43,75 +43,21 @@ jobs:
       - name: Build package
         run: pnpm build
 
-  tag-version:
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: test
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    outputs:
-      publish: ${{ steps.version_tag.outputs.publish }}
-      ref: ${{ steps.version_tag.outputs.ref }}
-      tag: ${{ steps.version_tag.outputs.tag }}
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v5
-        with:
-          fetch-depth: 0
-
-      - name: Set up pnpm
-        uses: pnpm/action-setup@v4
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v5
-        with:
-          node-version: 24
-
-      - name: Configure git identity
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-
-      - name: Create or reuse the current package version tag
-        id: version_tag
-        env:
-          GITHUB_EVENT_BEFORE: ${{ github.event.before }}
-          GITHUB_REF: ${{ github.ref }}
-          GITHUB_SHA: ${{ github.sha }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: node scripts/version-tag.mjs
-
   publish:
     if: |
       always() && (
         github.event_name == 'workflow_dispatch' ||
-        (needs.tag-version.result == 'success' && needs.tag-version.outputs.publish == 'true')
+        needs.test.result == 'success'
       )
-    needs: tag-version
+    needs: test
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      contents: write
       id-token: write
 
     steps:
-      - name: Determine ref and tag
-        id: meta
-        run: |
-          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
-            VERSION="${{ inputs.version }}"
-            VERSION="${VERSION#v}"
-            echo "ref=refs/tags/v${VERSION}" >> "$GITHUB_OUTPUT"
-            echo "tag=v${VERSION}" >> "$GITHUB_OUTPUT"
-          else
-            echo "ref=${{ needs.tag-version.outputs.ref }}" >> "$GITHUB_OUTPUT"
-            echo "tag=${{ needs.tag-version.outputs.tag }}" >> "$GITHUB_OUTPUT"
-          fi
-
       - name: Checkout repository
         uses: actions/checkout@v5
-        with:
-          ref: ${{ steps.meta.outputs.ref }}
 
       - name: Set up pnpm
         uses: pnpm/action-setup@v4
@@ -123,35 +69,48 @@ jobs:
           cache: pnpm
           registry-url: https://registry.npmjs.org
 
-      - name: Check whether version is already published
+      - name: Resolve version and tag
+        id: meta
+        run: |
+          VERSION="$(node -p "require('./package.json').version")"
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            EXPECTED="${{ inputs.version }}"
+            EXPECTED="${EXPECTED#v}"
+            if [[ "$VERSION" != "$EXPECTED" ]]; then
+              echo "Error: package.json version ($VERSION) does not match input ($EXPECTED)" >&2
+              exit 1
+            fi
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=v${VERSION}" >> "$GITHUB_OUTPUT"
+
+      - name: Check whether version is already published on npm
         id: published
         run: |
           PACKAGE_NAME="$(node -p "require('./package.json').name")"
-          VERSION="$(node -p "require('./package.json').version")"
-
-          if npm view "${PACKAGE_NAME}@${VERSION}" version >/dev/null 2>&1; then
-            echo "published=true" >> "$GITHUB_OUTPUT"
+          if npm view "${PACKAGE_NAME}@${{ steps.meta.outputs.version }}" version >/dev/null 2>&1; then
+            echo "result=true" >> "$GITHUB_OUTPUT"
           else
-            echo "published=false" >> "$GITHUB_OUTPUT"
+            echo "result=false" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Install dependencies
-        if: steps.published.outputs.published != 'true'
+        if: steps.published.outputs.result != 'true'
         run: pnpm install --frozen-lockfile
 
       - name: Build package
-        if: steps.published.outputs.published != 'true'
+        if: steps.published.outputs.result != 'true'
         run: pnpm build
 
+      - name: Generate man pages
+        if: steps.published.outputs.result != 'true'
+        run: pnpm generate-man
+
       - name: Resolve npm dist-tag
-        if: steps.published.outputs.published != 'true'
+        if: steps.published.outputs.result != 'true'
         id: npm_tag
         run: |
-          VERSION="$(node -p "require('./package.json').version")"
-          if [[ "v$VERSION" != "${{ steps.meta.outputs.tag }}" ]]; then
-            echo "Expected tag ${{ steps.meta.outputs.tag }} to match package version v$VERSION" >&2
-            exit 1
-          fi
+          VERSION="${{ steps.meta.outputs.version }}"
           if [[ "$VERSION" == *-* ]]; then
             TAG="${VERSION#*-}"
             TAG="${TAG%%.*}"
@@ -161,7 +120,17 @@ jobs:
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
 
       - name: Publish to npm
-        if: steps.published.outputs.published != 'true'
+        if: steps.published.outputs.result != 'true'
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: npm publish --ignore-scripts --provenance --tag "${{ steps.npm_tag.outputs.tag }}"
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release view "${{ steps.meta.outputs.tag }}" >/dev/null 2>&1 || \
+          gh release create "${{ steps.meta.outputs.tag }}" \
+            --title "${{ steps.meta.outputs.tag }}" \
+            --generate-notes \
+            --target "$(git rev-parse HEAD)"

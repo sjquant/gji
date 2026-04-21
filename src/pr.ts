@@ -3,7 +3,7 @@ import { basename, dirname } from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 
-import { loadEffectiveConfig } from './config.js';
+import { loadEffectiveConfig, resolveConfigString } from './config.js';
 import { syncFiles } from './file-sync.js';
 import { type PathConflictChoice, pathExists, promptForPathConflict } from './conflict.js';
 import { extractHooks, runHook } from './hooks.js';
@@ -29,6 +29,8 @@ export interface PrCommandOptions {
 export interface PrCommandDependencies extends InstallPromptDependencies {
   promptForPathConflict: (path: string) => Promise<PathConflictChoice>;
 }
+
+type PullRequestForge = 'bitbucket' | 'github' | 'gitlab' | 'unknown';
 
 export function parsePrInput(input: string): string | null {
   if (/^\d+$/.test(input)) return input;
@@ -61,10 +63,13 @@ export function createPrCommand(
     }
 
     const repository = await detectRepository(options.cwd);
-    const config = await loadEffectiveConfig(repository.repoRoot);
+    const config = await loadEffectiveConfig(repository.repoRoot, undefined, options.stderr);
     const branchName = `pr/${prNumber}`;
     const remoteRef = `refs/remotes/origin/pull/${prNumber}/head`;
-    const worktreePath = resolveWorktreePath(repository.repoRoot, branchName);
+    const rawBasePath = resolveConfigString(config, 'worktreePath');
+    const configuredBasePath =
+      rawBasePath?.startsWith('/') || rawBasePath?.startsWith('~') ? rawBasePath : undefined;
+    const worktreePath = resolveWorktreePath(repository.repoRoot, branchName, configuredBasePath);
 
     if (await pathExists(worktreePath)) {
       if (options.json || isHeadless()) {
@@ -99,11 +104,7 @@ export function createPrCommand(
     }
 
     try {
-      await execFileAsync(
-        'git',
-        ['fetch', 'origin', `refs/pull/${prNumber}/head:${remoteRef}`],
-        { cwd: repository.repoRoot },
-      );
+      await fetchPullRequestRef(repository.repoRoot, options.number, prNumber, remoteRef);
     } catch {
       const message = `Failed to fetch PR #${prNumber} from origin`;
       if (options.json) {
@@ -170,6 +171,71 @@ async function localBranchExists(repoRoot: string, branchName: string): Promise<
 }
 
 export const runPrCommand = createPrCommand();
+
+async function fetchPullRequestRef(
+  repoRoot: string,
+  input: string,
+  prNumber: string,
+  remoteRef: string,
+): Promise<void> {
+  for (const sourceRef of listPullRequestSourceRefs(input, prNumber)) {
+    try {
+      await execFileAsync(
+        'git',
+        ['fetch', 'origin', `${sourceRef}:${remoteRef}`],
+        { cwd: repoRoot },
+      );
+      return;
+    } catch {
+      // Try the next forge-specific ref namespace before failing the command.
+    }
+  }
+
+  throw new Error(`No pull request ref found for #${prNumber}`);
+}
+
+function listPullRequestSourceRefs(
+  input: string,
+  prNumber: string,
+): string[] {
+  const allForges: Array<Exclude<PullRequestForge, 'unknown'>> = ['github', 'gitlab', 'bitbucket'];
+  const preferredForge = detectPullRequestForge(input);
+  const orderedForges = preferredForge === 'unknown'
+    ? allForges
+    : [preferredForge, ...allForges.filter((forge) => forge !== preferredForge)];
+
+  return orderedForges.map((forge) => sourceRefForForge(forge, prNumber));
+}
+
+function detectPullRequestForge(input: string): PullRequestForge {
+  if (/\/pull-requests\/\d+/.test(input)) {
+    return 'bitbucket';
+  }
+
+  if (/\/merge_requests\/\d+/.test(input)) {
+    return 'gitlab';
+  }
+
+  if (/\/pull\/\d+/.test(input)) {
+    return 'github';
+  }
+
+  return 'unknown';
+}
+
+function sourceRefForForge(
+  forge: Exclude<PullRequestForge, 'unknown'>,
+  prNumber: string,
+): string {
+  switch (forge) {
+    case 'bitbucket':
+      return `refs/pull-requests/${prNumber}/from`;
+    case 'github':
+      return `refs/pull/${prNumber}/head`;
+    case 'gitlab':
+      return `refs/merge-requests/${prNumber}/head`;
+  }
+}
 
 async function writeOutput(
   worktreePath: string,

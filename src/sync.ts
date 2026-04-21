@@ -13,7 +13,7 @@ export interface SyncCommandOptions {
 
 export async function runSyncCommand(options: SyncCommandOptions): Promise<number> {
   const repository = await detectRepository(options.cwd);
-  const config = await loadEffectiveConfig(repository.repoRoot);
+  const config = await loadEffectiveConfig(repository.repoRoot, undefined, options.stderr);
   const worktrees = await listWorktrees(options.cwd);
   const remote = resolveConfiguredString(config.syncRemote) ?? 'origin';
 

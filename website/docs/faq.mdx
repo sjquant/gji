@@ -1,0 +1,50 @@
+---
+title: FAQ
+description: Common questions about gji shell integration, worktree paths, installs, and branch isolation.
+---
+
+# FAQ
+
+## Why does `gji` need shell integration?
+
+Normal CLI processes cannot change the working directory of the parent shell. The shell integration bridges that gap so commands like `gji go` can move your shell directly.
+
+## Can I use `gji` without shell integration?
+
+Yes. Use `--print` and consume the returned path in scripts or wrappers.
+
+## Why are worktrees stored outside the main repository?
+
+That keeps branch-specific files isolated and avoids mixing generated outputs, dependency folders, and editor state into a single checkout.
+
+## What path layout does `gji` use?
+
+Worktrees are stored at:
+
+```text
+../worktrees/<repo>/<branch>
+```
+
+That deterministic layout makes shell aliases, editor bookmarks, and scripts easier to keep stable.
+
+## Do I need to reinstall dependencies in every worktree?
+
+Usually yes, because each worktree is a separate directory with its own dependency state. Hooks make that painless by running your install command automatically.
+
+## Can I use URL and PR number formats together?
+
+Yes. `gji pr` accepts a numeric PR reference or a full GitHub pull request URL.
+
+## Is configuration global or repo-specific?
+
+Both. Global defaults live in `~/.config/gji/config.json`, and `.gji.json` can override them per repository.
+
+## Can I re-run setup without recreating the worktree?
+
+Yes. Use:
+
+```bash
+gji trigger-hook afterCreate
+```
+
+That is useful when the worktree already exists but you need to rerun install or bootstrap steps.

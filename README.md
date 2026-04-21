@@ -47,7 +47,8 @@ echo 'eval "$(gji init zsh)"' >> ~/.zshrc
 echo 'eval "$(gji init bash)"' >> ~/.bashrc
 
 # fish
-gji init fish >> ~/.config/fish/config.fish
+gji init fish --write
+source ~/.config/fish/config.fish
 ```
 
 Install completions as separate files:
@@ -94,6 +95,8 @@ Worktrees land at a deterministic path so your editor bookmarks and scripts alwa
 ../worktrees/<repo>/<branch>
 ```
 
+Set `worktreePath` in your config to use a different base (e.g. `"~/worktrees"` → `~/worktrees/<branch>`).
+
 ## Daily workflow
 
 ```sh
@@ -136,7 +139,7 @@ echo 'eval "$(gji init zsh)"' >> ~/.zshrc
 echo 'eval "$(gji init bash)"' >> ~/.bashrc
 
 # fish
-gji init fish >> ~/.config/fish/config.fish
+gji init fish --write
 ```
 
 Install completions separately so your shell rc stays small:
@@ -160,10 +163,16 @@ gji completion fish > ~/.config/fish/completions/gji.fish
 After a reinstall or upgrade, refresh both the wrapper and the completion file:
 
 ```sh
+# zsh
 eval "$(gji init zsh)"
 gji completion zsh > ~/.zsh/completions/_gji
 # if zsh is already running, refresh completion discovery too
 autoload -Uz compinit && compinit
+
+# fish
+gji init fish --write
+gji completion fish > ~/.config/fish/completions/gji.fish
+source ~/.config/fish/config.fish
 ```
 
 For scripts that need the raw path, use `--print`:
@@ -177,7 +186,7 @@ path=$(gji root --print)
 
 | Command | Description |
 |---|---|
-| `gji new [branch] [--detached] [--json]` | create branch + worktree, cd in |
+| `gji new [branch] [--detached] [--json]` | create branch + worktree, cd in (validates branch name against Git rules) |
 | `gji pr <ref> [--json]` | fetch PR ref, create worktree, cd in |
 | `gji go [branch] [--print]` | jump to a worktree |
 | `gji root [--print]` | jump to the main repo root |
@@ -203,6 +212,7 @@ No setup required. Optional config lives in:
 | Key | Description |
 |---|---|
 | `branchPrefix` | prefix added to new branch names (e.g. `"feature/"`) |
+| `worktreePath` | base directory for new worktrees (absolute or `~/…`); overrides the default `../worktrees/<repo>/` layout |
 | `syncRemote` | remote for `gji sync` (default: `origin`) |
 | `syncDefaultBranch` | branch to rebase onto (default: remote `HEAD`) |
 | `syncFiles` | files to copy from main worktree into each new worktree |
@@ -352,11 +362,13 @@ GJI_NO_TUI=1 gji clean --force
 
 `GJI_NO_TUI=1` disables all prompts. Commands that need confirmation require `--force`. `--json` implies the same behaviour.
 
+Update notifications are also suppressed automatically in non-interactive and `--json` runs. Users can opt out explicitly with `NO_UPDATE_NOTIFIER=1` or `--no-update-notifier`.
+
 ## Notes
 
 - Works from either the main repo root or inside any linked worktree
 - The current worktree is never offered as a `gji clean` candidate
-- `gji pr` parses GitHub, GitLab, and Bitbucket URLs but always fetches via `refs/pull/<number>/head` from `origin`
+- `gji pr` fetches from `origin` using the first matching forge ref namespace: GitHub `refs/pull/<number>/head`, GitLab `refs/merge-requests/<number>/head`, then Bitbucket `refs/pull-requests/<number>/from`
 
 ## License
 

@@ -1,0 +1,72 @@
+---
+title: Troubleshooting
+description: Common setup, shell handoff, install prompt, and Git worktree troubleshooting tips for gji.
+---
+
+# Troubleshooting
+
+## `gji go` prints a path instead of changing directories
+
+Shell integration is not installed or not loaded in the current shell session.
+
+```bash
+eval "$(gji init zsh)"
+```
+
+Then retry the command.
+
+## The worktree exists but dependencies are missing
+
+Each worktree is a separate directory. If your project requires its own install state per directory, run installs there or configure an `afterCreate` hook.
+
+```json
+{
+  "hooks": {
+    "afterCreate": "pnpm install"
+  }
+}
+```
+
+## I want raw paths for scripts
+
+Use `--print`:
+
+```bash
+gji go --print feature/foo
+gji root --print
+```
+
+## `sync` refuses to run
+
+The current worktree may be dirty or detached.
+
+Check:
+
+```bash
+gji status
+git status --short
+```
+
+Then either clean the working tree or switch to a branch-backed worktree.
+
+## Pull request checkout is not behaving as expected
+
+Make sure the PR reference is valid and that the repository remote is reachable. `gji pr` accepts either a numeric PR or a full GitHub PR URL.
+
+## Cleanup prompts feel too repetitive
+
+Use `--force` when you have already reviewed what should be removed:
+
+```bash
+gji clean --force
+gji remove feature/foo --force
+```
+
+## Install prompts are not what I want
+
+Use config to control them:
+
+- `skipInstallPrompt`
+- `installSaveTarget`
+
+See the [configuration](./configuration) page for the related keys.

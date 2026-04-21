@@ -7,6 +7,7 @@ export interface WorktreeHealth {
   ahead: number;
   behind: number;
   hasUpstream: boolean;
+  upstreamGone: boolean;
   status: 'clean' | 'dirty';
 }
 
@@ -38,6 +39,7 @@ function parseWorktreeHealth(output: string): WorktreeHealth {
   let ahead = 0;
   let behind = 0;
   let hasUpstream = false;
+  let hasAb = false;
   let dirty = false;
 
   for (const line of output.split('\n').filter(Boolean)) {
@@ -53,6 +55,7 @@ function parseWorktreeHealth(output: string): WorktreeHealth {
         throw new Error(`Unexpected branch.ab output: '${line}'`);
       }
 
+      hasAb = true;
       ahead = Number(match[1]);
       behind = Number(match[2]);
       continue;
@@ -67,6 +70,7 @@ function parseWorktreeHealth(output: string): WorktreeHealth {
     ahead,
     behind,
     hasUpstream,
+    upstreamGone: hasUpstream && !hasAb,
     status: dirty ? 'dirty' : 'clean',
   };
 }

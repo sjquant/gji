@@ -6,10 +6,10 @@ import { describe, expect, it } from 'vitest';
 import { runCli } from './cli.js';
 import {
   addLinkedWorktree,
+  cloneRepository,
   commitFile,
   createRepository,
   createRepositoryWithOrigin,
-  cloneRepository,
   currentBranch,
   runGit,
 } from './repo.test-helpers.js';
@@ -192,6 +192,79 @@ describe('gji status', () => {
         ],
       }),
     );
+  });
+
+  it('shows gone as the upstream state for worktrees whose remote branch was deleted', async () => {
+    // Given a repository with a branch whose remote was deleted and pruned.
+    const { originRoot, repoRoot } = await createRepositoryWithOrigin();
+    const defaultBranch = await currentBranch(repoRoot);
+    const goneBranch = 'feature/status-gone';
+    const goneWorktreePath = await addLinkedWorktree(repoRoot, goneBranch);
+    const stdout: string[] = [];
+    const upstreamClone = await cloneRepository(originRoot);
+
+    await runGit(repoRoot, ['push', '-u', 'origin', goneBranch]);
+    await runGit(upstreamClone, ['push', 'origin', '--delete', goneBranch]);
+    await runGit(repoRoot, ['fetch', '--prune', 'origin']);
+
+    // When gji status runs from the repository root.
+    const result = await runCli(['status'], {
+      cwd: repoRoot,
+      stdout: (chunk) => stdout.push(chunk),
+    });
+
+    // Then it reports "gone" as the upstream state for the stale worktree.
+    expect(result.exitCode).toBe(0);
+    expect(stdout.join('')).toBe(
+      buildExpectedStatusOutput({
+        currentRoot: repoRoot,
+        repoRoot,
+        rows: [
+          {
+            branch: defaultBranch,
+            current: true,
+            path: repoRoot,
+            status: 'clean',
+            upstream: 'up to date',
+          },
+          {
+            branch: goneBranch,
+            current: false,
+            path: goneWorktreePath,
+            status: 'clean',
+            upstream: 'gone',
+          },
+        ],
+      }),
+    );
+  });
+
+  it('serializes stale upstream as { kind: "stale" } in JSON output', async () => {
+    // Given a repository with a branch whose remote was deleted and pruned.
+    const { originRoot, repoRoot } = await createRepositoryWithOrigin();
+    const defaultBranch = await currentBranch(repoRoot);
+    const goneBranch = 'feature/status-json-gone';
+    const goneWorktreePath = await addLinkedWorktree(repoRoot, goneBranch);
+    const upstreamClone = await cloneRepository(originRoot);
+    const stdout: string[] = [];
+
+    await runGit(repoRoot, ['push', '-u', 'origin', goneBranch]);
+    await runGit(upstreamClone, ['push', 'origin', '--delete', goneBranch]);
+    await runGit(repoRoot, ['fetch', '--prune', 'origin']);
+
+    // When gji status runs in JSON mode.
+    const result = await runCli(['status', '--json'], {
+      cwd: repoRoot,
+      stdout: (chunk) => stdout.push(chunk),
+    });
+
+    // Then the stale worktree is serialized with { kind: 'stale' }.
+    expect(result.exitCode).toBe(0);
+    const json = JSON.parse(stdout.join('')) as { worktrees: Array<{ branch: string; upstream: unknown }> };
+    const staleEntry = json.worktrees.find((w) => w.branch === goneBranch);
+    expect(staleEntry?.upstream).toEqual({ kind: 'stale' });
+    const mainEntry = json.worktrees.find((w) => w.branch === defaultBranch);
+    expect(mainEntry?.upstream).toEqual({ kind: 'tracked', ahead: 0, behind: 0 });
   });
 
   it('prints stable structured JSON with repository metadata and upstream state', async () => {

@@ -1,6 +1,6 @@
 {
   "name": "@solaqua/gji",
-  "version": "0.2.4",
+  "version": "0.4.0",
   "description": "Git worktree CLI for fast context switching.",
   "license": "MIT",
   "author": "sjquant",
@@ -24,8 +24,12 @@
   ],
   "files": [
     "dist",
+    "man",
     "README.md",
     "LICENSE"
+  ],
+  "man": [
+    "man/man1/gji.1"
   ],
   "publishConfig": {
     "access": "public"
@@ -38,14 +42,18 @@
   },
   "scripts": {
     "build": "node scripts/clean-dist.mjs && tsc -p tsconfig.build.json",
-    "prepublishOnly": "pnpm test && pnpm build",
+    "generate-man": "node scripts/generate-man.mjs",
+    "docs:build": "pnpm --dir website build",
+    "docs:start": "pnpm --dir website start",
+    "prepublishOnly": "pnpm test && pnpm build && pnpm generate-man",
     "test": "vitest run --passWithNoTests",
     "test:watch": "vitest"
   },
   "dependencies": {
     "@clack/core": "0.5.0",
     "@clack/prompts": "^0.11.0",
-    "commander": "^14.0.1"
+    "commander": "^14.0.1",
+    "update-notifier": "^7.3.1"
   },
   "devDependencies": {
     "@types/node": "^24.6.0",

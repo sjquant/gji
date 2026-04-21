@@ -24,7 +24,7 @@ export async function runTriggerHookCommand(options: TriggerHookCommandOptions):
 
   const hookName = options.hook;
   const repository = await detectRepository(options.cwd);
-  const config = await loadEffectiveConfig(repository.repoRoot);
+  const config = await loadEffectiveConfig(repository.repoRoot, undefined, options.stderr);
   const hooks = extractHooks(config);
 
   // Find the branch for the current worktree (undefined for detached HEAD).

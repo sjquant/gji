@@ -8,6 +8,7 @@ import { promisify } from 'node:util';
 import { resolveWorktreePath } from './repo.js';
 
 const execFileAsync = promisify(execFile);
+type PullRequestForge = 'bitbucket' | 'github' | 'gitlab';
 
 export async function createRepository(): Promise<string> {
   const root = await mkdtemp(join(tmpdir(), 'gji-repo-'));
@@ -94,12 +95,24 @@ export async function pathExists(path: string): Promise<boolean> {
 export async function pushPullRequestRef(
   repoRoot: string,
   number: string,
+  forge: PullRequestForge = 'github',
 ): Promise<void> {
-  await runGit(repoRoot, ['push', 'origin', `HEAD:refs/pull/${number}/head`]);
+  await runGit(repoRoot, ['push', 'origin', `HEAD:${sourceRefForForge(number, forge)}`]);
 }
 
 export async function runGit(cwd: string, args: string[]): Promise<string> {
   const { stdout } = await execFileAsync('git', args, { cwd });
 
   return stdout.trim();
+}
+
+function sourceRefForForge(number: string, forge: PullRequestForge): string {
+  switch (forge) {
+    case 'bitbucket':
+      return `refs/pull-requests/${number}/from`;
+    case 'github':
+      return `refs/pull/${number}/head`;
+    case 'gitlab':
+      return `refs/merge-requests/${number}/head`;
+  }
 }
