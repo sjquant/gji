@@ -155,6 +155,7 @@ describe('runCli', () => {
   });
 });
 
+// Force TTY detection so CLI tests can cover interactive-only startup paths.
 function setStreamTty(
   stream: NodeJS.WriteStream,
   value: boolean,
