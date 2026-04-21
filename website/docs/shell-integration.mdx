@@ -1,0 +1,66 @@
+---
+title: Shell Integration
+description: Understand why gji needs shell integration and how to install it cleanly for zsh or bash.
+---
+
+# Shell integration
+
+`gji` can create and resolve worktree paths on its own, but a normal CLI process cannot change the working directory of the shell that launched it.
+
+That is why commands like `gji go`, `gji new`, and `gji remove` need shell integration if you want them to move your current terminal session directly.
+
+## What shell integration does
+
+When integration is installed:
+
+- `gji new feature/foo` creates the worktree and moves your shell into it.
+- `gji go main` jumps back to the main checkout.
+- `gji remove feature/foo` can finish by returning you to a stable repo path.
+
+Without integration, `gji` still works, but it prints paths rather than changing directories for you.
+
+## Install once
+
+### zsh
+
+```bash
+echo 'eval "$(gji init zsh)"' >> ~/.zshrc
+source ~/.zshrc
+```
+
+### bash
+
+```bash
+echo 'eval "$(gji init bash)"' >> ~/.bashrc
+source ~/.bashrc
+```
+
+## Inspect before enabling
+
+If you want to review what gets added to your shell:
+
+```bash
+gji init zsh
+gji init bash
+```
+
+The command prints the shell function used for handoff.
+
+## Refresh after updates
+
+If you reinstall or upgrade the CLI, refresh your current shell:
+
+```bash
+eval "$(gji init zsh)"
+```
+
+## Script mode
+
+For scripts, CI helpers, or custom aliases, use `--print` instead:
+
+```bash
+gji go --print feature/auth-refactor
+gji root --print
+```
+
+That gives you the target path without shell handoff.

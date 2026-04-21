@@ -1,0 +1,66 @@
+---
+sidebar_position: 1
+title: Overview
+description: Learn what gji is, why it exists, and how it makes Git worktree workflows faster.
+---
+
+# gji overview
+
+`gji` is a Git worktree CLI for developers who switch between feature work, pull request review, and maintenance tasks all day.
+
+It gives each branch its own directory, dependencies, and terminal context so you can move between tasks without the normal stash, checkout, reinstall loop.
+
+## Why it exists
+
+Without worktrees, “quickly check one thing” usually turns into this:
+
+1. Stash or commit local changes.
+2. Checkout another branch.
+3. Reinstall dependencies or rebuild generated files.
+4. Review or patch something.
+5. Switch back and recover your original state.
+
+`gji` compresses that to a few commands and keeps each task isolated.
+
+## What it helps with
+
+- Start a new feature branch in its own worktree.
+- Open a pull request locally without disturbing current work.
+- Jump between active worktrees instantly.
+- Keep branch-specific `node_modules`, generated files, and editor state separate.
+- Rebase or clean up worktrees without manual path juggling.
+
+## Where it fits best
+
+`gji` is especially useful if you regularly do one or more of these:
+
+- review pull requests while another feature is already open locally
+- maintain several long-lived branches in the same repository
+- work in projects where reinstalling dependencies is slow enough to be annoying
+- use editor workspaces, bookmarks, or scripts that benefit from stable branch paths
+
+## Core workflow
+
+```bash
+gji new feature/payment-refactor
+gji pr 1234
+gji go main
+gji remove feature/payment-refactor
+```
+
+Worktrees are stored at a deterministic path:
+
+```text
+../worktrees/<repo>/<branch>
+```
+
+That keeps shell aliases, editor bookmarks, and setup scripts predictable.
+
+## Next steps
+
+- Follow the [installation guide](./installation).
+- Install [shell integration](./shell-integration) so directory handoff works correctly.
+- Copy the [quick start](./quick-start) into your shell history.
+- Use the [daily workflow](./daily-workflow) guide once the basics are installed.
+- See the full [command reference](./commands).
+- Configure [hooks](./hooks) and repo defaults once you are using it daily.

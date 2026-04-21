@@ -1,0 +1,68 @@
+---
+title: Daily Workflow
+description: Practical gji workflows for feature work, PR review, and context switching across active branches.
+---
+
+# Daily workflow
+
+This is the core reason to use `gji`: you stop treating one checkout as shared mutable state for every task.
+
+## Start a new feature
+
+```bash
+gji new feature/auth-refactor
+```
+
+This creates:
+
+- a branch
+- a linked worktree
+- an immediate shell handoff when integration is enabled
+
+If you use project hooks, this is also where install/setup automation typically runs.
+
+## Open a pull request in isolation
+
+```bash
+gji pr 1234
+gji pr https://github.com/org/repo/pull/1234
+```
+
+This is useful when you are already mid-feature and want to review something without stashing or resetting your current checkout.
+
+## Move between active tasks
+
+```bash
+gji go feature/auth-refactor
+gji go main
+gji root
+gji ls
+gji status
+```
+
+Use:
+
+- `gji ls` for a compact worktree list
+- `gji status` for health, branch state, and ahead/behind information
+- `gji root` when you just need the primary repo checkout again
+
+## Use detached scratch space
+
+```bash
+gji new --detached
+```
+
+Detached worktrees are useful when you want temporary investigation space without committing to a branch name yet.
+
+## Typical day example
+
+```bash
+gji new feature/dark-mode
+gji pr 184
+gji go feature/dark-mode
+gji sync
+gji status
+gji remove feature/dark-mode
+```
+
+The main point is that each task keeps its own files, dependencies, and terminal context.

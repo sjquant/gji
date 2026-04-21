@@ -43,6 +43,8 @@
   "scripts": {
     "build": "node scripts/clean-dist.mjs && tsc -p tsconfig.build.json",
     "generate-man": "node scripts/generate-man.mjs",
+    "docs:build": "pnpm --dir website build",
+    "docs:start": "pnpm --dir website start",
     "prepublishOnly": "pnpm test && pnpm build && pnpm generate-man",
     "test": "vitest run --passWithNoTests",
     "test:watch": "vitest"

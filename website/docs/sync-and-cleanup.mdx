@@ -1,0 +1,62 @@
+---
+title: Sync and Cleanup
+description: Keep worktrees current and remove stale branches without manual Git worktree housekeeping.
+---
+
+# Sync and cleanup
+
+`gji` is not only for creating worktrees. The maintenance commands matter just as much once you have several branches in flight.
+
+## Sync the current worktree
+
+```bash
+gji sync
+```
+
+This fetches and rebases the current worktree onto the configured default branch.
+
+## Sync every worktree
+
+```bash
+gji sync --all
+```
+
+Use this when you have multiple active branches and want to bring them forward together.
+
+Detached worktrees are skipped automatically because there is no branch to rebase cleanly.
+
+## Remove one worktree
+
+```bash
+gji remove feature/auth-refactor
+```
+
+This removes the worktree and, when appropriate, its branch.
+
+## Bulk cleanup
+
+```bash
+gji clean
+```
+
+Use `clean` when you want to prune multiple stale worktrees in one pass instead of removing them individually.
+
+## Force options
+
+When you know you want non-interactive cleanup:
+
+```bash
+gji clean --force
+gji remove feature/auth-refactor --force
+```
+
+Force mode is useful for automation or when you have already reviewed the state and want to skip confirmation prompts.
+
+## What to check before cleanup
+
+- Does the branch still contain work you need?
+- Is the worktree dirty or does it contain untracked files?
+- Is the branch merged already?
+- Do you want to keep the branch but remove only the worktree?
+
+`gji` prompts for these cases interactively so you do not have to remember the right raw `git worktree` incantations.
