@@ -7,6 +7,8 @@ description: Practical gji workflows for feature work, PR review, and context sw
 
 This is the core reason to use `gji`: you stop treating one checkout as shared mutable state for every task.
 
+That becomes even more valuable when you work in parallel across your own changes, pull request review, and AI-assisted experiments.
+
 ## Start a new feature
 
 ```bash
@@ -66,3 +68,24 @@ gji remove feature/dark-mode
 ```
 
 The main point is that each task keeps its own files, dependencies, and terminal context.
+
+## Parallel work with AI
+
+If you use coding agents or AI-assisted tooling, worktrees stop being a nice-to-have and start becoming the clean boundary between tasks.
+
+A common pattern looks like this:
+
+```bash
+gji new feature/checkout-redesign
+gji pr 184
+gji new --detached
+gji ls
+```
+
+That gives you:
+
+- one worktree for your main implementation
+- one worktree for reviewing or reproducing a PR
+- one detached scratch space for agent-generated experiments or risky validation
+
+Instead of asking one checkout to represent everything, you let each task keep its own state.

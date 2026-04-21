@@ -4,6 +4,8 @@
 
 `gji` wraps Git worktrees into a fast, ergonomic CLI. Each branch gets its own directory, its own `node_modules`, and its own terminal — so switching context is a single command instead of a ritual.
 
+That matters even more in AI-assisted workflows, where one repository often has several active tasks in parallel: your main feature, a PR review, a scratch experiment, or an agent-driven refactor. `gji` keeps each one isolated and easy to enter.
+
 ```sh
 gji new feature/payment-refactor   # new branch + worktree, cd in
 gji pr 1234                        # review PR in isolation, cd in
@@ -30,6 +32,19 @@ You are deep in a feature branch. A colleague asks for a quick review. You:
 7. realize something is broken
 
 **Or you use `gji` and it is just `gji pr 1234`.**
+
+## Why it matters more now
+
+AI increases the amount of parallel work around a codebase.
+
+It is increasingly normal to have:
+
+1. your own branch open
+2. another branch for review
+3. a scratch space for testing an AI-generated change
+4. a separate worktree for validating a risky migration or refactor
+
+That makes Git worktrees more important, because a single shared checkout becomes the bottleneck. `gji` turns worktrees into a daily workflow instead of a Git power-user feature.
 
 ## Install
 
@@ -102,6 +117,20 @@ gji remove feature/auth-refactor  # remove one worktree and its branch
 
 gji trigger-hook afterCreate      # re-run setup in the current worktree
 ```
+
+## Comparison
+
+`gji` sits between raw Git primitives and larger Git or repository tools:
+
+- **vs raw `git worktree`**: same underlying capability, but with branch-first commands, shell handoff, PR checkout, hooks, sync, and cleanup built into the workflow
+- **vs `lazygit`**: `lazygit` is a broad Git UI; `gji` is narrower and faster for opening, jumping between, and removing isolated branch directories
+- **vs `ghq`**: `ghq` organizes repositories; `gji` organizes active branches and PRs within one repository
+
+Use `gji` when your bottleneck is repeated context switching between features, reviews, and maintenance work without disturbing what is already open.
+
+It is especially useful when those contexts are happening in parallel across both human and AI-assisted work.
+
+See the full comparison in [website/docs/comparison.mdx](./website/docs/comparison.mdx).
 
 ## Shell setup
 

@@ -63,6 +63,10 @@ const config: Config = {
               to: '/docs/intro',
             },
             {
+              label: 'Comparison',
+              to: '/docs/comparison',
+            },
+            {
               label: 'Installation',
               to: '/docs/installation',
             },
@@ -137,8 +141,8 @@ const config: Config = {
           title: 'Why gji',
           items: [
             {
-              label: 'Installation',
-              to: '/docs/installation',
+              label: 'Comparison',
+              to: '/docs/comparison',
             },
             {
               label: 'Hooks',
