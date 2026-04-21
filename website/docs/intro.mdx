@@ -10,6 +10,21 @@ description: Learn what gji is, why it exists, and how it makes Git worktree wor
 
 It gives each branch its own directory, dependencies, and terminal context so you can move between tasks without the normal stash, checkout, reinstall loop.
 
+## Why it matters more now
+
+AI-assisted development increases the number of parallel tasks around a single repository.
+
+It is now normal to have:
+
+- your main feature branch open
+- a pull request you need to review right now
+- a scratch branch for trying an agent-generated idea
+- another worktree for validating a risky refactor or migration
+
+That makes Git worktrees more important, because one shared checkout becomes the bottleneck.
+
+`gji` makes that parallel style practical by turning worktrees into a fast, repeatable daily workflow instead of a low-level Git trick.
+
 ## Why it exists
 
 Without worktrees, “quickly check one thing” usually turns into this:
@@ -38,6 +53,7 @@ Without worktrees, “quickly check one thing” usually turns into this:
 - maintain several long-lived branches in the same repository
 - work in projects where reinstalling dependencies is slow enough to be annoying
 - use editor workspaces, bookmarks, or scripts that benefit from stable branch paths
+- keep multiple human and AI-assisted tasks open in parallel
 
 ## Core workflow
 
@@ -59,6 +75,7 @@ That keeps shell aliases, editor bookmarks, and setup scripts predictable.
 ## Next steps
 
 - Follow the [installation guide](./installation).
+- Read the [comparison guide](./comparison) if you are deciding between `gji`, raw `git worktree`, `lazygit`, or `ghq`.
 - Install [shell integration](./shell-integration) so directory handoff works correctly.
 - Copy the [quick start](./quick-start) into your shell history.
 - Use the [daily workflow](./daily-workflow) guide once the basics are installed.

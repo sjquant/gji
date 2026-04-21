@@ -17,6 +17,14 @@ Yes. Use `--print` and consume the returned path in scripts or wrappers.
 
 That keeps branch-specific files isolated and avoids mixing generated outputs, dependency folders, and editor state into a single checkout.
 
+## Why do worktrees matter more in AI-assisted workflows?
+
+Because AI tends to increase the number of parallel tasks around one repository, not decrease it.
+
+You may want your main feature open, a PR review open, and a scratch branch for agent-generated changes at the same time. Worktrees give each task its own directory and state so they do not step on each other.
+
+`gji` makes that style practical enough to use constantly.
+
 ## What path layout does `gji` use?
 
 Worktrees are stored at:
