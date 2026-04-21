@@ -105,8 +105,15 @@ _gji_completion() {
       fi
 
       case "\${COMP_WORDS[2]}" in
-        get|set|unset)
-          COMPREPLY=( $(compgen -W "${configKeys}" -- "$cur") )
+        get|unset)
+          if [ "$COMP_CWORD" -eq 3 ]; then
+            COMPREPLY=( $(compgen -W "${configKeys}" -- "$cur") )
+          fi
+          ;;
+        set)
+          if [ "$COMP_CWORD" -eq 3 ]; then
+            COMPREPLY=( $(compgen -W "${configKeys}" -- "$cur") )
+          fi
           ;;
       esac
       ;;
@@ -130,11 +137,29 @@ function renderFishCompletion(): string {
   ).join('\n');
 
   const configKeyLines = CONFIG_KEYS.map((key) =>
-    `complete -c gji -n '__fish_seen_subcommand_from config; and __fish_seen_subcommand_from get set unset' -a '${key}' -d 'config key'`,
+    `complete -c gji -n '__gji_should_complete_config_key' -a '${key}' -d 'config key'`,
   ).join('\n');
 
   return `function __gji_worktree_branches
     command gji ls 2>/dev/null | awk 'NR > 1 && $2 != "(detached)" { print $2 }'
+end
+
+function __gji_should_complete_config_action
+    set -l tokens (commandline -opc)
+    test (count $tokens) -eq 2
+end
+
+function __gji_should_complete_config_key
+    set -l tokens (commandline -opc)
+    if test (count $tokens) -ne 3
+        return 1
+    end
+
+    if test $tokens[2] != config
+        return 1
+    end
+
+    contains -- $tokens[3] get set unset
 end
 
 complete -c gji -f
@@ -177,7 +202,7 @@ complete -c gji -n '__fish_seen_subcommand_from remove rm' -a '(__gji_worktree_b
 
 ${hookLines}
 
-complete -c gji -n '__fish_seen_subcommand_from config; and not __fish_seen_subcommand_from get set unset' -a 'get set unset' -d 'config action'
+complete -c gji -n '__fish_seen_subcommand_from config; and __gji_should_complete_config_action' -a 'get set unset' -d 'config action'
 ${configKeyLines}`;
 }
 
@@ -245,7 +270,19 @@ _gji_completion() {
       _arguments "2:hook:(${hooks})"
       ;;
     config)
-      _arguments '2:action:(get set unset)' '3:key:->config_keys' '4:value: '
+      if (( CURRENT == 3 )); then
+        _values 'config action' get set unset
+        return
+      fi
+
+      case "\${words[3]}" in
+        get|unset)
+          _arguments '3:key:->config_keys'
+          ;;
+        set)
+          _arguments '3:key:->config_keys' '4:value: '
+          ;;
+      esac
       ;;
   esac
 

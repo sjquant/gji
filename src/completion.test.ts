@@ -27,7 +27,13 @@ describe('gji completion', () => {
     expect(stdout.join('')).toContain("'completion:print shell completion definitions'");
     expect(stdout.join('')).toContain("'2:shell:(bash fish zsh)'");
     expect(stdout.join('')).toContain("'2:branch:->worktrees'");
-    expect(stdout.join('')).toContain("'2:action:(get set unset)' '3:key:->config_keys' '4:value: '");
+    expect(stdout.join('')).toContain("_values 'config action' get set unset");
+    expect(stdout.join('')).toContain(`case "\${words[3]}" in`);
+    expect(stdout.join('')).toContain("get|unset)");
+    expect(stdout.join('')).toContain("_arguments '3:key:->config_keys'");
+    expect(stdout.join('')).toContain("set)");
+    expect(stdout.join('')).toContain("_arguments '3:key:->config_keys' '4:value: '");
+    expect(stdout.join('')).not.toContain("'2:action:(get set unset)' '3:key:->config_keys' '4:value: '");
     expect(stdout.join('')).toContain('__gji_worktree_branches() {');
     expect(stdout.join('')).toContain('compdef _gji_completion gji');
     expect(stdout.join('')).not.toContain('# >>> gji init >>>');
@@ -48,6 +54,33 @@ describe('gji completion', () => {
     expect(result.exitCode).toBe(0);
     expect(stdout.join('')).toContain('function __gji_worktree_branches');
     expect(stdout.join('')).toContain("complete -c gji -n '__fish_seen_subcommand_from completion' -a 'zsh'");
+    expect(stdout.join('')).toContain('function __gji_should_complete_config_action');
+    expect(stdout.join('')).toContain('function __gji_should_complete_config_key');
+    expect(stdout.join('')).toContain('test (count $tokens) -eq 2');
+    expect(stdout.join('')).toContain('if test (count $tokens) -ne 3');
+    expect(stdout.join('')).toContain('if test $tokens[2] != config');
+    expect(stdout.join('')).toContain('contains -- $tokens[3] get set unset');
+    expect(stdout.join('')).toContain("complete -c gji -n '__fish_seen_subcommand_from config; and __gji_should_complete_config_action' -a 'get set unset' -d 'config action'");
+    expect(stdout.join('')).toContain("complete -c gji -n '__gji_should_complete_config_key' -a 'branchPrefix' -d 'config key'");
+    expect(stdout.join('')).not.toContain("__fish_seen_subcommand_from config; and __fish_seen_subcommand_from get set unset");
     expect(stdout.join('')).toContain("complete -c gji -n '__fish_use_subcommand' -a 'new'");
+  });
+
+  it('prints bash config completions with a separate free-form value slot', async () => {
+    // Given a command output collector.
+    const stdout: string[] = [];
+
+    // When gji completion runs for bash explicitly.
+    const result = await runCli(['completion', 'bash'], {
+      stdout: (chunk) => stdout.push(chunk),
+    });
+
+    // Then config completions only suggest keys in the key position.
+    expect(result.exitCode).toBe(0);
+    expect(stdout.join('')).toContain('if [ "$COMP_CWORD" -eq 2 ]; then');
+    expect(stdout.join('')).toContain('get|unset)');
+    expect(stdout.join('')).toContain('set)');
+    expect(stdout.join('')).toContain('if [ "$COMP_CWORD" -eq 3 ]; then');
+    expect(stdout.join('')).not.toContain('get|set|unset)\n          COMPREPLY=( $(compgen -W');
   });
 });
