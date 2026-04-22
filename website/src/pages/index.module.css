@@ -351,7 +351,7 @@
 
 .docsLink::after,
 .inlineLink::after {
-  content: '->';
+  content: '→';
   display: inline-block;
   margin-left: 0.35rem;
 }
