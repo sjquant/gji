@@ -247,13 +247,6 @@ code {
   border-bottom: 1px solid rgba(23, 32, 51, 0.08);
 }
 
-.navbar-sidebar__items {
-  background: #f7f3eb;
-  height: calc(100vh - var(--ifm-navbar-height));
-  min-height: calc(100vh - var(--ifm-navbar-height));
-  overflow-y: auto;
-}
-
 .navbar-sidebar__back {
   background: rgba(23, 32, 51, 0.04);
   border-radius: 0;
@@ -284,6 +277,6 @@ code {
 
 [data-theme='dark'] .navbar-sidebar,
 [data-theme='dark'] .navbar-sidebar__brand,
-[data-theme='dark'] .navbar-sidebar__items {
+[data-theme='dark'] .navbar-sidebar {
   background: #101b2b;
 }

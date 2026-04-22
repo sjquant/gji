@@ -1,0 +1,11 @@
+{"version":3,"term":{"cols":80,"rows":24,"type":"dumb"},"timestamp":1776787937,"command":"/var/folders/sw/7_95n4n504j8x0n9jv53vmrc0000gn/T/gji-readme-demos-EIqt3z/after/after.sh","env":{"SHELL":"/bin/zsh"}}
+[0.556, "o", "\u001b[32msjquant@gji\u001b[39m \u001b[34m~/code/gji\u001b[39m $ gji pr 1234\r\r\n"]
+[0.608, "o", "added 412 packages, and audited 413 packages in 4s\r\r\n"]
+[0.454, "o", "found 0 vulnerabilities\r\r\n"]
+[0.560, "o", "~/code/worktrees/gji/pr-1234\r\r\n"]
+[0.508, "o", "\u001b[32msjquant@gji\u001b[39m \u001b[34m~/code/worktrees/gji/pr-1234\u001b[39m $ pwd\r\r\n"]
+[0.461, "o", "/Users/me/code/worktrees/gji/pr-1234\r\r\n"]
+[0.512, "o", "\u001b[32msjquant@gji\u001b[39m \u001b[34m~/code/worktrees/gji/pr-1234\u001b[39m $ gji ls\r\r\n"]
+[0.508, "o", "main      ~/code/gji\r\r\n"]
+[0.362, "o", "pr-1234   ~/code/worktrees/gji/pr-1234\r\r\n"]
+[1.306, "x", "0"]

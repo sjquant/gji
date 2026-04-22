@@ -21,18 +21,39 @@ const commandHighlights = [
   'gji sync --all',
 ];
 
-const proofPoints = [
+const heroStats = [
   {
-    value: 'One command',
-    label: 'to open a feature worktree or PR review checkout cleanly',
+    value: 'Feature branches',
+    label: 'Open a clean worktree without disturbing the branch already in progress.',
   },
   {
-    value: 'Separate installs',
-    label: 'so branch-specific dependencies and build state stay isolated',
+    value: 'Pull request review',
+    label: 'Inspect PRs in their own directory instead of reusing one mutable checkout.',
   },
   {
-    value: 'Stable paths',
-    label: 'that make editor bookmarks, hooks, and scripts predictable',
+    value: 'Predictable paths',
+    label: 'Keep editors, shell history, hooks, and scripts pointed at stable locations.',
+  },
+];
+
+const heroChecklist = [
+  'Separate branch directories by default',
+  'Branch-specific installs and build state',
+  'Fast return to the work you were already doing',
+];
+
+const heroWorkflow = [
+  {
+    command: 'gji new feature/payment-refactor',
+    detail: 'Start a task in its own worktree and land in the new directory immediately.',
+  },
+  {
+    command: 'gji pr 1234',
+    detail: 'Open a pull request in isolation instead of mutating your active checkout.',
+  },
+  {
+    command: 'gji go main',
+    detail: 'Jump back to a familiar path without stash, checkout, or reinstall churn.',
   },
 ];
 
@@ -161,50 +182,71 @@ function HeroSection(): ReactNode {
     <section className={styles.hero}>
       <div className={clsx('container', styles.heroInner)}>
         <div className={styles.heroCopy}>
-          <p className={styles.eyebrow}>CLI for focused Git workflows</p>
+          <p className={styles.eyebrow}>Git worktree CLI</p>
           <h1 className={styles.heroTitle}>Git worktrees without the hassle</h1>
           <p className={styles.heroLead}>
-            <code>gji</code> turns branch switching, PR review, and cleanup into a
-            direct workflow instead of a stash-checkout-reinstall ritual.
+            <code>gji</code> keeps feature work, pull request review, and cleanup in
+            separate directories so switching context feels controlled instead of
+            disruptive.
+          </p>
+          <p className={styles.heroSupport}>
+            It is the same Git worktree capability, packaged as a cleaner daily
+            workflow for real repositories with parallel work.
           </p>
           <div className={styles.ctaRow}>
-            <Link className={clsx('button button--lg', styles.primaryButton)} to="/docs/installation">
+            <Link
+              className={clsx('button button--lg', styles.primaryButton)}
+              to="/docs/installation">
               Install
             </Link>
-            <Link className={clsx('button button--lg', styles.secondaryButton)} to="/docs/quick-start">
+            <Link
+              className={clsx('button button--lg', styles.secondaryButton)}
+              to="/docs/quick-start">
               Quick Start
             </Link>
           </div>
-          <div className={styles.heroMeta}>
-            <span>Separate branch directories</span>
-            <span>PR review in isolation</span>
-            <span>Deterministic paths</span>
-          </div>
+          <ul className={styles.heroChecklist}>
+            {heroChecklist.map((item) => (
+              <li key={item}>{item}</li>
+            ))}
+          </ul>
         </div>
-        <div className={styles.commandPanel}>
-          <div className={styles.commandHeader}>
-            <span className={styles.commandDot} />
-            <span className={styles.commandDot} />
-            <span className={styles.commandDot} />
-            <span className={styles.commandLabel}>daily workflow</span>
-          </div>
-          <pre className={styles.commandBlock}>
-            <code>
-              {commandHighlights.map((command) => `$ ${command}`).join('\n')}
-            </code>
-          </pre>
-          <p className={styles.commandNote}>
-            Deterministic path layout: <code>../worktrees/&lt;repo&gt;/&lt;branch&gt;</code>
-          </p>
-        </div>
+        <HeroWorkflowPanel />
       </div>
       <div className={clsx('container', styles.proofStrip)}>
-        {proofPoints.map((point) => (
+        {heroStats.map((point) => (
           <article key={point.value} className={styles.proofPill}>
             <h2>{point.value}</h2>
             <p>{point.label}</p>
           </article>
         ))}
+      </div>
+    </section>
+  );
+}
+
+function HeroWorkflowPanel(): ReactNode {
+  return (
+    <section className={styles.commandPanel} aria-label="Workflow preview">
+      <div className={styles.commandIntro}>
+        <p className={styles.commandEyebrow}>Typical session</p>
+        <h2 className={styles.commandTitle}>A cleaner way to move between tasks</h2>
+        <p className={styles.commandSummary}>
+          Keep each task in its own worktree, keep paths predictable, and stop
+          turning one checkout into a temporary everything-box.
+        </p>
+      </div>
+      <div className={styles.workflowList}>
+        {heroWorkflow.map((item) => (
+          <article key={item.command} className={styles.workflowItem}>
+            <code className={styles.workflowCommand}>{item.command}</code>
+            <p>{item.detail}</p>
+          </article>
+        ))}
+      </div>
+      <div className={styles.commandFootnote}>
+        <span className={styles.commandFootnoteLabel}>Path layout</span>
+        <code>../worktrees/&lt;repo&gt;/&lt;branch&gt;</code>
       </div>
     </section>
   );
