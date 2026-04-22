@@ -1,0 +1,10 @@
+.motionImagePicture {
+  display: block;
+}
+
+.motionImageAsset {
+  border-radius: 0.75rem;
+  box-shadow: 0 1rem 2rem rgba(23, 32, 51, 0.08);
+  display: block;
+  width: 100%;
+}

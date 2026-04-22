@@ -3,6 +3,8 @@ title: Comparison
 description: See when to use gji instead of raw git worktree, lazygit, or ghq, and where they complement each other.
 ---
 
+import ResponsiveMotionImage from '@site/src/components/ResponsiveMotionImage';
+
 # Comparison
 
 `gji` wins when the problem is not "Can Git do this?" but "How fast can I switch into the next task without breaking the one I already have open?"
@@ -50,6 +52,41 @@ That is where `gji` feels better than the alternatives.
 | Raw `git worktree` | Low-level Git control | `gji` removes the ceremony and gives you a smoother default workflow |
 | `lazygit` | General Git UI | `gji` is faster when the goal is "open the right task in its own directory now" |
 | `ghq` | Organizing repositories | `gji` solves a different layer: isolating work inside one repository |
+
+## What the switch actually feels like
+
+The practical difference is not abstract. It is what happens when you are already in the middle of one task and another one lands on your desk.
+
+### Before
+
+You stash your changes, jump branches, wait for a fresh install, review the PR, then try to unwind everything back to where you started.
+
+<ResponsiveMotionImage
+  alt="Traditional branch switching flow"
+  animatedSrc="/img/comparison/before.gif"
+  height={642}
+  staticSrc="/img/comparison/before-still.png"
+  width={1480}
+/>
+
+### After
+
+With `gji`, you open the PR in its own worktree and keep your original branch untouched. In this example the new worktree also runs its setup automatically through an `afterCreate` hook, so the install happens inside the fresh checkout instead of in the branch you were already using.
+
+<ResponsiveMotionImage
+  alt="gji pull request worktree flow"
+  animatedSrc="/img/comparison/after.gif"
+  height={642}
+  staticSrc="/img/comparison/after-still.png"
+  width={1480}
+/>
+
+That is the core tradeoff `gji` optimizes for:
+
+- less branch juggling in your active shell
+- less stash and checkout churn
+- a separate directory for the new task from the start
+- setup that can happen in the new worktree instead of disrupting the old one
 
 ## `gji` vs raw `git worktree`
 
