@@ -254,6 +254,11 @@ code {
   overflow-y: auto;
 }
 
+.navbar-sidebar__item {
+  background: #f7f3eb;
+  min-height: 100%;
+}
+
 .navbar-sidebar__back {
   background: rgba(23, 32, 51, 0.04);
   border-radius: 0;
@@ -284,6 +289,7 @@ code {
 
 [data-theme='dark'] .navbar-sidebar,
 [data-theme='dark'] .navbar-sidebar__brand,
-[data-theme='dark'] .navbar-sidebar__items {
+[data-theme='dark'] .navbar-sidebar__items,
+[data-theme='dark'] .navbar-sidebar__item {
   background: #101b2b;
 }

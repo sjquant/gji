@@ -1,22 +1,22 @@
 .page {
   background:
-    radial-gradient(circle at top left, rgba(197, 112, 48, 0.14), transparent 26rem),
-    radial-gradient(circle at top right, rgba(11, 109, 89, 0.08), transparent 28rem),
-    linear-gradient(180deg, var(--gji-surface) 0%, var(--ifm-background-color) 22rem);
+    radial-gradient(circle at top left, rgba(183, 109, 52, 0.1), transparent 24rem),
+    linear-gradient(180deg, rgba(241, 233, 220, 0.7) 0%, var(--ifm-background-color) 20rem);
 }
 
 .hero {
-  padding: 4.5rem 0 2rem;
+  padding: 5.5rem 0 2.5rem;
 }
 
 .heroInner {
   align-items: stretch;
   display: flex;
-  gap: 3rem;
+  gap: 2rem;
 }
 
 .heroCopy {
   flex: 1.05;
+  max-width: 37rem;
 }
 
 .eyebrow,
@@ -45,16 +45,16 @@
 }
 
 .heroTitle {
-  font-size: clamp(3rem, 6.8vw, 5.2rem);
-  max-width: 10.5ch;
+  font-size: clamp(3rem, 6vw, 4.8rem);
+  max-width: 11ch;
 }
 
 .heroLead {
   color: var(--gji-ink);
-  font-size: 1.18rem;
-  line-height: 1.8;
-  margin: 1.5rem 0 0;
-  max-width: 34rem;
+  font-size: 1.16rem;
+  line-height: 1.75;
+  margin: 1.35rem 0 0;
+  max-width: 33rem;
 }
 
 .heroLead code {
@@ -66,18 +66,26 @@
   padding: 0.15rem 0.45rem;
 }
 
+.heroSupport {
+  color: var(--gji-muted);
+  font-size: 1rem;
+  line-height: 1.75;
+  margin: 0.9rem 0 0;
+  max-width: 33rem;
+}
+
 .ctaRow {
   display: flex;
   flex-wrap: wrap;
   gap: 0.9rem;
-  margin-top: 2rem;
+  margin-top: 2.1rem;
 }
 
 .primaryButton,
 .secondaryButton {
   border: 1px solid transparent;
   border-radius: 0.55rem;
-  box-shadow: 0 0.7rem 1.75rem rgba(23, 32, 51, 0.08);
+  box-shadow: 0 0.65rem 1.4rem rgba(23, 32, 51, 0.06);
   font-weight: 700;
   min-width: 10rem;
 }
@@ -105,108 +113,149 @@
   color: var(--gji-ink-strong);
 }
 
-.heroMeta {
-  color: var(--gji-ink);
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.9rem 1.4rem;
-  font-size: 0.94rem;
-  font-weight: 600;
-  margin-top: 1.6rem;
+.heroChecklist {
+  display: grid;
+  gap: 0.8rem;
+  list-style: none;
+  margin: 1.5rem 0 0;
+  max-width: 33rem;
+  padding: 0;
 }
 
-.heroMeta span {
+.heroChecklist li {
   align-items: center;
-  background: rgba(255, 255, 255, 0.82);
+  background: rgba(255, 255, 255, 0.76);
   border: 1px solid rgba(23, 32, 51, 0.08);
-  border-radius: 0.45rem;
-  display: inline-flex;
-  padding: 0.5rem 0.85rem;
+  border-radius: 0.7rem;
+  color: var(--gji-ink);
+  display: flex;
+  font-size: 0.97rem;
+  font-weight: 600;
+  gap: 0.7rem;
+  padding: 0.8rem 0.95rem;
+}
+
+.heroChecklist li::before {
+  color: var(--ifm-color-primary-darkest);
+  content: '•';
+  font-size: 1.1rem;
+  line-height: 1;
 }
 
 .commandPanel {
-  background: linear-gradient(180deg, rgba(19, 25, 35, 0.96), rgba(14, 19, 28, 0.98));
-  border: 1px solid rgba(196, 204, 217, 0.12);
-  border-radius: 0.8rem;
-  box-shadow: 0 2rem 5rem rgba(15, 23, 42, 0.16);
-  color: #f5f7fb;
+  background: rgba(255, 255, 255, 0.82);
+  border: 1px solid rgba(23, 32, 51, 0.09);
+  border-radius: 1rem;
+  box-shadow: 0 1.5rem 3rem rgba(23, 32, 51, 0.08);
+  color: var(--gji-ink-strong);
   flex: 0.95;
-  padding: 1.2rem;
+  padding: 1.45rem;
 }
 
-.commandHeader {
-  align-items: center;
-  display: flex;
-  gap: 0.5rem;
+.commandIntro {
+  border-bottom: 1px solid rgba(23, 32, 51, 0.08);
   margin-bottom: 1rem;
+  padding-bottom: 1rem;
 }
 
-.commandDot {
-  background: rgba(255, 255, 255, 0.26);
-  border-radius: 50%;
-  height: 0.7rem;
-  width: 0.7rem;
+.commandEyebrow {
+  color: var(--gji-accent-strong);
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  margin: 0 0 0.5rem;
+  text-transform: uppercase;
 }
 
-.commandLabel {
-  color: rgba(255, 255, 255, 0.78);
+.commandTitle {
+  color: var(--gji-ink-strong);
+  font-family: var(--gji-heading-font);
+  font-size: 1.55rem;
+  letter-spacing: -0.03em;
+  line-height: 1.05;
+  margin: 0;
+}
+
+.commandSummary {
+  color: var(--gji-muted);
+  line-height: 1.7;
+  margin: 0.75rem 0 0;
+}
+
+.workflowList {
+  display: grid;
+  gap: 0.8rem;
+}
+
+.workflowItem {
+  background: rgba(247, 243, 235, 0.8);
+  border: 1px solid rgba(23, 32, 51, 0.08);
+  border-radius: 0.8rem;
+  padding: 0.95rem 1rem;
+}
+
+.workflowItem p {
+  color: var(--gji-ink);
+  line-height: 1.65;
+  margin: 0.45rem 0 0;
+}
+
+.workflowCommand {
+  background: rgba(23, 32, 51, 0.06);
+  border: 1px solid rgba(23, 32, 51, 0.08);
+  border-radius: 0.45rem;
+  color: var(--gji-ink-strong);
+  display: inline-flex;
+  font-size: 0.95rem;
+  padding: 0.25rem 0.55rem;
+}
+
+.commandFootnote {
+  align-items: center;
+  border-top: 1px solid rgba(23, 32, 51, 0.08);
+  color: var(--gji-muted);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+  margin-top: 1rem;
+  padding-top: 1rem;
+}
+
+.commandFootnoteLabel {
   font-size: 0.82rem;
-  font-weight: 600;
-  margin-left: auto;
+  font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }
 
-.commandBlock {
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  border-radius: 0.55rem;
-  margin: 0;
-  overflow-x: auto;
-  padding: 1.25rem;
-}
-
-.commandBlock code {
-  color: #f8fafc;
-  font-size: 1rem;
-  line-height: 1.7;
-}
-
-.commandNote {
-  color: rgba(255, 255, 255, 0.84);
-  font-size: 0.95rem;
-  margin: 1rem 0 0;
-}
-
-.commandNote code {
-  background: rgba(255, 255, 255, 0.12);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 0.4rem;
-  color: #f8fafc;
-  display: inline-flex;
-  padding: 0.15rem 0.6rem;
+.commandFootnote code {
+  background: rgba(23, 32, 51, 0.06);
+  border: 1px solid rgba(23, 32, 51, 0.08);
+  border-radius: 0.45rem;
+  color: var(--gji-ink-strong);
+  padding: 0.2rem 0.55rem;
 }
 
 .proofStrip {
   display: grid;
   gap: 1rem;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  margin-top: 1.75rem;
+  margin-top: 2rem;
 }
 
 .proofPill {
-  background: rgba(255, 255, 255, 0.8);
+  background: rgba(255, 255, 255, 0.72);
   border: 1px solid rgba(23, 32, 51, 0.08);
-  border-radius: 0.6rem;
-  box-shadow: 0 1rem 2.2rem rgba(23, 32, 51, 0.05);
-  padding: 1rem 1.1rem;
+  border-radius: 0.8rem;
+  box-shadow: 0 1rem 2rem rgba(23, 32, 51, 0.04);
+  padding: 1.15rem 1.2rem;
 }
 
 .proofPill h2 {
   color: var(--gji-ink-strong);
   font-family: var(--gji-heading-font);
-  font-size: 1rem;
-  margin: 0 0 0.35rem;
+  font-size: 1.05rem;
+  margin: 0 0 0.4rem;
 }
 
 .proofPill p {
@@ -235,19 +284,19 @@
 .featureCard,
 .docsCard {
   border: 1px solid var(--gji-border);
-  border-radius: 0.65rem;
-  box-shadow: 0 1.1rem 2.6rem rgba(23, 32, 51, 0.04);
+  border-radius: 0.8rem;
+  box-shadow: 0 1rem 2rem rgba(23, 32, 51, 0.04);
   padding: 1.5rem;
 }
 
 .problemBox,
 .docsCard {
-  background: rgba(255, 255, 255, 0.86);
+  background: rgba(255, 255, 255, 0.78);
 }
 
 .solutionBox,
 .featureCard {
-  background: linear-gradient(180deg, rgba(233, 244, 240, 0.95), rgba(255, 255, 255, 0.92));
+  background: linear-gradient(180deg, rgba(244, 247, 245, 0.96), rgba(255, 255, 255, 0.88));
 }
 
 .problemLabel {
@@ -329,9 +378,8 @@
 
 [data-theme='dark'] .page {
   background:
-    radial-gradient(circle at top left, rgba(212, 146, 95, 0.16), transparent 28rem),
-    radial-gradient(circle at top right, rgba(91, 216, 186, 0.08), transparent 30rem),
-    linear-gradient(180deg, #101a2a 0%, var(--ifm-background-color) 22rem);
+    radial-gradient(circle at top left, rgba(212, 146, 95, 0.12), transparent 25rem),
+    linear-gradient(180deg, #101a2a 0%, var(--ifm-background-color) 20rem);
 }
 
 [data-theme='dark'] .eyebrow,
@@ -347,6 +395,10 @@
   color: #f2f4f9;
 }
 
+[data-theme='dark'] .heroSupport {
+  color: #a7b4c7;
+}
+
 [data-theme='dark'] .secondaryButton {
   background: rgba(16, 27, 43, 0.96);
   border-color: rgba(255, 255, 255, 0.12);
@@ -359,18 +411,49 @@
   color: #f2f4f9;
 }
 
-[data-theme='dark'] .heroMeta span {
+[data-theme='dark'] .heroChecklist li {
   background: rgba(16, 27, 43, 0.92);
   border-color: rgba(255, 255, 255, 0.08);
   color: #d5dcea;
 }
 
+[data-theme='dark'] .commandPanel,
 [data-theme='dark'] .proofPill,
 [data-theme='dark'] .problemBox,
 [data-theme='dark'] .docsCard {
   background: rgba(16, 27, 43, 0.9);
   border-color: rgba(255, 255, 255, 0.08);
   box-shadow: 0 1.1rem 2.6rem rgba(0, 0, 0, 0.2);
+}
+
+[data-theme='dark'] .commandIntro,
+[data-theme='dark'] .commandFootnote {
+  border-color: rgba(255, 255, 255, 0.08);
+}
+
+[data-theme='dark'] .commandTitle {
+  color: #f2f4f9;
+}
+
+[data-theme='dark'] .commandSummary,
+[data-theme='dark'] .commandFootnote {
+  color: #c9d2e2;
+}
+
+[data-theme='dark'] .workflowItem {
+  background: rgba(255, 255, 255, 0.03);
+  border-color: rgba(255, 255, 255, 0.08);
+}
+
+[data-theme='dark'] .workflowItem p {
+  color: #c9d2e2;
+}
+
+[data-theme='dark'] .workflowCommand,
+[data-theme='dark'] .commandFootnote code {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.08);
+  color: #f2f4f9;
 }
 
 [data-theme='dark'] .solutionBox,
@@ -413,7 +496,7 @@
 
 @media screen and (max-width: 996px) {
   .hero {
-    padding-top: 3.25rem;
+    padding-top: 3.6rem;
   }
 
   .heroInner,
@@ -432,6 +515,10 @@
 
   .commandPanel {
     margin-top: 1.5rem;
+  }
+
+  .heroChecklist {
+    margin-top: 1.25rem;
   }
 
   .proofStrip {

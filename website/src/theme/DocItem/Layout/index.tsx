@@ -12,7 +12,6 @@ import DocItemTOCMobile from '@theme/DocItem/TOC/Mobile';
 import DocVersionBadge from '@theme/DocVersionBadge';
 import DocVersionBanner from '@theme/DocVersionBanner';
 
-import MobileDocsSidebar from '../../../components/MobileDocsSidebar';
 import styles from './styles.module.css';
 
 export default function DocItemLayout({
@@ -32,7 +31,6 @@ export default function DocItemLayout({
           <article>
             <DocBreadcrumbs />
             <DocVersionBadge />
-            <MobileDocsSidebar />
             {docTOC.mobile}
             <DocItemContent>{children}</DocItemContent>
             <DocItemFooter />
