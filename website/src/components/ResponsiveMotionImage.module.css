@@ -1,10 +1,14 @@
 .motionImagePicture {
   display: block;
+  max-width: 100%;
+  width: 100%;
 }
 
 .motionImageAsset {
   border-radius: 0.75rem;
   box-shadow: 0 1rem 2rem rgba(23, 32, 51, 0.08);
   display: block;
+  height: auto;
+  max-width: 100%;
   width: 100%;
 }
