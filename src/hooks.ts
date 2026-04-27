@@ -1,9 +1,11 @@
 import { spawn } from 'node:child_process';
 
+export type GjiHookCommand = string | string[];
+
 export interface GjiHooks {
-  afterCreate?: string;
-  afterEnter?: string;
-  beforeRemove?: string;
+  afterCreate?: GjiHookCommand;
+  afterEnter?: GjiHookCommand;
+  beforeRemove?: GjiHookCommand;
 }
 
 export interface HookContext {
@@ -13,13 +15,65 @@ export interface HookContext {
 }
 
 export async function runHook(
-  hookCmd: string | undefined,
+  hookCmd: GjiHookCommand | undefined,
   cwd: string,
   context: HookContext,
   stderr: (chunk: string) => void,
 ): Promise<void> {
   if (!hookCmd) return;
 
+  if (Array.isArray(hookCmd)) {
+    await runArgvHook(hookCmd, cwd, context, stderr);
+    return;
+  }
+
+  await runShellHook(hookCmd, cwd, context, stderr);
+}
+
+async function runArgvHook(
+  hookCmd: string[],
+  cwd: string,
+  context: HookContext,
+  stderr: (chunk: string) => void,
+): Promise<void> {
+  const [command, ...args] = hookCmd.map((arg) => interpolate(arg, context));
+  if (!command) {
+    stderr('gji: hook argv command must include a non-empty command\n');
+    return;
+  }
+
+  await new Promise<void>((resolve) => {
+    const child = spawn(command, args, {
+      cwd,
+      shell: false,
+      stdio: ['ignore', 'inherit', 'pipe'],
+      env: hookEnvironment(context),
+    });
+
+    (child.stderr as NodeJS.ReadableStream).on('data', (chunk: Buffer) => {
+      stderr(chunk.toString());
+    });
+
+    child.on('close', (code) => {
+      if (code !== 0) {
+        stderr(`gji: hook exited with code ${code}: ${formatArgvHook(command, args)}\n`);
+      }
+      resolve();
+    });
+
+    child.on('error', (err) => {
+      stderr(`gji: hook failed to start: ${err.message}\n`);
+      resolve();
+    });
+  });
+}
+
+async function runShellHook(
+  hookCmd: string,
+  cwd: string,
+  context: HookContext,
+  stderr: (chunk: string) => void,
+): Promise<void> {
   const interpolated = interpolate(hookCmd, context);
 
   await new Promise<void>((resolve) => {
@@ -27,12 +81,7 @@ export async function runHook(
       cwd,
       shell: true,
       stdio: ['ignore', 'inherit', 'pipe'],
-      env: {
-        ...process.env,
-        GJI_BRANCH: context.branch ?? '',
-        GJI_PATH: context.path,
-        GJI_REPO: context.repo,
-      },
+      env: hookEnvironment(context),
     });
 
     (child.stderr as NodeJS.ReadableStream).on('data', (chunk: Buffer) => {
@@ -53,6 +102,19 @@ export async function runHook(
   });
 }
 
+function hookEnvironment(context: HookContext): NodeJS.ProcessEnv {
+  return {
+    ...process.env,
+    GJI_BRANCH: context.branch ?? '',
+    GJI_PATH: context.path,
+    GJI_REPO: context.repo,
+  };
+}
+
+function formatArgvHook(command: string, args: string[]): string {
+  return JSON.stringify([command, ...args]);
+}
+
 export function interpolate(template: string, context: HookContext): string {
   return template
     .replace(/\{\{branch\}\}/g, context.branch ?? '')
@@ -70,8 +132,22 @@ export function extractHooks(config: Record<string, unknown>): GjiHooks {
   const hooks = raw as Record<string, unknown>;
 
   return {
-    afterCreate: typeof hooks.afterCreate === 'string' ? hooks.afterCreate : undefined,
-    afterEnter: typeof hooks.afterEnter === 'string' ? hooks.afterEnter : undefined,
-    beforeRemove: typeof hooks.beforeRemove === 'string' ? hooks.beforeRemove : undefined,
+    afterCreate: parseHookCommand(hooks.afterCreate),
+    afterEnter: parseHookCommand(hooks.afterEnter),
+    beforeRemove: parseHookCommand(hooks.beforeRemove),
   };
+}
+
+function parseHookCommand(value: unknown): GjiHookCommand | undefined {
+  if (typeof value === 'string') return value;
+  if (
+    Array.isArray(value) &&
+    value.length > 0 &&
+    value[0] !== '' &&
+    value.every((item) => typeof item === 'string')
+  ) {
+    return value;
+  }
+
+  return undefined;
 }

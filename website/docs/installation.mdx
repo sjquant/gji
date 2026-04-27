@@ -62,12 +62,12 @@ Add an `afterCreate` hook:
 ```json
 {
   "hooks": {
-    "afterCreate": "pnpm install"
+    "afterCreate": ["pnpm", "install"]
   }
 }
 ```
 
-That way new worktrees come up ready to use.
+Array hooks run without a shell and are the safer default for simple commands. If you need shell features in a string hook, quote context values with `"$GJI_PATH"`, `"$GJI_BRANCH"`, or `"$GJI_REPO"` instead of leaving template values unquoted.
 
 ## Script-friendly mode
 

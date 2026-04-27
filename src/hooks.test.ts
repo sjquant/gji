@@ -78,11 +78,39 @@ describe('extractHooks', () => {
       .toEqual({ afterCreate: 'a', afterEnter: 'b', beforeRemove: 'c' });
   });
 
+  it('extracts argv hook commands', () => {
+    // Given a config with an argv-form hook command.
+    const config = { hooks: { afterCreate: ['pnpm', 'install'] } };
+
+    // When hooks are extracted.
+    const hooks = extractHooks(config);
+
+    // Then the argv command is preserved.
+    expect(hooks).toEqual({ afterCreate: ['pnpm', 'install'] });
+  });
+
   it('ignores non-string hook values', () => {
     // Given a config with hooks set to non-string values.
     // Then extractHooks omits those keys.
     expect(extractHooks({ hooks: { afterCreate: 123, afterEnter: null } }))
       .toEqual({});
+  });
+
+  it('ignores invalid argv hook values', () => {
+    // Given a config with empty and mixed-type argv hook commands.
+    const config = {
+      hooks: {
+        afterCreate: [],
+        afterEnter: ['pnpm', 123],
+        beforeRemove: ['', 'arg'],
+      },
+    };
+
+    // When hooks are extracted.
+    const hooks = extractHooks(config);
+
+    // Then invalid argv commands are omitted.
+    expect(hooks).toEqual({});
   });
 
   it('ignores a hooks key that is not a plain object', () => {
@@ -120,6 +148,26 @@ describe('runHook', () => {
     expect(stderr).toEqual([]);
   });
 
+  it('executes an argv command in the given cwd', async () => {
+    // Given a temporary directory and an argv hook that writes a marker file.
+    const dir = await mkdtemp(join(tmpdir(), 'gji-hooks-'));
+    const markerFile = join(dir, 'argv-hook-ran.txt');
+    const stderr: string[] = [];
+    const script = 'require("node:fs").writeFileSync(process.argv[1], "ok")';
+
+    // When runHook is called with an argv command.
+    await runHook(
+      [process.execPath, '-e', script, 'argv-hook-ran.txt'],
+      dir,
+      { path: dir, repo: 'r' },
+      (c) => stderr.push(c),
+    );
+
+    // Then the command runs in the hook cwd without errors.
+    await expect(readFile(markerFile, 'utf8')).resolves.toBe('ok');
+    expect(stderr).toEqual([]);
+  });
+
   it('interpolates template variables before running the command', async () => {
     // Given a hook command that uses {{branch}} and {{repo}} variables.
     const dir = await mkdtemp(join(tmpdir(), 'gji-hooks-'));
@@ -136,6 +184,29 @@ describe('runHook', () => {
 
     // Then the output file contains the substituted values.
     await expect(readFile(outputFile, 'utf8')).resolves.toBe('feature/test:myrepo');
+  });
+
+  it('passes interpolated argv template values without shell evaluation', async () => {
+    // Given an argv hook and a branch value containing shell metacharacters.
+    const dir = await mkdtemp(join(tmpdir(), 'gji-hooks-'));
+    const outputFile = join(dir, 'argv-output.txt');
+    const injectedFile = join(dir, 'injected.txt');
+    const branchName = `feature/safe; touch "${injectedFile}"`;
+    const stderr: string[] = [];
+    const script = 'require("node:fs").writeFileSync(process.argv[1], process.argv[2])';
+
+    // When runHook interpolates the branch into one argv argument.
+    await runHook(
+      [process.execPath, '-e', script, outputFile, '{{branch}}'],
+      dir,
+      { branch: branchName, path: dir, repo: 'myrepo' },
+      (c) => stderr.push(c),
+    );
+
+    // Then the value is passed literally and the injected shell command does not run.
+    await expect(readFile(outputFile, 'utf8')).resolves.toBe(branchName);
+    await expect(readFile(injectedFile)).rejects.toThrow();
+    expect(stderr).toEqual([]);
   });
 
   it('exposes context as GJI_* environment variables', async () => {

@@ -25,7 +25,7 @@ Use the global file for defaults you want everywhere. Use `.gji.json` when one r
 | `syncFiles` | Files copied from the main worktree into new worktrees. |
 | `skipInstallPrompt` | Disable the automatic install prompt permanently. |
 | `installSaveTarget` | Persist install prompt choices locally or globally. |
-| `hooks` | Lifecycle commands for create, enter, and remove events. |
+| `hooks` | Lifecycle commands for create, enter, and remove events. String hooks run through a shell; array hooks run as argv without a shell. |
 | `repos` | Per-repository overrides inside the global config. |
 
 ## Example
@@ -50,7 +50,7 @@ If you work across many repositories, you can scope config inside the global fil
     "/home/me/code/my-repo": {
       "branchPrefix": "fix/",
       "hooks": {
-        "afterCreate": "npm install"
+        "afterCreate": ["npm", "install"]
       }
     }
   }

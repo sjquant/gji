@@ -12,8 +12,8 @@ Hooks let `gji` run your setup and cleanup commands automatically at key lifecyc
 ```json
 {
   "hooks": {
-    "afterCreate": "pnpm install",
-    "afterEnter": "echo 'switched to {{branch}}'",
+    "afterCreate": ["pnpm", "install"],
+    "afterEnter": ["printf", "switched to %s\n", "{{branch}}"],
     "beforeRemove": "pnpm run cleanup"
   }
 }
@@ -42,6 +42,35 @@ The same values are also available as environment variables:
 - `GJI_BRANCH`
 - `GJI_PATH`
 - `GJI_REPO`
+
+## Safer hook commands
+
+Prefer argv-array hooks when you do not need shell features:
+
+```json
+{
+  "hooks": {
+    "afterCreate": ["pnpm", "install"],
+    "afterEnter": ["printf", "switched to %s at %s\n", "{{branch}}", "{{path}}"]
+  }
+}
+```
+
+Array hooks run without a shell. Each array item is passed as exactly one argument, so branch names and paths containing spaces or shell metacharacters are not re-parsed as shell syntax.
+
+String hooks are still supported for shell features like `&&`, pipes, redirects, shell functions, and `nvm use`. Template values are interpolated before the shell parses the command, so avoid putting `{{branch}}`, `{{path}}`, or `{{repo}}` directly into shell strings.
+
+For shell-string hooks, read the context from environment variables and double-quote each expansion:
+
+```json
+{
+  "hooks": {
+    "afterCreate": "pnpm install && printf 'ready: %s\n' \"$GJI_PATH\""
+  }
+}
+```
+
+Avoid unquoted template values in shell strings, such as `echo {{branch}}` or `cd {{path}}`.
 
 ## Layering behavior
 
@@ -74,7 +103,7 @@ This is useful after cloning on a new machine or when you need to rebuild a work
 ```json
 {
   "hooks": {
-    "afterCreate": "pnpm install"
+    "afterCreate": ["pnpm", "install"]
   }
 }
 ```
@@ -84,7 +113,7 @@ This is useful after cloning on a new machine or when you need to rebuild a work
 ```json
 {
   "hooks": {
-    "afterEnter": "echo \"switched to {{branch}} at {{path}}\""
+    "afterEnter": ["printf", "switched to %s at %s\n", "{{branch}}", "{{path}}"]
   }
 }
 ```
