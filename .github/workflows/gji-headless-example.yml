@@ -1,0 +1,68 @@
+name: gji Headless Example
+
+on:
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: Optional branch name for the temporary gji worktree.
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  headless:
+    runs-on: ubuntu-latest
+
+    env:
+      GJI_BRANCH: ${{ inputs.branch || format('automation/gji-headless-{0}', github.run_id) }}
+      GJI_NO_TUI: '1'
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 24
+
+      - name: Install gji
+        run: npm install --global @solaqua/gji@latest
+
+      - name: Inspect current worktrees
+        run: gji status --json
+
+      - name: Create automation worktree
+        id: create
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          gji new --json "$GJI_BRANCH" | tee gji-new.json
+          worktree_path="$(jq -r '.path' gji-new.json)"
+          echo "path=$worktree_path" >> "$GITHUB_OUTPUT"
+
+      - name: Run automation inside the worktree
+        shell: bash
+        working-directory: ${{ steps.create.outputs.path }}
+        run: |
+          set -euo pipefail
+
+          git status --short --branch
+          gji status --json
+
+      - name: Remove automation worktree
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if git worktree list --porcelain | grep --fixed-strings --quiet "branch refs/heads/${GJI_BRANCH}"; then
+            gji remove --json --force "$GJI_BRANCH"
+          else
+            echo "No linked worktree found for $GJI_BRANCH"
+          fi

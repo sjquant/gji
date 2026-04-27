@@ -95,3 +95,29 @@ Several commands support `--json` so shell scripts and tools can consume structu
 - `gji clean --json`
 - `gji remove --json`
 - `gji sync --json`
+
+## Headless mode and GitHub Actions
+
+Set `GJI_NO_TUI=1` when `gji` runs in CI, scheduled jobs, or any environment where a prompt would block the process:
+
+```bash
+GJI_NO_TUI=1 gji new --json automation/example
+GJI_NO_TUI=1 gji remove --json --force automation/example
+```
+
+`GJI_NO_TUI=1` disables interactive prompts and fails fast when a command needs a missing branch or confirmation. Commands that remove worktrees still require `--force`; `--json` gives automation a stable response body on success or error.
+
+The official GitHub Actions example is [`gji-headless-example.yml`](https://github.com/sjquant/gji/blob/main/.github/workflows/gji-headless-example.yml). It is a manual `workflow_dispatch` workflow for CI and automation jobs that need a temporary worktree.
+
+Required inputs and secrets:
+
+- No custom secrets are required.
+- `actions/checkout` uses the default `GITHUB_TOKEN` with `contents: read`.
+- The optional `branch` input names the temporary worktree branch. If omitted, the workflow uses `automation/gji-headless-<run id>`.
+
+Expected behavior:
+
+- The workflow checks out the repository with full history so Git worktrees can be created normally.
+- It installs `@solaqua/gji@latest`, sets `GJI_NO_TUI=1`, and runs `gji status --json`.
+- It creates a temporary worktree with `gji new --json`, stores the returned `path`, and runs automation from that directory.
+- The cleanup step runs even after failures and removes the temporary worktree with `gji remove --json --force`.

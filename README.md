@@ -410,6 +410,8 @@ GJI_NO_TUI=1 gji clean --force
 
 Update notifications are also suppressed automatically in non-interactive and `--json` runs. Users can opt out explicitly with `NO_UPDATE_NOTIFIER=1` or `--no-update-notifier`.
 
+For GitHub Actions, see the copyable workflow at [`.github/workflows/gji-headless-example.yml`](.github/workflows/gji-headless-example.yml). It installs `gji`, sets `GJI_NO_TUI=1`, creates a temporary worktree with `gji new --json`, runs automation inside that worktree, and removes it with `gji remove --json --force`.
+
 ## Notes
 
 - Works from either the main repo root or inside any linked worktree
