@@ -1,3 +1,6 @@
+import { writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
+
 import { describe, expect, it } from 'vitest';
 
 import { runCli } from './cli.js';
@@ -9,7 +12,7 @@ import {
 } from './repo.test-helpers.js';
 
 describe('gji ls', () => {
-  it('prints active worktrees as structured JSON with --json', async () => {
+  it('prints compact active worktrees as structured JSON with --compact --json', async () => {
     // Given a repository root with branch-backed worktrees.
     const repoRoot = await createRepository();
     const defaultBranch = await currentBranch(repoRoot);
@@ -19,8 +22,8 @@ describe('gji ls', () => {
     const bugfixWorktreePath = await addLinkedWorktree(repoRoot, bugfixBranch);
     const stdout: string[] = [];
 
-    // When gji ls runs in JSON mode.
-    const result = await runCli(['ls', '--json'], {
+    // When gji ls runs in compact JSON mode.
+    const result = await runCli(['ls', '--compact', '--json'], {
       cwd: repoRoot,
       stdout: (chunk) => stdout.push(chunk),
     });
@@ -36,7 +39,7 @@ describe('gji ls', () => {
     );
   });
 
-  it('prints active worktrees in a readable table', async () => {
+  it('prints active worktrees in a compact readable table with --compact', async () => {
     // Given a repository root with several linked worktrees.
     const repoRoot = await createRepository();
     const defaultBranch = await currentBranch(repoRoot);
@@ -55,8 +58,8 @@ describe('gji ls', () => {
     }
     const stdout: string[] = [];
 
-    // When gji ls runs from the repository root.
-    const result = await runCli(['ls'], {
+    // When gji ls --compact runs from the repository root.
+    const result = await runCli(['ls', '--compact'], {
       cwd: repoRoot,
       stdout: (chunk) => stdout.push(chunk),
     });
@@ -80,6 +83,79 @@ describe('gji ls', () => {
     expect(lines).toEqual(expected);
   });
 
+  it('prints status, upstream, and last commit columns by default', async () => {
+    // Given a repository root with one clean worktree and one dirty worktree.
+    const repoRoot = await createRepository();
+    const defaultBranch = await currentBranch(repoRoot);
+    const cleanBranch = 'feature/list-details-clean';
+    const dirtyBranch = 'feature/list-details-dirty';
+    const cleanWorktreePath = await addLinkedWorktree(repoRoot, cleanBranch);
+    const dirtyWorktreePath = await addLinkedWorktree(repoRoot, dirtyBranch);
+    const stdout: string[] = [];
+    await writeFile(join(dirtyWorktreePath, 'dirty.txt'), 'dirty\n', 'utf8');
+
+    // When gji ls runs from the repository root.
+    const result = await runCli(['ls'], {
+      cwd: repoRoot,
+      stdout: (chunk) => stdout.push(chunk),
+    });
+
+    const output = stdout.join('');
+
+    // Then it prints cleanup-oriented health details without hiding the paths.
+    expect(result.exitCode).toBe(0);
+    expect(output).toContain('BRANCH');
+    expect(output).toContain('STATUS');
+    expect(output).toContain('UPSTREAM');
+    expect(output).toContain('LAST');
+    expect(output).toContain(`* ${defaultBranch}`);
+    expect(output).toContain(`  ${cleanBranch}`);
+    expect(output).toContain(`  ${dirtyBranch}`);
+    expect(output).toContain('clean');
+    expect(output).toContain('dirty');
+    expect(output).toContain('no-upstream');
+    expect(output).toContain('just now');
+    expect(output).toContain(cleanWorktreePath);
+    expect(output).toContain(dirtyWorktreePath);
+  });
+
+  it('prints detailed worktree health as JSON by default when --json is used', async () => {
+    // Given a repository root with a linked worktree.
+    const repoRoot = await createRepository();
+    const defaultBranch = await currentBranch(repoRoot);
+    const featureBranch = 'feature/list-details-json';
+    const featureWorktreePath = await addLinkedWorktree(repoRoot, featureBranch);
+    const stdout: string[] = [];
+
+    // When gji ls --json runs.
+    const result = await runCli(['ls', '--json'], {
+      cwd: repoRoot,
+      stdout: (chunk) => stdout.push(chunk),
+    });
+
+    const json = JSON.parse(stdout.join(''));
+
+    // Then the JSON includes the same health details used by detailed text output.
+    expect(result.exitCode).toBe(0);
+    expect(json).toHaveLength(2);
+    expect(json[0]).toMatchObject({
+      branch: defaultBranch,
+      isCurrent: true,
+      path: repoRoot,
+      status: 'clean',
+      upstream: { kind: 'no-upstream' },
+    });
+    expect(json[0].lastCommitTimestamp).toEqual(expect.any(Number));
+    expect(json[1]).toMatchObject({
+      branch: featureBranch,
+      isCurrent: false,
+      path: featureWorktreePath,
+      status: 'clean',
+      upstream: { kind: 'no-upstream' },
+    });
+    expect(json[1].lastCommitTimestamp).toEqual(expect.any(Number));
+  });
+
   it('labels detached worktrees explicitly', async () => {
     // Given a repository root with both branch-backed and detached linked worktrees.
     const repoRoot = await createRepository();
@@ -90,8 +166,8 @@ describe('gji ls', () => {
 
     await runGit(repoRoot, ['worktree', 'add', '--detach', detachedWorktreePath, 'HEAD']);
 
-    // When gji ls runs from the repository root.
-    const result = await runCli(['ls'], {
+    // When gji ls --compact runs from the repository root.
+    const result = await runCli(['ls', '--compact'], {
       cwd: repoRoot,
       stdout: (chunk) => stdout.push(chunk),
     });
@@ -129,8 +205,8 @@ describe('gji ls', () => {
 
     await runGit(repoRoot, ['worktree', 'add', '--detach', detachedWorktreePath, 'HEAD']);
 
-    // When gji ls runs in JSON mode.
-    const result = await runCli(['ls', '--json'], {
+    // When gji ls runs in compact JSON mode.
+    const result = await runCli(['ls', '--compact', '--json'], {
       cwd: repoRoot,
       stdout: (chunk) => stdout.push(chunk),
     });
@@ -154,8 +230,8 @@ describe('gji ls', () => {
     const featureWorktreePath = await addLinkedWorktree(repoRoot, featureBranch);
     const stdout: string[] = [];
 
-    // When gji ls runs in JSON mode from inside that linked worktree.
-    const result = await runCli(['ls', '--json'], {
+    // When gji ls runs in compact JSON mode from inside that linked worktree.
+    const result = await runCli(['ls', '--compact', '--json'], {
       cwd: featureWorktreePath,
       stdout: (chunk) => stdout.push(chunk),
     });

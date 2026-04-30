@@ -142,12 +142,14 @@ gji go feature/auth-refactor      # jump to a worktree
 gji root                          # jump to repo root
 
 gji status                        # health overview + ahead/behind counts
-gji ls                            # compact list
+gji ls                            # list with status/upstream/last commit
+gji ls --compact                  # branch/path only
 
 gji sync                          # rebase current worktree onto default branch
 gji sync --all                    # rebase every worktree
 
 gji clean                         # interactive bulk cleanup
+gji clean --stale                 # only target safe stale cleanup candidates
 gji remove feature/auth-refactor  # remove one worktree and its branch
 
 gji trigger-hook afterCreate      # re-run setup in the current worktree
@@ -237,9 +239,9 @@ path=$(gji root --print)
 | `gji go [branch] [--print]` | jump to a worktree |
 | `gji root [--print]` | jump to the main repo root |
 | `gji status [--json]` | repo overview, worktree health, ahead/behind |
-| `gji ls [--json]` | list active worktrees |
+| `gji ls [--compact] [--json]` | list active worktrees |
 | `gji sync [--all]` | fetch and rebase worktrees onto default branch |
-| `gji clean [--force] [--json]` | interactively prune stale worktrees |
+| `gji clean [--stale] [--force] [--json]` | interactively prune linked worktrees |
 | `gji remove [branch] [--force] [--json]` | remove a worktree and its branch |
 | `gji trigger-hook <hook>` | run a hook in the current worktree |
 | `gji config [get\|set\|unset] [key] [value]` | manage global defaults |
@@ -382,6 +384,10 @@ gji new --json feature/dark-mode
 gji pr --json 1234
 # → { "branch": "pr/1234", "path": "/…/worktrees/repo/pr/1234" }
 
+# detailed list
+gji ls --json
+# → [{ "branch": "...", "status": "clean", "upstream": { "kind": "tracked", ... }, ... }]
+
 # remove
 gji remove --json --force feature/dark-mode
 # → { "branch": "feature/dark-mode", "path": "/…", "deleted": true }
@@ -390,9 +396,15 @@ gji remove --json --force feature/dark-mode
 gji clean --json --force
 # → { "removed": [{ "branch": "...", "path": "..." }, …] }
 
+# stale-only clean
+gji clean --stale --json --force
+# → { "removed": [{ "branch": "...", "path": "..." }, …] }
+
 # error shape (any command)
 # stderr → { "error": "branch argument is required" }
 ```
+
+`gji clean --stale` limits cleanup to clean branch worktrees whose upstream is gone and whose branch is already merged into the configured or remote default branch.
 
 `--json` suppresses all interactive prompts. `--force` is required for `remove` and `clean` in JSON mode. `branch` is `null` for detached worktrees.
 

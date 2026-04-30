@@ -1,5 +1,5 @@
 import { loadEffectiveConfig } from './config.js';
-import { isDirtyWorktree, runGit } from './git.js';
+import { isDirtyWorktree, resolveRemoteDefaultBranch, runGit } from './git.js';
 import { comparePaths } from './paths.js';
 import { detectRepository, listWorktrees, type WorktreeEntry } from './repo.js';
 
@@ -20,7 +20,7 @@ export async function runSyncCommand(options: SyncCommandOptions): Promise<numbe
   let defaultBranch: string | null;
   try {
     defaultBranch = resolveConfiguredString(config.syncDefaultBranch)
-      ?? await resolveDefaultBranch(repository.repoRoot, remote);
+      ?? await resolveRemoteDefaultBranch(repository.repoRoot, remote);
   } catch {
     emitError(options, `Unable to reach remote '${remote}'`);
     if (!options.json) {
@@ -115,21 +115,6 @@ function selectTargetWorktrees(
   }
 
   return [currentWorktree];
-}
-
-async function resolveDefaultBranch(repoRoot: string, remote: string): Promise<string | null> {
-  const stdout = await runGit(repoRoot, ['ls-remote', '--symref', remote, 'HEAD']);
-  const refLine = stdout
-    .split('\n')
-    .find((line) => line.startsWith('ref: refs/heads/'));
-
-  if (!refLine) {
-    return null;
-  }
-
-  const match = /^ref: refs\/heads\/(.+)\tHEAD$/.exec(refLine);
-
-  return match?.[1] ?? null;
 }
 
 function resolveConfiguredString(value: unknown): string | null {

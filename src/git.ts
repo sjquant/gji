@@ -35,6 +35,46 @@ export async function isDirtyWorktree(cwd: string): Promise<boolean> {
   return health.status === 'dirty';
 }
 
+export async function isBranchMergedInto(cwd: string, branch: string, base = 'HEAD'): Promise<boolean> {
+  try {
+    await execFileAsync('git', ['merge-base', '--is-ancestor', branch, base], { cwd });
+
+    return true;
+  } catch (error) {
+    if (hasExitCode(error, 1)) {
+      return false;
+    }
+
+    throw error;
+  }
+}
+
+export async function resolveRemoteDefaultBranch(cwd: string, remote: string): Promise<string | null> {
+  const { stdout } = await execFileAsync('git', ['ls-remote', '--symref', remote, 'HEAD'], { cwd });
+  const refLine = stdout
+    .split('\n')
+    .find((line) => line.startsWith('ref: refs/heads/'));
+
+  if (!refLine) {
+    return null;
+  }
+
+  const match = /^ref: refs\/heads\/(.+)\tHEAD$/.exec(refLine);
+
+  return match?.[1] ?? null;
+}
+
+export async function readBranchLastCommitTimestamp(cwd: string, branch: string): Promise<number | null> {
+  try {
+    const { stdout } = await execFileAsync('git', ['log', '-1', '--format=%ct', branch], { cwd });
+    const timestamp = Number(stdout.trim());
+
+    return Number.isFinite(timestamp) ? timestamp : null;
+  } catch {
+    return null;
+  }
+}
+
 function parseWorktreeHealth(output: string): WorktreeHealth {
   let ahead = 0;
   let behind = 0;
@@ -73,4 +113,10 @@ function parseWorktreeHealth(output: string): WorktreeHealth {
     upstreamGone: hasUpstream && !hasAb,
     status: dirty ? 'dirty' : 'clean',
   };
+}
+
+function hasExitCode(error: unknown, code: number): boolean {
+  return error instanceof Error
+    && 'code' in error
+    && (error as { code: unknown }).code === code;
 }

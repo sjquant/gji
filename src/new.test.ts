@@ -651,7 +651,7 @@ describe('gji new', () => {
       const repoRoot = await createRepository();
       const branchName = 'feature/install-hook-set';
       let promptCalled = false;
-      await writeFile(join(repoRoot, '.gji.json'), JSON.stringify({ hooks: { afterCreate: 'npm ci' } }), 'utf8');
+      await writeFile(join(repoRoot, '.gji.json'), JSON.stringify({ hooks: { afterCreate: 'true' } }), 'utf8');
       const runNewCommand = createNewCommand({
         detectInstallPackageManager: async () => fakePm,
         promptForInstallChoice: async () => {

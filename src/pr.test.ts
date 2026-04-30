@@ -633,7 +633,7 @@ describe('gji pr', () => {
       // Given a PR repo with hooks.afterCreate already configured.
       const repoRoot = await setupPrRepo('2006');
       let promptCalled = false;
-      await writeFile(join(repoRoot, '.gji.json'), JSON.stringify({ hooks: { afterCreate: 'npm ci' } }), 'utf8');
+      await writeFile(join(repoRoot, '.gji.json'), JSON.stringify({ hooks: { afterCreate: 'true' } }), 'utf8');
       const runPrCmd = createPrCommand({
         detectInstallPackageManager: async () => fakePm,
         promptForInstallChoice: async () => {

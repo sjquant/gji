@@ -41,11 +41,20 @@ gji clean
 
 Use `clean` when you want to prune multiple stale worktrees in one pass instead of removing them individually.
 
+For stale-only cleanup:
+
+```bash
+gji clean --stale
+```
+
+`--stale` targets clean branch worktrees whose upstream is gone and whose branch is already merged into the configured or remote default branch.
+
 ## Force options
 
 When you know you want non-interactive cleanup:
 
 ```bash
+gji clean --stale --force
 gji clean --force
 gji remove feature/auth-refactor --force
 ```
