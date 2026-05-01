@@ -12,7 +12,7 @@ export const BACK_OUTPUT_FILE_ENV = 'GJI_BACK_OUTPUT_FILE';
 export interface BackCommandOptions {
   cwd: string;
   home?: string;
-  list?: boolean;
+  n?: number;
   print?: boolean;
   stderr: (chunk: string) => void;
   stdout: (chunk: string) => void;
@@ -20,23 +20,24 @@ export interface BackCommandOptions {
 
 export async function runBackCommand(options: BackCommandOptions): Promise<number> {
   const history = await loadHistory(options.home);
+  const steps = options.n ?? 1;
 
-  if (options.list) {
-    if (history.length === 0) {
-      options.stdout('No navigation history.\n');
-      return 0;
-    }
-    options.stdout(formatHistoryList(history, options.cwd));
-    return 0;
+  if (steps < 1) {
+    options.stderr('gji back: step count must be at least 1\n');
+    return 1;
   }
 
+  let found = 0;
   let target: HistoryEntry | undefined;
   for (const entry of history) {
     if (entry.path === options.cwd) continue;
     try {
       await access(entry.path);
-      target = entry;
-      break;
+      found++;
+      if (found === steps) {
+        target = entry;
+        break;
+      }
     } catch {
       // Path no longer exists — skip to the next entry
     }

@@ -271,46 +271,27 @@ describe('gji back', () => {
     expect(stderr.join('')).toContain('no previous worktree');
   });
 
-  it('prints a message when history is empty with --list', async () => {
-    // Given an empty history.
+  it('navigates two steps back when given n=2', async () => {
+    // Given a history with three entries: cwd → B → A (A is oldest).
     const home = await makeHome();
     process.env.HOME = home;
     const repoRoot = await createRepository();
-    const stdout: string[] = [];
-
-    // When gji back --list is run.
-    const result = await runCli(['back', '--list'], {
-      cwd: repoRoot,
-      stdout: (chunk) => stdout.push(chunk),
-      stderr: () => undefined,
-    });
-
-    // Then it exits successfully and says there is no history.
-    expect(result.exitCode).toBe(0);
-    expect(stdout.join('')).toContain('No navigation history');
-  });
-
-  it('prints history with --list', async () => {
-    // Given a history with two entries.
-    const home = await makeHome();
-    process.env.HOME = home;
-    const repoRoot = await createRepository();
-    const worktreePath = await addLinkedWorktree(repoRoot, 'feature/y');
-    await appendHistory(worktreePath, 'feature/y', home);
+    const wtA = await addLinkedWorktree(repoRoot, 'branch-a');
+    const wtB = await addLinkedWorktree(repoRoot, 'branch-b');
+    await appendHistory(wtA, 'branch-a', home);
+    await appendHistory(wtB, 'branch-b', home);
     await appendHistory(repoRoot, 'main', home);
     const stdout: string[] = [];
 
-    // When gji back --list is run.
-    const result = await runCli(['back', '--list'], {
+    // When gji back 2 is run from the repo root (main).
+    const result = await runCli(['back', '2'], {
       cwd: repoRoot,
       stdout: (chunk) => stdout.push(chunk),
       stderr: () => undefined,
     });
 
-    // Then the output contains both branch names.
+    // Then it skips wtB and lands on wtA.
     expect(result.exitCode).toBe(0);
-    const output = stdout.join('');
-    expect(output).toContain('main');
-    expect(output).toContain('feature/y');
+    expect(stdout.join('')).toBe(`${wtA}\n`);
   });
 });

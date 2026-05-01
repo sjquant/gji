@@ -4,6 +4,7 @@ import updateNotifier from 'update-notifier';
 
 import { runBackCommand } from './back.js';
 import { runCleanCommand } from './clean.js';
+import { runHistoryCommand } from './history-command.js';
 import { runCompletionCommand } from './completion.js';
 import { runConfigCommand } from './config-command.js';
 import { runGoCommand } from './go.js';
@@ -175,11 +176,16 @@ function registerCommands(program: Command): void {
     .action(notImplemented('pr'));
 
   program
-    .command('back')
-    .description('navigate to the previously visited worktree')
-    .option('--list', 'show navigation history')
+    .command('back [n]')
+    .description('navigate to the previously visited worktree, optionally N steps back')
     .option('--print', 'print the resolved worktree path explicitly')
     .action(notImplemented('back'));
+
+  program
+    .command('history')
+    .description('show navigation history')
+    .option('--json', 'print history as JSON')
+    .action(notImplemented('history'));
 
   program
     .command('go [branch]')
@@ -313,12 +319,27 @@ function attachCommandActions(
 
   program.commands
     .find((command) => command.name() === 'back')
-    ?.action(async (commandOptions: { list?: boolean; print?: boolean }) => {
+    ?.action(async (n: string | undefined, commandOptions: { print?: boolean }) => {
+      const steps = n !== undefined ? parseInt(n, 10) : undefined;
       const exitCode = await runBackCommand({
         cwd: options.cwd,
-        list: commandOptions.list,
+        n: steps,
         print: commandOptions.print,
         stderr: options.stderr,
+        stdout: options.stdout,
+      });
+
+      if (exitCode !== 0) {
+        throw commanderExit(exitCode);
+      }
+    });
+
+  program.commands
+    .find((command) => command.name() === 'history')
+    ?.action(async (commandOptions: { json?: boolean }) => {
+      const exitCode = await runHistoryCommand({
+        cwd: options.cwd,
+        json: commandOptions.json,
         stdout: options.stdout,
       });
 
