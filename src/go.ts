@@ -5,6 +5,7 @@ import { loadEffectiveConfig } from './config.js';
 import { readWorktreeHealth, type WorktreeHealth } from './git.js';
 import { isHeadless } from './headless.js';
 import { extractHooks, runHook } from './hooks.js';
+import { appendHistory } from './history.js';
 import { detectRepository, listWorktrees, sortByCurrentFirst, type WorktreeEntry } from './repo.js';
 import { writeShellOutput } from './shell-handoff.js';
 
@@ -64,6 +65,7 @@ export function createGoCommand(
       options.stderr,
     );
 
+    await appendHistory(resolvedPath, chosenWorktree?.branch ?? null);
     await writeShellOutput(GO_OUTPUT_FILE_ENV, resolvedPath, options.stdout);
     return 0;
   };

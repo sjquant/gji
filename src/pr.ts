@@ -7,6 +7,7 @@ import { loadEffectiveConfig, resolveConfigString } from './config.js';
 import { syncFiles } from './file-sync.js';
 import { type PathConflictChoice, pathExists, promptForPathConflict } from './conflict.js';
 import { extractHooks, runHook } from './hooks.js';
+import { appendHistory } from './history.js';
 import { isHeadless } from './headless.js';
 import { type InstallPromptDependencies, maybeRunInstallPrompt } from './install-prompt.js';
 import { detectRepository, resolveWorktreePath } from './repo.js';
@@ -86,6 +87,7 @@ export function createPrCommand(
       const choice = await prompt(worktreePath);
 
       if (choice === 'reuse') {
+        await appendHistory(worktreePath, branchName);
         await writeOutput(worktreePath, options.stdout);
         return 0;
       }
@@ -150,6 +152,7 @@ export function createPrCommand(
     if (options.json) {
       options.stdout(`${JSON.stringify({ branch: branchName, path: worktreePath }, null, 2)}\n`);
     } else {
+      await appendHistory(worktreePath, branchName);
       await writeOutput(worktreePath, options.stdout);
     }
 

@@ -2,6 +2,7 @@ import { createRequire } from 'node:module';
 import { Command } from 'commander';
 import updateNotifier from 'update-notifier';
 
+import { runBackCommand } from './back.js';
 import { runCleanCommand } from './clean.js';
 import { runCompletionCommand } from './completion.js';
 import { runConfigCommand } from './config-command.js';
@@ -174,6 +175,13 @@ function registerCommands(program: Command): void {
     .action(notImplemented('pr'));
 
   program
+    .command('back')
+    .description('navigate to the previously visited worktree')
+    .option('--list', 'show navigation history')
+    .option('--print', 'print the resolved worktree path explicitly')
+    .action(notImplemented('back'));
+
+  program
     .command('go [branch]')
     .description('print or select a worktree path')
     .option('--print', 'print the resolved worktree path explicitly')
@@ -297,6 +305,22 @@ function attachCommandActions(
     .find((command) => command.name() === 'pr')
     ?.action(async (number: string, commandOptions: { dryRun?: boolean; json?: boolean }) => {
       const exitCode = await runPrCommand({ cwd: options.cwd, dryRun: commandOptions.dryRun, json: commandOptions.json, number, stderr: options.stderr, stdout: options.stdout });
+
+      if (exitCode !== 0) {
+        throw commanderExit(exitCode);
+      }
+    });
+
+  program.commands
+    .find((command) => command.name() === 'back')
+    ?.action(async (commandOptions: { list?: boolean; print?: boolean }) => {
+      const exitCode = await runBackCommand({
+        cwd: options.cwd,
+        list: commandOptions.list,
+        print: commandOptions.print,
+        stderr: options.stderr,
+        stdout: options.stdout,
+      });
 
       if (exitCode !== 0) {
         throw commanderExit(exitCode);
