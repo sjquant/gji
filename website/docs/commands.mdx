@@ -13,6 +13,7 @@ description: Reference for gji commands, navigation, cleanup, sync, hooks, and c
 | `gji new [branch] [--detached] [--json]` | Create a branch and worktree, then enter it. |
 | `gji pr <ref> [--json]` | Fetch a pull request ref and open it in a dedicated worktree. |
 | `gji go [branch] [--print]` | Jump to a worktree or print its path for scripting. |
+| `gji back [--list] [--print]` | Return to the previously visited worktree. |
 | `gji root [--print]` | Jump back to the main repo root. |
 | `gji status [--json]` | Show repo health, active worktrees, and ahead/behind counts. |
 | `gji ls [--compact] [--json]` | Show detailed or compact worktree lists. |
@@ -30,6 +31,7 @@ description: Reference for gji commands, navigation, cleanup, sync, hooks, and c
 - `gji new`
 - `gji pr`
 - `gji go`
+- `gji back`
 - `gji root`
 
 These are the commands you use for opening or switching context.
@@ -76,6 +78,18 @@ gji pr 1234
 
 ```bash
 gji trigger-hook afterCreate
+```
+
+### Return to the last worktree
+
+```bash
+gji back
+```
+
+`gji back` behaves like `cd -` for worktrees. Run it once to return to wherever you were before. Run it again to toggle back. Use `--list` to see the full navigation history:
+
+```bash
+gji back --list
 ```
 
 ### Script against printed paths

@@ -37,6 +37,7 @@ This is useful when you are already mid-feature and want to review something wit
 ```bash
 gji go feature/auth-refactor
 gji go main
+gji back
 gji root
 gji ls
 gji status
@@ -44,6 +45,9 @@ gji status
 
 Use:
 
+- `gji go` to jump to any worktree by branch name or interactive selection
+- `gji back` to return to the last worktree you were in — like `cd -` but for worktrees
+- `gji back --list` to see your full navigation history
 - `gji ls` for a detailed worktree list
 - `gji ls --compact` when you only need branch and path
 - `gji status` for health, branch state, and ahead/behind information
@@ -63,6 +67,7 @@ Detached worktrees are useful when you want temporary investigation space withou
 gji new feature/dark-mode
 gji pr 184
 gji go feature/dark-mode
+gji back
 gji sync
 gji status
 gji remove feature/dark-mode
