@@ -4,6 +4,11 @@ import { join } from 'node:path';
 
 import { afterEach, describe, expect, it } from 'vitest';
 
+import { runCli } from './cli.js';
+import { HISTORY_FILE_PATH, appendHistory, loadHistory } from './history.js';
+import { formatAge, formatHistoryList } from './back.js';
+import { addLinkedWorktree, createRepository } from './repo.test-helpers.js';
+
 const originalHome = process.env.HOME;
 
 afterEach(() => {
@@ -13,11 +18,6 @@ afterEach(() => {
     process.env.HOME = originalHome;
   }
 });
-
-import { runCli } from './cli.js';
-import { HISTORY_FILE_PATH, appendHistory, loadHistory } from './history.js';
-import { formatAge, formatHistoryList } from './back.js';
-import { addLinkedWorktree, createRepository } from './repo.test-helpers.js';
 
 async function makeHome(): Promise<string> {
   return mkdtemp(join(tmpdir(), 'gji-home-'));
@@ -137,12 +137,11 @@ describe('gji back', () => {
 
   it('navigates to the previous worktree', async () => {
     const home = await makeHome();
+    process.env.HOME = home;
     const repoRoot = await createRepository();
     const worktreePath = await addLinkedWorktree(repoRoot, 'feature/x');
     const stdout: string[] = [];
 
-    // Simulate having navigated to the worktree previously
-    process.env.HOME = home;
     await appendHistory(worktreePath, 'feature/x', home);
 
     const result = await runCli(['back'], {
@@ -155,7 +154,58 @@ describe('gji back', () => {
     expect(stdout.join('')).toBe(`${worktreePath}\n`);
   });
 
-  it('returns error when previous worktree path no longer exists', async () => {
+  it('toggles between two worktrees on repeated back calls', async () => {
+    const home = await makeHome();
+    process.env.HOME = home;
+    const repoRoot = await createRepository();
+    const wtA = await addLinkedWorktree(repoRoot, 'branch-a');
+    const wtB = await addLinkedWorktree(repoRoot, 'branch-b');
+
+    await appendHistory(wtA, 'branch-a', home);
+    await appendHistory(wtB, 'branch-b', home);
+
+    // From wtB → should go to wtA
+    const stdout1: string[] = [];
+    const result1 = await runCli(['back'], {
+      cwd: wtB,
+      stdout: (chunk) => stdout1.push(chunk),
+      stderr: () => undefined,
+    });
+    expect(result1.exitCode).toBe(0);
+    expect(stdout1.join('')).toBe(`${wtA}\n`);
+
+    // From wtA → should go back to wtB (history updated after first back)
+    const stdout2: string[] = [];
+    const result2 = await runCli(['back'], {
+      cwd: wtA,
+      stdout: (chunk) => stdout2.push(chunk),
+      stderr: () => undefined,
+    });
+    expect(result2.exitCode).toBe(0);
+    expect(stdout2.join('')).toBe(`${wtB}\n`);
+  });
+
+  it('skips a stale entry and navigates to the next valid one', async () => {
+    const home = await makeHome();
+    process.env.HOME = home;
+    const repoRoot = await createRepository();
+    const wtA = await addLinkedWorktree(repoRoot, 'branch-a');
+
+    await appendHistory(wtA, 'branch-a', home);
+    await appendHistory('/nonexistent/path', 'gone-branch', home);
+
+    const stdout: string[] = [];
+    const result = await runCli(['back'], {
+      cwd: repoRoot,
+      stdout: (chunk) => stdout.push(chunk),
+      stderr: () => undefined,
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(stdout.join('')).toBe(`${wtA}\n`);
+  });
+
+  it('returns error when all previous entries are stale or missing', async () => {
     const home = await makeHome();
     process.env.HOME = home;
     await appendHistory('/nonexistent/path', 'gone-branch', home);
@@ -170,13 +220,28 @@ describe('gji back', () => {
     });
 
     expect(result.exitCode).toBe(1);
-    expect(stderr.join('')).toContain('no longer exists');
+    expect(stderr.join('')).toContain('no previous worktree');
+  });
+
+  it('prints a message when history is empty with --list', async () => {
+    const home = await makeHome();
+    process.env.HOME = home;
+    const repoRoot = await createRepository();
+    const stdout: string[] = [];
+
+    const result = await runCli(['back', '--list'], {
+      cwd: repoRoot,
+      stdout: (chunk) => stdout.push(chunk),
+      stderr: () => undefined,
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(stdout.join('')).toContain('No navigation history');
   });
 
   it('prints history with --list', async () => {
     const home = await makeHome();
     process.env.HOME = home;
-
     const repoRoot = await createRepository();
     const worktreePath = await addLinkedWorktree(repoRoot, 'feature/y');
     await appendHistory(worktreePath, 'feature/y', home);
@@ -193,6 +258,5 @@ describe('gji back', () => {
     const output = stdout.join('');
     expect(output).toContain('main');
     expect(output).toContain('feature/y');
-
   });
 });

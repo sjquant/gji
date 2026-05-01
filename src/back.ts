@@ -30,19 +30,21 @@ export async function runBackCommand(options: BackCommandOptions): Promise<numbe
     return 0;
   }
 
-  const target = history.find((entry) => entry.path !== options.cwd);
+  let target: HistoryEntry | undefined;
+  for (const entry of history) {
+    if (entry.path === options.cwd) continue;
+    try {
+      await access(entry.path);
+      target = entry;
+      break;
+    } catch {
+      // Path no longer exists — skip to the next entry
+    }
+  }
 
   if (!target) {
     options.stderr('gji back: no previous worktree in history\n');
     options.stderr("Hint: Use 'gji go', 'gji new', or 'gji pr' to navigate between worktrees\n");
-    return 1;
-  }
-
-  try {
-    await access(target.path);
-  } catch {
-    options.stderr(`gji back: previous worktree no longer exists: ${target.path}\n`);
-    options.stderr("Hint: Use 'gji ls' to see available worktrees\n");
     return 1;
   }
 

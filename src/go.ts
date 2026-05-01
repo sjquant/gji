@@ -65,7 +65,7 @@ export function createGoCommand(
       options.stderr,
     );
 
-    await appendHistory(resolvedPath, chosenWorktree?.branch ?? null);
+    appendHistory(resolvedPath, chosenWorktree?.branch ?? null).catch(() => undefined);
     await writeShellOutput(GO_OUTPUT_FILE_ENV, resolvedPath, options.stdout);
     return 0;
   };
