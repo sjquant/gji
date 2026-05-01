@@ -35,9 +35,13 @@ gji pr https://github.com/org/repo/pull/1234
 
 ```bash
 gji go feature/dark-mode
+gji back       # return to the previous worktree
+gji back 2     # go two steps back in history
 gji go main
 gji root
 ```
+
+`gji back` returns you to the last worktree you were in — like `cd -` but for worktrees. Pass a number to jump further. Use `gji history` to see where you've been.
 
 ## Check what is open
 

@@ -7,6 +7,7 @@ import { isCancel, text } from '@clack/prompts';
 import { loadEffectiveConfig, resolveConfigString } from './config.js';
 import { syncFiles } from './file-sync.js';
 import { extractHooks, runHook } from './hooks.js';
+import { appendHistory } from './history.js';
 import { isHeadless } from './headless.js';
 import { type InstallPromptDependencies, maybeRunInstallPrompt } from './install-prompt.js';
 import { type PathConflictChoice, pathExists, promptForPathConflict } from './conflict.js';
@@ -128,6 +129,7 @@ export function createNewCommand(
         const choice = await prompt(worktreePath);
 
         if (choice === 'reuse') {
+          appendHistory(worktreePath, worktreeName).catch(() => undefined);
           await writeOutput(worktreePath, options.stdout);
           return 0;
         }
@@ -180,6 +182,7 @@ export function createNewCommand(
     if (options.json) {
       options.stdout(`${JSON.stringify({ branch: worktreeName, path: worktreePath }, null, 2)}\n`);
     } else {
+      await appendHistory(worktreePath, worktreeName);
       await writeOutput(worktreePath, options.stdout);
     }
 

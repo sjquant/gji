@@ -2,7 +2,9 @@ import { createRequire } from 'node:module';
 import { Command } from 'commander';
 import updateNotifier from 'update-notifier';
 
+import { runBackCommand } from './back.js';
 import { runCleanCommand } from './clean.js';
+import { runHistoryCommand } from './history-command.js';
 import { runCompletionCommand } from './completion.js';
 import { runConfigCommand } from './config-command.js';
 import { runGoCommand } from './go.js';
@@ -174,6 +176,18 @@ function registerCommands(program: Command): void {
     .action(notImplemented('pr'));
 
   program
+    .command('back [n]')
+    .description('navigate to the previously visited worktree, optionally N steps back')
+    .option('--print', 'print the resolved worktree path explicitly')
+    .action(notImplemented('back'));
+
+  program
+    .command('history')
+    .description('show navigation history')
+    .option('--json', 'print history as JSON')
+    .action(notImplemented('history'));
+
+  program
     .command('go [branch]')
     .description('print or select a worktree path')
     .option('--print', 'print the resolved worktree path explicitly')
@@ -297,6 +311,41 @@ function attachCommandActions(
     .find((command) => command.name() === 'pr')
     ?.action(async (number: string, commandOptions: { dryRun?: boolean; json?: boolean }) => {
       const exitCode = await runPrCommand({ cwd: options.cwd, dryRun: commandOptions.dryRun, json: commandOptions.json, number, stderr: options.stderr, stdout: options.stdout });
+
+      if (exitCode !== 0) {
+        throw commanderExit(exitCode);
+      }
+    });
+
+  program.commands
+    .find((command) => command.name() === 'back')
+    ?.action(async (n: string | undefined, commandOptions: { print?: boolean }) => {
+      if (n !== undefined && !/^\d+$/.test(n)) {
+        options.stderr(`gji back: invalid step count: ${n}\n`);
+        throw commanderExit(1);
+      }
+      const steps = n !== undefined ? parseInt(n, 10) : undefined;
+      const exitCode = await runBackCommand({
+        cwd: options.cwd,
+        n: steps,
+        print: commandOptions.print,
+        stderr: options.stderr,
+        stdout: options.stdout,
+      });
+
+      if (exitCode !== 0) {
+        throw commanderExit(exitCode);
+      }
+    });
+
+  program.commands
+    .find((command) => command.name() === 'history')
+    ?.action(async (commandOptions: { json?: boolean }) => {
+      const exitCode = await runHistoryCommand({
+        cwd: options.cwd,
+        json: commandOptions.json,
+        stdout: options.stdout,
+      });
 
       if (exitCode !== 0) {
         throw commanderExit(exitCode);
