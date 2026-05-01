@@ -8,6 +8,7 @@ export const GLOBAL_CONFIG_NAME = 'config.json';
 
 export const KNOWN_CONFIG_KEYS: ReadonlySet<string> = new Set([
   'branchPrefix',
+  'editor',
   'hooks',
   'installSaveTarget',
   'shellIntegration',

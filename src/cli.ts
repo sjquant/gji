@@ -8,6 +8,7 @@ import { runHistoryCommand } from './history-command.js';
 import { runCompletionCommand } from './completion.js';
 import { runConfigCommand } from './config-command.js';
 import { runGoCommand } from './go.js';
+import { runOpenCommand } from './open.js';
 import { isHeadless } from './headless.js';
 import { runInitCommand } from './init.js';
 import { runLsCommand } from './ls.js';
@@ -188,6 +189,14 @@ function registerCommands(program: Command): void {
     .action(notImplemented('history'));
 
   program
+    .command('open [branch]')
+    .description('open the worktree in an editor')
+    .option('--editor <cli>', 'editor CLI to use (code, cursor, zed, windsurf, subl, …)')
+    .option('--save', 'save the chosen editor to global config')
+    .option('--workspace', 'generate a .code-workspace file before opening (VS Code / Cursor / Windsurf)')
+    .action(notImplemented('open'));
+
+  program
     .command('go [branch]')
     .description('print or select a worktree path')
     .option('--print', 'print the resolved worktree path explicitly')
@@ -345,6 +354,24 @@ function attachCommandActions(
         cwd: options.cwd,
         json: commandOptions.json,
         stdout: options.stdout,
+      });
+
+      if (exitCode !== 0) {
+        throw commanderExit(exitCode);
+      }
+    });
+
+  program.commands
+    .find((command) => command.name() === 'open')
+    ?.action(async (branch: string | undefined, commandOptions: { editor?: string; save?: boolean; workspace?: boolean }) => {
+      const exitCode = await runOpenCommand({
+        branch,
+        cwd: options.cwd,
+        editor: commandOptions.editor,
+        save: commandOptions.save,
+        stderr: options.stderr,
+        stdout: options.stdout,
+        workspace: commandOptions.workspace,
       });
 
       if (exitCode !== 0) {
