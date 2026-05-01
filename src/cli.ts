@@ -320,6 +320,10 @@ function attachCommandActions(
   program.commands
     .find((command) => command.name() === 'back')
     ?.action(async (n: string | undefined, commandOptions: { print?: boolean }) => {
+      if (n !== undefined && !/^\d+$/.test(n)) {
+        options.stderr(`gji back: invalid step count: ${n}\n`);
+        throw commanderExit(1);
+      }
       const steps = n !== undefined ? parseInt(n, 10) : undefined;
       const exitCode = await runBackCommand({
         cwd: options.cwd,
