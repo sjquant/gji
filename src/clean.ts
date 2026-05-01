@@ -1,8 +1,17 @@
 import { confirm, isCancel, multiselect } from '@clack/prompts';
 
-import { readWorktreeHealth } from './git.js';
+import { loadEffectiveConfig } from './config.js';
+import { isBranchMergedInto, readWorktreeHealth, resolveRemoteDefaultBranch, runGit } from './git.js';
 import { isHeadless } from './headless.js';
 import type { WorktreeEntry } from './repo.js';
+import {
+  formatLastCommit,
+  formatUpstreamState,
+  formatWorktreeHint,
+  readWorktreeInfos,
+  serializeWorktreeInfo,
+  type WorktreeInfo,
+} from './worktree-info.js';
 import {
   deleteBranch,
   forceDeleteBranch,
@@ -19,6 +28,7 @@ export interface CleanCommandOptions {
   dryRun?: boolean;
   force?: boolean;
   json?: boolean;
+  stale?: boolean;
   stderr: (chunk: string) => void;
   stdout: (chunk: string) => void;
 }
@@ -40,11 +50,22 @@ export function createCleanCommand(
 
   return async function runCleanCommand(options: CleanCommandOptions): Promise<number> {
     const { linkedWorktrees, repository } = await loadLinkedWorktrees(options.cwd);
-    const cleanupCandidates = linkedWorktrees.filter(
+    const linkedCleanupCandidates = linkedWorktrees.filter(
       (worktree) => worktree.path !== repository.currentRoot,
     );
+    const staleBaseRef = options.stale
+      ? await resolveStaleBaseRef(repository.repoRoot, options.stderr)
+      : null;
+    const cleanupCandidates = options.stale
+      ? await filterStaleCleanupCandidates(repository.repoRoot, linkedCleanupCandidates, staleBaseRef)
+      : linkedCleanupCandidates;
 
     if (cleanupCandidates.length === 0) {
+      if (options.stale) {
+        emitNoStaleCandidates(options);
+        return 0;
+      }
+
       emitError(options, 'No linked worktrees to clean');
       return 1;
     }
@@ -59,8 +80,8 @@ export function createCleanCommand(
       return 1;
     }
 
-    // With --force, or dry-run in headless/json mode, skip selection prompt and target all candidates.
-    const shouldSelectAll = options.force || (options.dryRun && (options.json || isHeadless()));
+    // With --force, or non-interactive dry-runs, skip selection prompt and target all candidates.
+    const shouldSelectAll = options.force || (options.dryRun && (options.stale || options.json || isHeadless()));
     const selections = shouldSelectAll
       ? cleanupCandidates.map((w) => w.path)
       : await promptForWorktrees(cleanupCandidates);
@@ -77,6 +98,11 @@ export function createCleanCommand(
       return 1;
     }
 
+    const selectedWorktreeInfos = await readWorktreeInfos(selectedWorktrees);
+    const selectedInfoByPath = new Map(
+      selectedWorktreeInfos.map((info) => [info.path, info]),
+    );
+
     if (!options.dryRun && !options.force && !(await confirmRemoval(selectedWorktrees))) {
       options.stderr('Aborted\n');
       return 1;
@@ -84,12 +110,11 @@ export function createCleanCommand(
 
     if (options.dryRun) {
       if (options.json) {
-        const removed = selectedWorktrees.map((w) => ({ branch: w.branch, path: w.path }));
+        const removed = selectedWorktreeInfos.map((info) => serializeWorktreeInfo(info));
         options.stdout(`${JSON.stringify({ removed, dryRun: true }, null, 2)}\n`);
       } else {
-        for (const w of selectedWorktrees) {
-          const desc = w.branch ? `branch: ${w.branch}` : 'detached';
-          options.stdout(`Would remove worktree at ${w.path} (${desc})\n`);
+        for (const info of selectedWorktreeInfos) {
+          options.stdout(`Would remove worktree at ${info.path} (${formatCleanInfo(info)})\n`);
         }
       }
       return 0;
@@ -99,11 +124,21 @@ export function createCleanCommand(
     const removedWorktrees: WorktreeEntry[] = [];
 
     for (const worktree of selectedWorktrees) {
+      if (options.stale && !(await isStaleCleanupCandidate(repository.repoRoot, worktree, staleBaseRef))) {
+        options.stderr(`Skipped ${worktree.path}: no longer a safe stale cleanup candidate\n`);
+        continue;
+      }
+
       try {
         await removeWorktree(repository.repoRoot, worktree.path);
       } catch (error) {
         if (!isWorktreeDirtyError(error)) {
           throw error;
+        }
+
+        if (options.stale) {
+          options.stderr(`Skipped ${worktree.path}: no longer a safe stale cleanup candidate\n`);
+          continue;
         }
 
         if (!options.force && !(await confirmForceRemoveWorktree(worktree.path))) {
@@ -148,7 +183,13 @@ export function createCleanCommand(
     }
 
     if (options.json) {
-      const removed = removedWorktrees.map((w) => ({ branch: w.branch, path: w.path }));
+      const removed = removedWorktrees.map((worktree) => {
+        const info = selectedInfoByPath.get(worktree.path);
+
+        return info === undefined
+          ? { branch: worktree.branch, path: worktree.path }
+          : serializeWorktreeInfo(info);
+      });
       options.stdout(`${JSON.stringify({ removed }, null, 2)}\n`);
     } else {
       options.stdout(`${repository.repoRoot}\n`);
@@ -159,6 +200,81 @@ export function createCleanCommand(
 }
 
 export const runCleanCommand = createCleanCommand();
+
+async function filterStaleCleanupCandidates(
+  repoRoot: string,
+  worktrees: WorktreeEntry[],
+  baseBranch: string | null,
+): Promise<WorktreeEntry[]> {
+  if (baseBranch === null) {
+    return [];
+  }
+
+  const results = await Promise.all(
+    worktrees.map((worktree) => isStaleCleanupCandidate(repoRoot, worktree, baseBranch)),
+  );
+
+  return worktrees.filter((_, index) => results[index]);
+}
+
+async function resolveStaleBaseRef(
+  repoRoot: string,
+  stderr: (chunk: string) => void,
+): Promise<string | null> {
+  const config = await loadEffectiveConfig(repoRoot, undefined, stderr);
+  const remote = resolveConfiguredString(config.syncRemote) ?? 'origin';
+
+  const configuredDefaultBranch = resolveConfiguredString(config.syncDefaultBranch);
+
+  if (configuredDefaultBranch) {
+    return await resolveFetchedRemoteRef(repoRoot, remote, configuredDefaultBranch);
+  }
+
+  try {
+    const remoteDefaultBranch = await resolveRemoteDefaultBranch(repoRoot, remote);
+
+    return remoteDefaultBranch === null
+      ? null
+      : await resolveFetchedRemoteRef(repoRoot, remote, remoteDefaultBranch);
+  } catch {
+    return null;
+  }
+}
+
+async function resolveFetchedRemoteRef(repoRoot: string, remote: string, branch: string): Promise<string | null> {
+  try {
+    await runGit(repoRoot, ['fetch', '--prune', remote]);
+    return `${remote}/${branch}`;
+  } catch {
+    return null;
+  }
+}
+
+function resolveConfiguredString(value: unknown): string | null {
+  return typeof value === 'string' && value.length > 0 ? value : null;
+}
+
+async function isStaleCleanupCandidate(
+  repoRoot: string,
+  worktree: WorktreeEntry,
+  baseBranch: string | null,
+): Promise<boolean> {
+  if (baseBranch === null) {
+    return false;
+  }
+
+  if (worktree.branch === null) {
+    return false;
+  }
+
+  const health = await readWorktreeHealth(worktree.path);
+
+  if (health.status !== 'clean' || !health.upstreamGone) {
+    return false;
+  }
+
+  return isBranchMergedInto(repoRoot, worktree.branch, baseBranch);
+}
 
 function resolveSelectedWorktrees(
   worktrees: WorktreeEntry[],
@@ -189,12 +305,33 @@ function reportRemovedPaths(paths: string[], stderr: (chunk: string) => void): v
   }
 }
 
+function formatCleanInfo(info: WorktreeInfo): string {
+  const branch = info.branch === null ? 'detached' : `branch: ${info.branch}`;
+  const status = `status: ${info.status}`;
+  const upstream = `upstream: ${formatUpstreamState(info.upstream)}`;
+  const last = `last: ${formatLastCommit(info.lastCommitTimestamp)}`;
+
+  return [branch, status, upstream, last].join(', ');
+}
+
 function emitError(options: CleanCommandOptions, message: string): void {
   if (options.json) {
     options.stderr(`${JSON.stringify({ error: message }, null, 2)}\n`);
   } else {
     options.stderr(`${message}\n`);
   }
+}
+
+function emitNoStaleCandidates(options: CleanCommandOptions): void {
+  if (options.json) {
+    const payload = options.dryRun
+      ? { removed: [], dryRun: true }
+      : { removed: [] };
+    options.stdout(`${JSON.stringify(payload, null, 2)}\n`);
+    return;
+  }
+
+  options.stdout('No stale linked worktrees to clean\n');
 }
 
 function toMessage(error: unknown): string {
@@ -204,17 +341,13 @@ function toMessage(error: unknown): string {
 async function defaultPromptForWorktrees(
   worktrees: WorktreeEntry[],
 ): Promise<string[] | null> {
-  const healthResults = await Promise.allSettled(
-    worktrees.map((w) => readWorktreeHealth(w.path)),
-  );
+  const infos = await readWorktreeInfos(worktrees);
 
   const choice = await multiselect<string>({
     message: 'Choose worktrees to clean',
     options: worktrees.map((worktree, i) => {
-      const health = healthResults[i].status === 'fulfilled' ? healthResults[i].value : null;
-      const isStale = health?.upstreamGone === true;
       return {
-        hint: isStale ? `${worktree.path} (upstream gone)` : worktree.path,
+        hint: formatWorktreeHint(infos[i]),
         label: worktree.branch ?? '(detached)',
         value: worktree.path,
       };

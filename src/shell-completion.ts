@@ -46,7 +46,7 @@ function renderBashCompletion(): string {
   const configKeys = CONFIG_KEYS.join(' ');
 
   return `__gji_worktree_branches() {
-  command gji ls 2>/dev/null | awk 'NR > 1 && $2 != "(detached)" { print $2 }'
+  command gji ls --compact 2>/dev/null | awk 'NR > 1 { branch = ($1 == "*" ? $2 : $1); if (branch != "(detached)") print branch }'
 }
 
 _gji_completion() {
@@ -87,10 +87,10 @@ _gji_completion() {
       COMPREPLY=( $(compgen -W "--all --json --help" -- "$cur") )
       ;;
     ls)
-      COMPREPLY=( $(compgen -W "--json --help" -- "$cur") )
+      COMPREPLY=( $(compgen -W "--compact --json --help" -- "$cur") )
       ;;
     clean)
-      COMPREPLY=( $(compgen -W "-f --force --dry-run --json --help" -- "$cur") )
+      COMPREPLY=( $(compgen -W "-f --force --stale --dry-run --json --help" -- "$cur") )
       ;;
     remove|rm)
       COMPREPLY=( $(compgen -W "$(__gji_worktree_branches) -f --force --dry-run --json --help" -- "$cur") )
@@ -141,7 +141,7 @@ function renderFishCompletion(): string {
   ).join('\n');
 
   return `function __gji_worktree_branches
-    command gji ls 2>/dev/null | awk 'NR > 1 && $2 != "(detached)" { print $2 }'
+    command gji ls --compact 2>/dev/null | awk 'NR > 1 { branch = ($1 == "*" ? $2 : $1); if (branch != "(detached)") print branch }'
 end
 
 function __gji_should_complete_config_action
@@ -189,9 +189,11 @@ complete -c gji -n '__fish_seen_subcommand_from status' -l json -d 'print reposi
 complete -c gji -n '__fish_seen_subcommand_from sync' -l all -d 'sync every worktree in the repository'
 complete -c gji -n '__fish_seen_subcommand_from sync' -l json -d 'emit JSON on success or error instead of human-readable output'
 
+complete -c gji -n '__fish_seen_subcommand_from ls' -l compact -d 'show only branch and path columns'
 complete -c gji -n '__fish_seen_subcommand_from ls' -l json -d 'print active worktrees as JSON'
 
 complete -c gji -n '__fish_seen_subcommand_from clean' -s f -l force -d 'bypass prompts, force-remove dirty worktrees, and force-delete unmerged branches'
+complete -c gji -n '__fish_seen_subcommand_from clean' -l stale -d 'only target clean worktrees whose upstream is gone and branch is merged into the default branch'
 complete -c gji -n '__fish_seen_subcommand_from clean' -l dry-run -d 'show what would be deleted without removing anything'
 complete -c gji -n '__fish_seen_subcommand_from clean' -l json -d 'emit JSON on success or error instead of human-readable output'
 
@@ -216,7 +218,7 @@ function renderZshCompletion(): string {
   const hooks = HOOK_NAMES.join(' ');
 
   return `__gji_worktree_branches() {
-  command gji ls 2>/dev/null | awk 'NR > 1 && $2 != "(detached)" { print $2 }'
+  command gji ls --compact 2>/dev/null | awk 'NR > 1 { branch = ($1 == "*" ? $2 : $1); if (branch != "(detached)") print branch }'
 }
 
 _gji_completion() {
@@ -258,10 +260,10 @@ _gji_completion() {
       _arguments '--all[sync every worktree in the repository]' '--json[emit JSON on success or error instead of human-readable output]'
       ;;
     ls)
-      _arguments '--json[print active worktrees as JSON]'
+      _arguments '--compact[show only branch and path columns]' '--json[print active worktrees as JSON]'
       ;;
     clean)
-      _arguments '(-f --force)'{-f,--force}'[bypass prompts, force-remove dirty worktrees, and force-delete unmerged branches]' '--dry-run[show what would be deleted without removing anything]' '--json[emit JSON on success or error instead of human-readable output]'
+      _arguments '(-f --force)'{-f,--force}'[bypass prompts, force-remove dirty worktrees, and force-delete unmerged branches]' '--stale[only target clean worktrees whose upstream is gone and branch is merged into the default branch]' '--dry-run[show what would be deleted without removing anything]' '--json[emit JSON on success or error instead of human-readable output]'
       ;;
     remove|rm)
       _arguments '(-f --force)'{-f,--force}'[bypass prompts, force-remove a dirty worktree, and force-delete an unmerged branch]' '--dry-run[show what would be deleted without removing anything]' '--json[emit JSON on success or error instead of human-readable output]' '2:branch:->worktrees'

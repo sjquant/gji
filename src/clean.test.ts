@@ -8,6 +8,7 @@ import {
   addLinkedWorktree,
   commitFile,
   createRepository,
+  createRepositoryWithOrigin,
   pathExists,
   runGit,
 } from './repo.test-helpers.js';
@@ -178,6 +179,109 @@ describe('gji clean', () => {
     await expect(branchExists(repoRoot, otherBranch)).resolves.toBe(false);
   });
 
+  it('removes only safe stale worktrees when --stale --force is used', async () => {
+    // Given a repository with stale, active, and unmerged stale linked worktrees.
+    const { repoRoot } = await createRepositoryWithOrigin();
+    const staleBranch = 'feature/clean-stale-safe';
+    const activeBranch = 'feature/clean-stale-active';
+    const unmergedBranch = 'feature/clean-stale-unmerged';
+    const staleWorktreePath = await addRemoteTrackedWorktree(repoRoot, staleBranch);
+    const activeWorktreePath = await addRemoteTrackedWorktree(repoRoot, activeBranch);
+    const unmergedWorktreePath = await addRemoteTrackedWorktree(repoRoot, unmergedBranch);
+    await commitFile(unmergedWorktreePath, 'unmerged.txt', 'content', 'Unmerged stale work');
+    await deleteRemoteBranch(repoRoot, staleBranch);
+    await deleteRemoteBranch(repoRoot, unmergedBranch);
+    await runGit(repoRoot, ['merge', '--no-ff', unmergedBranch, '-m', 'Merge unmerged stale work locally']);
+    const stdout: string[] = [];
+    const runCleanCommand = createCleanCommand({
+      confirmRemoval: async () => { throw new Error('confirmRemoval should not be called with --force'); },
+      promptForWorktrees: async () => { throw new Error('promptForWorktrees should not be called with --force'); },
+    });
+
+    // When gji clean --stale --force --json runs.
+    expect(await runCleanCommand({
+      cwd: repoRoot,
+      force: true,
+      json: true,
+      stale: true,
+      stderr: () => undefined,
+      stdout: (chunk) => stdout.push(chunk),
+    })).toBe(0);
+
+    // Then it prunes only the worktree merged into the remote default branch and reports stale upstream.
+    await expect(pathExists(staleWorktreePath)).resolves.toBe(false);
+    await expect(branchExists(repoRoot, staleBranch)).resolves.toBe(false);
+    await expect(pathExists(activeWorktreePath)).resolves.toBe(true);
+    await expect(branchExists(repoRoot, activeBranch)).resolves.toBe(true);
+    await expect(pathExists(unmergedWorktreePath)).resolves.toBe(true);
+    await expect(branchExists(repoRoot, unmergedBranch)).resolves.toBe(true);
+    const output = JSON.parse(stdout.join(''));
+    expect(output.removed).toEqual([
+      expect.objectContaining({
+        branch: staleBranch,
+        lastCommitTimestamp: expect.any(Number),
+        path: staleWorktreePath,
+        status: 'clean',
+        upstream: { kind: 'stale' },
+      }),
+    ]);
+  });
+
+  it('skips a stale candidate that becomes dirty before removal', async () => {
+    // Given a safe stale linked worktree that becomes dirty after selection.
+    const { repoRoot } = await createRepositoryWithOrigin();
+    const branch = 'feature/clean-stale-race';
+    const worktreePath = await addRemoteTrackedWorktree(repoRoot, branch);
+    const stderr: string[] = [];
+    await deleteRemoteBranch(repoRoot, branch);
+    const runCleanCommand = createCleanCommand({
+      confirmRemoval: async () => true,
+      promptForWorktrees: async () => {
+        await writeFile(join(worktreePath, 'late-change.txt'), 'dirty');
+        return [worktreePath];
+      },
+    });
+
+    // When gji clean --stale runs and the selected worktree is no longer safe.
+    expect(await runCleanCommand({
+      cwd: repoRoot,
+      stale: true,
+      stderr: (chunk) => stderr.push(chunk),
+      stdout: () => undefined,
+    })).toBe(0);
+
+    // Then it skips the candidate instead of force-removing the dirty worktree.
+    await expect(pathExists(worktreePath)).resolves.toBe(true);
+    await expect(branchExists(repoRoot, branch)).resolves.toBe(true);
+    expect(stderr.join('')).toContain('no longer a safe stale cleanup candidate');
+  });
+
+  it('reports an empty no-op when --stale --json finds no stale worktrees', async () => {
+    // Given a repository with an active linked worktree and no stale candidates.
+    const { repoRoot } = await createRepositoryWithOrigin();
+    const branch = 'feature/clean-stale-none';
+    const worktreePath = await addRemoteTrackedWorktree(repoRoot, branch);
+    const stdout: string[] = [];
+    const stderr: string[] = [];
+
+    // When gji clean --stale --json --force runs.
+    const result = await createCleanCommand()({
+      cwd: repoRoot,
+      force: true,
+      json: true,
+      stale: true,
+      stderr: (chunk) => stderr.push(chunk),
+      stdout: (chunk) => stdout.push(chunk),
+    });
+
+    // Then it succeeds without removing anything.
+    expect(result).toBe(0);
+    expect(stderr).toEqual([]);
+    await expect(pathExists(worktreePath)).resolves.toBe(true);
+    await expect(branchExists(repoRoot, branch)).resolves.toBe(true);
+    expect(JSON.parse(stdout.join(''))).toEqual({ removed: [] });
+  });
+
   it('force-removes a dirty worktree when the user confirms', async () => {
     // Given a repository with a linked worktree that has an untracked file.
     const repoRoot = await createRepository();
@@ -337,7 +441,7 @@ describe('gji clean', () => {
   });
 
   describe('--json output', () => {
-    it('emits { removed: [{branch, path}] } to stdout on success', async () => {
+    it('emits removed worktrees with status and upstream details to stdout on success', async () => {
       // Given a repository with two linked worktrees.
       const repoRoot = await createRepository();
       const branchA = 'feature/json-clean-a';
@@ -364,8 +468,20 @@ describe('gji clean', () => {
       const output = JSON.parse(stdout.join(''));
       expect(output).toHaveProperty('removed');
       expect(output.removed).toHaveLength(2);
-      expect(output.removed).toContainEqual({ branch: branchA, path: pathA });
-      expect(output.removed).toContainEqual({ branch: branchB, path: pathB });
+      expect(output.removed).toContainEqual(expect.objectContaining({
+        branch: branchA,
+        lastCommitTimestamp: expect.any(Number),
+        path: pathA,
+        status: 'clean',
+        upstream: { kind: 'no-upstream' },
+      }));
+      expect(output.removed).toContainEqual(expect.objectContaining({
+        branch: branchB,
+        lastCommitTimestamp: expect.any(Number),
+        path: pathB,
+        status: 'clean',
+        upstream: { kind: 'no-upstream' },
+      }));
     });
 
     it('emits { error } to stderr and exits 1 when --force is not set', async () => {
@@ -412,7 +528,13 @@ describe('gji clean', () => {
       // Then the removed array includes an entry with branch: null.
       expect(result).toBe(0);
       const output = JSON.parse(stdout.join(''));
-      expect(output.removed).toContainEqual({ branch: null, path: detachedWorktreePath });
+      expect(output.removed).toContainEqual(expect.objectContaining({
+        branch: null,
+        lastCommitTimestamp: null,
+        path: detachedWorktreePath,
+        status: 'clean',
+        upstream: { kind: 'detached' },
+      }));
     });
   });
 
@@ -440,7 +562,10 @@ describe('gji clean', () => {
       expect(result).toBe(0);
       await expect(pathExists(worktreePath)).resolves.toBe(true);
       await expect(branchExists(repoRoot, branch)).resolves.toBe(true);
-      expect(stdout.join('')).toContain(worktreePath);
+      const output = stdout.join('');
+      expect(output).toContain(worktreePath);
+      expect(output).toContain('status: clean');
+      expect(output).toContain('upstream: no-upstream');
     });
 
     it('emits { removed, dryRun: true } to stdout with --json --dry-run', async () => {
@@ -466,7 +591,13 @@ describe('gji clean', () => {
       await expect(pathExists(worktreePath)).resolves.toBe(true);
       const output = JSON.parse(stdout.join(''));
       expect(output).toHaveProperty('dryRun', true);
-      expect(output.removed).toContainEqual({ branch, path: worktreePath });
+      expect(output.removed).toContainEqual(expect.objectContaining({
+        branch,
+        lastCommitTimestamp: expect.any(Number),
+        path: worktreePath,
+        status: 'clean',
+        upstream: { kind: 'no-upstream' },
+      }));
     });
 
     it('does not require --force in --json --dry-run mode', async () => {
@@ -493,4 +624,16 @@ describe('gji clean', () => {
 
 async function branchExists(repoRoot: string, branch: string): Promise<boolean> {
   return (await runGit(repoRoot, ['branch', '--list', branch])) !== '';
+}
+
+async function addRemoteTrackedWorktree(repoRoot: string, branch: string): Promise<string> {
+  const worktreePath = await addLinkedWorktree(repoRoot, branch);
+  await runGit(worktreePath, ['push', '-u', 'origin', 'HEAD']);
+
+  return worktreePath;
+}
+
+async function deleteRemoteBranch(repoRoot: string, branch: string): Promise<void> {
+  await runGit(repoRoot, ['push', 'origin', `:${branch}`]);
+  await runGit(repoRoot, ['fetch', '--prune', 'origin']);
 }

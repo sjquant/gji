@@ -27,6 +27,8 @@ describe('gji completion', () => {
     expect(stdout.join('')).toContain("'completion:print shell completion definitions'");
     expect(stdout.join('')).toContain("'2:shell:(bash fish zsh)'");
     expect(stdout.join('')).toContain("'2:branch:->worktrees'");
+    expect(stdout.join('')).toContain('command gji ls --compact');
+    expect(stdout.join('')).toContain('branch = ($1 == "*" ? $2 : $1)');
     expect(stdout.join('')).toContain("_values 'config action' get set unset");
     expect(stdout.join('')).toContain(`case "\${words[3]}" in`);
     expect(stdout.join('')).toContain("get|unset)");
@@ -53,6 +55,8 @@ describe('gji completion', () => {
     // Then it prints the detected fish completion definition.
     expect(result.exitCode).toBe(0);
     expect(stdout.join('')).toContain('function __gji_worktree_branches');
+    expect(stdout.join('')).toContain('command gji ls --compact');
+    expect(stdout.join('')).toContain('branch = ($1 == "*" ? $2 : $1)');
     expect(stdout.join('')).toContain("complete -c gji -n '__fish_seen_subcommand_from completion' -a 'zsh'");
     expect(stdout.join('')).toContain('function __gji_should_complete_config_action');
     expect(stdout.join('')).toContain('function __gji_should_complete_config_key');
@@ -77,6 +81,8 @@ describe('gji completion', () => {
 
     // Then config completions only suggest keys in the key position.
     expect(result.exitCode).toBe(0);
+    expect(stdout.join('')).toContain('command gji ls --compact');
+    expect(stdout.join('')).toContain('branch = ($1 == "*" ? $2 : $1)');
     expect(stdout.join('')).toContain('if [ "$COMP_CWORD" -eq 2 ]; then');
     expect(stdout.join('')).toContain('get|unset)');
     expect(stdout.join('')).toContain('set)');

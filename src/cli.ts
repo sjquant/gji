@@ -201,6 +201,7 @@ function registerCommands(program: Command): void {
   program
     .command('ls')
     .description('list active worktrees')
+    .option('--compact', 'show only branch and path columns')
     .option('--json', 'print active worktrees as JSON')
     .action(notImplemented('ls'));
 
@@ -208,6 +209,7 @@ function registerCommands(program: Command): void {
     .command('clean')
     .description('interactively prune linked worktrees')
     .option('-f, --force', 'bypass prompts, force-remove dirty worktrees, and force-delete unmerged branches')
+    .option('--stale', 'only target clean worktrees whose upstream is gone and branch is merged into the default branch')
     .option('--dry-run', 'show what would be deleted without removing anything')
     .option('--json', 'emit JSON on success or error instead of human-readable output')
     .action(notImplemented('clean'));
@@ -363,8 +365,9 @@ function attachCommandActions(
 
   program.commands
     .find((command) => command.name() === 'ls')
-    ?.action(async (commandOptions: { json?: boolean }) => {
+    ?.action(async (commandOptions: { compact?: boolean; json?: boolean }) => {
       const exitCode = await runLsCommand({
+        compact: commandOptions.compact,
         cwd: options.cwd,
         json: commandOptions.json,
         stdout: options.stdout,
@@ -377,12 +380,13 @@ function attachCommandActions(
 
   program.commands
     .find((command) => command.name() === 'clean')
-    ?.action(async (commandOptions: { dryRun?: boolean; force?: boolean; json?: boolean }) => {
+    ?.action(async (commandOptions: { dryRun?: boolean; force?: boolean; json?: boolean; stale?: boolean }) => {
       const exitCode = await runCleanCommand({
         cwd: options.cwd,
         dryRun: commandOptions.dryRun,
         force: commandOptions.force,
         json: commandOptions.json,
+        stale: commandOptions.stale,
         stderr: options.stderr,
         stdout: options.stdout,
       });

@@ -77,6 +77,25 @@ describe('runCli', () => {
     expect(output).toContain('URL');
   });
 
+  it('passes the clean stale filter through command parsing', async () => {
+    // Given a repository without stale linked worktrees and output collectors.
+    const repoRoot = await createRepository();
+    const stdout: string[] = [];
+    const stderr: string[] = [];
+
+    // When the clean command runs with the --stale filter through the CLI parser.
+    const result = await runCli(['clean', '--stale', '--json', '--force'], {
+      cwd: repoRoot,
+      stderr: (chunk) => stderr.push(chunk),
+      stdout: (chunk) => stdout.push(chunk),
+    });
+
+    // Then the command succeeds with an empty stale cleanup result.
+    expect(result.exitCode).toBe(0);
+    expect(stderr).toEqual([]);
+    expect(JSON.parse(stdout.join(''))).toEqual({ removed: [] });
+  });
+
   it('prints the package version', async () => {
     // Given output collectors for the CLI version text.
     const stdout: string[] = [];
