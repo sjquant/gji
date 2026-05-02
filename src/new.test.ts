@@ -1310,3 +1310,88 @@ describe('gji new', () => {
     }
   });
 });
+
+describe('gji new --open', () => {
+  it('opens the new worktree in the specified editor after creation', async () => {
+    const repoRoot = await createRepository();
+    const branch = 'feature/open-after-new';
+    const spawned: { cli: string; args: string[] }[] = [];
+
+    const result = await createNewCommand({
+      promptForBranch: async () => branch,
+      spawnEditor: async (cli, args) => { spawned.push({ cli, args }); },
+    })({
+      branch,
+      cwd: repoRoot,
+      editor: 'cursor',
+      open: true,
+      stderr: () => undefined,
+      stdout: () => undefined,
+    });
+
+    expect(result).toBe(0);
+    expect(spawned).toHaveLength(1);
+    expect(spawned[0].cli).toBe('cursor');
+    expect(spawned[0].args).toContain('--new-window');
+  });
+
+  it('skips opening when --open is not passed', async () => {
+    const repoRoot = await createRepository();
+    const branch = 'feature/no-open';
+    let spawnCalled = false;
+
+    await createNewCommand({
+      promptForBranch: async () => branch,
+      spawnEditor: async () => { spawnCalled = true; },
+    })({
+      branch,
+      cwd: repoRoot,
+      stderr: () => undefined,
+      stdout: () => undefined,
+    });
+
+    expect(spawnCalled).toBe(false);
+  });
+
+  it('warns and continues when --open is used without an editor', async () => {
+    const repoRoot = await createRepository();
+    const branch = 'feature/open-no-editor';
+    const stderr: string[] = [];
+
+    const result = await createNewCommand({
+      promptForBranch: async () => branch,
+      spawnEditor: async () => undefined,
+    })({
+      branch,
+      cwd: repoRoot,
+      open: true,
+      stderr: (chunk) => stderr.push(chunk),
+      stdout: () => undefined,
+    });
+
+    expect(result).toBe(0);
+    expect(stderr.join('')).toContain('--open requires --editor');
+  });
+
+  it('does not open in --dry-run mode', async () => {
+    const repoRoot = await createRepository();
+    const branch = 'feature/open-dry-run';
+    let spawnCalled = false;
+
+    const result = await createNewCommand({
+      promptForBranch: async () => branch,
+      spawnEditor: async () => { spawnCalled = true; },
+    })({
+      branch,
+      cwd: repoRoot,
+      dryRun: true,
+      editor: 'code',
+      open: true,
+      stderr: () => undefined,
+      stdout: () => undefined,
+    });
+
+    expect(result).toBe(0);
+    expect(spawnCalled).toBe(false);
+  });
+});

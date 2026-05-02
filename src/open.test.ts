@@ -1,10 +1,14 @@
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 
 import { createOpenCommand } from './open.js';
 import { addLinkedWorktree, createRepository, pathExists } from './repo.test-helpers.js';
+
+afterEach(() => {
+  delete process.env.GJI_NO_TUI;
+});
 
 function makeSpawnEditor(spawned: { cli: string; args: string[] }[]): (cli: string, args: string[]) => Promise<void> {
   return async (cli, args) => {
@@ -263,5 +267,73 @@ describe('gji open', () => {
 
     expect(result).toBe(1);
     expect(stderr.join('')).toContain('failed to launch editor');
+  });
+
+  it('saves the editor to global config when --save is passed', async () => {
+    const repoRoot = await createRepository();
+    const stdout: string[] = [];
+    const saved: Record<string, unknown> = {};
+
+    const result = await createOpenCommand({
+      promptForWorktree: async (worktrees) => worktrees[0]?.path ?? null,
+      spawnEditor: async () => undefined,
+    })({
+      cwd: repoRoot,
+      editor: 'cursor',
+      save: true,
+      stderr: () => undefined,
+      stdout: (chunk) => stdout.push(chunk),
+    });
+
+    // updateGlobalConfigKey writes to ~/.config/gji/config.json which we can't
+    // easily intercept here, but we verify the success message was printed.
+    expect(result).toBe(0);
+    expect(stdout.join('')).toContain('Saved editor');
+    expect(stdout.join('')).toContain('Cursor');
+  });
+
+  it('falls back to the current worktree in headless mode without prompting', async () => {
+    const repoRoot = await createRepository();
+    const branch = 'feature/headless-open';
+    await addLinkedWorktree(repoRoot, branch);
+    const spawned: { cli: string; args: string[] }[] = [];
+    let promptCalled = false;
+
+    process.env.GJI_NO_TUI = '1';
+
+    const result = await createOpenCommand({
+      promptForWorktree: async () => { promptCalled = true; return null; },
+      spawnEditor: makeSpawnEditor(spawned),
+    })({
+      cwd: repoRoot,
+      editor: 'code',
+      stderr: () => undefined,
+      stdout: () => undefined,
+    });
+
+    expect(result).toBe(0);
+    expect(promptCalled).toBe(false);
+    expect(spawned[0].args).toContain(repoRoot);
+  });
+
+  it('warns and ignores --workspace for editors that do not support it', async () => {
+    const repoRoot = await createRepository();
+    const spawned: { cli: string; args: string[] }[] = [];
+    const stderr: string[] = [];
+
+    const result = await createOpenCommand({
+      promptForWorktree: async (worktrees) => worktrees.find((w) => w.isCurrent)?.path ?? null,
+      spawnEditor: makeSpawnEditor(spawned),
+    })({
+      cwd: repoRoot,
+      editor: 'zed',
+      stderr: (chunk) => stderr.push(chunk),
+      stdout: () => undefined,
+      workspace: true,
+    });
+
+    expect(result).toBe(0);
+    expect(stderr.join('')).toContain('--workspace is not supported for Zed');
+    expect(spawned[0].args).toContain(repoRoot);
   });
 });

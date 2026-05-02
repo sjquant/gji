@@ -1,6 +1,6 @@
 import { mkdir } from 'node:fs/promises';
 import { basename, dirname } from 'node:path';
-import { execFile } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
 import { promisify } from 'node:util';
 import { isCancel, text } from '@clack/prompts';
 
@@ -23,8 +23,10 @@ export interface NewCommandOptions {
   cwd: string;
   detached?: boolean;
   dryRun?: boolean;
+  editor?: string;
   force?: boolean;
   json?: boolean;
+  open?: boolean;
   stderr: (chunk: string) => void;
   stdout: (chunk: string) => void;
 }
@@ -33,6 +35,7 @@ export interface NewCommandDependencies extends InstallPromptDependencies {
   createBranchPlaceholder: () => string;
   promptForBranch: (placeholder: string) => Promise<string | null>;
   promptForPathConflict: (path: string) => Promise<PathConflictChoice>;
+  spawnEditor: (cli: string, args: string[]) => Promise<void>;
 }
 
 export function createNewCommand(
@@ -41,6 +44,7 @@ export function createNewCommand(
   const createBranchPlaceholder = dependencies.createBranchPlaceholder ?? generateBranchPlaceholder;
   const promptForBranch = dependencies.promptForBranch ?? defaultPromptForBranch;
   const prompt = dependencies.promptForPathConflict ?? promptForPathConflict;
+  const spawnEditor = dependencies.spawnEditor ?? defaultSpawnEditor;
 
   return async function runNewCommand(options: NewCommandOptions): Promise<number> {
     const repository = await detectRepository(options.cwd);
@@ -186,6 +190,11 @@ export function createNewCommand(
       await writeOutput(worktreePath, options.stdout);
     }
 
+    if (options.open) {
+      const resolvedEditor = options.editor ?? resolveConfigString(config, 'editor');
+      await openWorktree(worktreePath, resolvedEditor, spawnEditor, options.stderr);
+    }
+
     return 0;
   };
 }
@@ -318,4 +327,34 @@ function hasExecStderr(error: unknown): error is { stderr: string } {
 
 function toExecMessage(error: unknown): string {
   return hasExecStderr(error) ? error.stderr.trim() : String(error);
+}
+
+async function openWorktree(
+  worktreePath: string,
+  editorCli: string | undefined,
+  spawnFn: (cli: string, args: string[]) => Promise<void>,
+  stderr: (chunk: string) => void,
+): Promise<void> {
+  if (!editorCli) {
+    stderr('gji new: --open requires --editor <cli> or a saved editor in config\n');
+    return;
+  }
+
+  try {
+    await spawnFn(editorCli, ['--new-window', worktreePath]);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    stderr(`gji new: failed to open editor: ${message}\n`);
+  }
+}
+
+async function defaultSpawnEditor(cli: string, args: string[]): Promise<void> {
+  const child = spawn(cli, args, { detached: true, stdio: 'ignore' });
+
+  await new Promise<void>((resolve, reject) => {
+    child.once('error', reject);
+    child.once('spawn', resolve);
+  });
+
+  child.unref();
 }

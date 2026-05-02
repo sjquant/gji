@@ -154,6 +154,8 @@ function registerCommands(program: Command): void {
     .description('create a new branch or detached linked worktree')
     .option('-f, --force', 'remove and recreate the worktree if the target path already exists')
     .option('--detached', 'create a detached worktree without a branch')
+    .option('--open', 'open the new worktree in an editor after creation')
+    .option('--editor <cli>', 'editor CLI to use with --open (code, cursor, zed, …)')
     .option('--dry-run', 'show what would be created without executing any git commands or writing files')
     .option('--json', 'emit JSON on success or error instead of human-readable output')
     .action(notImplemented('new'));
@@ -278,8 +280,8 @@ function attachCommandActions(
 ): void {
   program.commands
     .find((command) => command.name() === 'new')
-    ?.action(async (branch: string | undefined, commandOptions: { detached?: boolean; dryRun?: boolean; force?: boolean; json?: boolean }) => {
-      const exitCode = await runNewCommand({ ...options, branch, detached: commandOptions.detached, dryRun: commandOptions.dryRun, force: commandOptions.force, json: commandOptions.json });
+    ?.action(async (branch: string | undefined, commandOptions: { detached?: boolean; dryRun?: boolean; editor?: string; force?: boolean; json?: boolean; open?: boolean }) => {
+      const exitCode = await runNewCommand({ ...options, branch, detached: commandOptions.detached, dryRun: commandOptions.dryRun, editor: commandOptions.editor, force: commandOptions.force, json: commandOptions.json, open: commandOptions.open });
 
       if (exitCode !== 0) {
         throw commanderExit(exitCode);

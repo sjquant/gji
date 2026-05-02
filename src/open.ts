@@ -1,8 +1,7 @@
-import { spawn } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
 import { access, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
-import { execFile } from 'node:child_process';
 
 import { isCancel, select } from '@clack/prompts';
 import { loadEffectiveConfig, resolveConfigString, updateGlobalConfigKey } from './config.js';
@@ -11,7 +10,7 @@ import { detectRepository, listWorktrees, sortByCurrentFirst, type WorktreeEntry
 
 const execFileAsync = promisify(execFile);
 
-interface EditorDefinition {
+export interface EditorDefinition {
   cli: string;
   name: string;
   newWindowFlag?: string;
@@ -119,8 +118,13 @@ export function createOpenCommand(
     const editorDef = EDITORS.find((e) => e.cli === editorCli);
     let openTarget = targetPath;
 
-    if (options.workspace && editorDef?.supportsWorkspace) {
-      openTarget = await ensureWorkspaceFile(targetPath, repository.repoName);
+    if (options.workspace) {
+      if (editorDef?.supportsWorkspace) {
+        openTarget = await ensureWorkspaceFile(targetPath, repository.repoName);
+      } else {
+        const displayName = editorDef?.name ?? editorCli;
+        options.stderr(`gji open: --workspace is not supported for ${displayName}, ignoring\n`);
+      }
     }
 
     const args: string[] = [];
