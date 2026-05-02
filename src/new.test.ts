@@ -1321,14 +1321,16 @@ describe('gji new --open', () => {
   });
 
   it('opens the new worktree in the specified editor after creation', async () => {
+    // Given a repository and Cursor as the chosen editor.
     const repoRoot = await createRepository();
     const branch = 'feature/open-after-new';
     const spawned: { cli: string; args: string[] }[] = [];
-
-    const result = await createNewCommand({
-      promptForBranch: async () => branch,
+    const runNewCommand = createNewCommand({
       spawnEditor: async (cli, args) => { spawned.push({ cli, args }); },
-    })({
+    });
+
+    // When gji new --open --editor cursor runs.
+    const result = await runNewCommand({
       branch,
       cwd: repoRoot,
       editor: 'cursor',
@@ -1337,6 +1339,7 @@ describe('gji new --open', () => {
       stdout: () => undefined,
     });
 
+    // Then it opens the new worktree in Cursor with --new-window.
     expect(result).toBe(0);
     expect(spawned).toHaveLength(1);
     expect(spawned[0].cli).toBe('cursor');
@@ -1344,18 +1347,17 @@ describe('gji new --open', () => {
   });
 
   it('uses the saved config editor when --editor is not passed', async () => {
+    // Given a repository with editor: "zed" in local config.
     const repoRoot = await createRepository();
     const branch = 'feature/open-from-config';
     const spawned: { cli: string; args: string[] }[] = [];
-
-    await import('node:fs/promises').then((fs) =>
-      fs.writeFile(`${repoRoot}/.gji.json`, JSON.stringify({ editor: 'zed' }), 'utf8'),
-    );
-
-    const result = await createNewCommand({
-      promptForBranch: async () => branch,
+    await writeFile(join(repoRoot, '.gji.json'), JSON.stringify({ editor: 'zed' }), 'utf8');
+    const runNewCommand = createNewCommand({
       spawnEditor: async (cli, args) => { spawned.push({ cli, args }); },
-    })({
+    });
+
+    // When gji new --open runs without --editor.
+    const result = await runNewCommand({
       branch,
       cwd: repoRoot,
       open: true,
@@ -1363,39 +1365,43 @@ describe('gji new --open', () => {
       stdout: () => undefined,
     });
 
+    // Then it opens in Zed with no --new-window flag (Zed does not support it).
     expect(result).toBe(0);
     expect(spawned[0].cli).toBe('zed');
-    // Zed has no --new-window flag; args should be just the path.
     expect(spawned[0].args).toEqual([expect.stringContaining(branch)]);
   });
 
   it('skips opening when --open is not passed', async () => {
+    // Given a repository and no --open flag.
     const repoRoot = await createRepository();
     const branch = 'feature/no-open';
-    let spawnCalled = false;
+    const runNewCommand = createNewCommand({
+      spawnEditor: async () => { throw new Error('spawn must not be called without --open'); },
+    });
 
-    await createNewCommand({
-      promptForBranch: async () => branch,
-      spawnEditor: async () => { spawnCalled = true; },
-    })({
+    // When gji new runs without --open.
+    const result = await runNewCommand({
       branch,
       cwd: repoRoot,
       stderr: () => undefined,
       stdout: () => undefined,
     });
 
-    expect(spawnCalled).toBe(false);
+    // Then it exits successfully without spawning any editor.
+    expect(result).toBe(0);
   });
 
   it('warns and continues when --open is used without an editor', async () => {
+    // Given a repository with no editor configured or specified.
     const repoRoot = await createRepository();
     const branch = 'feature/open-no-editor';
     const stderr: string[] = [];
-
-    const result = await createNewCommand({
-      promptForBranch: async () => branch,
+    const runNewCommand = createNewCommand({
       spawnEditor: async () => undefined,
-    })({
+    });
+
+    // When gji new --open runs without --editor and no saved config.
+    const result = await runNewCommand({
       branch,
       cwd: repoRoot,
       open: true,
@@ -1403,19 +1409,21 @@ describe('gji new --open', () => {
       stdout: () => undefined,
     });
 
+    // Then it exits 0, creates the worktree, and warns that --editor is required.
     expect(result).toBe(0);
     expect(stderr.join('')).toContain('--open requires --editor');
   });
 
   it('does not open in --dry-run mode', async () => {
+    // Given a repository and --dry-run combined with --open.
     const repoRoot = await createRepository();
     const branch = 'feature/open-dry-run';
-    let spawnCalled = false;
+    const runNewCommand = createNewCommand({
+      spawnEditor: async () => { throw new Error('spawn must not be called in --dry-run mode'); },
+    });
 
-    const result = await createNewCommand({
-      promptForBranch: async () => branch,
-      spawnEditor: async () => { spawnCalled = true; },
-    })({
+    // When gji new --open --editor code --dry-run runs.
+    const result = await runNewCommand({
       branch,
       cwd: repoRoot,
       dryRun: true,
@@ -1425,7 +1433,7 @@ describe('gji new --open', () => {
       stdout: () => undefined,
     });
 
+    // Then it exits 0 without spawning any editor.
     expect(result).toBe(0);
-    expect(spawnCalled).toBe(false);
   });
 });
