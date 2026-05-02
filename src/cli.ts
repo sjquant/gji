@@ -210,6 +210,7 @@ function registerCommands(program: Command): void {
 
   program
     .command('go [branch]')
+    .alias('jump')
     .description('print or select a worktree path')
     .option('--print', 'print the resolved worktree path explicitly')
     .action(notImplemented('go'));
