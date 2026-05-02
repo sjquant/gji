@@ -37,6 +37,9 @@ export async function registerRepo(repoPath: string, home: string = homedir()): 
   const registryPath = REGISTRY_FILE_PATH(home);
   const existing = await loadRegistry(home);
 
+  // Skip write if this repo is already the most-recently-used entry (common case).
+  if (existing.length > 0 && existing[0].path === repoPath) return;
+
   const entry: RepoRegistryEntry = {
     lastUsed: Date.now(),
     name: basename(repoPath),

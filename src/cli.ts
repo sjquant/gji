@@ -533,10 +533,9 @@ function attachCommandActions(
       const newWorktree = newFlag !== undefined && newFlag !== false;
       const newBranch = typeof newFlag === 'string' ? newFlag : undefined;
       const exitCode = await runWarpCommand({
-        branch: newWorktree ? newBranch : branch,
+        branch: newWorktree ? (newBranch ?? branch) : branch,
         cwd: options.cwd,
         newWorktree,
-        print: commandOptions.print,
         stderr: options.stderr,
         stdout: options.stdout,
       });

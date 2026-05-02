@@ -14,14 +14,12 @@ export interface WarpCommandOptions {
   branch?: string;
   cwd: string;
   newWorktree?: boolean;
-  print?: boolean;
   stderr: (chunk: string) => void;
   stdout: (chunk: string) => void;
 }
 
 interface WarpItem {
   repoName: string;
-  repoRoot: string;
   worktree: WorktreeEntry;
 }
 
@@ -51,7 +49,7 @@ async function runWarpNavigate(
     return 1;
   }
 
-  const target = await resolveWarpTarget(options);
+  const target = await resolveWarpTarget({ ...options, commandName: 'gji warp' });
   if (!target) {
     if (!options.branch) options.stderr('Aborted\n');
     return 1;
@@ -143,12 +141,13 @@ export interface WarpTarget {
 }
 
 export async function resolveWarpTarget(
-  options: { branch?: string; cwd: string; stderr: (chunk: string) => void },
+  options: { branch?: string; commandName?: string; cwd: string; stderr: (chunk: string) => void },
 ): Promise<WarpTarget | null> {
+  const cmd = options.commandName ?? 'gji';
   const registry = await loadRegistry();
   if (registry.length === 0) {
     options.stderr(
-      'gji: not in a git repository and no repos registered yet.\n' +
+      `${cmd}: not in a git repository and no repos registered yet.\n` +
       'Use any gji command inside a repository to register it.\n',
     );
     return null;
@@ -157,28 +156,28 @@ export async function resolveWarpTarget(
   const results = await Promise.allSettled(
     registry.map(async (entry) => {
       const worktrees = await listWorktrees(entry.path);
-      return { repoName: entry.name, repoRoot: entry.path, worktrees };
+      return { repoName: entry.name, worktrees };
     }),
   );
 
   const allItems: WarpItem[] = [];
   for (const result of results) {
     if (result.status === 'rejected') continue;
-    const { repoName, repoRoot, worktrees } = result.value;
+    const { repoName, worktrees } = result.value;
     for (const worktree of worktrees) {
-      allItems.push({ repoName, repoRoot, worktree });
+      allItems.push({ repoName, worktree });
     }
   }
 
   if (allItems.length === 0) {
-    options.stderr('gji: no accessible worktrees found in any registered repo.\n');
+    options.stderr(`${cmd}: no accessible worktrees found in any registered repo.\n`);
     return null;
   }
 
   if (options.branch) {
     const match = findByQuery(allItems, options.branch);
     if (!match) {
-      options.stderr(`gji: no worktree found matching: ${options.branch}\n`);
+      options.stderr(`${cmd}: no worktree found matching: ${options.branch}\n`);
       return null;
     }
     return { branch: match.worktree.branch, path: match.worktree.path };
