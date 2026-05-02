@@ -15,10 +15,13 @@ import { runLsCommand } from './ls.js';
 import { runNewCommand } from './new.js';
 import { runPrCommand } from './pr.js';
 import { runRemoveCommand } from './remove.js';
+import { registerRepo } from './repo-registry.js';
+import { detectRepository } from './repo.js';
 import { runRootCommand } from './root.js';
 import { runStatusCommand } from './status.js';
 import { runSyncCommand } from './sync.js';
 import { runTriggerHookCommand } from './trigger-hook.js';
+import { runWarpCommand } from './warp.js';
 
 interface PackageMetadata {
   name: string;
@@ -75,6 +78,7 @@ export async function runCli(
   options: RunCliOptions = {},
 ): Promise<RunCliResult> {
   await maybeNotifyForUpdates(argv);
+  maybeRegisterCurrentRepo(options.cwd ?? process.cwd());
 
   const program = createProgram();
   const cwd = options.cwd ?? process.cwd();
@@ -146,6 +150,12 @@ function defaultNotifyForUpdates(pkg: PackageMetadata): void {
   const notifier = updateNotifier({ pkg });
 
   notifier.notify();
+}
+
+function maybeRegisterCurrentRepo(cwd: string): void {
+  detectRepository(cwd)
+    .then(({ repoRoot }) => registerRepo(repoRoot))
+    .catch(() => undefined);
 }
 
 function registerCommands(program: Command): void {
@@ -252,6 +262,13 @@ function registerCommands(program: Command): void {
     .command('trigger-hook <hook>')
     .description('run a named hook (afterCreate, afterEnter, beforeRemove) in the current worktree')
     .action(notImplemented('trigger-hook'));
+
+  program
+    .command('warp [branch]')
+    .description('jump to any worktree across all known repos')
+    .option('-n, --new [branch]', 'create a new worktree in a registered repo')
+    .option('--print', 'print the resolved worktree path explicitly')
+    .action(notImplemented('warp'));
 
   const configCommand = program
     .command('config')
@@ -501,6 +518,26 @@ function attachCommandActions(
         cwd: options.cwd,
         hook,
         stderr: options.stderr,
+      });
+
+      if (exitCode !== 0) {
+        throw commanderExit(exitCode);
+      }
+    });
+
+  program.commands
+    .find((command) => command.name() === 'warp')
+    ?.action(async (branch: string | undefined, commandOptions: { new?: string | boolean; print?: boolean }) => {
+      const newFlag = commandOptions.new;
+      const newWorktree = newFlag !== undefined && newFlag !== false;
+      const newBranch = typeof newFlag === 'string' ? newFlag : undefined;
+      const exitCode = await runWarpCommand({
+        branch: newWorktree ? newBranch : branch,
+        cwd: options.cwd,
+        newWorktree,
+        print: commandOptions.print,
+        stderr: options.stderr,
+        stdout: options.stdout,
       });
 
       if (exitCode !== 0) {

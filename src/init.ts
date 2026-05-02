@@ -61,6 +61,13 @@ const SHELL_WRAPPED_COMMANDS: ShellWrappedCommand[] = [
     names: ['remove', 'rm'],
     tempPrefix: 'gji-remove',
   },
+  {
+    bypassOption: '--print',
+    commandName: 'warp',
+    envVar: 'GJI_WARP_OUTPUT_FILE',
+    names: ['warp'],
+    tempPrefix: 'gji-warp',
+  },
 ];
 
 export type InstallSaveTarget = 'local' | 'global';

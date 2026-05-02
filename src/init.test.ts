@@ -450,6 +450,27 @@ function gji --wraps gji --description 'gji shell integration'
         return $status
     end
 
+    if test (count $argv) -gt 0; and test $argv[1] = warp
+        set -e argv[1]
+        if test (count $argv) -gt 0; and test $argv[1] = --print
+            command gji warp $argv
+            return $status
+        end
+
+        set -l output_file (mktemp -t gji-warp.XXXXXX)
+        or return 1
+        env GJI_WARP_OUTPUT_FILE=$output_file command gji warp $argv
+        or begin
+            set -l status_code $status
+            rm -f $output_file
+            return $status_code
+        end
+        set -l target (cat $output_file)
+        rm -f $output_file
+        cd $target
+        return $status
+    end
+
     command gji $argv
 end
 # <<< gji init <<<
