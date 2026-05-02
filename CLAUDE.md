@@ -14,6 +14,7 @@ gji/
 │   ├── config.ts           # Config file handling
 │   ├── paths.ts            # Path utilities
 │   ├── new.ts              # `gji new` command
+│   ├── open.ts             # `gji open` command
 │   ├── go.ts               # `gji go` command
 │   ├── pr.ts               # `gji pr` command
 │   ├── ls.ts               # `gji ls` command

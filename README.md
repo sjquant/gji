@@ -107,6 +107,9 @@ gji completion fish > ~/.config/fish/completions/gji.fish
 # start a new task
 gji new feature/dark-mode
 
+# start a task and open it straight in your editor
+gji new feature/dark-mode --open --editor cursor
+
 # review a pull request
 gji pr 1234
 
@@ -116,6 +119,10 @@ gji status
 # jump between worktrees
 gji go feature/dark-mode
 gji go main
+
+# open any worktree in an editor (interactive picker)
+gji open
+gji open feature/dark-mode --editor code
 
 # clean up when done
 gji remove feature/dark-mode
@@ -234,8 +241,9 @@ path=$(gji root --print)
 
 | Command | Description |
 |---|---|
-| `gji new [branch] [--detached] [--json]` | create branch + worktree, cd in (validates branch name against Git rules) |
+| `gji new [branch] [--detached] [--open] [--editor <cli>] [--json]` | create branch + worktree, cd in (validates branch name against Git rules) |
 | `gji pr <ref> [--json]` | fetch PR ref, create worktree, cd in |
+| `gji open [branch] [--editor <cli>] [--save] [--workspace]` | open a worktree in an editor |
 | `gji go [branch] [--print]` | jump to a worktree |
 | `gji root [--print]` | jump to the main repo root |
 | `gji status [--json]` | repo overview, worktree health, ahead/behind |
@@ -260,6 +268,7 @@ No setup required. Optional config lives in:
 | Key | Description |
 |---|---|
 | `branchPrefix` | prefix added to new branch names (e.g. `"feature/"`) |
+| `editor` | default editor CLI for `gji open` and `gji new --open` (e.g. `"cursor"`, `"code"`, `"zed"`); set automatically with `gji open --save` |
 | `worktreePath` | base directory for new worktrees (absolute or `~/…`); overrides the default `../worktrees/<repo>/` layout |
 | `syncRemote` | remote for `gji sync` (default: `origin`) |
 | `syncDefaultBranch` | branch to rebase onto (default: remote `HEAD`) |
