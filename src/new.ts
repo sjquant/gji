@@ -1,10 +1,11 @@
 import { mkdir } from 'node:fs/promises';
 import { basename, dirname } from 'node:path';
-import { execFile, spawn } from 'node:child_process';
+import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { isCancel, text } from '@clack/prompts';
 
 import { loadEffectiveConfig, resolveConfigString } from './config.js';
+import { defaultSpawnEditor, EDITORS } from './editor.js';
 import { syncFiles } from './file-sync.js';
 import { extractHooks, runHook } from './hooks.js';
 import { appendHistory } from './history.js';
@@ -50,6 +51,10 @@ export function createNewCommand(
     const repository = await detectRepository(options.cwd);
     const config = await loadEffectiveConfig(repository.repoRoot, undefined, options.stderr);
     const usesGeneratedDetachedName = options.detached && options.branch === undefined;
+
+    if (options.editor && !options.open) {
+      options.stderr('gji new: --editor has no effect without --open\n');
+    }
 
     if (!options.detached && !options.branch && (options.json || isHeadless())) {
       const message = 'branch argument is required';
@@ -147,7 +152,11 @@ export function createNewCommand(
       if (options.json) {
         options.stdout(`${JSON.stringify({ branch: worktreeName, path: worktreePath, dryRun: true }, null, 2)}\n`);
       } else {
-        options.stdout(`Would create worktree at ${worktreePath} (branch: ${worktreeName})\n`);
+        const resolvedEditor = options.open
+          ? (options.editor ?? resolveConfigString(config, 'editor'))
+          : undefined;
+        const openNote = resolvedEditor ? `, then open in ${resolvedEditor}` : '';
+        options.stdout(`Would create worktree at ${worktreePath} (branch: ${worktreeName}${openNote})\n`);
       }
       return 0;
     }
@@ -340,21 +349,17 @@ async function openWorktree(
     return;
   }
 
+  const editorDef = EDITORS.find((e) => e.cli === editorCli);
+  const args: string[] = [];
+  if (editorDef?.newWindowFlag) {
+    args.push(editorDef.newWindowFlag);
+  }
+  args.push(worktreePath);
+
   try {
-    await spawnFn(editorCli, ['--new-window', worktreePath]);
+    await spawnFn(editorCli, args);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     stderr(`gji new: failed to open editor: ${message}\n`);
   }
-}
-
-async function defaultSpawnEditor(cli: string, args: string[]): Promise<void> {
-  const child = spawn(cli, args, { detached: true, stdio: 'ignore' });
-
-  await new Promise<void>((resolve, reject) => {
-    child.once('error', reject);
-    child.once('spawn', resolve);
-  });
-
-  child.unref();
 }

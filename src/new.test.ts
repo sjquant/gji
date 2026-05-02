@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { runCli } from './cli.js';
 import { GLOBAL_CONFIG_FILE_PATH } from './config.js';
@@ -1312,6 +1312,14 @@ describe('gji new', () => {
 });
 
 describe('gji new --open', () => {
+  beforeEach(async () => {
+    process.env.GJI_CONFIG_DIR = await mkdtemp(join(tmpdir(), 'gji-config-'));
+  });
+
+  afterEach(() => {
+    delete process.env.GJI_CONFIG_DIR;
+  });
+
   it('opens the new worktree in the specified editor after creation', async () => {
     const repoRoot = await createRepository();
     const branch = 'feature/open-after-new';
@@ -1333,6 +1341,32 @@ describe('gji new --open', () => {
     expect(spawned).toHaveLength(1);
     expect(spawned[0].cli).toBe('cursor');
     expect(spawned[0].args).toContain('--new-window');
+  });
+
+  it('uses the saved config editor when --editor is not passed', async () => {
+    const repoRoot = await createRepository();
+    const branch = 'feature/open-from-config';
+    const spawned: { cli: string; args: string[] }[] = [];
+
+    await import('node:fs/promises').then((fs) =>
+      fs.writeFile(`${repoRoot}/.gji.json`, JSON.stringify({ editor: 'zed' }), 'utf8'),
+    );
+
+    const result = await createNewCommand({
+      promptForBranch: async () => branch,
+      spawnEditor: async (cli, args) => { spawned.push({ cli, args }); },
+    })({
+      branch,
+      cwd: repoRoot,
+      open: true,
+      stderr: () => undefined,
+      stdout: () => undefined,
+    });
+
+    expect(result).toBe(0);
+    expect(spawned[0].cli).toBe('zed');
+    // Zed has no --new-window flag; args should be just the path.
+    expect(spawned[0].args).toEqual([expect.stringContaining(branch)]);
   });
 
   it('skips opening when --open is not passed', async () => {

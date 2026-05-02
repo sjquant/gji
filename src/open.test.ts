@@ -1,12 +1,19 @@
-import { readFile } from 'node:fs/promises';
+import { mkdtemp, readFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { createOpenCommand } from './open.js';
 import { addLinkedWorktree, createRepository, pathExists } from './repo.test-helpers.js';
 
+beforeEach(async () => {
+  // Isolate global config so tests don't read from or write to ~/.config/gji.
+  process.env.GJI_CONFIG_DIR = await mkdtemp(join(tmpdir(), 'gji-config-'));
+});
+
 afterEach(() => {
+  delete process.env.GJI_CONFIG_DIR;
   delete process.env.GJI_NO_TUI;
 });
 
@@ -272,7 +279,6 @@ describe('gji open', () => {
   it('saves the editor to global config when --save is passed', async () => {
     const repoRoot = await createRepository();
     const stdout: string[] = [];
-    const saved: Record<string, unknown> = {};
 
     const result = await createOpenCommand({
       promptForWorktree: async (worktrees) => worktrees[0]?.path ?? null,
@@ -285,8 +291,6 @@ describe('gji open', () => {
       stdout: (chunk) => stdout.push(chunk),
     });
 
-    // updateGlobalConfigKey writes to ~/.config/gji/config.json which we can't
-    // easily intercept here, but we verify the success message was printed.
     expect(result).toBe(0);
     expect(stdout.join('')).toContain('Saved editor');
     expect(stdout.join('')).toContain('Cursor');

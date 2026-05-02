@@ -1,30 +1,17 @@
-import { execFile, spawn } from 'node:child_process';
+import { execFile } from 'node:child_process';
 import { access, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 
 import { isCancel, select } from '@clack/prompts';
 import { loadEffectiveConfig, resolveConfigString, updateGlobalConfigKey } from './config.js';
+import { defaultSpawnEditor, EDITORS, type EditorDefinition } from './editor.js';
 import { isHeadless } from './headless.js';
 import { detectRepository, listWorktrees, sortByCurrentFirst, type WorktreeEntry } from './repo.js';
 
+export type { EditorDefinition };
+
 const execFileAsync = promisify(execFile);
-
-export interface EditorDefinition {
-  cli: string;
-  name: string;
-  newWindowFlag?: string;
-  supportsWorkspace: boolean;
-}
-
-// Ordered by likely popularity among the target audience.
-const EDITORS: EditorDefinition[] = [
-  { cli: 'cursor', name: 'Cursor', newWindowFlag: '--new-window', supportsWorkspace: true },
-  { cli: 'code', name: 'VS Code', newWindowFlag: '--new-window', supportsWorkspace: true },
-  { cli: 'windsurf', name: 'Windsurf', newWindowFlag: '--new-window', supportsWorkspace: true },
-  { cli: 'zed', name: 'Zed', supportsWorkspace: false },
-  { cli: 'subl', name: 'Sublime Text', newWindowFlag: '--new-window', supportsWorkspace: false },
-];
 
 export interface OpenCommandOptions {
   branch?: string;
@@ -187,17 +174,6 @@ async function defaultPromptForEditor(editors: EditorDefinition[]): Promise<stri
 
   if (isCancel(choice)) return null;
   return choice;
-}
-
-async function defaultSpawnEditor(cli: string, args: string[]): Promise<void> {
-  const child = spawn(cli, args, { detached: true, stdio: 'ignore' });
-
-  await new Promise<void>((resolve, reject) => {
-    child.once('error', reject);
-    child.once('spawn', resolve);
-  });
-
-  child.unref();
 }
 
 async function ensureWorkspaceFile(worktreePath: string, repoName: string): Promise<string> {
