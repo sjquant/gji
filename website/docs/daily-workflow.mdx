@@ -23,6 +23,14 @@ This creates:
 
 If you use project hooks, this is also where install/setup automation typically runs.
 
+To open the new worktree in an editor immediately:
+
+```bash
+gji new feature/auth-refactor --open --editor cursor
+```
+
+Once you have a saved editor (`gji open --save`), `--editor` is optional.
+
 ## Open a pull request in isolation
 
 ```bash
@@ -31,6 +39,16 @@ gji pr https://github.com/org/repo/pull/1234
 ```
 
 This is useful when you are already mid-feature and want to review something without stashing or resetting your current checkout.
+
+## Open a worktree in an editor
+
+```bash
+gji open                              # pick worktree + editor interactively
+gji open feature/auth-refactor        # open a specific branch
+gji open --editor cursor --save       # use cursor and remember it
+```
+
+`gji open` is most useful when you want to open a worktree you are not currently in — for example launching a PR review in a new editor window without leaving your current task.
 
 ## Move between active tasks
 

@@ -10,9 +10,10 @@ description: Reference for gji commands, navigation, cleanup, sync, hooks, and c
 
 | Command | What it does |
 | --- | --- |
-| `gji new [branch] [--detached] [--json]` | Create a branch and worktree, then enter it. |
+| `gji new [branch] [--detached] [--open] [--editor <cli>] [--json]` | Create a branch and worktree, then enter it. |
 | `gji pr <ref> [--json]` | Fetch a pull request ref and open it in a dedicated worktree. |
 | `gji go [branch] [--print]` | Jump to a worktree or print its path for scripting. |
+| `gji open [branch] [--editor <cli>] [--save] [--workspace]` | Open a worktree in an editor. |
 | `gji back [n] [--print]` | Return to the previously visited worktree, optionally N steps back. |
 | `gji history [--json]` | Show navigation history. |
 | `gji root [--print]` | Jump back to the main repo root. |
@@ -32,6 +33,7 @@ description: Reference for gji commands, navigation, cleanup, sync, hooks, and c
 - `gji new`
 - `gji pr`
 - `gji go`
+- `gji open`
 - `gji back [n]`
 - `gji root`
 
@@ -63,11 +65,21 @@ Use these to shape default behavior and shell handoff.
 
 ## Common patterns
 
-### Start feature work
+### Start feature work and open it in an editor
 
 ```bash
-gji new feature/auth-refactor
+gji new feature/auth-refactor --open --editor cursor
 ```
+
+Or open an existing worktree interactively from anywhere:
+
+```bash
+gji open                    # pick a worktree, then an editor
+gji open feature/auth-refactor --editor code
+gji open --editor cursor --save   # save cursor as your default editor
+```
+
+`--workspace` generates a `.code-workspace` file before opening, enabling per-workspace settings in VS Code, Cursor, and Windsurf.
 
 ### Open a pull request for review
 

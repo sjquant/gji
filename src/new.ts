@@ -5,6 +5,7 @@ import { promisify } from 'node:util';
 import { isCancel, text } from '@clack/prompts';
 
 import { loadEffectiveConfig, resolveConfigString } from './config.js';
+import { defaultSpawnEditor, EDITORS } from './editor.js';
 import { syncFiles } from './file-sync.js';
 import { extractHooks, runHook } from './hooks.js';
 import { appendHistory } from './history.js';
@@ -23,8 +24,10 @@ export interface NewCommandOptions {
   cwd: string;
   detached?: boolean;
   dryRun?: boolean;
+  editor?: string;
   force?: boolean;
   json?: boolean;
+  open?: boolean;
   stderr: (chunk: string) => void;
   stdout: (chunk: string) => void;
 }
@@ -33,6 +36,7 @@ export interface NewCommandDependencies extends InstallPromptDependencies {
   createBranchPlaceholder: () => string;
   promptForBranch: (placeholder: string) => Promise<string | null>;
   promptForPathConflict: (path: string) => Promise<PathConflictChoice>;
+  spawnEditor: (cli: string, args: string[]) => Promise<void>;
 }
 
 export function createNewCommand(
@@ -41,11 +45,16 @@ export function createNewCommand(
   const createBranchPlaceholder = dependencies.createBranchPlaceholder ?? generateBranchPlaceholder;
   const promptForBranch = dependencies.promptForBranch ?? defaultPromptForBranch;
   const prompt = dependencies.promptForPathConflict ?? promptForPathConflict;
+  const spawnEditor = dependencies.spawnEditor ?? defaultSpawnEditor;
 
   return async function runNewCommand(options: NewCommandOptions): Promise<number> {
     const repository = await detectRepository(options.cwd);
     const config = await loadEffectiveConfig(repository.repoRoot, undefined, options.stderr);
     const usesGeneratedDetachedName = options.detached && options.branch === undefined;
+
+    if (options.editor && !options.open) {
+      options.stderr('gji new: --editor has no effect without --open\n');
+    }
 
     if (!options.detached && !options.branch && (options.json || isHeadless())) {
       const message = 'branch argument is required';
@@ -143,7 +152,11 @@ export function createNewCommand(
       if (options.json) {
         options.stdout(`${JSON.stringify({ branch: worktreeName, path: worktreePath, dryRun: true }, null, 2)}\n`);
       } else {
-        options.stdout(`Would create worktree at ${worktreePath} (branch: ${worktreeName})\n`);
+        const resolvedEditor = options.open
+          ? (options.editor ?? resolveConfigString(config, 'editor'))
+          : undefined;
+        const openNote = resolvedEditor ? `, then open in ${resolvedEditor}` : '';
+        options.stdout(`Would create worktree at ${worktreePath} (branch: ${worktreeName}${openNote})\n`);
       }
       return 0;
     }
@@ -184,6 +197,11 @@ export function createNewCommand(
     } else {
       await appendHistory(worktreePath, worktreeName);
       await writeOutput(worktreePath, options.stdout);
+    }
+
+    if (options.open) {
+      const resolvedEditor = options.editor ?? resolveConfigString(config, 'editor');
+      await openWorktree(worktreePath, resolvedEditor, spawnEditor, options.stderr);
     }
 
     return 0;
@@ -318,4 +336,30 @@ function hasExecStderr(error: unknown): error is { stderr: string } {
 
 function toExecMessage(error: unknown): string {
   return hasExecStderr(error) ? error.stderr.trim() : String(error);
+}
+
+async function openWorktree(
+  worktreePath: string,
+  editorCli: string | undefined,
+  spawnFn: (cli: string, args: string[]) => Promise<void>,
+  stderr: (chunk: string) => void,
+): Promise<void> {
+  if (!editorCli) {
+    stderr('gji new: --open requires --editor <cli> or a saved editor in config\n');
+    return;
+  }
+
+  const editorDef = EDITORS.find((e) => e.cli === editorCli);
+  const args: string[] = [];
+  if (editorDef?.newWindowFlag) {
+    args.push(editorDef.newWindowFlag);
+  }
+  args.push(worktreePath);
+
+  try {
+    await spawnFn(editorCli, args);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    stderr(`gji new: failed to open editor: ${message}\n`);
+  }
 }
