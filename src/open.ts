@@ -7,7 +7,7 @@ import { execFile } from 'node:child_process';
 import { isCancel, select } from '@clack/prompts';
 import { loadEffectiveConfig, resolveConfigString, updateGlobalConfigKey } from './config.js';
 import { isHeadless } from './headless.js';
-import { detectRepository, listWorktrees } from './repo.js';
+import { detectRepository, listWorktrees, sortByCurrentFirst, type WorktreeEntry } from './repo.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -40,6 +40,7 @@ export interface OpenCommandOptions {
 export interface OpenCommandDependencies {
   detectEditors: () => Promise<EditorDefinition[]>;
   promptForEditor: (editors: EditorDefinition[]) => Promise<string | null>;
+  promptForWorktree: (worktrees: WorktreeEntry[]) => Promise<string | null>;
   spawnEditor: (cli: string, args: string[]) => Promise<void>;
 }
 
@@ -47,7 +48,8 @@ export function createOpenCommand(
   dependencies: Partial<OpenCommandDependencies> = {},
 ): (options: OpenCommandOptions) => Promise<number> {
   const detectEditors = dependencies.detectEditors ?? detectInstalledEditors;
-  const prompt = dependencies.promptForEditor ?? defaultPromptForEditor;
+  const promptForEditor = dependencies.promptForEditor ?? defaultPromptForEditor;
+  const promptForWorktree = dependencies.promptForWorktree ?? defaultPromptForWorktree;
   const spawnEditor = dependencies.spawnEditor ?? defaultSpawnEditor;
 
   return async function runOpenCommand(options: OpenCommandOptions): Promise<number> {
@@ -66,8 +68,15 @@ export function createOpenCommand(
         return 1;
       }
       targetPath = entry.path;
-    } else {
+    } else if (isHeadless()) {
       targetPath = worktrees.find((w) => w.isCurrent)?.path ?? options.cwd;
+    } else {
+      const chosen = await promptForWorktree(sortByCurrentFirst(worktrees));
+      if (!chosen) {
+        options.stderr('Aborted\n');
+        return 1;
+      }
+      targetPath = chosen;
     }
 
     // Resolve which editor to use.
@@ -90,7 +99,7 @@ export function createOpenCommand(
       if (installed.length === 1 || isHeadless()) {
         editorCli = installed[0].cli;
       } else {
-        const chosen = await prompt(installed);
+        const chosen = await promptForEditor(installed);
         if (!chosen) {
           options.stderr('Aborted\n');
           return 1;
@@ -150,6 +159,20 @@ async function isCommandAvailable(command: string): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+async function defaultPromptForWorktree(worktrees: WorktreeEntry[]): Promise<string | null> {
+  const choice = await select<string>({
+    message: 'Choose a worktree to open',
+    options: worktrees.map((w) => ({
+      value: w.path,
+      label: w.branch ?? '(detached)',
+      hint: w.isCurrent ? `${w.path} (current)` : w.path,
+    })),
+  });
+
+  if (isCancel(choice)) return null;
+  return choice;
 }
 
 async function defaultPromptForEditor(editors: EditorDefinition[]): Promise<string | null> {

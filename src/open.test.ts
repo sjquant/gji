@@ -13,33 +13,84 @@ function makeSpawnEditor(spawned: { cli: string; args: string[] }[]): (cli: stri
 }
 
 describe('gji open', () => {
-  it('opens the current worktree in the specified editor', async () => {
+  it('prompts for a worktree when no branch is given and opens the selection', async () => {
     const repoRoot = await createRepository();
+    const branch = 'feature/open-select';
+    const worktreePath = await addLinkedWorktree(repoRoot, branch);
     const spawned: { cli: string; args: string[] }[] = [];
-    const stdout: string[] = [];
+    let capturedWorktrees: string[] = [];
 
-    const result = await createOpenCommand({ spawnEditor: makeSpawnEditor(spawned) })({
+    const result = await createOpenCommand({
+      promptForWorktree: async (worktrees) => {
+        capturedWorktrees = worktrees.map((w) => w.branch ?? '(detached)');
+        return worktreePath;
+      },
+      spawnEditor: makeSpawnEditor(spawned),
+    })({
       cwd: repoRoot,
       editor: 'code',
       stderr: () => undefined,
-      stdout: (chunk) => stdout.push(chunk),
+      stdout: () => undefined,
     });
 
     expect(result).toBe(0);
-    expect(spawned).toHaveLength(1);
-    expect(spawned[0].cli).toBe('code');
-    expect(spawned[0].args).toContain('--new-window');
-    expect(spawned[0].args).toContain(repoRoot);
-    expect(stdout.join('')).toContain('VS Code');
+    expect(capturedWorktrees).toContain(branch);
+    expect(spawned[0].args).toContain(worktreePath);
   });
 
-  it('opens a linked worktree by branch name', async () => {
+  it('places the current worktree first in the selector', async () => {
+    const repoRoot = await createRepository();
+    const branchA = 'feature/order-a';
+    const branchB = 'feature/order-b';
+    const worktreeA = await addLinkedWorktree(repoRoot, branchA);
+    await addLinkedWorktree(repoRoot, branchB);
+    let capturedFirst: { branch: string | null; isCurrent: boolean } | undefined;
+
+    await createOpenCommand({
+      promptForWorktree: async (worktrees) => {
+        capturedFirst = { branch: worktrees[0].branch, isCurrent: worktrees[0].isCurrent };
+        return worktreeA;
+      },
+      spawnEditor: makeSpawnEditor([]),
+    })({
+      cwd: worktreeA,
+      editor: 'code',
+      stderr: () => undefined,
+      stdout: () => undefined,
+    });
+
+    expect(capturedFirst).toEqual({ branch: branchA, isCurrent: true });
+  });
+
+  it('aborts when the worktree prompt is cancelled', async () => {
+    const repoRoot = await createRepository();
+    const stderr: string[] = [];
+
+    const result = await createOpenCommand({
+      promptForWorktree: async () => null,
+      spawnEditor: makeSpawnEditor([]),
+    })({
+      cwd: repoRoot,
+      editor: 'code',
+      stderr: (chunk) => stderr.push(chunk),
+      stdout: () => undefined,
+    });
+
+    expect(result).toBe(1);
+    expect(stderr.join('')).toContain('Aborted');
+  });
+
+  it('opens a linked worktree by branch name without prompting', async () => {
     const repoRoot = await createRepository();
     const branch = 'feature/open-test';
     const worktreePath = await addLinkedWorktree(repoRoot, branch);
     const spawned: { cli: string; args: string[] }[] = [];
+    let promptCalled = false;
 
-    const result = await createOpenCommand({ spawnEditor: makeSpawnEditor(spawned) })({
+    const result = await createOpenCommand({
+      promptForWorktree: async () => { promptCalled = true; return null; },
+      spawnEditor: makeSpawnEditor(spawned),
+    })({
       branch,
       cwd: repoRoot,
       editor: 'cursor',
@@ -48,7 +99,30 @@ describe('gji open', () => {
     });
 
     expect(result).toBe(0);
+    expect(promptCalled).toBe(false);
     expect(spawned[0].args).toContain(worktreePath);
+  });
+
+  it('opens the current worktree in the specified editor', async () => {
+    const repoRoot = await createRepository();
+    const spawned: { cli: string; args: string[] }[] = [];
+    const stdout: string[] = [];
+
+    const result = await createOpenCommand({
+      promptForWorktree: async (worktrees) => worktrees.find((w) => w.isCurrent)?.path ?? null,
+      spawnEditor: makeSpawnEditor(spawned),
+    })({
+      cwd: repoRoot,
+      editor: 'code',
+      stderr: () => undefined,
+      stdout: (chunk) => stdout.push(chunk),
+    });
+
+    expect(result).toBe(0);
+    expect(spawned[0].cli).toBe('code');
+    expect(spawned[0].args).toContain('--new-window');
+    expect(spawned[0].args).toContain(repoRoot);
+    expect(stdout.join('')).toContain('VS Code');
   });
 
   it('exits 1 when the requested branch has no worktree', async () => {
@@ -74,6 +148,7 @@ describe('gji open', () => {
 
     const result = await createOpenCommand({
       detectEditors: async () => [],
+      promptForWorktree: async (worktrees) => worktrees[0]?.path ?? null,
       spawnEditor: makeSpawnEditor([]),
     })({
       cwd: repoRoot,
@@ -88,11 +163,12 @@ describe('gji open', () => {
   it('auto-selects the only detected editor without prompting', async () => {
     const repoRoot = await createRepository();
     const spawned: { cli: string; args: string[] }[] = [];
-    let promptCalled = false;
+    let editorPromptCalled = false;
 
     const result = await createOpenCommand({
       detectEditors: async () => [{ cli: 'zed', name: 'Zed', supportsWorkspace: false }],
-      promptForEditor: async () => { promptCalled = true; return null; },
+      promptForEditor: async () => { editorPromptCalled = true; return null; },
+      promptForWorktree: async (worktrees) => worktrees[0]?.path ?? null,
       spawnEditor: makeSpawnEditor(spawned),
     })({
       cwd: repoRoot,
@@ -101,7 +177,7 @@ describe('gji open', () => {
     });
 
     expect(result).toBe(0);
-    expect(promptCalled).toBe(false);
+    expect(editorPromptCalled).toBe(false);
     expect(spawned[0].cli).toBe('zed');
   });
 
@@ -115,6 +191,7 @@ describe('gji open', () => {
         { cli: 'code', name: 'VS Code', newWindowFlag: '--new-window', supportsWorkspace: true },
       ],
       promptForEditor: async () => 'code',
+      promptForWorktree: async (worktrees) => worktrees[0]?.path ?? null,
       spawnEditor: makeSpawnEditor(spawned),
     })({
       cwd: repoRoot,
@@ -131,7 +208,10 @@ describe('gji open', () => {
     const spawned: { cli: string; args: string[] }[] = [];
     const workspacePath = join(repoRoot, 'gji-test-repo.code-workspace');
 
-    const result = await createOpenCommand({ spawnEditor: makeSpawnEditor(spawned) })({
+    const result = await createOpenCommand({
+      promptForWorktree: async (worktrees) => worktrees.find((w) => w.isCurrent)?.path ?? null,
+      spawnEditor: makeSpawnEditor(spawned),
+    })({
       cwd: repoRoot,
       editor: 'code',
       stderr: () => undefined,
@@ -153,7 +233,10 @@ describe('gji open', () => {
 
     await import('node:fs/promises').then((fs) => fs.writeFile(workspacePath, original, 'utf8'));
 
-    await createOpenCommand({ spawnEditor: makeSpawnEditor([]) })({
+    await createOpenCommand({
+      promptForWorktree: async (worktrees) => worktrees.find((w) => w.isCurrent)?.path ?? null,
+      spawnEditor: makeSpawnEditor([]),
+    })({
       cwd: repoRoot,
       editor: 'code',
       stderr: () => undefined,
@@ -169,6 +252,7 @@ describe('gji open', () => {
     const stderr: string[] = [];
 
     const result = await createOpenCommand({
+      promptForWorktree: async (worktrees) => worktrees[0]?.path ?? null,
       spawnEditor: async () => { throw new Error('ENOENT: code not found'); },
     })({
       cwd: repoRoot,
