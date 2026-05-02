@@ -50,10 +50,7 @@ async function runWarpNavigate(
   }
 
   const target = await resolveWarpTarget({ ...options, commandName: 'gji warp' });
-  if (!target) {
-    if (!options.branch) options.stderr('Aborted\n');
-    return 1;
-  }
+  if (!target) return 1;
 
   appendHistory(target.path, target.branch).catch(() => undefined);
   await writeShellOutput(WARP_OUTPUT_FILE_ENV, target.path, options.stdout);
@@ -184,7 +181,10 @@ export async function resolveWarpTarget(
   }
 
   const path = await promptForWarpTarget(allItems);
-  if (!path) return null;
+  if (!path) {
+    options.stderr('Aborted\n');
+    return null;
+  }
   const chosen = allItems.find((item) => item.worktree.path === path);
   return { branch: chosen?.worktree.branch ?? null, path };
 }

@@ -268,7 +268,9 @@ function registerCommands(program: Command): void {
     .command('warp [branch]')
     .description('jump to any worktree across all known repos')
     .option('-n, --new [branch]', 'create a new worktree in a registered repo')
-    .option('--print', 'print the resolved worktree path explicitly')
+    // --print is the shell-wrapper bypass signal (see SHELL_WRAPPED_COMMANDS in init.ts).
+    // The shell omits GJI_WARP_OUTPUT_FILE, so writeShellOutput falls through to stdout.
+    .option('--print', 'print the resolved worktree path without changing directory')
     .action(notImplemented('warp'));
 
   const configCommand = program

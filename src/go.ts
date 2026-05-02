@@ -47,10 +47,7 @@ export function createGoCommand(
         return 1;
       }
       const target = await resolveWarpTarget({ ...options, commandName: 'gji go' });
-      if (!target) {
-        if (!options.branch) options.stderr('Aborted\n');
-        return 1;
-      }
+      if (!target) return 1;
       appendHistory(target.path, target.branch).catch(() => undefined);
       await writeShellOutput(GO_OUTPUT_FILE_ENV, target.path, options.stdout);
       return 0;

@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { registerRepo } from './repo-registry.js';
-import { addLinkedWorktree, createRepository } from './repo.test-helpers.js';
+import { addLinkedWorktree, createRepository, currentBranch } from './repo.test-helpers.js';
 import { resolveWarpTarget } from './warp.js';
 
 const originalConfigDir = process.env.GJI_CONFIG_DIR;
@@ -114,19 +114,14 @@ describe('resolveWarpTarget', () => {
     const repoRoot = await createRepository();
     await registerRepo(repoRoot);
 
+    const branch = await currentBranch(repoRoot);
     const result = await resolveWarpTarget({
-      branch: 'master',
+      branch,
       cwd: '/',
       stderr: () => undefined,
     });
 
-    // If the default branch is not master, try main.
-    const resultMain = await resolveWarpTarget({
-      branch: 'main',
-      cwd: '/',
-      stderr: () => undefined,
-    });
-
-    expect(result ?? resultMain).not.toBeNull();
+    expect(result).not.toBeNull();
+    expect(result!.path).toBe(repoRoot);
   });
 });
