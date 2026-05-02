@@ -1,9 +1,8 @@
 import { isCancel, select } from '@clack/prompts';
 
-import { readWorktreeHealth } from './git.js';
+import { readWorktreeHealth, type WorktreeHealth } from './git.js';
 import { isHeadless } from './headless.js';
 import { appendHistory } from './history.js';
-import { formatUpstreamHint } from './go.js';
 import { runNewCommand } from './new.js';
 import { loadRegistry, type RepoRegistryEntry } from './repo-registry.js';
 import { listWorktrees, type WorktreeEntry } from './repo.js';
@@ -27,26 +26,23 @@ interface WarpItem {
 }
 
 export async function runWarpCommand(options: WarpCommandOptions): Promise<number> {
-  const registry = await loadRegistry();
-
-  if (registry.length === 0) {
-    options.stderr(
-      'gji warp: no repos registered yet.\n' +
-      'Use any gji command in a repository to register it automatically.\n',
-    );
-    return 1;
-  }
-
   if (options.newWorktree) {
+    const registry = await loadRegistry();
+    if (registry.length === 0) {
+      options.stderr(
+        'gji warp: no repos registered yet.\n' +
+        'Use any gji command in a repository to register it automatically.\n',
+      );
+      return 1;
+    }
     return runWarpNew(options, registry);
   }
 
-  return runWarpNavigate(options, registry);
+  return runWarpNavigate(options);
 }
 
 async function runWarpNavigate(
   options: WarpCommandOptions,
-  registry: RepoRegistryEntry[],
 ): Promise<number> {
   if (isHeadless() && !options.branch) {
     options.stderr(
@@ -55,49 +51,14 @@ async function runWarpNavigate(
     return 1;
   }
 
-  const results = await Promise.allSettled(
-    registry.map(async (entry) => {
-      const worktrees = await listWorktrees(entry.path);
-      return { repoName: entry.name, repoRoot: entry.path, worktrees };
-    }),
-  );
-
-  const allItems: WarpItem[] = [];
-  for (const result of results) {
-    if (result.status === 'rejected') continue;
-    const { repoName, repoRoot, worktrees } = result.value;
-    for (const worktree of worktrees) {
-      allItems.push({ repoName, repoRoot, worktree });
-    }
-  }
-
-  if (allItems.length === 0) {
-    options.stderr('gji warp: no accessible worktrees found in any registered repo.\n');
+  const target = await resolveWarpTarget(options);
+  if (!target) {
+    if (!options.branch) options.stderr('Aborted\n');
     return 1;
   }
 
-  let resolvedPath: string | null = null;
-
-  if (options.branch) {
-    const match = findByQuery(allItems, options.branch);
-    if (!match) {
-      options.stderr(`gji warp: no worktree found matching: ${options.branch}\n`);
-      return 1;
-    }
-    resolvedPath = match.worktree.path;
-  } else {
-    resolvedPath = await promptForWarpTarget(allItems);
-  }
-
-  if (!resolvedPath) {
-    options.stderr('Aborted\n');
-    return 1;
-  }
-
-  const chosen = allItems.find((item) => item.worktree.path === resolvedPath);
-  appendHistory(resolvedPath, chosen?.worktree.branch ?? null).catch(() => undefined);
-
-  await writeShellOutput(WARP_OUTPUT_FILE_ENV, resolvedPath, options.stdout);
+  appendHistory(target.path, target.branch).catch(() => undefined);
+  await writeShellOutput(WARP_OUTPUT_FILE_ENV, target.path, options.stdout);
   return 0;
 }
 
@@ -176,6 +137,59 @@ function findByQuery(items: WarpItem[], query: string): WarpItem | null {
   return items.find((item) => item.worktree.branch === query) ?? null;
 }
 
+export interface WarpTarget {
+  branch: string | null;
+  path: string;
+}
+
+export async function resolveWarpTarget(
+  options: { branch?: string; cwd: string; stderr: (chunk: string) => void },
+): Promise<WarpTarget | null> {
+  const registry = await loadRegistry();
+  if (registry.length === 0) {
+    options.stderr(
+      'gji: not in a git repository and no repos registered yet.\n' +
+      'Use any gji command inside a repository to register it.\n',
+    );
+    return null;
+  }
+
+  const results = await Promise.allSettled(
+    registry.map(async (entry) => {
+      const worktrees = await listWorktrees(entry.path);
+      return { repoName: entry.name, repoRoot: entry.path, worktrees };
+    }),
+  );
+
+  const allItems: WarpItem[] = [];
+  for (const result of results) {
+    if (result.status === 'rejected') continue;
+    const { repoName, repoRoot, worktrees } = result.value;
+    for (const worktree of worktrees) {
+      allItems.push({ repoName, repoRoot, worktree });
+    }
+  }
+
+  if (allItems.length === 0) {
+    options.stderr('gji: no accessible worktrees found in any registered repo.\n');
+    return null;
+  }
+
+  if (options.branch) {
+    const match = findByQuery(allItems, options.branch);
+    if (!match) {
+      options.stderr(`gji: no worktree found matching: ${options.branch}\n`);
+      return null;
+    }
+    return { branch: match.worktree.branch, path: match.worktree.path };
+  }
+
+  const path = await promptForWarpTarget(allItems);
+  if (!path) return null;
+  const chosen = allItems.find((item) => item.worktree.path === path);
+  return { branch: chosen?.worktree.branch ?? null, path };
+}
+
 async function promptForWarpTarget(items: WarpItem[]): Promise<string | null> {
   const healthResults = await Promise.allSettled(
     items.map((item) => readWorktreeHealth(item.worktree.path)),
@@ -185,7 +199,7 @@ async function promptForWarpTarget(items: WarpItem[]): Promise<string | null> {
     message: 'Warp to a worktree',
     options: items.map((item, i) => {
       const health = healthResults[i].status === 'fulfilled' ? healthResults[i].value : null;
-      const upstream = health ? formatUpstreamHint(item.worktree.branch, health) : null;
+      const upstream = health ? formatHint(item.worktree.branch, health) : null;
       const label = `${item.repoName} › ${item.worktree.branch ?? '(detached)'}`;
       const pathHint = item.worktree.isCurrent
         ? `${item.worktree.path} (current)`
@@ -200,4 +214,14 @@ async function promptForWarpTarget(items: WarpItem[]): Promise<string | null> {
   }
 
   return choice;
+}
+
+function formatHint(branch: string | null, health: WorktreeHealth): string | null {
+  if (branch === null) return null;
+  if (!health.hasUpstream) return 'no upstream';
+  if (health.upstreamGone) return 'upstream gone';
+  if (health.ahead === 0 && health.behind === 0) return 'up to date';
+  if (health.ahead === 0) return `behind ${health.behind}`;
+  if (health.behind === 0) return `ahead ${health.ahead}`;
+  return `ahead ${health.ahead}, behind ${health.behind}`;
 }
