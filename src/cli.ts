@@ -271,6 +271,7 @@ function registerCommands(program: Command): void {
     // --print is the shell-wrapper bypass signal (see SHELL_WRAPPED_COMMANDS in init.ts).
     // The shell omits GJI_WARP_OUTPUT_FILE, so writeShellOutput falls through to stdout.
     .option('--print', 'print the resolved worktree path without changing directory')
+    .option('--json', 'emit JSON on success or error instead of human-readable output')
     .action(notImplemented('warp'));
 
   const configCommand = program
@@ -530,13 +531,14 @@ function attachCommandActions(
 
   program.commands
     .find((command) => command.name() === 'warp')
-    ?.action(async (branch: string | undefined, commandOptions: { new?: string | boolean; print?: boolean }) => {
+    ?.action(async (branch: string | undefined, commandOptions: { json?: boolean; new?: string | boolean; print?: boolean }) => {
       const newFlag = commandOptions.new;
       const newWorktree = newFlag !== undefined && newFlag !== false;
       const newBranch = typeof newFlag === 'string' ? newFlag : undefined;
       const exitCode = await runWarpCommand({
         branch: newWorktree ? (newBranch ?? branch) : branch,
         cwd: options.cwd,
+        json: commandOptions.json,
         newWorktree,
         stderr: options.stderr,
         stdout: options.stdout,

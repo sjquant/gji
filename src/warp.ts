@@ -13,6 +13,7 @@ const WARP_OUTPUT_FILE_ENV = 'GJI_WARP_OUTPUT_FILE';
 export interface WarpCommandOptions {
   branch?: string;
   cwd: string;
+  json?: boolean;
   newWorktree?: boolean;
   stderr: (chunk: string) => void;
   stdout: (chunk: string) => void;
@@ -42,15 +43,25 @@ export async function runWarpCommand(options: WarpCommandOptions): Promise<numbe
 async function runWarpNavigate(
   options: WarpCommandOptions,
 ): Promise<number> {
-  if (isHeadless() && !options.branch) {
-    options.stderr(
-      'gji warp: branch argument is required in non-interactive mode (GJI_NO_TUI=1)\n',
-    );
+  if ((isHeadless() || options.json) && !options.branch) {
+    const message = 'branch argument is required';
+    if (options.json) {
+      options.stderr(`${JSON.stringify({ error: message }, null, 2)}\n`);
+    } else {
+      options.stderr(
+        'gji warp: branch argument is required in non-interactive mode (GJI_NO_TUI=1)\n',
+      );
+    }
     return 1;
   }
 
   const target = await resolveWarpTarget({ ...options, commandName: 'gji warp' });
   if (!target) return 1;
+
+  if (options.json) {
+    options.stdout(`${JSON.stringify({ branch: target.branch, path: target.path }, null, 2)}\n`);
+    return 0;
+  }
 
   appendHistory(target.path, target.branch).catch(() => undefined);
   await writeShellOutput(WARP_OUTPUT_FILE_ENV, target.path, options.stdout);
@@ -88,6 +99,16 @@ async function runWarpNew(
     }
 
     targetRepoRoot = choice;
+  }
+
+  if (options.json) {
+    return runNewCommand({
+      branch: options.branch,
+      cwd: targetRepoRoot,
+      json: true,
+      stderr: options.stderr,
+      stdout: options.stdout,
+    });
   }
 
   // runNewCommand writes the created path to options.stdout via writeShellOutput.

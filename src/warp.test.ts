@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 
 import { registerRepo } from './repo-registry.js';
 import { addLinkedWorktree, createRepository, currentBranch } from './repo.test-helpers.js';
-import { resolveWarpTarget } from './warp.js';
+import { resolveWarpTarget, runWarpCommand } from './warp.js';
 
 const originalConfigDir = process.env.GJI_CONFIG_DIR;
 
@@ -123,5 +123,47 @@ describe('resolveWarpTarget', () => {
 
     expect(result).not.toBeNull();
     expect(result!.path).toBe(repoRoot);
+  });
+});
+
+describe('runWarpCommand --json', () => {
+  it('outputs JSON error when branch is required but missing', async () => {
+    const configDir = await makeConfigDir();
+    process.env.GJI_CONFIG_DIR = configDir;
+
+    const errors: string[] = [];
+    const exitCode = await runWarpCommand({
+      cwd: '/',
+      json: true,
+      stderr: (msg) => errors.push(msg),
+      stdout: () => undefined,
+    });
+
+    expect(exitCode).toBe(1);
+    const parsed = JSON.parse(errors.join(''));
+    expect(parsed).toHaveProperty('error');
+  });
+
+  it('outputs JSON { branch, path } on success', async () => {
+    const configDir = await makeConfigDir();
+    process.env.GJI_CONFIG_DIR = configDir;
+
+    const repoRoot = await createRepository();
+    const worktreePath = await addLinkedWorktree(repoRoot, 'feature/json-test');
+    await registerRepo(repoRoot);
+
+    const outputs: string[] = [];
+    const exitCode = await runWarpCommand({
+      branch: 'feature/json-test',
+      cwd: '/',
+      json: true,
+      stderr: () => undefined,
+      stdout: (msg) => outputs.push(msg),
+    });
+
+    expect(exitCode).toBe(0);
+    const parsed = JSON.parse(outputs.join(''));
+    expect(parsed.branch).toBe('feature/json-test');
+    expect(parsed.path).toBe(worktreePath);
   });
 });
