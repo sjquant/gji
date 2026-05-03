@@ -1,7 +1,8 @@
 .page {
   background:
-    radial-gradient(circle at top left, rgba(183, 109, 52, 0.1), transparent 24rem),
-    linear-gradient(180deg, rgba(241, 233, 220, 0.7) 0%, var(--ifm-background-color) 20rem);
+    radial-gradient(circle at top left, var(--gji-glow-hot), transparent 24rem),
+    radial-gradient(circle at top right, var(--gji-glow-cyan), transparent 28rem),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.55) 0%, var(--ifm-background-color) 20rem);
 }
 
 .hero {
@@ -28,8 +29,9 @@
   letter-spacing: 0.12em;
   margin-bottom: 0.75rem;
   padding: 0.35rem 0.65rem;
-  background: rgba(157, 93, 44, 0.08);
-  border: 1px solid rgba(157, 93, 44, 0.12);
+  background: rgba(255, 0, 122, 0.05);
+  border: 1px solid rgba(176, 0, 84, 0.14);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.3);
   border-radius: 0.45rem;
   text-transform: uppercase;
 }
@@ -58,8 +60,8 @@
 }
 
 .heroLead code {
-  background: rgba(23, 32, 51, 0.06);
-  border: 1px solid rgba(23, 32, 51, 0.08);
+  background: var(--gji-surface-muted);
+  border: 1px solid var(--gji-line-soft);
   border-radius: 0.3rem;
   color: var(--gji-ink-strong);
   font-size: 0.95em;
@@ -85,31 +87,34 @@
 .secondaryButton {
   border: 1px solid transparent;
   border-radius: 0.55rem;
-  box-shadow: 0 0.65rem 1.4rem rgba(23, 32, 51, 0.06);
+  box-shadow: 0 0.9rem 2.2rem rgba(14, 18, 26, 0.1);
   font-weight: 700;
   min-width: 10rem;
 }
 
 .primaryButton {
-  background: var(--gji-accent);
-  border-color: rgba(157, 93, 44, 0.18);
+  background: linear-gradient(135deg, var(--gji-brand-night-soft) 0%, var(--gji-brand-night) 100%);
+  border-color: rgba(0, 229, 255, 0.18);
   color: #ffffff;
+  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.2);
 }
 
 .primaryButton:hover {
-  background: var(--gji-accent-strong);
+  background:
+    linear-gradient(135deg, rgba(255, 0, 122, 0.22) 0%, rgba(0, 229, 255, 0.14) 30%, var(--gji-brand-night) 100%),
+    linear-gradient(135deg, var(--gji-brand-night-soft) 0%, var(--gji-brand-night) 100%);
   color: #ffffff;
 }
 
 .secondaryButton {
-  background: #ffffff;
-  border-color: rgba(23, 32, 51, 0.1);
+  background: var(--gji-surface-elevated);
+  border-color: rgba(0, 142, 169, 0.14);
   color: var(--gji-ink-strong);
 }
 
 .secondaryButton:hover {
-  background: rgba(23, 32, 51, 0.03);
-  border-color: rgba(23, 32, 51, 0.18);
+  background: rgba(255, 255, 255, 0.92);
+  border-color: rgba(0, 142, 169, 0.22);
   color: var(--gji-ink-strong);
 }
 
@@ -124,8 +129,8 @@
 
 .heroChecklist li {
   align-items: center;
-  background: rgba(255, 255, 255, 0.76);
-  border: 1px solid rgba(23, 32, 51, 0.08);
+  background: var(--gji-surface-elevated);
+  border: 1px solid var(--gji-line-soft);
   border-radius: 0.7rem;
   color: var(--gji-ink);
   display: flex;
@@ -136,24 +141,27 @@
 }
 
 .heroChecklist li::before {
-  color: var(--ifm-color-primary-darkest);
+  color: var(--gji-brand-hot-strong);
   content: '•';
   font-size: 1.1rem;
   line-height: 1;
 }
 
 .commandPanel {
-  background: rgba(255, 255, 255, 0.82);
-  border: 1px solid rgba(23, 32, 51, 0.09);
+  background:
+    radial-gradient(circle at top right, rgba(0, 229, 255, 0.08), transparent 36%),
+    radial-gradient(circle at left bottom, rgba(255, 0, 122, 0.06), transparent 24%),
+    var(--gji-panel);
+  border: 1px solid var(--gji-line-soft);
   border-radius: 1rem;
-  box-shadow: 0 1.5rem 3rem rgba(23, 32, 51, 0.08);
+  box-shadow: 0 1.5rem 3rem rgba(14, 18, 26, 0.12);
   color: var(--gji-ink-strong);
   flex: 0.95;
   padding: 1.45rem;
 }
 
 .commandIntro {
-  border-bottom: 1px solid rgba(23, 32, 51, 0.08);
+  border-bottom: 1px solid var(--gji-line-soft);
   margin-bottom: 1rem;
   padding-bottom: 1rem;
 }
@@ -188,8 +196,8 @@
 }
 
 .workflowItem {
-  background: rgba(247, 243, 235, 0.8);
-  border: 1px solid rgba(23, 32, 51, 0.08);
+  background: var(--gji-surface-muted);
+  border: 1px solid var(--gji-line-soft);
   border-radius: 0.8rem;
   padding: 0.95rem 1rem;
 }
@@ -201,10 +209,10 @@
 }
 
 .workflowCommand {
-  background: rgba(23, 32, 51, 0.06);
-  border: 1px solid rgba(23, 32, 51, 0.08);
+  background: rgba(0, 229, 255, 0.08);
+  border: 1px solid rgba(0, 142, 169, 0.14);
   border-radius: 0.45rem;
-  color: var(--gji-ink-strong);
+  color: var(--gji-brand-cyan-strong);
   display: inline-flex;
   font-size: 0.95rem;
   padding: 0.25rem 0.55rem;
@@ -212,7 +220,7 @@
 
 .commandFootnote {
   align-items: center;
-  border-top: 1px solid rgba(23, 32, 51, 0.08);
+  border-top: 1px solid var(--gji-line-soft);
   color: var(--gji-muted);
   display: flex;
   flex-wrap: wrap;
@@ -229,8 +237,8 @@
 }
 
 .commandFootnote code {
-  background: rgba(23, 32, 51, 0.06);
-  border: 1px solid rgba(23, 32, 51, 0.08);
+  background: var(--gji-surface-muted);
+  border: 1px solid var(--gji-line-soft);
   border-radius: 0.45rem;
   color: var(--gji-ink-strong);
   padding: 0.2rem 0.55rem;
@@ -244,10 +252,10 @@
 }
 
 .proofPill {
-  background: rgba(255, 255, 255, 0.72);
-  border: 1px solid rgba(23, 32, 51, 0.08);
+  background: var(--gji-surface-elevated);
+  border: 1px solid var(--gji-line-soft);
   border-radius: 0.8rem;
-  box-shadow: 0 1rem 2rem rgba(23, 32, 51, 0.04);
+  box-shadow: 0 1rem 2rem rgba(14, 18, 26, 0.06);
   padding: 1.15rem 1.2rem;
 }
 
@@ -285,22 +293,24 @@
 .docsCard {
   border: 1px solid var(--gji-border);
   border-radius: 0.8rem;
-  box-shadow: 0 1rem 2rem rgba(23, 32, 51, 0.04);
+  box-shadow: 0 1rem 2rem rgba(14, 18, 26, 0.06);
   padding: 1.5rem;
 }
 
 .problemBox,
 .docsCard {
-  background: rgba(255, 255, 255, 0.78);
+  background: var(--gji-surface-elevated);
 }
 
 .solutionBox,
 .featureCard {
-  background: linear-gradient(180deg, rgba(244, 247, 245, 0.96), rgba(255, 255, 255, 0.88));
+  background:
+    radial-gradient(circle at top right, rgba(0, 229, 255, 0.08), transparent 34%),
+    linear-gradient(180deg, rgba(236, 243, 252, 0.96), rgba(255, 255, 255, 0.88));
 }
 
 .problemLabel {
-  color: var(--ifm-color-primary-darkest);
+  color: var(--gji-brand-cyan-strong);
   font-size: 0.82rem;
   font-weight: 700;
   letter-spacing: 0.12em;
@@ -338,7 +348,7 @@
 
 .inlineLink,
 .docsLink {
-  color: var(--gji-accent-strong);
+  color: var(--gji-brand-cyan-strong);
   font-weight: 700;
   text-underline-offset: 0.22rem;
 }
@@ -378,94 +388,97 @@
 
 [data-theme='dark'] .page {
   background:
-    radial-gradient(circle at top left, rgba(212, 146, 95, 0.12), transparent 25rem),
-    linear-gradient(180deg, #101a2a 0%, var(--ifm-background-color) 20rem);
+    radial-gradient(circle at top left, var(--gji-glow-hot), transparent 25rem),
+    radial-gradient(circle at top right, var(--gji-glow-cyan), transparent 28rem),
+    linear-gradient(180deg, #0d121b 0%, var(--ifm-background-color) 20rem);
 }
 
 [data-theme='dark'] .eyebrow,
 [data-theme='dark'] .sectionLabel {
-  background: rgba(212, 146, 95, 0.12);
-  border-color: rgba(212, 146, 95, 0.22);
-  color: #efb27f;
+  background: rgba(255, 75, 159, 0.12);
+  border-color: rgba(255, 75, 159, 0.2);
+  color: var(--gji-accent-strong);
 }
 
 [data-theme='dark'] .heroLead code {
-  background: rgba(255, 255, 255, 0.06);
-  border-color: rgba(255, 255, 255, 0.1);
-  color: #f2f4f9;
+  background: var(--gji-surface-muted);
+  border-color: var(--gji-line-soft);
+  color: var(--gji-ink-strong);
 }
 
 [data-theme='dark'] .heroSupport {
-  color: #a7b4c7;
+  color: var(--gji-muted);
 }
 
 [data-theme='dark'] .secondaryButton {
-  background: rgba(16, 27, 43, 0.96);
-  border-color: rgba(255, 255, 255, 0.12);
-  color: #f2f4f9;
+  background: rgba(16, 22, 32, 0.96);
+  border-color: rgba(74, 223, 255, 0.18);
+  color: var(--gji-ink-strong);
 }
 
 [data-theme='dark'] .secondaryButton:hover {
-  background: rgba(20, 33, 52, 1);
-  border-color: rgba(255, 255, 255, 0.18);
-  color: #f2f4f9;
+  background: rgba(23, 31, 43, 1);
+  border-color: rgba(74, 223, 255, 0.26);
+  color: var(--gji-ink-strong);
 }
 
 [data-theme='dark'] .heroChecklist li {
-  background: rgba(16, 27, 43, 0.92);
-  border-color: rgba(255, 255, 255, 0.08);
-  color: #d5dcea;
+  background: var(--gji-surface-elevated);
+  border-color: var(--gji-line-soft);
+  color: var(--gji-ink);
 }
 
 [data-theme='dark'] .commandPanel,
 [data-theme='dark'] .proofPill,
 [data-theme='dark'] .problemBox,
 [data-theme='dark'] .docsCard {
-  background: rgba(16, 27, 43, 0.9);
-  border-color: rgba(255, 255, 255, 0.08);
+  background: var(--gji-panel);
+  border-color: var(--gji-line-soft);
   box-shadow: 0 1.1rem 2.6rem rgba(0, 0, 0, 0.2);
 }
 
 [data-theme='dark'] .commandIntro,
 [data-theme='dark'] .commandFootnote {
-  border-color: rgba(255, 255, 255, 0.08);
+  border-color: var(--gji-line-soft);
 }
 
 [data-theme='dark'] .commandTitle {
-  color: #f2f4f9;
+  color: var(--gji-ink-strong);
 }
 
 [data-theme='dark'] .commandSummary,
 [data-theme='dark'] .commandFootnote {
-  color: #c9d2e2;
+  color: var(--gji-ink);
 }
 
 [data-theme='dark'] .workflowItem {
-  background: rgba(255, 255, 255, 0.03);
-  border-color: rgba(255, 255, 255, 0.08);
+  background: var(--gji-surface-muted);
+  border-color: var(--gji-line-soft);
 }
 
 [data-theme='dark'] .workflowItem p {
-  color: #c9d2e2;
+  color: var(--gji-ink);
 }
 
 [data-theme='dark'] .workflowCommand,
 [data-theme='dark'] .commandFootnote code {
-  background: rgba(255, 255, 255, 0.06);
-  border-color: rgba(255, 255, 255, 0.08);
-  color: #f2f4f9;
+  background: rgba(74, 223, 255, 0.08);
+  border-color: rgba(74, 223, 255, 0.16);
+  color: var(--gji-brand-cyan);
 }
 
 [data-theme='dark'] .solutionBox,
 [data-theme='dark'] .featureCard {
-  background: linear-gradient(180deg, rgba(22, 34, 52, 0.96), rgba(16, 27, 43, 0.92));
-  border-color: rgba(91, 216, 186, 0.16);
+  background:
+    radial-gradient(circle at top right, rgba(74, 223, 255, 0.1), transparent 36%),
+    linear-gradient(180deg, rgba(23, 31, 43, 0.96), rgba(16, 22, 32, 0.92));
+  border-color: rgba(74, 223, 255, 0.14);
   box-shadow: 0 1.1rem 2.6rem rgba(0, 0, 0, 0.22);
 }
 
 [data-theme='dark'] .stepCard {
-  background: rgba(16, 27, 43, 0.82);
-  border-color: rgba(255, 255, 255, 0.08);
+  background: var(--gji-surface-elevated);
+  border-color: var(--gji-line-soft);
   box-shadow: 0 1.1rem 2.6rem rgba(0, 0, 0, 0.16);
 }
 
@@ -473,7 +486,7 @@
 [data-theme='dark'] .stepCard h3,
 [data-theme='dark'] .featureCard h3,
 [data-theme='dark'] .docsCard h3 {
-  color: #f2f4f9;
+  color: var(--gji-ink-strong);
 }
 
 [data-theme='dark'] .proofPill p,
@@ -482,16 +495,16 @@
 [data-theme='dark'] .docsCard p,
 [data-theme='dark'] .problemBox p,
 [data-theme='dark'] .solutionBox p {
-  color: #c9d2e2;
+  color: var(--gji-ink);
 }
 
 [data-theme='dark'] .problemLabel {
-  color: #7fe1c7;
+  color: var(--gji-brand-cyan);
 }
 
 [data-theme='dark'] .inlineLink,
 [data-theme='dark'] .docsLink {
-  color: #efb27f;
+  color: var(--gji-brand-cyan);
 }
 
 @media screen and (max-width: 996px) {
