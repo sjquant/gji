@@ -1,7 +1,10 @@
 import { mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { execFile as execFileCallback } from 'node:child_process';
+import {
+  execFile as execFileCallback,
+  spawnSync,
+} from 'node:child_process';
 import { promisify } from 'node:util';
 import { afterEach, describe, expect, it } from 'vitest';
 
@@ -9,6 +12,7 @@ import { runCli } from './cli.js';
 
 const originalShell = process.env.SHELL;
 const execFile = promisify(execFileCallback);
+const zshExecutable = findZshExecutable();
 
 afterEach(() => {
   if (originalShell === undefined) {
@@ -59,7 +63,7 @@ describe('gji completion', () => {
     expect(stdout.join('')).not.toContain('gji() {');
   });
 
-  it('registers zsh completions through compinit when installed as _gji', async () => {
+  it.skipIf(zshExecutable === undefined)('registers zsh completions through compinit when installed as _gji', async () => {
     // Given the generated zsh completion file installed into a temporary fpath entry.
     const stdout: string[] = [];
     const completionDirectory = await mkdtemp(join(tmpdir(), 'gji-zsh-completion-'));
@@ -80,7 +84,7 @@ print -r -- "\${_comps[gji]-unset}"`,
     );
 
     // When zsh loads the completion directory through compinit.
-    const registrationResult = await execFile('zsh', ['-f', registrationScript], {
+    const registrationResult = await execFile(zshExecutable as string, ['-f', registrationScript], {
       env: {
         ...process.env,
         HOME: completionDirectory,
@@ -161,3 +165,25 @@ print -r -- "\${_comps[gji]-unset}"`,
     expect(stdout.join('')).not.toContain('get|set|unset)\n          COMPREPLY=( $(compgen -W');
   });
 });
+
+function findZshExecutable(): string | undefined {
+  const shellFromEnv = process.env.SHELL;
+
+  if (shellFromEnv) {
+    const probe = spawnSync(shellFromEnv, ['-lc', 'command -v zsh'], {
+      encoding: 'utf8',
+    });
+    const resolvedPath = probe.stdout.trim();
+
+    if (probe.status === 0 && resolvedPath.length > 0) {
+      return resolvedPath;
+    }
+  }
+
+  const fallbackProbe = spawnSync('sh', ['-lc', 'command -v zsh'], {
+    encoding: 'utf8',
+  });
+  const fallbackPath = fallbackProbe.stdout.trim();
+
+  return fallbackProbe.status === 0 && fallbackPath.length > 0 ? fallbackPath : undefined;
+}
