@@ -51,7 +51,7 @@ That is where `gji` feels better than the alternatives.
 | --- | --- | --- |
 | Raw `git worktree` | Low-level Git control | `gji` removes the ceremony and gives you a smoother default workflow |
 | `lazygit` | General Git UI | `gji` is faster when the goal is "open the right task in its own directory now" |
-| `ghq` | Organizing repositories | `gji` solves a different layer: isolating work inside one repository |
+| `ghq` | Organizing repository roots | `gji` takes over inside those repos when the problem becomes branch, PR, and worktree switching |
 
 ## What the switch actually feels like
 
@@ -120,14 +120,28 @@ They are not enemies. Many people will use `gji` to enter the right worktree, th
 
 `ghq` helps you manage many repositories.
 
-`gji` helps you manage many active tasks inside one repository.
+`gji` helps you manage many active tasks and worktrees inside those repositories.
 
-That makes them complementary:
+The cleanest way to think about the split is:
 
-- use `ghq` to decide where repos live
-- use `gji` to keep branches and PRs isolated once you are inside a repo
+- `ghq` answers: "Where does this repo live on disk?"
+- `gji` answers: "Which branch, PR, or worktree should I be in right now?"
 
-If `ghq` gives you a clean repo layout, `gji` gives you a clean workflow inside each repo.
+That makes them complementary rather than interchangeable:
+
+- use `ghq` to clone, locate, and organize many repositories
+- use `gji` after that to create, review, jump between, sync, and clean isolated worktrees inside a repo
+
+If you work across many repos, `ghq` helps you arrive at the right repository root.
+
+If you work across many active tasks, `gji` helps you arrive at the right working copy inside that repo.
+
+In practice, a team can use both:
+
+- `ghq` keeps the repo layout tidy across your machine
+- `gji` keeps the task layout tidy inside each repo
+
+`ghq` is about repository inventory. `gji` is about active task inventory.
 
 ## Choose `gji` if you want this outcome
 
