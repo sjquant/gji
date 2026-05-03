@@ -1,4 +1,4 @@
-import { mkdtemp, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, realpath, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -90,6 +90,29 @@ describe('loadRegistry', () => {
     expect(registry).toHaveLength(1);
     expect(registry[0].path).toBe('/valid');
   });
+
+  it('preserves repeated repo entries when loading the registry', async () => {
+    // Given a registry file that contains the same repo path twice.
+    const dir = await makeConfigDir();
+    process.env.GJI_CONFIG_DIR = dir;
+    await writeFile(
+      join(dir, 'repos.json'),
+      JSON.stringify([
+        { path: '/home/user/code/my-app', name: 'my-app', lastUsed: 2000 },
+        { path: '/home/user/code/my-app', name: 'my-app', lastUsed: 1000 },
+      ]),
+      'utf8',
+    );
+
+    // When loadRegistry is called.
+    const registry = await loadRegistry();
+
+    // Then both entries are preserved for callers that need the raw registry.
+    expect(registry).toEqual([
+      { path: '/home/user/code/my-app', name: 'my-app', lastUsed: 2000 },
+      { path: '/home/user/code/my-app', name: 'my-app', lastUsed: 1000 },
+    ]);
+  });
 });
 
 describe('registerRepo', () => {
@@ -155,5 +178,27 @@ describe('registerRepo', () => {
 
     // Then the entries are ordered most-recent-first.
     expect(registry.map((e) => e.name)).toEqual(['gamma', 'beta', 'alpha']);
+  });
+
+  it('collapses alias paths for the same repo when registering again', async () => {
+    // Given a real repo path and a symlink alias that points to it.
+    const dir = await makeConfigDir();
+    process.env.GJI_CONFIG_DIR = dir;
+    const repoHome = await mkdtemp(join(tmpdir(), 'gji-repo-paths-'));
+    const realRepoPath = join(repoHome, 'real-repo');
+    const aliasRepoPath = join(repoHome, 'alias-repo');
+    await mkdir(realRepoPath, { recursive: true });
+    await symlink(realRepoPath, aliasRepoPath);
+
+    // When the alias path is registered first and the real path is registered later.
+    await registerRepo(aliasRepoPath);
+    await registerRepo(realRepoPath);
+    const registry = await loadRegistry();
+    const canonicalRepoPath = await realpath(realRepoPath);
+
+    // Then the registry keeps only one canonical entry for that repo.
+    expect(registry).toHaveLength(1);
+    expect(registry[0].path).toBe(canonicalRepoPath);
+    expect(registry[0].name).toBe('real-repo');
   });
 });
