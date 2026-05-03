@@ -1,4 +1,4 @@
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, realpath, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
 
@@ -27,26 +27,56 @@ export async function loadRegistry(home: string = homedir()): Promise<RepoRegist
     const raw = await readFile(path, 'utf8');
     const parsed = JSON.parse(raw) as unknown;
     if (!Array.isArray(parsed)) return [];
-    return parsed.filter(isRegistryEntry);
+    return deduplicateRegistryEntries(parsed.filter(isRegistryEntry));
   } catch {
     return [];
+  }
+}
+
+async function deduplicateRegistryEntries(entries: RepoRegistryEntry[]): Promise<RepoRegistryEntry[]> {
+  const deduplicated: RepoRegistryEntry[] = [];
+  const seenPaths = new Set<string>();
+
+  for (const entry of entries) {
+    const canonicalPath = await canonicalizeRepoPath(entry.path);
+    if (seenPaths.has(canonicalPath)) {
+      continue;
+    }
+
+    seenPaths.add(canonicalPath);
+    deduplicated.push({
+      ...entry,
+      name: basename(canonicalPath),
+      path: canonicalPath,
+    });
+  }
+
+  return deduplicated;
+}
+
+async function canonicalizeRepoPath(repoPath: string): Promise<string> {
+  try {
+    return await realpath(repoPath);
+  } catch {
+    return resolve(repoPath);
   }
 }
 
 export async function registerRepo(repoPath: string, home: string = homedir()): Promise<void> {
   const registryPath = REGISTRY_FILE_PATH(home);
   const existing = await loadRegistry(home);
+  const canonicalRepoPath = await canonicalizeRepoPath(repoPath);
 
   // Skip write if this repo is already the most-recently-used entry (common case).
-  if (existing.length > 0 && existing[0].path === repoPath) return;
+  if (existing.length > 0 && existing[0].path === canonicalRepoPath) return;
 
   const entry: RepoRegistryEntry = {
     lastUsed: Date.now(),
-    name: basename(repoPath),
-    path: repoPath,
+    name: basename(canonicalRepoPath),
+    path: canonicalRepoPath,
   };
 
-  const filtered = existing.filter((e) => e.path !== repoPath);
+  const filtered = existing.filter((e) => e.path !== canonicalRepoPath);
   const next = [entry, ...filtered].slice(0, MAX_REGISTRY_ENTRIES);
 
   await mkdir(dirname(registryPath), { recursive: true });

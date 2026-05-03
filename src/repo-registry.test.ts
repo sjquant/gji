@@ -90,6 +90,28 @@ describe('loadRegistry', () => {
     expect(registry).toHaveLength(1);
     expect(registry[0].path).toBe('/valid');
   });
+
+  it('deduplicates repeated repo entries while preserving the most recent entry', async () => {
+    // Given a registry file that contains the same repo path twice.
+    const dir = await makeConfigDir();
+    process.env.GJI_CONFIG_DIR = dir;
+    await writeFile(
+      join(dir, 'repos.json'),
+      JSON.stringify([
+        { path: '/home/user/code/my-app', name: 'my-app', lastUsed: 2000 },
+        { path: '/home/user/code/my-app', name: 'my-app', lastUsed: 1000 },
+      ]),
+      'utf8',
+    );
+
+    // When loadRegistry is called.
+    const registry = await loadRegistry();
+
+    // Then only the most recent entry remains.
+    expect(registry).toEqual([
+      { path: '/home/user/code/my-app', name: 'my-app', lastUsed: 2000 },
+    ]);
+  });
 });
 
 describe('registerRepo', () => {

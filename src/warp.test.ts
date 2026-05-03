@@ -1,10 +1,10 @@
-import { mkdtemp } from 'node:fs/promises';
+import { mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { registerRepo } from './repo-registry.js';
+import { REGISTRY_FILE_PATH, registerRepo } from './repo-registry.js';
 import { addLinkedWorktree, createRepository, currentBranch } from './repo.test-helpers.js';
 import { resolveWarpTarget, runWarpCommand } from './warp.js';
 
@@ -230,6 +230,41 @@ describe('gji warp --json', () => {
     expect(exitCode).toBe(0);
     const parsed = JSON.parse(outputs.join(''));
     expect(parsed.branch).toBe('feature/warp-new-json');
+    expect(typeof parsed.path).toBe('string');
+  });
+
+  it('creates a new worktree when the registry contains duplicate entries for the same repo', async () => {
+    // Given a registry file that repeats the same repo entry.
+    const configDir = await makeConfigDir();
+    process.env.GJI_CONFIG_DIR = configDir;
+    const repoRoot = await createRepository();
+    const repoName = repoRoot.split('/').at(-1)!;
+    await writeFile(
+      REGISTRY_FILE_PATH(),
+      `${JSON.stringify([
+        { path: repoRoot, name: repoName, lastUsed: 2000 },
+        { path: repoRoot, name: repoName, lastUsed: 1000 },
+      ], null, 2)}\n`,
+      'utf8',
+    );
+
+    // When runWarpCommand creates a new worktree in json mode.
+    const outputs: string[] = [];
+    const errors: string[] = [];
+    const exitCode = await runWarpCommand({
+      branch: 'feature/warp-new-deduped',
+      cwd: '/',
+      json: true,
+      newWorktree: true,
+      stderr: (msg) => errors.push(msg),
+      stdout: (msg) => outputs.push(msg),
+    });
+
+    // Then it succeeds without treating the duplicates as multiple repos.
+    expect(exitCode).toBe(0);
+    expect(errors).toEqual([]);
+    const parsed = JSON.parse(outputs.join(''));
+    expect(parsed.branch).toBe('feature/warp-new-deduped');
     expect(typeof parsed.path).toBe('string');
   });
 });
