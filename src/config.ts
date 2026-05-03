@@ -19,7 +19,7 @@ export const KNOWN_CONFIG_KEYS: ReadonlySet<string> = new Set([
   'worktreePath',
 ]);
 
-const KNOWN_GLOBAL_CONFIG_KEYS: ReadonlySet<string> = new Set([
+export const KNOWN_GLOBAL_CONFIG_KEYS: ReadonlySet<string> = new Set([
   ...KNOWN_CONFIG_KEYS,
   'repos',
 ]);
