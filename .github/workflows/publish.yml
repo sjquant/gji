@@ -180,5 +180,5 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add Formula/gji.rb
-          git diff --staged --quiet || git commit -m "chore: update Homebrew formula to ${TAG}"
+          git diff --staged --quiet || git commit -m "Update Homebrew formula to ${TAG}"
           git push origin main
