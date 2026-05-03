@@ -1,3 +1,7 @@
+import { mkdtemp } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 const notifierMocks = vi.hoisted(() => {
@@ -12,6 +16,7 @@ vi.mock('update-notifier', () => ({
 }));
 
 import { runCli } from './cli.js';
+import { loadRegistry } from './repo-registry.js';
 import { createRepository } from './repo.test-helpers.js';
 import packageJson from '../package.json' with { type: 'json' };
 
@@ -172,6 +177,29 @@ describe('runCli', () => {
     expect(result.exitCode).toBe(0);
     expect(notifierMocks.updateNotifier).not.toHaveBeenCalled();
     expect(notifierMocks.notify).not.toHaveBeenCalled();
+  });
+
+  it('registers the current repo in the configured registry directory', async () => {
+    // Given a repository and an isolated config directory.
+    const repoRoot = await createRepository();
+    const configDir = await mkdtemp(join(tmpdir(), 'gji-config-'));
+    process.env.GJI_CONFIG_DIR = configDir;
+
+    // When an interactive command runs from that repository.
+    const result = await runCli(['status'], {
+      cwd: repoRoot,
+      stderr: () => undefined,
+      stdout: () => undefined,
+    });
+
+    // Then the repo is recorded in the configured registry.
+    expect(result.exitCode).toBe(0);
+    await expect.poll(async () => loadRegistry()).toEqual([
+      expect.objectContaining({
+        name: 'gji-test-repo',
+        path: repoRoot,
+      }),
+    ]);
   });
 });
 
