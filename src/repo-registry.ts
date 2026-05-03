@@ -27,31 +27,10 @@ export async function loadRegistry(home: string = homedir()): Promise<RepoRegist
     const raw = await readFile(path, 'utf8');
     const parsed = JSON.parse(raw) as unknown;
     if (!Array.isArray(parsed)) return [];
-    return deduplicateRegistryEntries(parsed.filter(isRegistryEntry));
+    return parsed.filter(isRegistryEntry);
   } catch {
     return [];
   }
-}
-
-async function deduplicateRegistryEntries(entries: RepoRegistryEntry[]): Promise<RepoRegistryEntry[]> {
-  const deduplicated: RepoRegistryEntry[] = [];
-  const seenPaths = new Set<string>();
-
-  for (const entry of entries) {
-    const canonicalPath = await canonicalizeRepoPath(entry.path);
-    if (seenPaths.has(canonicalPath)) {
-      continue;
-    }
-
-    seenPaths.add(canonicalPath);
-    deduplicated.push({
-      ...entry,
-      name: basename(canonicalPath),
-      path: canonicalPath,
-    });
-  }
-
-  return deduplicated;
 }
 
 async function canonicalizeRepoPath(repoPath: string): Promise<string> {
@@ -64,7 +43,7 @@ async function canonicalizeRepoPath(repoPath: string): Promise<string> {
 
 export async function registerRepo(repoPath: string, home: string = homedir()): Promise<void> {
   const registryPath = REGISTRY_FILE_PATH(home);
-  const existing = await loadRegistry(home);
+  const existing = await normalizeRegistryForWrite(await loadRegistry(home));
   const canonicalRepoPath = await canonicalizeRepoPath(repoPath);
 
   // Skip write if this repo is already the most-recently-used entry (common case).
@@ -81,6 +60,27 @@ export async function registerRepo(repoPath: string, home: string = homedir()): 
 
   await mkdir(dirname(registryPath), { recursive: true });
   await writeFile(registryPath, `${JSON.stringify(next, null, 2)}\n`, 'utf8');
+}
+
+async function normalizeRegistryForWrite(entries: RepoRegistryEntry[]): Promise<RepoRegistryEntry[]> {
+  const normalized: RepoRegistryEntry[] = [];
+  const seenPaths = new Set<string>();
+
+  for (const entry of entries) {
+    const canonicalPath = await canonicalizeRepoPath(entry.path);
+    if (seenPaths.has(canonicalPath)) {
+      continue;
+    }
+
+    seenPaths.add(canonicalPath);
+    normalized.push({
+      ...entry,
+      name: basename(canonicalPath),
+      path: canonicalPath,
+    });
+  }
+
+  return normalized;
 }
 
 function isRegistryEntry(value: unknown): value is RepoRegistryEntry {

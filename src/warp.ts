@@ -1,4 +1,6 @@
 import { isCancel, select } from '@clack/prompts';
+import { realpath } from 'node:fs/promises';
+import { basename, resolve } from 'node:path';
 
 import { readWorktreeHealth, type WorktreeHealth } from './git.js';
 import { isHeadless } from './headless.js';
@@ -73,10 +75,11 @@ async function runWarpNew(
   options: WarpCommandOptions,
   registry: RepoRegistryEntry[],
 ): Promise<number> {
+  const deduplicatedRegistry = await deduplicateRegistryForNew(registry);
   let targetRepoRoot: string;
 
-  if (registry.length === 1) {
-    targetRepoRoot = registry[0].path;
+  if (deduplicatedRegistry.length === 1) {
+    targetRepoRoot = deduplicatedRegistry[0].path;
   } else {
     if (isHeadless()) {
       options.stderr(
@@ -87,7 +90,7 @@ async function runWarpNew(
 
     const choice = await select<string>({
       message: 'Create worktree in which repo?',
-      options: registry.map((entry) => ({
+      options: deduplicatedRegistry.map((entry) => ({
         value: entry.path,
         label: entry.name,
         hint: entry.path,
@@ -138,6 +141,37 @@ async function runWarpNew(
 
   await writeShellOutput(WARP_OUTPUT_FILE_ENV, capturedPath, options.stdout);
   return 0;
+}
+
+async function deduplicateRegistryForNew(
+  registry: RepoRegistryEntry[],
+): Promise<RepoRegistryEntry[]> {
+  const deduplicated: RepoRegistryEntry[] = [];
+  const seenPaths = new Set<string>();
+
+  for (const entry of registry) {
+    const canonicalPath = await canonicalizeRepoPath(entry.path);
+    if (seenPaths.has(canonicalPath)) {
+      continue;
+    }
+
+    seenPaths.add(canonicalPath);
+    deduplicated.push({
+      ...entry,
+      name: basename(canonicalPath),
+      path: canonicalPath,
+    });
+  }
+
+  return deduplicated;
+}
+
+async function canonicalizeRepoPath(repoPath: string): Promise<string> {
+  try {
+    return await realpath(repoPath);
+  } catch {
+    return resolve(repoPath);
+  }
 }
 
 function findByQuery(items: WarpItem[], query: string): WarpItem | null {
