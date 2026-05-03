@@ -1,8 +1,27 @@
 <svg width="148" height="148" viewBox="0 0 148 148" fill="none" xmlns="http://www.w3.org/2000/svg">
-  <rect width="148" height="148" rx="38" fill="#172033"/>
-  <rect x="18" y="18" width="112" height="112" rx="28" fill="#0D7A63"/>
-  <path d="M41 49H106" stroke="#F8F5EF" stroke-width="10" stroke-linecap="round"/>
-  <path d="M41 74H89" stroke="#F8F5EF" stroke-width="10" stroke-linecap="round"/>
-  <path d="M41 99H73" stroke="#F8F5EF" stroke-width="10" stroke-linecap="round"/>
-  <circle cx="106" cy="99" r="11" fill="#C17B47"/>
+  <defs>
+    <linearGradient id="spaceGradient" x1="26" y1="18" x2="122" y2="132" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#0E1A2B"/>
+      <stop offset="1" stop-color="#060B14"/>
+    </linearGradient>
+    <linearGradient id="trailGradient" x1="36" y1="92" x2="86" y2="92" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#63F4D2"/>
+      <stop offset="1" stop-color="#B2FFF2"/>
+    </linearGradient>
+  </defs>
+  <rect width="148" height="148" rx="38" fill="#040814"/>
+  <rect x="18" y="18" width="112" height="112" rx="28" fill="url(#spaceGradient)"/>
+  <path
+    d="M39 98C47 98 53 96 58 91C62 87 66 83 73 79"
+    stroke="url(#trailGradient)"
+    stroke-width="11"
+    stroke-linecap="round"
+  />
+  <circle cx="83" cy="74" r="28" stroke="#8BF3FF" stroke-width="12"/>
+  <circle cx="83" cy="74" r="7" fill="#BDFBF4"/>
+  <path
+    d="M105 40L108.4 48.6L117 52L108.4 55.4L105 64L101.6 55.4L93 52L101.6 48.6L105 40Z"
+    fill="#FFD57A"
+  />
+  <circle cx="39" cy="98" r="6" fill="#63F4D2"/>
 </svg>
