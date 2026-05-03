@@ -243,101 +243,99 @@ function renderZshCompletion(): string {
   const shells = SHELL_NAMES.join(' ');
   const hooks = HOOK_NAMES.join(' ');
 
-  return `__gji_worktree_branches() {
+  return `#compdef gji
+
+__gji_worktree_branches() {
   command gji ls --compact 2>/dev/null | awk 'NR > 1 { branch = ($1 == "*" ? $2 : $1); if (branch != "(detached)") print branch }'
 }
 
-_gji_completion() {
-  local context state line
-  local -a commands worktree_branches
+local context state line
+local -a commands worktree_branches
 
-  commands=(
-    ${commandLines}
-  )
+commands=(
+  ${commandLines}
+)
 
-  if (( CURRENT == 2 )); then
-    _describe 'command' commands
-    return
-  fi
+if (( CURRENT == 2 )); then
+  _describe 'command' commands
+  return
+fi
 
-  case "\${words[2]}" in
-    new)
-      _arguments '--detached[create a detached worktree without a branch]' '--force[remove and recreate the worktree if the target path already exists]' '--open[open the new worktree in an editor after creation]' '--editor[editor CLI to use with --open (code, cursor, zed, …)]:editor:' '--dry-run[show what would be created without executing any git commands or writing files]' '--json[emit JSON on success or error instead of human-readable output]' '2:branch: '
-      ;;
-    init)
-      _arguments '--write[write the integration to the shell config file]' '2:shell:(${shells})'
-      ;;
-    completion)
-      _arguments '2:shell:(${shells})'
-      ;;
-    pr)
-      _arguments '--dry-run[show what would be created without executing any git commands or writing files]' '--json[emit JSON on success or error instead of human-readable output]' '2:ref: '
-      ;;
-    back)
-      _arguments '--print[print the resolved worktree path explicitly]' '2:steps: '
-      ;;
-    history)
-      _arguments '--json[print history as JSON]'
-      ;;
-    open)
-      _arguments '--editor[editor CLI to use (code, cursor, zed, windsurf, subl, …)]:editor:' '--save[save the chosen editor to global config]' '--workspace[generate a .code-workspace file before opening (VS Code / Cursor / Windsurf)]' '2:branch:->worktrees'
-      ;;
-    go|jump)
-      _arguments '--print[print the resolved worktree path explicitly]' '2:branch:->worktrees'
-      ;;
-    root)
-      _arguments '--print[print the resolved repository root path explicitly]'
-      ;;
-    status)
-      _arguments '--json[print repository and worktree health as JSON]'
-      ;;
-    sync)
-      _arguments '--all[sync every worktree in the repository]' '--json[emit JSON on success or error instead of human-readable output]'
-      ;;
-    ls)
-      _arguments '--compact[show only branch and path columns]' '--json[print active worktrees as JSON]'
-      ;;
-    clean)
-      _arguments '(-f --force)'{-f,--force}'[bypass prompts, force-remove dirty worktrees, and force-delete unmerged branches]' '--stale[only target clean worktrees whose upstream is gone and branch is merged into the default branch]' '--dry-run[show what would be deleted without removing anything]' '--json[emit JSON on success or error instead of human-readable output]'
-      ;;
-    remove|rm)
-      _arguments '(-f --force)'{-f,--force}'[bypass prompts, force-remove a dirty worktree, and force-delete an unmerged branch]' '--dry-run[show what would be deleted without removing anything]' '--json[emit JSON on success or error instead of human-readable output]' '2:branch:->worktrees'
-      ;;
-    trigger-hook)
-      _arguments "2:hook:(${hooks})"
-      ;;
-    warp)
-      _arguments '(-n --new)'{-n,--new}'[create a new worktree in a registered repo]:branch:' '--print[print the resolved worktree path without changing directory]' '--json[emit JSON on success or error instead of human-readable output]' '2:branch: '
-      ;;
-    config)
-      if (( CURRENT == 3 )); then
-        _values 'config action' get set unset
-        return
-      fi
+case "\${words[2]}" in
+  new)
+    _arguments '--detached[create a detached worktree without a branch]' '--force[remove and recreate the worktree if the target path already exists]' '--open[open the new worktree in an editor after creation]' '--editor[editor CLI to use with --open (code, cursor, zed, …)]:editor:' '--dry-run[show what would be created without executing any git commands or writing files]' '--json[emit JSON on success or error instead of human-readable output]' '2:branch: '
+    ;;
+  init)
+    _arguments '--write[write the integration to the shell config file]' '2:shell:(${shells})'
+    ;;
+  completion)
+    _arguments '2:shell:(${shells})'
+    ;;
+  pr)
+    _arguments '--dry-run[show what would be created without executing any git commands or writing files]' '--json[emit JSON on success or error instead of human-readable output]' '2:ref: '
+    ;;
+  back)
+    _arguments '--print[print the resolved worktree path explicitly]' '2:steps: '
+    ;;
+  history)
+    _arguments '--json[print history as JSON]'
+    ;;
+  open)
+    _arguments '--editor[editor CLI to use (code, cursor, zed, windsurf, subl, …)]:editor:' '--save[save the chosen editor to global config]' '--workspace[generate a .code-workspace file before opening (VS Code / Cursor / Windsurf)]' '2:branch:->worktrees'
+    ;;
+  go|jump)
+    _arguments '--print[print the resolved worktree path explicitly]' '2:branch:->worktrees'
+    ;;
+  root)
+    _arguments '--print[print the resolved repository root path explicitly]'
+    ;;
+  status)
+    _arguments '--json[print repository and worktree health as JSON]'
+    ;;
+  sync)
+    _arguments '--all[sync every worktree in the repository]' '--json[emit JSON on success or error instead of human-readable output]'
+    ;;
+  ls)
+    _arguments '--compact[show only branch and path columns]' '--json[print active worktrees as JSON]'
+    ;;
+  clean)
+    _arguments '(-f --force)'{-f,--force}'[bypass prompts, force-remove dirty worktrees, and force-delete unmerged branches]' '--stale[only target clean worktrees whose upstream is gone and branch is merged into the default branch]' '--dry-run[show what would be deleted without removing anything]' '--json[emit JSON on success or error instead of human-readable output]'
+    ;;
+  remove|rm)
+    _arguments '(-f --force)'{-f,--force}'[bypass prompts, force-remove a dirty worktree, and force-delete an unmerged branch]' '--dry-run[show what would be deleted without removing anything]' '--json[emit JSON on success or error instead of human-readable output]' '2:branch:->worktrees'
+    ;;
+  trigger-hook)
+    _arguments "2:hook:(${hooks})"
+    ;;
+  warp)
+    _arguments '(-n --new)'{-n,--new}'[create a new worktree in a registered repo]:branch:' '--print[print the resolved worktree path without changing directory]' '--json[emit JSON on success or error instead of human-readable output]' '2:branch: '
+    ;;
+  config)
+    if (( CURRENT == 3 )); then
+      _values 'config action' get set unset
+      return
+    fi
 
-      case "\${words[3]}" in
-        get|unset)
-          _arguments '3:key:->config_keys'
-          ;;
-        set)
-          _arguments '3:key:->config_keys' '4:value: '
-          ;;
-      esac
-      ;;
-  esac
+    case "\${words[3]}" in
+      get|unset)
+        _arguments '3:key:->config_keys'
+        ;;
+      set)
+        _arguments '3:key:->config_keys' '4:value: '
+        ;;
+    esac
+    ;;
+esac
 
-  case "$state" in
-    worktrees)
-      worktree_branches=(\${(@f)$(__gji_worktree_branches)})
-      _describe 'worktree branch' worktree_branches
-      ;;
-    config_keys)
-      _values 'config key' ${configKeys}
-      ;;
-  esac
-}
-
-compdef _gji_completion gji`;
+case "$state" in
+  worktrees)
+    worktree_branches=(\${(@f)$(__gji_worktree_branches)})
+    _describe 'worktree branch' worktree_branches
+    ;;
+  config_keys)
+    _values 'config key' ${configKeys}
+    ;;
+esac`;
 }
 
 function escapeSingleQuotes(value: string): string {

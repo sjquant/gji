@@ -1,8 +1,14 @@
+import { mkdtemp, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { execFile as execFileCallback } from 'node:child_process';
+import { promisify } from 'node:util';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { runCli } from './cli.js';
 
 const originalShell = process.env.SHELL;
+const execFile = promisify(execFileCallback);
 
 afterEach(() => {
   if (originalShell === undefined) {
@@ -24,6 +30,7 @@ describe('gji completion', () => {
 
     // Then it prints the zsh completion definition without the init wrapper.
     expect(result.exitCode).toBe(0);
+    expect(stdout.join('')).toContain('#compdef gji');
     expect(stdout.join('')).toContain("'completion:print shell completion definitions'");
     expect(stdout.join('')).toContain("'back:navigate to the previously visited worktree'");
     expect(stdout.join('')).toContain("'history:show navigation history'");
@@ -47,9 +54,42 @@ describe('gji completion', () => {
     expect(stdout.join('')).toContain("_arguments '3:key:->config_keys' '4:value: '");
     expect(stdout.join('')).not.toContain("'2:action:(get set unset)' '3:key:->config_keys' '4:value: '");
     expect(stdout.join('')).toContain('__gji_worktree_branches() {');
-    expect(stdout.join('')).toContain('compdef _gji_completion gji');
+    expect(stdout.join('')).not.toContain('compdef _gji_completion gji');
     expect(stdout.join('')).not.toContain('# >>> gji init >>>');
     expect(stdout.join('')).not.toContain('gji() {');
+  });
+
+  it('registers zsh completions through compinit when installed as _gji', async () => {
+    // Given the generated zsh completion file installed into a temporary fpath entry.
+    const stdout: string[] = [];
+    const completionDirectory = await mkdtemp(join(tmpdir(), 'gji-zsh-completion-'));
+    const completionPath = join(completionDirectory, '_gji');
+    const registrationScript = join(completionDirectory, 'check-registration.zsh');
+
+    const result = await runCli(['completion', 'zsh'], {
+      stdout: (chunk) => stdout.push(chunk),
+    });
+
+    await writeFile(completionPath, stdout.join(''), 'utf8');
+    await writeFile(
+      registrationScript,
+      `fpath=(${completionDirectory} $fpath)
+autoload -Uz compinit && compinit
+print -r -- "\${_comps[gji]-unset}"`,
+      'utf8',
+    );
+
+    // When zsh loads the completion directory through compinit.
+    const registrationResult = await execFile('zsh', ['-f', registrationScript], {
+      env: {
+        ...process.env,
+        HOME: completionDirectory,
+      },
+    });
+
+    // Then gji is mapped to the installed _gji completion.
+    expect(result.exitCode).toBe(0);
+    expect(registrationResult.stdout.trim()).toBe('_gji');
   });
 
   it('auto-detects the shell from SHELL when no shell is provided', async () => {
