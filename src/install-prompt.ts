@@ -31,7 +31,7 @@ export async function maybeRunInstallPrompt(
 
   // Skip if afterCreate hook is already configured in effective config.
   const hooks = isPlainObject(config.hooks) ? config.hooks : null;
-  if (typeof hooks?.afterCreate === 'string' && hooks.afterCreate.length > 0) {
+  if (isConfiguredHookCommand(hooks?.afterCreate)) {
     return;
   }
 
@@ -167,4 +167,15 @@ async function defaultPromptForInstallChoice(pm: PackageManager): Promise<Instal
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function isConfiguredHookCommand(value: unknown): boolean {
+  if (typeof value === 'string') return value.length > 0;
+
+  return (
+    Array.isArray(value) &&
+    value.length > 0 &&
+    value[0] !== '' &&
+    value.every((item) => typeof item === 'string')
+  );
 }

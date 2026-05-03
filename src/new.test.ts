@@ -673,6 +673,37 @@ describe('gji new', () => {
       expect(promptCalled).toBe(false);
     });
 
+    it('suppresses the prompt when hooks.afterCreate is an argv command in effective config', async () => {
+      // Given a repository with an argv-form hooks.afterCreate already configured.
+      const repoRoot = await createRepository();
+      const branchName = 'feature/install-argv-hook-set';
+      let promptCalled = false;
+      await writeFile(
+        join(repoRoot, '.gji.json'),
+        JSON.stringify({ hooks: { afterCreate: ['npm', 'ci'] } }),
+        'utf8',
+      );
+      const runNewCommand = createNewCommand({
+        detectInstallPackageManager: async () => fakePm,
+        promptForInstallChoice: async () => {
+          promptCalled = true;
+          return 'yes';
+        },
+      });
+
+      // When gji new runs with an argv afterCreate hook already configured.
+      const result = await runNewCommand({
+        branch: branchName,
+        cwd: repoRoot,
+        stderr: () => undefined,
+        stdout: () => undefined,
+      });
+
+      // Then no prompt appeared and the command succeeded.
+      expect(result).toBe(0);
+      expect(promptCalled).toBe(false);
+    });
+
     it('"always" deep-merges into existing local hooks preserving non-afterCreate keys', async () => {
       // Given a repository with an existing afterEnter hook in local config.
       const repoRoot = await createRepository();

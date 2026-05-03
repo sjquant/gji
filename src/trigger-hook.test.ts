@@ -42,6 +42,35 @@ describe('gji trigger-hook', () => {
     await expect(readFile(markerFile)).resolves.toBeDefined();
   });
 
+  it('runs argv hooks without shell evaluation', async () => {
+    // Given a linked worktree with an argv-form afterCreate hook and shell metacharacters in the branch name.
+    const repoRoot = await createRepository();
+    const branchName = 'feature/trigger-argv;touch-injected';
+    const worktreePath = resolveWorktreePath(repoRoot, branchName);
+    const outputFile = join(worktreePath, 'argv-output.txt');
+    const injectedFile = join(worktreePath, 'injected.txt');
+    const script = 'require("node:fs").writeFileSync(process.argv[1], process.argv[2])';
+
+    await runCli(['new', branchName], { cwd: repoRoot });
+    await writeFile(
+      join(repoRoot, '.gji.json'),
+      JSON.stringify({
+        hooks: {
+          afterCreate: [process.execPath, '-e', script, outputFile, '{{branch}}'],
+        },
+      }),
+      'utf8',
+    );
+
+    // When trigger-hook runs the argv hook.
+    const result = await runCli(['trigger-hook', 'afterCreate'], { cwd: worktreePath });
+
+    // Then the branch value is passed literally and no injected shell command runs.
+    expect(result.exitCode).toBe(0);
+    await expect(readFile(outputFile, 'utf8')).resolves.toBe(branchName);
+    await expect(readFile(injectedFile)).rejects.toThrow();
+  });
+
   it('runs the afterEnter hook in the current worktree', async () => {
     // Given a linked worktree with an afterEnter hook configured.
     const repoRoot = await createRepository();
