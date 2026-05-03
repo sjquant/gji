@@ -1,0 +1,27 @@
+<svg width="256" height="256" viewBox="0 0 256 256" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <radialGradient id="bgGlow" cx="128" cy="128" r="128" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#1E2430"/>
+      <stop offset="100%" stop-color="#0E121A"/>
+    </radialGradient>
+    <linearGradient id="warpGradient" x1="80" y1="176" x2="176" y2="56" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#FF007A" stop-opacity="0"/>
+      <stop offset="16%" stop-color="#FF007A"/>
+      <stop offset="100%" stop-color="#00E5FF"/>
+    </linearGradient>
+    <linearGradient id="glowGradient" x1="80" y1="176" x2="176" y2="56" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#FF007A" stop-opacity="0"/>
+      <stop offset="22%" stop-color="#FF007A"/>
+      <stop offset="100%" stop-color="#00E5FF"/>
+    </linearGradient>
+  </defs>
+  <rect width="256" height="256" rx="48" fill="url(#bgGlow)"/>
+  <rect x="2" y="2" width="252" height="252" rx="46" stroke="#5B6472" stroke-width="2"/>
+  <path d="M78 174C78 122 132 118 176 74" stroke="url(#glowGradient)" stroke-width="34" stroke-linecap="round" opacity="0.18"/>
+  <path d="M78 174C78 122 132 118 176 74" stroke="url(#glowGradient)" stroke-width="18" stroke-linecap="round" opacity="0.36"/>
+  <path d="M78 174C78 122 132 118 176 74" stroke="url(#warpGradient)" stroke-width="9" stroke-linecap="round"/>
+  <circle cx="78" cy="174" r="18" fill="#0E121A" stroke="#FF007A" stroke-width="7"/>
+  <circle cx="176" cy="74" r="30" stroke="#00E5FF" stroke-width="3" opacity="0.3"/>
+  <circle cx="176" cy="74" r="16" fill="#00E5FF"/>
+  <circle cx="176" cy="74" r="5.5" fill="#0E121A"/>
+</svg>
