@@ -42,6 +42,17 @@ const config: Config = {
   ],
   plugins: ['./plugins/clipboard-fallback'],
   themeConfig: {
+    image: 'img/social-card.png',
+    metadata: [
+      {
+        name: 'keywords',
+        content: 'git worktree cli, git worktree navigation, multi repo worktree, pull request review cli, git stash alternative, ai coding workflow',
+      },
+      {
+        name: 'twitter:card',
+        content: 'summary_large_image',
+      },
+    ],
     colorMode: {
       defaultMode: 'light',
       respectPrefersColorScheme: false,

@@ -2,6 +2,12 @@
 sidebar_position: 4
 title: Commands
 description: Reference for gji commands, navigation, cleanup, sync, hooks, and configuration.
+keywords:
+  - gji commands
+  - git worktree command reference
+  - gji warp
+  - gji back
+image: /img/social-card.png
 ---
 
 # Commands
@@ -13,6 +19,7 @@ description: Reference for gji commands, navigation, cleanup, sync, hooks, and c
 | `gji new [branch] [--detached] [--open] [--editor <cli>] [--json]` | Create a branch and worktree, then enter it. |
 | `gji pr <ref> [--json]` | Fetch a pull request ref and open it in a dedicated worktree. |
 | `gji go [branch] [--print]` | Jump to a worktree or print its path for scripting. |
+| `gji warp [branch] [--new [branch]] [--print] [--json]` | Jump to any known repo worktree, or create a new one from the same entry point. |
 | `gji open [branch] [--editor <cli>] [--save] [--workspace]` | Open a worktree in an editor. |
 | `gji back [n] [--print]` | Return to the previously visited worktree, optionally N steps back. |
 | `gji history [--json]` | Show navigation history. |
@@ -33,6 +40,7 @@ description: Reference for gji commands, navigation, cleanup, sync, hooks, and c
 - `gji new`
 - `gji pr`
 - `gji go`
+- `gji warp`
 - `gji open`
 - `gji back [n]`
 - `gji root`
@@ -87,6 +95,17 @@ gji open --editor cursor --save   # save cursor as your default editor
 gji pr 1234
 ```
 
+### Warp across registered repos
+
+```bash
+gji warp feature/auth-refactor
+gji warp repo-a/main
+gji warp --new fix/copy-regression
+gji warp feature/auth-refactor --json
+```
+
+Use `gji warp` when branch intent matters more than the repo directory you happen to be inside. `repo/branch` disambiguates across registered repos, and `--new` lets you create the next worktree from the same command surface.
+
 ### Re-run your setup hook
 
 ```bash
@@ -126,5 +145,6 @@ Several commands support `--json` so shell scripts and tools can consume structu
 - `gji clean --json`
 - `gji remove --json`
 - `gji sync --json`
+- `gji warp --json`
 
 `gji clean --stale` limits cleanup to clean branch worktrees whose upstream is gone and whose branch is already merged into the configured or remote default branch.

@@ -1,0 +1,66 @@
+<svg width="1200" height="630" viewBox="0 0 1200 630" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <radialGradient id="bgLeft" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(220 120) rotate(35) scale(420 320)">
+      <stop stop-color="#FF007A" stop-opacity="0.24"/>
+      <stop offset="1" stop-color="#FF007A" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="bgRight" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(990 120) rotate(145) scale(460 360)">
+      <stop stop-color="#00E5FF" stop-opacity="0.24"/>
+      <stop offset="1" stop-color="#00E5FF" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="bgBase" x1="120" y1="70" x2="1080" y2="560" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#1E2430"/>
+      <stop offset="1" stop-color="#0E121A"/>
+    </linearGradient>
+    <linearGradient id="warpStroke" x1="215" y1="452" x2="344" y2="212" gradientUnits="userSpaceOnUse">
+      <stop offset="0.05" stop-color="#FF007A"/>
+      <stop offset="1" stop-color="#00E5FF"/>
+    </linearGradient>
+  </defs>
+  <rect width="1200" height="630" rx="36" fill="#090D14"/>
+  <rect x="22" y="22" width="1156" height="586" rx="28" fill="url(#bgBase)"/>
+  <rect x="22" y="22" width="1156" height="586" rx="28" fill="url(#bgLeft)"/>
+  <rect x="22" y="22" width="1156" height="586" rx="28" fill="url(#bgRight)"/>
+  <rect x="22" y="22" width="1156" height="586" rx="28" stroke="#5B6472" stroke-width="2"/>
+
+  <g opacity="0.9">
+    <rect x="124" y="146" width="310" height="338" rx="38" fill="#0F141D" stroke="#293244" stroke-width="2"/>
+    <path d="M215 436V194" stroke="#717B8D" stroke-width="10" stroke-linecap="round"/>
+    <path d="M344 436V194" stroke="#717B8D" stroke-width="10" stroke-linecap="round"/>
+    <path d="M215 400C215 301 344 314 344 194" stroke="url(#warpStroke)" stroke-width="38" stroke-linecap="round" opacity="0.15"/>
+    <path d="M215 400C215 301 344 314 344 194" stroke="url(#warpStroke)" stroke-width="18" stroke-linecap="round" opacity="0.28"/>
+    <path d="M215 400C215 301 344 314 344 194" stroke="url(#warpStroke)" stroke-width="7" stroke-linecap="round"/>
+    <circle cx="215" cy="400" r="16" fill="#09090B" stroke="#FF007A" stroke-width="6"/>
+    <circle cx="344" cy="194" r="38" stroke="#00E5FF" stroke-width="2" opacity="0.2"/>
+    <circle cx="344" cy="194" r="23" stroke="#00E5FF" stroke-width="3" opacity="0.45"/>
+    <circle cx="344" cy="194" r="13" fill="#00E5FF"/>
+    <circle cx="344" cy="194" r="5" fill="#09090B"/>
+  </g>
+
+  <g>
+    <rect x="500" y="130" width="214" height="40" rx="20" fill="rgba(255, 0, 122, 0.12)" stroke="rgba(255, 0, 122, 0.32)"/>
+    <text x="607" y="155" fill="#FF7CB8" font-family="Arial, Helvetica, sans-serif" font-size="20" font-weight="700" letter-spacing="2.4" text-anchor="middle">GIT WORKTREE CLI</text>
+
+    <text x="500" y="254" fill="#F5F8FF" font-family="Arial, Helvetica, sans-serif" font-size="66" font-weight="700">
+      <tspan x="500" dy="0">Git worktrees</tspan>
+      <tspan x="500" dy="76">without the hassle</tspan>
+    </text>
+
+    <text x="500" y="386" fill="#C4CFE0" font-family="Arial, Helvetica, sans-serif" font-size="28" font-weight="500">
+      <tspan x="500" dy="0">Create feature worktrees, review PRs in isolation, and move</tspan>
+      <tspan x="500" dy="40">between active tasks with clean paths and predictable state.</tspan>
+    </text>
+
+    <g>
+      <rect x="500" y="446" width="348" height="54" rx="14" fill="rgba(255,255,255,0.06)" stroke="rgba(74,223,255,0.2)"/>
+      <text x="528" y="480" fill="#4ADFFF" font-family="Courier New, monospace" font-size="24" font-weight="700">gji new feature/payment-refactor</text>
+    </g>
+
+    <g>
+      <rect x="872" y="446" width="171" height="54" rx="14" fill="rgba(255,255,255,0.06)" stroke="rgba(255,255,255,0.12)"/>
+      <text x="900" y="480" fill="#F5F8FF" font-family="Courier New, monospace" font-size="24" font-weight="700">gji pr 1234</text>
+    </g>
+
+    <text x="500" y="552" fill="#98A8C0" font-family="Arial, Helvetica, sans-serif" font-size="23" font-weight="600">A Git worktree CLI for parallel human and AI workflows.</text>
+  </g>
+</svg>

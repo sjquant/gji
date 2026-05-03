@@ -168,7 +168,7 @@ gji trigger-hook afterCreate      # re-run setup in the current worktree
 
 - **vs raw `git worktree`**: same underlying capability, but with branch-first commands, shell handoff, PR checkout, hooks, sync, and cleanup built into the workflow
 - **vs `lazygit`**: `lazygit` is a broad Git UI; `gji` is narrower and faster for opening, jumping between, and removing isolated branch directories
-- **vs `ghq`**: `ghq` organizes repositories; `gji` organizes active branches and PRs within one repository
+- **vs `ghq`**: `ghq` organizes where repositories live; `gji` organizes which branch, PR, or worktree you should be in once you are inside one
 
 Use `gji` when your bottleneck is repeated context switching between features, reviews, and maintenance work without disturbing what is already open.
 

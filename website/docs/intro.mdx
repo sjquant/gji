@@ -2,6 +2,11 @@
 sidebar_position: 1
 title: Overview
 description: Learn what gji is, why it exists, and how it makes Git worktree workflows faster.
+keywords:
+  - git worktree overview
+  - git worktree warp
+  - multi repo git workflow
+image: /img/social-card.png
 ---
 
 # gji overview
@@ -41,6 +46,8 @@ Without worktrees, “quickly check one thing” usually turns into this:
 
 - Start a new feature branch in its own worktree.
 - Open a pull request locally without disturbing current work.
+- Warp to an existing worktree across registered repos.
+- Create a new worktree in another repo from the same command entry point.
 - Jump between active worktrees instantly.
 - Keep branch-specific `node_modules`, generated files, and editor state separate.
 - Rebase or clean up worktrees without manual path juggling.
@@ -60,6 +67,7 @@ Without worktrees, “quickly check one thing” usually turns into this:
 ```bash
 gji new feature/payment-refactor
 gji pr 1234
+gji warp repo-a/main
 gji go main
 gji remove feature/payment-refactor
 ```
