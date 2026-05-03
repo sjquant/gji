@@ -193,14 +193,12 @@ function HeroSection(): ReactNode {
           <p className={styles.eyebrow}>Git worktree CLI</p>
           <h1 className={styles.heroTitle}>Git worktrees without the hassle</h1>
           <p className={styles.heroLead}>
-            <code>gji</code> keeps feature work, pull request review, experiments,
-            and cleanup in separate directories so context switching feels controlled
-            instead of disruptive.
+            <code>gji</code> creates separate worktrees for feature work, pull
+            request review, experiments, and cleanup.
           </p>
           <p className={styles.heroSupport}>
-            It wraps Git worktrees into a cleaner daily workflow with navigation,
-            shell handoff, predictable paths, and tools for the full branch
-            lifecycle. <code>warp</code> is part of that workflow, not the whole story.
+            It adds navigation, shell handoff, predictable paths, and commands for
+            creating, opening, syncing, and removing worktrees.
           </p>
           <div className={styles.ctaRow}>
             <Link
@@ -239,10 +237,10 @@ function HeroWorkflowPanel(): ReactNode {
     <section className={styles.commandPanel} aria-label="Workflow preview">
       <div className={styles.commandIntro}>
         <p className={styles.commandEyebrow}>Typical session</p>
-        <h2 className={styles.commandTitle}>A cleaner way to move between active tasks</h2>
+        <h2 className={styles.commandTitle}>Move between active tasks without reusing one checkout</h2>
         <p className={styles.commandSummary}>
-          Keep each task in its own worktree, then use the right command for the
-          moment: create, review, jump back, open in an editor, or cross repos when needed.
+          Use one command set for creating worktrees, reviewing PRs, reopening
+          existing tasks, and switching repos when needed.
         </p>
       </div>
       <div className={styles.workflowList}>
@@ -273,14 +271,14 @@ function ProofSection(): ReactNode {
           <p className={styles.problemLabel}>Without gji</p>
           <p>
             Stash changes, checkout another branch, reinstall dependencies, do the
-            work, then unwind the whole sequence while trying not to break your original state.
+            work, then switch everything back.
           </p>
         </div>
         <div className={styles.solutionBox}>
           <p className={styles.problemLabel}>With gji</p>
           <p>
-            Open each task in its own worktree and move between them directly when
-            you need feature work, PR review, cleanup, or the occasional cross-repo jump.
+            Open each task in its own worktree and switch directly between feature
+            work, PR review, cleanup, and cross-repo tasks.
           </p>
         </div>
       </div>
@@ -293,7 +291,7 @@ function WorkflowSection(): ReactNode {
     <section className={styles.section}>
       <div className="container">
         <p className={styles.sectionLabel}>Core workflow</p>
-        <h2 className={styles.sectionTitle}>Built for the boring moments that waste time</h2>
+        <h2 className={styles.sectionTitle}>Commands for the work between commits</h2>
         <div className={styles.stepGrid}>
           {workflowSteps.map((step) => (
             <article key={step.title} className={styles.stepCard}>
