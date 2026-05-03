@@ -1,27 +1,30 @@
-<svg width="148" height="148" viewBox="0 0 148 148" fill="none" xmlns="http://www.w3.org/2000/svg">
+<svg width="256" height="256" viewBox="0 0 256 256" fill="none" xmlns="http://www.w3.org/2000/svg">
   <defs>
-    <linearGradient id="spaceGradient" x1="26" y1="18" x2="122" y2="132" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#0E1A2B"/>
-      <stop offset="1" stop-color="#060B14"/>
+    <radialGradient id="bgGlow" cx="128" cy="128" r="128" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#1E2430"/>
+      <stop offset="100%" stop-color="#0E121A"/>
+    </radialGradient>
+    <linearGradient id="warpGradient" x1="80" y1="176" x2="176" y2="56" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#FF007A" stop-opacity="0"/>
+      <stop offset="15%" stop-color="#FF007A"/>
+      <stop offset="100%" stop-color="#00E5FF"/>
     </linearGradient>
-    <linearGradient id="trailGradient" x1="36" y1="92" x2="86" y2="92" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#63F4D2"/>
-      <stop offset="1" stop-color="#B2FFF2"/>
+    <linearGradient id="glowGradient" x1="80" y1="176" x2="176" y2="56" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#FF007A" stop-opacity="0"/>
+      <stop offset="20%" stop-color="#FF007A"/>
+      <stop offset="100%" stop-color="#00E5FF"/>
     </linearGradient>
   </defs>
-  <rect width="148" height="148" rx="38" fill="#040814"/>
-  <rect x="18" y="18" width="112" height="112" rx="28" fill="url(#spaceGradient)"/>
-  <path
-    d="M39 98C47 98 53 96 58 91C62 87 66 83 73 79"
-    stroke="url(#trailGradient)"
-    stroke-width="11"
-    stroke-linecap="round"
-  />
-  <circle cx="83" cy="74" r="28" stroke="#8BF3FF" stroke-width="12"/>
-  <circle cx="83" cy="74" r="7" fill="#BDFBF4"/>
-  <path
-    d="M105 40L108.4 48.6L117 52L108.4 55.4L105 64L101.6 55.4L93 52L101.6 48.6L105 40Z"
-    fill="#FFD57A"
-  />
-  <circle cx="39" cy="98" r="6" fill="#63F4D2"/>
+  <rect width="256" height="256" rx="48" fill="url(#bgGlow)"/>
+  <rect x="2" y="2" width="252" height="252" rx="46" stroke="#5B6472" stroke-width="2"/>
+  <path d="M80 200V56" stroke="#727A88" stroke-width="7" stroke-linecap="round"/>
+  <path d="M176 200V56" stroke="#727A88" stroke-width="7" stroke-linecap="round"/>
+  <path d="M80 176C80 116 176 116 176 56" stroke="url(#glowGradient)" stroke-width="24" stroke-linecap="round" opacity="0.15"/>
+  <path d="M80 176C80 116 176 116 176 56" stroke="url(#glowGradient)" stroke-width="12" stroke-linecap="round" opacity="0.3"/>
+  <path d="M80 176C80 116 176 116 176 56" stroke="url(#warpGradient)" stroke-width="5" stroke-linecap="round"/>
+  <circle cx="80" cy="176" r="11" fill="#09090B" stroke="#FF007A" stroke-width="4.5"/>
+  <circle cx="176" cy="56" r="32" stroke="#00E5FF" stroke-width="1" opacity="0.15"/>
+  <circle cx="176" cy="56" r="20" stroke="#00E5FF" stroke-width="2" opacity="0.4"/>
+  <circle cx="176" cy="56" r="11" fill="#00E5FF"/>
+  <circle cx="176" cy="56" r="4" fill="#09090B"/>
 </svg>
