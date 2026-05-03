@@ -15,12 +15,11 @@ type Card = {
 };
 
 const siteDescription =
-  'gji is a Git worktree CLI with warp navigation, pull request review, and branch-isolated workflows across active repositories.';
+  'gji is a Git worktree CLI for pull request review, fast context switching, and branch-isolated workflows across active repositories.';
 
 const siteKeywords = [
   'git worktree cli',
   'git worktree navigation',
-  'git warp command',
   'multi repo worktree',
   'pull request review cli',
   'git stash alternative',
@@ -30,67 +29,67 @@ const siteKeywords = [
 
 const heroStats = [
   {
-    value: 'Cross-repo warp',
-    label: 'Jump to any registered repo worktree by branch name or repo/branch from one command.',
+    value: 'Feature work in isolation',
+    label: 'Open a clean worktree without disturbing the branch, install state, or shell you already have open.',
   },
   {
     value: 'PR review in isolation',
-    label: 'Open review work in its own directory, then warp back to feature work when you are done.',
+    label: 'Fetch review work into its own directory instead of turning your main checkout into a temporary review branch.',
   },
   {
-    value: 'Scriptable paths',
-    label: 'Use stable worktree locations and JSON output for shells, editors, and coding agents.',
+    value: 'Fast navigation',
+    label: 'Use go, back, open, and warp to move between active tasks without path hunting or stash churn.',
   },
 ];
 
 const heroChecklist = [
-  'Warp across registered repos without changing your starting directory',
-  'Create a fresh worktree in another repo with `gji warp --new`',
-  'Use `--json` when scripts or agents need the resolved worktree path',
+  'Create branches and worktrees together with `gji new`',
+  'Review pull requests without mutating your current checkout',
+  'Jump between tasks with `go`, `back`, `open`, and `warp`',
 ];
 
 const heroWorkflow = [
   {
-    command: 'gji warp feature/payment-refactor',
-    detail: 'Jump straight to an existing worktree, even when it lives in another registered repo.',
+    command: 'gji new feature/payment-refactor',
+    detail: 'Start a task in its own worktree and land in the new directory immediately.',
+  },
+  {
+    command: 'gji pr 1234',
+    detail: 'Open a pull request in isolation instead of mutating the checkout you were already using.',
   },
   {
     command: 'gji warp api/main',
-    detail: 'Target an exact repo and branch when several repositories carry the same branch names.',
-  },
-  {
-    command: 'gji warp --new fix/copy-regression',
-    detail: 'Create a new worktree from the same entry point when the next task belongs in another repo.',
+    detail: 'When several repos are active, jump straight to the matching worktree by repo and branch.',
   },
 ];
 
 const workflowSteps = [
   {
-    title: 'Warp to active work instantly',
-    body: 'Search all registered repos for a branch and enter the matching worktree without cd-ing into each repo first.',
+    title: 'Open a new task cleanly',
+    body: 'Create a branch and worktree together instead of reshaping one mutable checkout over and over.',
   },
   {
-    title: 'Create from the same entry point',
-    body: 'Use `gji warp --new` when the task belongs in another repo but you still want one command and one picker.',
+    title: 'Review and inspect in parallel',
+    body: 'Use dedicated worktrees for pull requests, investigations, and experiments so each task keeps its own state.',
   },
   {
-    title: 'Return without losing context',
-    body: 'Pair `warp` with `back`, `history`, and `open` so navigation stays fast for both human and AI-assisted work.',
+    title: 'Move without losing momentum',
+    body: 'Use `go`, `back`, `open`, and `warp` to re-enter work quickly when several branches or repos are active at once.',
   },
 ];
 
 const featureCards = [
   {
-    title: 'Cross-repo navigation that stays branch-first',
-    body: 'Move by branch name or repo/branch instead of remembering where each checkout currently lives on disk.',
+    title: 'Separate dependencies per branch',
+    body: 'Each worktree keeps its own install state, build outputs, and editor context instead of sharing one unstable checkout.',
   },
   {
-    title: 'Structured output for tooling',
-    body: 'Use `warp --json`, predictable paths, and shell handoff to plug gji into scripts, editors, and agent workflows.',
+    title: 'Predictable paths and scriptable output',
+    body: 'Use stable worktree locations, shell handoff, and JSON output to plug gji into scripts, editors, and agent workflows.',
   },
   {
-    title: 'Still handles the rest of the worktree lifecycle',
-    body: 'Open PRs, sync branches, clean stale worktrees, and rerun hooks without falling back to manual path juggling.',
+    title: 'Navigation is broader than one command',
+    body: 'Warp covers cross-repo jumps, but the day-to-day flow also includes new, pr, go, back, open, sync, and cleanup.',
   },
 ];
 
@@ -103,13 +102,13 @@ const docsCards: Card[] = [
   },
   {
     title: 'Quick Start',
-    body: 'See the shortest path from warp navigation to PR review to cleanup.',
+    body: 'See the shortest path from feature work to PR review to cleanup.',
     href: '/docs/quick-start',
     label: 'Read quick start',
   },
   {
     title: 'Command Reference',
-    body: 'Review `warp`, `back`, `open`, and the rest of the day-to-day command surface.',
+    body: 'Review `new`, `pr`, `go`, `warp`, `back`, `open`, and the rest of the day-to-day command surface.',
     href: '/docs/commands',
     label: 'Browse commands',
   },
@@ -134,7 +133,7 @@ export default function Home(): ReactNode {
 
   return (
     <Layout
-      title="Warp Across Git Worktrees Without The Hassle"
+      title="Git Worktrees Without The Hassle"
       description={siteDescription}>
       <SiteHead
         jsonLd={jsonLd}
@@ -165,21 +164,21 @@ function SiteHead({
     <Head>
       <meta name="keywords" content={siteKeywords.join(', ')} />
       <meta property="og:type" content="website" />
-      <meta property="og:title" content="gji | Warp across Git worktrees without the hassle" />
+      <meta property="og:title" content="gji | Git worktrees without the hassle" />
       <meta property="og:description" content={siteDescription} />
       <meta property="og:url" content={siteUrl} />
       <meta property="og:image" content={socialImageUrl} />
       <meta
         property="og:image:alt"
-        content="gji social card showing warp-based Git worktree navigation across repositories"
+        content="gji social card showing Git worktree workflows across repositories"
       />
       <meta name="twitter:card" content="summary_large_image" />
-      <meta name="twitter:title" content="gji | Warp across Git worktrees without the hassle" />
+      <meta name="twitter:title" content="gji | Git worktrees without the hassle" />
       <meta name="twitter:description" content={siteDescription} />
       <meta name="twitter:image" content={socialImageUrl} />
       <meta
         name="twitter:image:alt"
-        content="gji social card showing warp-based Git worktree navigation across repositories"
+        content="gji social card showing Git worktree workflows across repositories"
       />
       <script type="application/ld+json">{JSON.stringify(jsonLd)}</script>
     </Head>
@@ -191,17 +190,17 @@ function HeroSection(): ReactNode {
     <section className={styles.hero}>
       <div className={clsx('container', styles.heroInner)}>
         <div className={styles.heroCopy}>
-          <p className={styles.eyebrow}>Git worktree warp</p>
-          <h1 className={styles.heroTitle}>Warp across worktrees without losing your place</h1>
+          <p className={styles.eyebrow}>Git worktree CLI</p>
+          <h1 className={styles.heroTitle}>Git worktrees without the hassle</h1>
           <p className={styles.heroLead}>
-            <code>gji</code> turns Git worktrees into a branch-first navigation flow,
-            with <code>warp</code> for cross-repo jumps, isolated PR review, and
-            clean handoff into the exact directory you need next.
+            <code>gji</code> keeps feature work, pull request review, experiments,
+            and cleanup in separate directories so context switching feels controlled
+            instead of disruptive.
           </p>
           <p className={styles.heroSupport}>
-            When several repos, reviews, experiments, and AI-assisted tasks are open
-            at once, <code>warp</code> gives you one entry point instead of a pile of
-            remembered paths.
+            It wraps Git worktrees into a cleaner daily workflow with navigation,
+            shell handoff, predictable paths, and tools for the full branch
+            lifecycle. <code>warp</code> is part of that workflow, not the whole story.
           </p>
           <div className={styles.ctaRow}>
             <Link
@@ -239,11 +238,11 @@ function HeroWorkflowPanel(): ReactNode {
   return (
     <section className={styles.commandPanel} aria-label="Workflow preview">
       <div className={styles.commandIntro}>
-        <p className={styles.commandEyebrow}>Warp flow</p>
-        <h2 className={styles.commandTitle}>One command for cross-repo context switching</h2>
+        <p className={styles.commandEyebrow}>Typical session</p>
+        <h2 className={styles.commandTitle}>A cleaner way to move between active tasks</h2>
         <p className={styles.commandSummary}>
-          Keep each task in its own worktree, then move by branch intent instead of
-          by terminal tab memory.
+          Keep each task in its own worktree, then use the right command for the
+          moment: create, review, jump back, open in an editor, or cross repos when needed.
         </p>
       </div>
       <div className={styles.workflowList}>
@@ -255,8 +254,8 @@ function HeroWorkflowPanel(): ReactNode {
         ))}
       </div>
       <div className={styles.commandFootnote}>
-        <span className={styles.commandFootnoteLabel}>Resolver format</span>
-        <code>branch or repo/branch</code>
+        <span className={styles.commandFootnoteLabel}>Default path layout</span>
+        <code>../worktrees/&lt;repo&gt;/&lt;branch&gt;</code>
       </div>
     </section>
   );
@@ -268,20 +267,20 @@ function ProofSection(): ReactNode {
       <div className={clsx('container', styles.bandGrid)}>
         <div>
           <p className={styles.sectionLabel}>What changes</p>
-          <h2 className={styles.sectionTitle}>Stop path hunting when several repos are active</h2>
+          <h2 className={styles.sectionTitle}>Stop mutating one checkout for every task</h2>
         </div>
         <div className={styles.problemBox}>
           <p className={styles.problemLabel}>Without gji</p>
           <p>
-            Remember which repo holds the branch, hop between directories manually,
-            then still deal with stash, checkout, reinstall, and cleanup churn.
+            Stash changes, checkout another branch, reinstall dependencies, do the
+            work, then unwind the whole sequence while trying not to break your original state.
           </p>
         </div>
         <div className={styles.solutionBox}>
           <p className={styles.problemLabel}>With gji</p>
           <p>
-            Keep tasks isolated, then warp straight to the branch you want across
-            registered repos without interrupting what is already open.
+            Open each task in its own worktree and move between them directly when
+            you need feature work, PR review, cleanup, or the occasional cross-repo jump.
           </p>
         </div>
       </div>
@@ -294,7 +293,7 @@ function WorkflowSection(): ReactNode {
     <section className={styles.section}>
       <div className="container">
         <p className={styles.sectionLabel}>Core workflow</p>
-        <h2 className={styles.sectionTitle}>Built for the boring moments that usually break flow</h2>
+        <h2 className={styles.sectionTitle}>Built for the boring moments that waste time</h2>
         <div className={styles.stepGrid}>
           {workflowSteps.map((step) => (
             <article key={step.title} className={styles.stepCard}>
@@ -313,7 +312,7 @@ function FeaturesSection(): ReactNode {
     <section className={styles.sectionAlt}>
       <div className="container">
         <p className={styles.sectionLabel}>Why teams keep it around</p>
-        <h2 className={styles.sectionTitle}>A better default for multi-repo, multi-branch work</h2>
+        <h2 className={styles.sectionTitle}>A better default for multi-branch work</h2>
         <div className={styles.cardGrid}>
           {featureCards.map((card) => (
             <article key={card.title} className={styles.featureCard}>

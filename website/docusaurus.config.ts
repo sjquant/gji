@@ -4,7 +4,7 @@ import type * as Preset from '@docusaurus/preset-classic';
 
 const config: Config = {
   title: 'gji',
-  tagline: 'Warp across Git worktrees without the hassle',
+  tagline: 'Git worktrees without the hassle',
   favicon: 'img/favicon.ico',
   future: {
     v4: true,
@@ -46,7 +46,7 @@ const config: Config = {
     metadata: [
       {
         name: 'keywords',
-        content: 'git worktree cli, git worktree navigation, git warp command, multi repo worktree, pull request review cli, git stash alternative, ai coding workflow',
+        content: 'git worktree cli, git worktree navigation, multi repo worktree, pull request review cli, git stash alternative, ai coding workflow',
       },
       {
         name: 'twitter:card',

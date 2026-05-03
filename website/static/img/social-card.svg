@@ -38,29 +38,29 @@
   </g>
 
   <g>
-    <rect x="500" y="130" width="145" height="40" rx="20" fill="rgba(255, 0, 122, 0.12)" stroke="rgba(255, 0, 122, 0.32)"/>
-    <text x="572.5" y="155" fill="#FF7CB8" font-family="Arial, Helvetica, sans-serif" font-size="20" font-weight="700" letter-spacing="2.4" text-anchor="middle">GIT WORKTREE WARP</text>
+    <rect x="500" y="130" width="214" height="40" rx="20" fill="rgba(255, 0, 122, 0.12)" stroke="rgba(255, 0, 122, 0.32)"/>
+    <text x="607" y="155" fill="#FF7CB8" font-family="Arial, Helvetica, sans-serif" font-size="20" font-weight="700" letter-spacing="2.4" text-anchor="middle">GIT WORKTREE CLI</text>
 
     <text x="500" y="254" fill="#F5F8FF" font-family="Arial, Helvetica, sans-serif" font-size="66" font-weight="700">
-      <tspan x="500" dy="0">Warp across</tspan>
-      <tspan x="500" dy="76">worktrees</tspan>
+      <tspan x="500" dy="0">Git worktrees</tspan>
+      <tspan x="500" dy="76">without the hassle</tspan>
     </text>
 
     <text x="500" y="386" fill="#C4CFE0" font-family="Arial, Helvetica, sans-serif" font-size="28" font-weight="500">
-      <tspan x="500" dy="0">Jump to any registered repo worktree, open PR review in</tspan>
-      <tspan x="500" dy="40">isolation, and keep AI-assisted tasks in clean branch paths.</tspan>
+      <tspan x="500" dy="0">Create feature worktrees, review PRs in isolation, and move</tspan>
+      <tspan x="500" dy="40">between active tasks with clean paths and predictable state.</tspan>
     </text>
 
     <g>
-      <rect x="500" y="446" width="257" height="54" rx="14" fill="rgba(255,255,255,0.06)" stroke="rgba(74,223,255,0.2)"/>
-      <text x="528" y="480" fill="#4ADFFF" font-family="Courier New, monospace" font-size="24" font-weight="700">gji warp api/main</text>
+      <rect x="500" y="446" width="348" height="54" rx="14" fill="rgba(255,255,255,0.06)" stroke="rgba(74,223,255,0.2)"/>
+      <text x="528" y="480" fill="#4ADFFF" font-family="Courier New, monospace" font-size="24" font-weight="700">gji new feature/payment-refactor</text>
     </g>
 
     <g>
-      <rect x="780" y="446" width="306" height="54" rx="14" fill="rgba(255,255,255,0.06)" stroke="rgba(255,255,255,0.12)"/>
-      <text x="808" y="480" fill="#F5F8FF" font-family="Courier New, monospace" font-size="24" font-weight="700">gji warp --new fix/copy</text>
+      <rect x="872" y="446" width="171" height="54" rx="14" fill="rgba(255,255,255,0.06)" stroke="rgba(255,255,255,0.12)"/>
+      <text x="900" y="480" fill="#F5F8FF" font-family="Courier New, monospace" font-size="24" font-weight="700">gji pr 1234</text>
     </g>
 
-    <text x="500" y="552" fill="#98A8C0" font-family="Arial, Helvetica, sans-serif" font-size="23" font-weight="600">Branch-first Git worktree navigation for parallel human and AI workflows.</text>
+    <text x="500" y="552" fill="#98A8C0" font-family="Arial, Helvetica, sans-serif" font-size="23" font-weight="600">A Git worktree CLI for parallel human and AI workflows.</text>
   </g>
 </svg>
