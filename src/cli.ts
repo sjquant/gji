@@ -15,10 +15,13 @@ import { runLsCommand } from './ls.js';
 import { runNewCommand } from './new.js';
 import { runPrCommand } from './pr.js';
 import { runRemoveCommand } from './remove.js';
+import { registerRepo } from './repo-registry.js';
+import { detectRepository } from './repo.js';
 import { runRootCommand } from './root.js';
 import { runStatusCommand } from './status.js';
 import { runSyncCommand } from './sync.js';
 import { runTriggerHookCommand } from './trigger-hook.js';
+import { runWarpCommand } from './warp.js';
 
 interface PackageMetadata {
   name: string;
@@ -75,6 +78,7 @@ export async function runCli(
   options: RunCliOptions = {},
 ): Promise<RunCliResult> {
   await maybeNotifyForUpdates(argv);
+  maybeRegisterCurrentRepo(options.cwd ?? process.cwd());
 
   const program = createProgram();
   const cwd = options.cwd ?? process.cwd();
@@ -148,6 +152,12 @@ function defaultNotifyForUpdates(pkg: PackageMetadata): void {
   notifier.notify();
 }
 
+function maybeRegisterCurrentRepo(cwd: string): void {
+  detectRepository(cwd)
+    .then(({ repoRoot }) => registerRepo(repoRoot))
+    .catch(() => undefined);
+}
+
 function registerCommands(program: Command): void {
   program
     .command('new [branch]')
@@ -200,6 +210,7 @@ function registerCommands(program: Command): void {
 
   program
     .command('go [branch]')
+    .alias('jump')
     .description('print or select a worktree path')
     .option('--print', 'print the resolved worktree path explicitly')
     .action(notImplemented('go'));
@@ -252,6 +263,16 @@ function registerCommands(program: Command): void {
     .command('trigger-hook <hook>')
     .description('run a named hook (afterCreate, afterEnter, beforeRemove) in the current worktree')
     .action(notImplemented('trigger-hook'));
+
+  program
+    .command('warp [branch]')
+    .description('jump to any worktree across all known repos')
+    .option('-n, --new [branch]', 'create a new worktree in a registered repo')
+    // --print is the shell-wrapper bypass signal (see SHELL_WRAPPED_COMMANDS in init.ts).
+    // The shell omits GJI_WARP_OUTPUT_FILE, so writeShellOutput falls through to stdout.
+    .option('--print', 'print the resolved worktree path without changing directory')
+    .option('--json', 'emit JSON on success or error instead of human-readable output')
+    .action(notImplemented('warp'));
 
   const configCommand = program
     .command('config')
@@ -501,6 +522,26 @@ function attachCommandActions(
         cwd: options.cwd,
         hook,
         stderr: options.stderr,
+      });
+
+      if (exitCode !== 0) {
+        throw commanderExit(exitCode);
+      }
+    });
+
+  program.commands
+    .find((command) => command.name() === 'warp')
+    ?.action(async (branch: string | undefined, commandOptions: { json?: boolean; new?: string | boolean; print?: boolean }) => {
+      const newFlag = commandOptions.new;
+      const newWorktree = newFlag !== undefined && newFlag !== false;
+      const newBranch = typeof newFlag === 'string' ? newFlag : undefined;
+      const exitCode = await runWarpCommand({
+        branch: newWorktree ? (newBranch ?? branch) : branch,
+        cwd: options.cwd,
+        json: commandOptions.json,
+        newWorktree,
+        stderr: options.stderr,
+        stdout: options.stdout,
       });
 
       if (exitCode !== 0) {

@@ -8,6 +8,7 @@ import { extractHooks, runHook } from './hooks.js';
 import { appendHistory } from './history.js';
 import { detectRepository, listWorktrees, sortByCurrentFirst, type WorktreeEntry } from './repo.js';
 import { writeShellOutput } from './shell-handoff.js';
+import { resolveWarpTarget } from './warp.js';
 
 export interface GoCommandOptions {
   branch?: string;
@@ -29,10 +30,28 @@ export function createGoCommand(
   const prompt = dependencies.promptForWorktree ?? promptForWorktree;
 
   return async function runGoCommand(options: GoCommandOptions): Promise<number> {
-    const [worktrees, repository] = await Promise.all([
-      listWorktrees(options.cwd),
-      detectRepository(options.cwd),
-    ]);
+    let worktrees: WorktreeEntry[];
+    let repository: Awaited<ReturnType<typeof detectRepository>>;
+
+    try {
+      [worktrees, repository] = await Promise.all([
+        listWorktrees(options.cwd),
+        detectRepository(options.cwd),
+      ]);
+    } catch {
+      // Not inside a git repo — fall back to cross-repo navigation.
+      if (isHeadless() && !options.branch) {
+        options.stderr(
+          'gji go: branch argument is required in non-interactive mode (GJI_NO_TUI=1)\n',
+        );
+        return 1;
+      }
+      const target = await resolveWarpTarget({ ...options, commandName: 'gji go' });
+      if (!target) return 1;
+      appendHistory(target.path, target.branch).catch(() => undefined);
+      await writeShellOutput(GO_OUTPUT_FILE_ENV, target.path, options.stdout);
+      return 0;
+    }
 
     if (!options.branch && isHeadless()) {
       options.stderr('gji go: branch argument is required in non-interactive mode (GJI_NO_TUI=1)\n');

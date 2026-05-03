@@ -387,7 +387,7 @@ function gji --wraps gji --description 'gji shell integration'
         return $status
     end
 
-    if test (count $argv) -gt 0; and test $argv[1] = go
+    if test (count $argv) -gt 0; and begin; test $argv[1] = go; or test $argv[1] = jump; end
         set -e argv[1]
         if test (count $argv) -gt 0; and test $argv[1] = --print
             command gji go $argv
@@ -429,7 +429,7 @@ function gji --wraps gji --description 'gji shell integration'
         return $status
     end
 
-    if test (count $argv) -gt 0; and test $argv[1] = remove; or test $argv[1] = rm
+    if test (count $argv) -gt 0; and begin; test $argv[1] = remove; or test $argv[1] = rm; end
         set -e argv[1]
         if test (count $argv) -gt 0; and test $argv[1] = --help
             command gji remove $argv
@@ -439,6 +439,27 @@ function gji --wraps gji --description 'gji shell integration'
         set -l output_file (mktemp -t gji-remove.XXXXXX)
         or return 1
         env GJI_REMOVE_OUTPUT_FILE=$output_file command gji remove $argv
+        or begin
+            set -l status_code $status
+            rm -f $output_file
+            return $status_code
+        end
+        set -l target (cat $output_file)
+        rm -f $output_file
+        cd $target
+        return $status
+    end
+
+    if test (count $argv) -gt 0; and test $argv[1] = warp
+        set -e argv[1]
+        if test (count $argv) -gt 0; and begin; test $argv[1] = --print; or test $argv[1] = --json; end
+            command gji warp $argv
+            return $status
+        end
+
+        set -l output_file (mktemp -t gji-warp.XXXXXX)
+        or return 1
+        env GJI_WARP_OUTPUT_FILE=$output_file command gji warp $argv
         or begin
             set -l status_code $status
             rm -f $output_file
