@@ -1,7 +1,13 @@
 ---
 sidebar_position: 3
 title: Quick Start
-description: Start a feature, review a pull request, jump between worktrees, and clean up after the task.
+description: Start a feature, warp between worktrees, review a pull request, and clean up after the task.
+keywords:
+  - git worktree quick start
+  - git warp command
+  - gji warp
+  - pull request review cli
+image: /img/social-card.png
 ---
 
 # Quick start
@@ -34,6 +40,8 @@ gji pr https://github.com/org/repo/pull/1234
 ## Jump between contexts
 
 ```bash
+gji warp feature/dark-mode
+gji warp repo-a/main
 gji go feature/dark-mode
 gji back       # return to the previous worktree
 gji back 2     # go two steps back in history
@@ -41,7 +49,17 @@ gji go main
 gji root
 ```
 
+Use `gji warp` when you want branch-first navigation across every registered repo instead of only the repo you are currently standing in.
+
 `gji back` returns you to the last worktree you were in — like `cd -` but for worktrees. Pass a number to jump further. Use `gji history` to see where you've been.
+
+## Create work in another repo from the same entry point
+
+```bash
+gji warp --new fix/copy-regression
+```
+
+If only one repo has been registered, `gji` creates the worktree there directly. If several repos are known, it lets you pick the target repo first.
 
 ## Check what is open
 

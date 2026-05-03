@@ -4,7 +4,7 @@ import type * as Preset from '@docusaurus/preset-classic';
 
 const config: Config = {
   title: 'gji',
-  tagline: 'Git worktrees without the hassle',
+  tagline: 'Warp across Git worktrees without the hassle',
   favicon: 'img/favicon.ico',
   future: {
     v4: true,
@@ -42,6 +42,17 @@ const config: Config = {
   ],
   plugins: ['./plugins/clipboard-fallback'],
   themeConfig: {
+    image: 'img/social-card.png',
+    metadata: [
+      {
+        name: 'keywords',
+        content: 'git worktree cli, git worktree navigation, git warp command, multi repo worktree, pull request review cli, git stash alternative, ai coding workflow',
+      },
+      {
+        name: 'twitter:card',
+        content: 'summary_large_image',
+      },
+    ],
     colorMode: {
       defaultMode: 'light',
       respectPrefersColorScheme: false,
