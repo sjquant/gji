@@ -166,4 +166,46 @@ describe('runWarpCommand --json', () => {
     expect(parsed.branch).toBe('feature/json-test');
     expect(parsed.path).toBe(worktreePath);
   });
+
+  it('outputs JSON error when no repos are registered (json mode)', async () => {
+    const configDir = await makeConfigDir();
+    process.env.GJI_CONFIG_DIR = configDir;
+
+    const errors: string[] = [];
+    const exitCode = await runWarpCommand({
+      branch: 'feature/any',
+      cwd: '/',
+      json: true,
+      stderr: (msg) => errors.push(msg),
+      stdout: () => undefined,
+    });
+
+    expect(exitCode).toBe(1);
+    const parsed = JSON.parse(errors.join(''));
+    expect(parsed).toHaveProperty('error');
+    expect(parsed.error).toMatch(/no repos registered yet/);
+  });
+
+  it('outputs JSON { branch, path } when creating a new worktree with --new --json', async () => {
+    const configDir = await makeConfigDir();
+    process.env.GJI_CONFIG_DIR = configDir;
+
+    const repoRoot = await createRepository();
+    await registerRepo(repoRoot);
+
+    const outputs: string[] = [];
+    const exitCode = await runWarpCommand({
+      branch: 'feature/warp-new-json',
+      cwd: '/',
+      json: true,
+      newWorktree: true,
+      stderr: () => undefined,
+      stdout: (msg) => outputs.push(msg),
+    });
+
+    expect(exitCode).toBe(0);
+    const parsed = JSON.parse(outputs.join(''));
+    expect(parsed.branch).toBe('feature/warp-new-json');
+    expect(typeof parsed.path).toBe('string');
+  });
 });

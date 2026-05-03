@@ -55,10 +55,11 @@ async function runWarpNavigate(
     return 1;
   }
 
-  const target = await resolveWarpTarget({ ...options, commandName: 'gji warp' });
+  const target = await resolveWarpTarget({ ...options, commandName: 'gji warp', json: options.json });
   if (!target) return 1;
 
   if (options.json) {
+    // json callers use the output programmatically; skip history and shell handoff.
     options.stdout(`${JSON.stringify({ branch: target.branch, path: target.path }, null, 2)}\n`);
     return 0;
   }
@@ -159,13 +160,23 @@ export interface WarpTarget {
 }
 
 export async function resolveWarpTarget(
-  options: { branch?: string; commandName?: string; cwd: string; stderr: (chunk: string) => void },
+  options: { branch?: string; commandName?: string; cwd: string; json?: boolean; stderr: (chunk: string) => void },
 ): Promise<WarpTarget | null> {
   const cmd = options.commandName ?? 'gji';
+
+  const emitError = (message: string, hint?: string): void => {
+    if (options.json) {
+      options.stderr(`${JSON.stringify({ error: message }, null, 2)}\n`);
+    } else {
+      options.stderr(`${cmd}: ${message}\n`);
+      if (hint) options.stderr(hint);
+    }
+  };
+
   const registry = await loadRegistry();
   if (registry.length === 0) {
-    options.stderr(
-      `${cmd}: not in a git repository and no repos registered yet.\n` +
+    emitError(
+      'not in a git repository and no repos registered yet.',
       'Use any gji command inside a repository to register it.\n',
     );
     return null;
@@ -188,14 +199,14 @@ export async function resolveWarpTarget(
   }
 
   if (allItems.length === 0) {
-    options.stderr(`${cmd}: no accessible worktrees found in any registered repo.\n`);
+    emitError('no accessible worktrees found in any registered repo.');
     return null;
   }
 
   if (options.branch) {
     const match = findByQuery(allItems, options.branch);
     if (!match) {
-      options.stderr(`${cmd}: no worktree found matching: ${options.branch}\n`);
+      emitError(`no worktree found matching: ${options.branch}`);
       return null;
     }
     return { branch: match.worktree.branch, path: match.worktree.path };

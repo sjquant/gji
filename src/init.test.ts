@@ -387,7 +387,7 @@ function gji --wraps gji --description 'gji shell integration'
         return $status
     end
 
-    if test (count $argv) -gt 0; and test $argv[1] = go; or test $argv[1] = jump
+    if test (count $argv) -gt 0; and begin; test $argv[1] = go; or test $argv[1] = jump; end
         set -e argv[1]
         if test (count $argv) -gt 0; and test $argv[1] = --print
             command gji go $argv
@@ -429,7 +429,7 @@ function gji --wraps gji --description 'gji shell integration'
         return $status
     end
 
-    if test (count $argv) -gt 0; and test $argv[1] = remove; or test $argv[1] = rm
+    if test (count $argv) -gt 0; and begin; test $argv[1] = remove; or test $argv[1] = rm; end
         set -e argv[1]
         if test (count $argv) -gt 0; and test $argv[1] = --help
             command gji remove $argv
@@ -452,7 +452,7 @@ function gji --wraps gji --description 'gji shell integration'
 
     if test (count $argv) -gt 0; and test $argv[1] = warp
         set -e argv[1]
-        if test (count $argv) -gt 0; and test $argv[1] = --print
+        if test (count $argv) -gt 0; and begin; test $argv[1] = --print; or test $argv[1] = --json; end
             command gji warp $argv
             return $status
         end

@@ -11,7 +11,7 @@ const START_MARKER = '# >>> gji init >>>';
 const END_MARKER = '# <<< gji init <<<';
 
 interface ShellWrappedCommand {
-  bypassOption: '--help' | '--print';
+  bypassOptions: string[];
   commandName: string;
   envVar: string;
   names: string[];
@@ -20,49 +20,49 @@ interface ShellWrappedCommand {
 
 const SHELL_WRAPPED_COMMANDS: ShellWrappedCommand[] = [
   {
-    bypassOption: '--help',
+    bypassOptions: ['--help'],
     commandName: 'new',
     envVar: 'GJI_NEW_OUTPUT_FILE',
     names: ['new'],
     tempPrefix: 'gji-new',
   },
   {
-    bypassOption: '--help',
+    bypassOptions: ['--help'],
     commandName: 'pr',
     envVar: 'GJI_PR_OUTPUT_FILE',
     names: ['pr'],
     tempPrefix: 'gji-pr',
   },
   {
-    bypassOption: '--print',
+    bypassOptions: ['--print'],
     commandName: 'back',
     envVar: 'GJI_BACK_OUTPUT_FILE',
     names: ['back'],
     tempPrefix: 'gji-back',
   },
   {
-    bypassOption: '--print',
+    bypassOptions: ['--print'],
     commandName: 'go',
     envVar: 'GJI_GO_OUTPUT_FILE',
     names: ['go', 'jump'],
     tempPrefix: 'gji-go',
   },
   {
-    bypassOption: '--print',
+    bypassOptions: ['--print'],
     commandName: 'root',
     envVar: 'GJI_ROOT_OUTPUT_FILE',
     names: ['root'],
     tempPrefix: 'gji-root',
   },
   {
-    bypassOption: '--help',
+    bypassOptions: ['--help'],
     commandName: 'remove',
     envVar: 'GJI_REMOVE_OUTPUT_FILE',
     names: ['remove', 'rm'],
     tempPrefix: 'gji-remove',
   },
   {
-    bypassOption: '--print',
+    bypassOptions: ['--print', '--json'],
     commandName: 'warp',
     envVar: 'GJI_WARP_OUTPUT_FILE',
     names: ['warp'],
@@ -254,11 +254,21 @@ function isMissingFileError(error: unknown): error is NodeJS.ErrnoException {
 }
 
 function renderFishWrapper(command: ShellWrappedCommand): string {
-  const tests = command.names.map((name) => `test $argv[1] = ${name}`).join('; or ');
+  const nameTests = command.names.map((name) => `test $argv[1] = ${name}`);
+  const nameCondition =
+    nameTests.length === 1
+      ? nameTests[0]
+      : `begin; ${nameTests.join('; or ')}; end`;
 
-  return `if test (count $argv) -gt 0; and ${tests}
+  const bypassTests = command.bypassOptions.map((opt) => `test $argv[1] = ${opt}`);
+  const bypassCondition =
+    bypassTests.length === 1
+      ? bypassTests[0]
+      : `begin; ${bypassTests.join('; or ')}; end`;
+
+  return `if test (count $argv) -gt 0; and ${nameCondition}
     set -e argv[1]
-    if test (count $argv) -gt 0; and test $argv[1] = ${command.bypassOption}
+    if test (count $argv) -gt 0; and ${bypassCondition}
         command gji ${command.commandName} $argv
         return $status
     end
@@ -280,10 +290,11 @@ end`;
 
 function renderPosixWrapper(command: ShellWrappedCommand): string {
   const tests = command.names.map((name) => `[ "$1" = "${name}" ]`).join(' || ');
+  const bypassTests = command.bypassOptions.map((opt) => `[ "\${1:-}" = "${opt}" ]`).join(' || ');
 
   return `if ${tests}; then
   shift
-  if [ "\${1:-}" = "${command.bypassOption}" ]; then
+  if ${bypassTests}; then
     command gji ${command.commandName} "$@"
     return $?
   fi
