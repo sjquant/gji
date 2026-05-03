@@ -1,6 +1,6 @@
 {
   "name": "@solaqua/gji",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "Git worktree CLI for fast context switching.",
   "license": "MIT",
   "author": "sjquant",
@@ -64,6 +64,8 @@
     "vitest": "^3.2.4"
   },
   "pnpm": {
-    "onlyBuiltDependencies": ["esbuild"]
+    "onlyBuiltDependencies": [
+      "esbuild"
+    ]
   }
 }
