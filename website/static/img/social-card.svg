@@ -24,43 +24,44 @@
   <rect x="22" y="22" width="1156" height="586" rx="28" stroke="#5B6472" stroke-width="2"/>
 
   <g opacity="0.9">
-    <rect x="124" y="146" width="310" height="338" rx="38" fill="#0F141D" stroke="#293244" stroke-width="2"/>
-    <path d="M215 436V194" stroke="#717B8D" stroke-width="10" stroke-linecap="round"/>
-    <path d="M344 436V194" stroke="#717B8D" stroke-width="10" stroke-linecap="round"/>
-    <path d="M215 400C215 301 344 314 344 194" stroke="url(#warpStroke)" stroke-width="38" stroke-linecap="round" opacity="0.15"/>
-    <path d="M215 400C215 301 344 314 344 194" stroke="url(#warpStroke)" stroke-width="18" stroke-linecap="round" opacity="0.28"/>
-    <path d="M215 400C215 301 344 314 344 194" stroke="url(#warpStroke)" stroke-width="7" stroke-linecap="round"/>
-    <circle cx="215" cy="400" r="16" fill="#09090B" stroke="#FF007A" stroke-width="6"/>
-    <circle cx="344" cy="194" r="38" stroke="#00E5FF" stroke-width="2" opacity="0.2"/>
-    <circle cx="344" cy="194" r="23" stroke="#00E5FF" stroke-width="3" opacity="0.45"/>
-    <circle cx="344" cy="194" r="13" fill="#00E5FF"/>
-    <circle cx="344" cy="194" r="5" fill="#09090B"/>
+    <rect x="106" y="146" width="270" height="338" rx="34" fill="#0F141D" stroke="#293244" stroke-width="2"/>
+    <path d="M190 436V194" stroke="#717B8D" stroke-width="10" stroke-linecap="round"/>
+    <path d="M318 436V194" stroke="#717B8D" stroke-width="10" stroke-linecap="round"/>
+    <path d="M190 400C190 301 318 314 318 194" stroke="url(#warpStroke)" stroke-width="38" stroke-linecap="round" opacity="0.15"/>
+    <path d="M190 400C190 301 318 314 318 194" stroke="url(#warpStroke)" stroke-width="18" stroke-linecap="round" opacity="0.28"/>
+    <path d="M190 400C190 301 318 314 318 194" stroke="url(#warpStroke)" stroke-width="7" stroke-linecap="round"/>
+    <circle cx="190" cy="400" r="16" fill="#09090B" stroke="#FF007A" stroke-width="6"/>
+    <circle cx="318" cy="194" r="38" stroke="#00E5FF" stroke-width="2" opacity="0.2"/>
+    <circle cx="318" cy="194" r="23" stroke="#00E5FF" stroke-width="3" opacity="0.45"/>
+    <circle cx="318" cy="194" r="13" fill="#00E5FF"/>
+    <circle cx="318" cy="194" r="5" fill="#09090B"/>
   </g>
 
   <g>
-    <rect x="500" y="130" width="214" height="40" rx="20" fill="rgba(255, 0, 122, 0.12)" stroke="rgba(255, 0, 122, 0.32)"/>
-    <text x="607" y="155" fill="#FF7CB8" font-family="Arial, Helvetica, sans-serif" font-size="20" font-weight="700" letter-spacing="2.4" text-anchor="middle">GIT WORKTREE CLI</text>
+    <rect x="440" y="130" width="214" height="40" rx="20" fill="rgba(255, 0, 122, 0.12)" stroke="rgba(255, 0, 122, 0.32)"/>
+    <text x="547" y="155" fill="#FF7CB8" font-family="Arial, Helvetica, sans-serif" font-size="20" font-weight="700" letter-spacing="2.4" text-anchor="middle">GIT WORKTREE CLI</text>
 
-    <text x="500" y="254" fill="#F5F8FF" font-family="Arial, Helvetica, sans-serif" font-size="66" font-weight="700">
-      <tspan x="500" dy="0">Git worktrees</tspan>
-      <tspan x="500" dy="76">without the hassle</tspan>
+    <text x="440" y="244" fill="#F5F8FF" font-family="Arial, Helvetica, sans-serif" font-size="56" font-weight="700">
+      <tspan x="440" dy="0">Git worktrees</tspan>
+      <tspan x="440" dy="68">without the hassle</tspan>
     </text>
 
-    <text x="500" y="386" fill="#C4CFE0" font-family="Arial, Helvetica, sans-serif" font-size="28" font-weight="500">
-      <tspan x="500" dy="0">Create feature worktrees, review PRs in isolation, and move</tspan>
-      <tspan x="500" dy="40">between active tasks with clean paths and predictable state.</tspan>
+    <text x="440" y="370" fill="#C4CFE0" font-family="Arial, Helvetica, sans-serif" font-size="26" font-weight="500">
+      <tspan x="440" dy="0">Create feature worktrees, review PRs in isolation,</tspan>
+      <tspan x="440" dy="36">and move between active tasks with clean paths</tspan>
+      <tspan x="440" dy="36">and predictable state.</tspan>
     </text>
 
     <g>
-      <rect x="500" y="446" width="348" height="54" rx="14" fill="rgba(255,255,255,0.06)" stroke="rgba(74,223,255,0.2)"/>
-      <text x="528" y="480" fill="#4ADFFF" font-family="Courier New, monospace" font-size="24" font-weight="700">gji new feature/payment-refactor</text>
+      <rect x="440" y="448" width="372" height="54" rx="14" fill="rgba(255,255,255,0.06)" stroke="rgba(74,223,255,0.2)"/>
+      <text x="468" y="481" fill="#4ADFFF" font-family="Courier New, Menlo, Consolas, monospace" font-size="21" font-weight="700" textLength="316" lengthAdjust="spacingAndGlyphs">gji new feature/auth-refactor</text>
     </g>
 
     <g>
-      <rect x="872" y="446" width="171" height="54" rx="14" fill="rgba(255,255,255,0.06)" stroke="rgba(255,255,255,0.12)"/>
-      <text x="900" y="480" fill="#F5F8FF" font-family="Courier New, monospace" font-size="24" font-weight="700">gji pr 1234</text>
+      <rect x="834" y="448" width="154" height="54" rx="14" fill="rgba(255,255,255,0.06)" stroke="rgba(255,255,255,0.12)"/>
+      <text x="860" y="481" fill="#F5F8FF" font-family="Courier New, Menlo, Consolas, monospace" font-size="21" font-weight="700" textLength="102" lengthAdjust="spacingAndGlyphs">gji pr 1234</text>
     </g>
 
-    <text x="500" y="552" fill="#98A8C0" font-family="Arial, Helvetica, sans-serif" font-size="23" font-weight="600">A Git worktree CLI for parallel human and AI workflows.</text>
+    <text x="440" y="560" fill="#98A8C0" font-family="Arial, Helvetica, sans-serif" font-size="22" font-weight="600">A Git worktree CLI for parallel human and AI workflows.</text>
   </g>
 </svg>
