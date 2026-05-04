@@ -1,66 +1,117 @@
 <svg width="1200" height="630" viewBox="0 0 1200 630" fill="none" xmlns="http://www.w3.org/2000/svg">
   <defs>
-    <radialGradient id="bgLeft" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(220 120) rotate(35) scale(420 320)">
-      <stop stop-color="#FF007A" stop-opacity="0.24"/>
+    <linearGradient id="pageBg" x1="92" y1="52" x2="1118" y2="586" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#101522"/>
+      <stop offset="1" stop-color="#060A12"/>
+    </linearGradient>
+    <radialGradient id="pinkGlow" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(212 196) rotate(35) scale(328 256)">
+      <stop stop-color="#FF007A" stop-opacity="0.22"/>
       <stop offset="1" stop-color="#FF007A" stop-opacity="0"/>
     </radialGradient>
-    <radialGradient id="bgRight" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(990 120) rotate(145) scale(460 360)">
+    <radialGradient id="cyanGlow" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(958 154) rotate(145) scale(412 296)">
       <stop stop-color="#00E5FF" stop-opacity="0.24"/>
       <stop offset="1" stop-color="#00E5FF" stop-opacity="0"/>
     </radialGradient>
-    <linearGradient id="bgBase" x1="120" y1="70" x2="1080" y2="560" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#1E2430"/>
-      <stop offset="1" stop-color="#0E121A"/>
-    </linearGradient>
-    <linearGradient id="warpStroke" x1="215" y1="452" x2="344" y2="212" gradientUnits="userSpaceOnUse">
+    <radialGradient id="cardGlow" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(288 304) rotate(90) scale(236 236)">
+      <stop stop-color="#1A2233"/>
+      <stop offset="1" stop-color="#0A0E16"/>
+    </radialGradient>
+    <linearGradient id="warpGradient" x1="239" y1="399" x2="363" y2="208" gradientUnits="userSpaceOnUse">
       <stop offset="0.05" stop-color="#FF007A"/>
       <stop offset="1" stop-color="#00E5FF"/>
     </linearGradient>
+    <linearGradient id="trailGradient" x1="376" y1="323" x2="738" y2="323" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FF007A" stop-opacity="0.34"/>
+      <stop offset="0.5" stop-color="#7D6CFF" stop-opacity="0.18"/>
+      <stop offset="1" stop-color="#00E5FF" stop-opacity="0"/>
+    </linearGradient>
+    <filter id="cardShadow" x="121" y="106" width="335" height="395" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feFlood flood-opacity="0" result="BackgroundImageFix"/>
+      <feColorMatrix in="SourceAlpha" type="matrix" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0" result="hardAlpha"/>
+      <feOffset dy="14"/>
+      <feGaussianBlur stdDeviation="20"/>
+      <feComposite in2="hardAlpha" operator="out"/>
+      <feColorMatrix type="matrix" values="0 0 0 0 0.0117647 0 0 0 0 0.0431373 0 0 0 0 0.113725 0 0 0 0.42 0"/>
+      <feBlend mode="normal" in2="BackgroundImageFix" result="effect1_dropShadow_1_1"/>
+      <feBlend mode="normal" in="SourceGraphic" in2="effect1_dropShadow_1_1" result="shape"/>
+    </filter>
   </defs>
-  <rect width="1200" height="630" rx="36" fill="#090D14"/>
-  <rect x="22" y="22" width="1156" height="586" rx="28" fill="url(#bgBase)"/>
-  <rect x="22" y="22" width="1156" height="586" rx="28" fill="url(#bgLeft)"/>
-  <rect x="22" y="22" width="1156" height="586" rx="28" fill="url(#bgRight)"/>
-  <rect x="22" y="22" width="1156" height="586" rx="28" stroke="#5B6472" stroke-width="2"/>
 
-  <g opacity="0.9">
-    <rect x="124" y="146" width="310" height="338" rx="38" fill="#0F141D" stroke="#293244" stroke-width="2"/>
-    <path d="M215 436V194" stroke="#717B8D" stroke-width="10" stroke-linecap="round"/>
-    <path d="M344 436V194" stroke="#717B8D" stroke-width="10" stroke-linecap="round"/>
-    <path d="M215 400C215 301 344 314 344 194" stroke="url(#warpStroke)" stroke-width="38" stroke-linecap="round" opacity="0.15"/>
-    <path d="M215 400C215 301 344 314 344 194" stroke="url(#warpStroke)" stroke-width="18" stroke-linecap="round" opacity="0.28"/>
-    <path d="M215 400C215 301 344 314 344 194" stroke="url(#warpStroke)" stroke-width="7" stroke-linecap="round"/>
-    <circle cx="215" cy="400" r="16" fill="#09090B" stroke="#FF007A" stroke-width="6"/>
-    <circle cx="344" cy="194" r="38" stroke="#00E5FF" stroke-width="2" opacity="0.2"/>
-    <circle cx="344" cy="194" r="23" stroke="#00E5FF" stroke-width="3" opacity="0.45"/>
-    <circle cx="344" cy="194" r="13" fill="#00E5FF"/>
-    <circle cx="344" cy="194" r="5" fill="#09090B"/>
+  <rect width="1200" height="630" rx="36" fill="#050811"/>
+  <rect x="20" y="20" width="1160" height="590" rx="30" fill="url(#pageBg)"/>
+  <rect x="20" y="20" width="1160" height="590" rx="30" fill="url(#pinkGlow)"/>
+  <rect x="20" y="20" width="1160" height="590" rx="30" fill="url(#cyanGlow)"/>
+  <rect x="20" y="20" width="1160" height="590" rx="30" stroke="#4E596D" stroke-width="2"/>
+
+  <path d="M402 326C470 316 546 313 739 323" stroke="url(#trailGradient)" stroke-width="10" stroke-linecap="round"/>
+  <path d="M402 326C482 322 546 321 698 326" stroke="url(#trailGradient)" stroke-width="28" stroke-linecap="round" opacity="0.08"/>
+
+  <g filter="url(#cardShadow)">
+    <rect x="161" y="146" width="254" height="314" rx="46" fill="url(#cardGlow)"/>
+    <rect x="161" y="146" width="254" height="314" rx="46" stroke="#566173" stroke-width="2"/>
+    <path d="M239 398V208" stroke="#767F8F" stroke-width="8" stroke-linecap="round"/>
+    <path d="M337 398V208" stroke="#767F8F" stroke-width="8" stroke-linecap="round"/>
+    <path d="M239 370C239 289 337 294 337 208" stroke="url(#warpGradient)" stroke-width="28" stroke-linecap="round" opacity="0.15"/>
+    <path d="M239 370C239 289 337 294 337 208" stroke="url(#warpGradient)" stroke-width="14" stroke-linecap="round" opacity="0.28"/>
+    <path d="M239 370C239 289 337 294 337 208" stroke="url(#warpGradient)" stroke-width="6" stroke-linecap="round"/>
+    <circle cx="239" cy="370" r="13" fill="#09090B" stroke="#FF007A" stroke-width="5"/>
+    <circle cx="337" cy="208" r="31" stroke="#00E5FF" stroke-width="1.5" opacity="0.16"/>
+    <circle cx="337" cy="208" r="19" stroke="#00E5FF" stroke-width="2.5" opacity="0.42"/>
+    <circle cx="337" cy="208" r="11" fill="#00E5FF"/>
+    <circle cx="337" cy="208" r="4" fill="#09090B"/>
   </g>
 
   <g>
-    <rect x="500" y="130" width="214" height="40" rx="20" fill="rgba(255, 0, 122, 0.12)" stroke="rgba(255, 0, 122, 0.32)"/>
-    <text x="607" y="155" fill="#FF7CB8" font-family="Arial, Helvetica, sans-serif" font-size="20" font-weight="700" letter-spacing="2.4" text-anchor="middle">GIT WORKTREE CLI</text>
+    <rect x="500" y="154" width="184" height="38" rx="19" fill="#101826" stroke="#253147"/>
+    <text
+      x="592"
+      y="178"
+      fill="#9CB2D7"
+      font-family="Arial, Helvetica, sans-serif"
+      font-size="18"
+      font-weight="650"
+      letter-spacing="2.8"
+      text-anchor="middle">GIT WORKTREE CLI</text>
 
-    <text x="500" y="254" fill="#F5F8FF" font-family="Arial, Helvetica, sans-serif" font-size="66" font-weight="700">
-      <tspan x="500" dy="0">Git worktrees</tspan>
-      <tspan x="500" dy="76">without the hassle</tspan>
-    </text>
+    <text
+      x="500"
+      y="324"
+      fill="#F7FAFF"
+      font-family="Arial, Helvetica, sans-serif"
+      font-size="138"
+      font-weight="760"
+      letter-spacing="-5">gji</text>
 
-    <text x="500" y="386" fill="#C4CFE0" font-family="Arial, Helvetica, sans-serif" font-size="28" font-weight="500">
-      <tspan x="500" dy="0">Create feature worktrees, review PRs in isolation, and move</tspan>
-      <tspan x="500" dy="40">between active tasks with clean paths and predictable state.</tspan>
-    </text>
+    <text
+      x="500"
+      y="394"
+      fill="#DCE6F8"
+      font-family="Arial, Helvetica, sans-serif"
+      font-size="44"
+      font-weight="600"
+      letter-spacing="-1.2">Git worktrees without the hassle</text>
 
-    <g>
-      <rect x="500" y="446" width="348" height="54" rx="14" fill="rgba(255,255,255,0.06)" stroke="rgba(74,223,255,0.2)"/>
-      <text x="528" y="480" fill="#4ADFFF" font-family="Courier New, monospace" font-size="24" font-weight="700">gji new feature/payment-refactor</text>
-    </g>
+  </g>
 
-    <g>
-      <rect x="872" y="446" width="171" height="54" rx="14" fill="rgba(255,255,255,0.06)" stroke="rgba(255,255,255,0.12)"/>
-      <text x="900" y="480" fill="#F5F8FF" font-family="Courier New, monospace" font-size="24" font-weight="700">gji pr 1234</text>
-    </g>
+  <g opacity="0.8">
+    <rect x="500" y="468" width="192" height="48" rx="14" fill="#0F1523" stroke="#1E2A40"/>
+    <text
+      x="596"
+      y="498"
+      fill="#4ADFFF"
+      font-family="Courier New, monospace"
+      font-size="23"
+      font-weight="650"
+      text-anchor="middle">gji pr 1234</text>
 
-    <text x="500" y="552" fill="#98A8C0" font-family="Arial, Helvetica, sans-serif" font-size="23" font-weight="600">A Git worktree CLI for parallel human and AI workflows.</text>
+    <rect x="710" y="468" width="284" height="48" rx="14" fill="#0F1523" stroke="#1E2A40"/>
+    <text
+      x="852"
+      y="498"
+      fill="#FF7BB7"
+      font-family="Courier New, monospace"
+      font-size="23"
+      font-weight="650"
+      text-anchor="middle">gji new feature/auth</text>
   </g>
 </svg>

@@ -170,7 +170,7 @@ function SiteHead({
       <meta property="og:image" content={socialImageUrl} />
       <meta
         property="og:image:alt"
-        content="gji social card showing Git worktree workflows across repositories"
+        content="gji social card with the gji logo and the subtitle Git worktrees without the hassle"
       />
       <meta name="twitter:card" content="summary_large_image" />
       <meta name="twitter:title" content="gji | Git worktrees without the hassle" />
@@ -178,7 +178,7 @@ function SiteHead({
       <meta name="twitter:image" content={socialImageUrl} />
       <meta
         name="twitter:image:alt"
-        content="gji social card showing Git worktree workflows across repositories"
+        content="gji social card with the gji logo and the subtitle Git worktrees without the hassle"
       />
       <script type="application/ld+json">{JSON.stringify(jsonLd)}</script>
     </Head>
