@@ -20,15 +20,43 @@ await main();
 
 async function main() {
   try {
+    const demos = buildDemos();
+    const requestedDemoIds = readRequestedDemoIds();
+    const demosToGenerate = selectDemos(demos, requestedDemoIds);
+
     assertSupportedEnvironment();
     mkdirSync(OUTPUT_DIR, { recursive: true });
 
-    for (const demo of buildDemos()) {
+    for (const demo of demosToGenerate) {
       generateDemo(demo);
     }
   } finally {
     rmSync(WORK_DIR, { recursive: true, force: true });
   }
+}
+
+function selectDemos(demos, requestedDemoIds) {
+  if (requestedDemoIds.length === 0) {
+    return demos;
+  }
+
+  const unknownDemoIds = findUnknownDemoIds(demos, requestedDemoIds);
+  if (unknownDemoIds.length > 0) {
+    const knownDemoIds = demos.map((demo) => demo.id).join(', ');
+    throw new Error(`Unknown demo id(s): ${unknownDemoIds.join(', ')}. Known demos: ${knownDemoIds}.`);
+  }
+
+  return demos.filter((demo) => requestedDemoIds.includes(demo.id));
+}
+
+function findUnknownDemoIds(demos, requestedDemoIds) {
+  const knownDemoIds = new Set(demos.map((demo) => demo.id));
+
+  return requestedDemoIds.filter((demoId) => !knownDemoIds.has(demoId));
+}
+
+function readRequestedDemoIds() {
+  return process.argv.slice(2).filter((value) => value !== '--');
 }
 
 function assertSupportedEnvironment() {
@@ -58,13 +86,14 @@ function generateDemo(demo) {
   const demoDir = join(WORK_DIR, demo.id);
   mkdirSync(demoDir, { recursive: true });
 
+  const outputBase = demo.outputName ?? `readme-${demo.id}`;
   const scriptPath = join(demoDir, `${demo.id}.sh`);
-  const castV3Path = join(OUTPUT_DIR, `readme-${demo.id}.cast`);
+  const castV3Path = join(OUTPUT_DIR, `${outputBase}.cast`);
   const castV2Path = join(demoDir, `${demo.id}-v2.cast`);
   const frameSvgDir = join(demoDir, 'frame-svgs');
   const framesDir = join(demoDir, 'frames');
   const concatPath = join(demoDir, `${demo.id}.concat.txt`);
-  const gifPath = join(OUTPUT_DIR, `readme-${demo.id}.gif`);
+  const gifPath = join(OUTPUT_DIR, `${outputBase}.gif`);
 
   mkdirSync(frameSvgDir, { recursive: true });
   mkdirSync(framesDir, { recursive: true });
@@ -137,6 +166,27 @@ function buildDemos() {
         { text: prompt('gji ls', '~/code/worktrees/gji/pr-1234'), pauseAfterSeconds: 0.5 },
         { text: 'main      ~/code/gji', pauseAfterSeconds: 0.35 },
         { text: 'pr-1234   ~/code/worktrees/gji/pr-1234', pauseAfterSeconds: 1.3 },
+      ],
+    },
+    {
+      id: 'social-launch',
+      outputName: 'social-launch',
+      cols: 78,
+      rows: 14,
+      steps: [
+        { text: prompt('gji warp'), pauseAfterSeconds: 0.6 },
+        { text: '? Warp to a worktree', pauseAfterSeconds: 0.25 },
+        { text: '  gji / main                 up to date / ~/code/gji', pauseAfterSeconds: 0.25 },
+        { text: '> gji / ai-agent             no upstream / ~/wt/gji/ai-agent', pauseAfterSeconds: 0.35 },
+        { text: '  app / fix-render           ahead 2 / ~/wt/app/fix-render', pauseAfterSeconds: 0.35 },
+        { text: '  dotfiles / main            up to date / ~/code/dotfiles', pauseAfterSeconds: 0.6 },
+        { text: '~/wt/gji/ai-agent', pauseAfterSeconds: 0.55 },
+        { text: prompt('gji new ai-review --open --editor cursor', '~/wt/gji/ai-agent'), pauseAfterSeconds: 0.6 },
+        { text: '~/wt/gji/ai-review', pauseAfterSeconds: 0.5 },
+        { text: prompt('gji ls --compact', '~/wt/gji/ai-review'), pauseAfterSeconds: 0.55 },
+        { text: 'main                 ~/code/gji', pauseAfterSeconds: 0.25 },
+        { text: 'ai-agent             ~/wt/gji/ai-agent', pauseAfterSeconds: 0.25 },
+        { text: 'ai-review            ~/wt/gji/ai-review', pauseAfterSeconds: 1.25 },
       ],
     },
   ];
