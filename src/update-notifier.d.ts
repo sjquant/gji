@@ -1,16 +1,18 @@
-declare module 'update-notifier' {
-  interface PackageMetadata {
-    name: string;
-    version: string;
-  }
+declare module "update-notifier" {
+	interface PackageMetadata {
+		name: string;
+		version: string;
+	}
 
-  interface Notifier {
-    notify(): void;
-  }
+	interface Notifier {
+		notify(): void;
+	}
 
-  interface UpdateNotifierOptions {
-    pkg: PackageMetadata;
-  }
+	interface UpdateNotifierOptions {
+		pkg: PackageMetadata;
+	}
 
-  export default function updateNotifier(options: UpdateNotifierOptions): Notifier;
+	export default function updateNotifier(
+		options: UpdateNotifierOptions,
+	): Notifier;
 }

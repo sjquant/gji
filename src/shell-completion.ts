@@ -1,49 +1,60 @@
-import { KNOWN_GLOBAL_CONFIG_KEYS } from './config.js';
+import { KNOWN_GLOBAL_CONFIG_KEYS } from "./config.js";
 
 const TOP_LEVEL_COMMANDS = [
-  { name: 'new', description: 'create a new branch or detached linked worktree' },
-  { name: 'init', description: 'print or install shell integration' },
-  { name: 'completion', description: 'print shell completion definitions' },
-  { name: 'pr', description: 'fetch a pull request into a linked worktree' },
-  { name: 'back', description: 'navigate to the previously visited worktree' },
-  { name: 'history', description: 'show navigation history' },
-  { name: 'open', description: 'open the worktree in an editor' },
-  { name: 'go', description: 'print or select a worktree path' },
-  { name: 'jump', description: 'alias of go' },
-  { name: 'root', description: 'print the main repository root path' },
-  { name: 'status', description: 'summarize repository and worktree health' },
-  { name: 'sync', description: 'fetch and update one or all worktrees' },
-  { name: 'ls', description: 'list active worktrees' },
-  { name: 'clean', description: 'interactively prune linked worktrees' },
-  { name: 'remove', description: 'remove a linked worktree and delete its branch when present' },
-  { name: 'rm', description: 'alias of remove' },
-  { name: 'trigger-hook', description: 'run a named hook in the current worktree' },
-  { name: 'warp', description: 'jump to any worktree across all known repos' },
-  { name: 'config', description: 'manage global config defaults' },
+	{
+		name: "new",
+		description: "create a new branch or detached linked worktree",
+	},
+	{ name: "init", description: "print or install shell integration" },
+	{ name: "completion", description: "print shell completion definitions" },
+	{ name: "pr", description: "fetch a pull request into a linked worktree" },
+	{ name: "back", description: "navigate to the previously visited worktree" },
+	{ name: "history", description: "show navigation history" },
+	{ name: "open", description: "open the worktree in an editor" },
+	{ name: "go", description: "print or select a worktree path" },
+	{ name: "jump", description: "alias of go" },
+	{ name: "root", description: "print the main repository root path" },
+	{ name: "status", description: "summarize repository and worktree health" },
+	{ name: "sync", description: "fetch and update one or all worktrees" },
+	{ name: "ls", description: "list active worktrees" },
+	{ name: "clean", description: "interactively prune linked worktrees" },
+	{
+		name: "remove",
+		description: "remove a linked worktree and delete its branch when present",
+	},
+	{ name: "rm", description: "alias of remove" },
+	{
+		name: "trigger-hook",
+		description: "run a named hook in the current worktree",
+	},
+	{ name: "warp", description: "jump to any worktree across all known repos" },
+	{ name: "config", description: "manage global config defaults" },
 ] as const;
 
-const SHELL_NAMES = ['bash', 'fish', 'zsh'] as const;
-const HOOK_NAMES = ['afterCreate', 'afterEnter', 'beforeRemove'] as const;
+const SHELL_NAMES = ["bash", "fish", "zsh"] as const;
+const HOOK_NAMES = ["afterCreate", "afterEnter", "beforeRemove"] as const;
 const CONFIG_KEYS = Array.from(KNOWN_GLOBAL_CONFIG_KEYS);
 
-export function renderShellCompletion(shell: 'bash' | 'fish' | 'zsh'): string {
-  switch (shell) {
-    case 'bash':
-      return renderBashCompletion();
-    case 'fish':
-      return renderFishCompletion();
-    case 'zsh':
-      return renderZshCompletion();
-  }
+export function renderShellCompletion(shell: "bash" | "fish" | "zsh"): string {
+	switch (shell) {
+		case "bash":
+			return renderBashCompletion();
+		case "fish":
+			return renderFishCompletion();
+		case "zsh":
+			return renderZshCompletion();
+	}
 }
 
 function renderBashCompletion(): string {
-  const topLevelCommands = TOP_LEVEL_COMMANDS.map((command) => command.name).join(' ');
-  const shells = SHELL_NAMES.join(' ');
-  const hooks = HOOK_NAMES.join(' ');
-  const configKeys = CONFIG_KEYS.join(' ');
+	const topLevelCommands = TOP_LEVEL_COMMANDS.map(
+		(command) => command.name,
+	).join(" ");
+	const shells = SHELL_NAMES.join(" ");
+	const hooks = HOOK_NAMES.join(" ");
+	const configKeys = CONFIG_KEYS.join(" ");
 
-  return `__gji_worktree_branches() {
+	return `__gji_worktree_branches() {
   command gji ls --compact 2>/dev/null | awk 'NR > 1 { branch = ($1 == "*" ? $2 : $1); if (branch != "(detached)") print branch }'
 }
 
@@ -134,23 +145,27 @@ complete -F _gji_completion gji`;
 }
 
 function renderFishCompletion(): string {
-  const commandLines = TOP_LEVEL_COMMANDS.map((command) =>
-    `complete -c gji -n '__fish_use_subcommand' -a '${command.name}' -d '${escapeSingleQuotes(command.description)}'`,
-  ).join('\n');
+	const commandLines = TOP_LEVEL_COMMANDS.map(
+		(command) =>
+			`complete -c gji -n '__fish_use_subcommand' -a '${command.name}' -d '${escapeSingleQuotes(command.description)}'`,
+	).join("\n");
 
-  const shellLines = SHELL_NAMES.map((shell) =>
-    `complete -c gji -n '__fish_seen_subcommand_from init' -a '${shell}' -d 'shell'`,
-  ).join('\n');
+	const shellLines = SHELL_NAMES.map(
+		(shell) =>
+			`complete -c gji -n '__fish_seen_subcommand_from init' -a '${shell}' -d 'shell'`,
+	).join("\n");
 
-  const hookLines = HOOK_NAMES.map((hook) =>
-    `complete -c gji -n '__fish_seen_subcommand_from trigger-hook' -a '${hook}' -d 'hook'`,
-  ).join('\n');
+	const hookLines = HOOK_NAMES.map(
+		(hook) =>
+			`complete -c gji -n '__fish_seen_subcommand_from trigger-hook' -a '${hook}' -d 'hook'`,
+	).join("\n");
 
-  const configKeyLines = CONFIG_KEYS.map((key) =>
-    `complete -c gji -n '__gji_should_complete_config_key' -a '${key}' -d 'config key'`,
-  ).join('\n');
+	const configKeyLines = CONFIG_KEYS.map(
+		(key) =>
+			`complete -c gji -n '__gji_should_complete_config_key' -a '${key}' -d 'config key'`,
+	).join("\n");
 
-  return `function __gji_worktree_branches
+	return `function __gji_worktree_branches
     command gji ls --compact 2>/dev/null | awk 'NR > 1 { branch = ($1 == "*" ? $2 : $1); if (branch != "(detached)") print branch }'
 end
 
@@ -235,15 +250,15 @@ ${configKeyLines}`;
 }
 
 function renderZshCompletion(): string {
-  const commandLines = TOP_LEVEL_COMMANDS.map((command) =>
-    `'${command.name}:${escapeSingleQuotes(command.description)}'`,
-  ).join('\n    ');
+	const commandLines = TOP_LEVEL_COMMANDS.map(
+		(command) => `'${command.name}:${escapeSingleQuotes(command.description)}'`,
+	).join("\n    ");
 
-  const configKeys = CONFIG_KEYS.join(' ');
-  const shells = SHELL_NAMES.join(' ');
-  const hooks = HOOK_NAMES.join(' ');
+	const configKeys = CONFIG_KEYS.join(" ");
+	const shells = SHELL_NAMES.join(" ");
+	const hooks = HOOK_NAMES.join(" ");
 
-  return `#compdef gji
+	return `#compdef gji
 
 __gji_worktree_branches() {
   command gji ls --compact 2>/dev/null | awk 'NR > 1 { branch = ($1 == "*" ? $2 : $1); if (branch != "(detached)") print branch }'
@@ -339,5 +354,5 @@ esac`;
 }
 
 function escapeSingleQuotes(value: string): string {
-  return value.replace(/'/g, `'\\''`);
+	return value.replace(/'/g, `'\\''`);
 }
