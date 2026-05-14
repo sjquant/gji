@@ -1,155 +1,167 @@
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
-import { homedir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { homedir } from "node:os";
+import { dirname, join } from "node:path";
 
-import { intro, isCancel, outro, select, text } from '@clack/prompts';
+import { intro, isCancel, outro, select, text } from "@clack/prompts";
 
-import { loadConfig, loadGlobalConfig, saveGlobalConfig, saveLocalConfig, updateGlobalConfigKey } from './config.js';
-import { resolveSupportedShell, type SupportedShell } from './shell.js';
+import {
+	loadConfig,
+	loadGlobalConfig,
+	saveGlobalConfig,
+	saveLocalConfig,
+	updateGlobalConfigKey,
+} from "./config.js";
+import { resolveSupportedShell, type SupportedShell } from "./shell.js";
 
-const START_MARKER = '# >>> gji init >>>';
-const END_MARKER = '# <<< gji init <<<';
+const START_MARKER = "# >>> gji init >>>";
+const END_MARKER = "# <<< gji init <<<";
 
 interface ShellWrappedCommand {
-  bypassOptions: string[];
-  commandName: string;
-  envVar: string;
-  names: string[];
-  tempPrefix: string;
+	bypassOptions: string[];
+	commandName: string;
+	envVar: string;
+	names: string[];
+	tempPrefix: string;
 }
 
 const SHELL_WRAPPED_COMMANDS: ShellWrappedCommand[] = [
-  {
-    bypassOptions: ['--help'],
-    commandName: 'new',
-    envVar: 'GJI_NEW_OUTPUT_FILE',
-    names: ['new'],
-    tempPrefix: 'gji-new',
-  },
-  {
-    bypassOptions: ['--help'],
-    commandName: 'pr',
-    envVar: 'GJI_PR_OUTPUT_FILE',
-    names: ['pr'],
-    tempPrefix: 'gji-pr',
-  },
-  {
-    bypassOptions: ['--print'],
-    commandName: 'back',
-    envVar: 'GJI_BACK_OUTPUT_FILE',
-    names: ['back'],
-    tempPrefix: 'gji-back',
-  },
-  {
-    bypassOptions: ['--print'],
-    commandName: 'go',
-    envVar: 'GJI_GO_OUTPUT_FILE',
-    names: ['go', 'jump'],
-    tempPrefix: 'gji-go',
-  },
-  {
-    bypassOptions: ['--print'],
-    commandName: 'root',
-    envVar: 'GJI_ROOT_OUTPUT_FILE',
-    names: ['root'],
-    tempPrefix: 'gji-root',
-  },
-  {
-    bypassOptions: ['--help'],
-    commandName: 'remove',
-    envVar: 'GJI_REMOVE_OUTPUT_FILE',
-    names: ['remove', 'rm'],
-    tempPrefix: 'gji-remove',
-  },
-  {
-    bypassOptions: ['--print', '--json'],
-    commandName: 'warp',
-    envVar: 'GJI_WARP_OUTPUT_FILE',
-    names: ['warp'],
-    tempPrefix: 'gji-warp',
-  },
+	{
+		bypassOptions: ["--help"],
+		commandName: "new",
+		envVar: "GJI_NEW_OUTPUT_FILE",
+		names: ["new"],
+		tempPrefix: "gji-new",
+	},
+	{
+		bypassOptions: ["--help"],
+		commandName: "pr",
+		envVar: "GJI_PR_OUTPUT_FILE",
+		names: ["pr"],
+		tempPrefix: "gji-pr",
+	},
+	{
+		bypassOptions: ["--print"],
+		commandName: "back",
+		envVar: "GJI_BACK_OUTPUT_FILE",
+		names: ["back"],
+		tempPrefix: "gji-back",
+	},
+	{
+		bypassOptions: ["--print"],
+		commandName: "go",
+		envVar: "GJI_GO_OUTPUT_FILE",
+		names: ["go", "jump"],
+		tempPrefix: "gji-go",
+	},
+	{
+		bypassOptions: ["--print"],
+		commandName: "root",
+		envVar: "GJI_ROOT_OUTPUT_FILE",
+		names: ["root"],
+		tempPrefix: "gji-root",
+	},
+	{
+		bypassOptions: ["--help"],
+		commandName: "remove",
+		envVar: "GJI_REMOVE_OUTPUT_FILE",
+		names: ["remove", "rm"],
+		tempPrefix: "gji-remove",
+	},
+	{
+		bypassOptions: ["--print", "--json"],
+		commandName: "warp",
+		envVar: "GJI_WARP_OUTPUT_FILE",
+		names: ["warp"],
+		tempPrefix: "gji-warp",
+	},
 ];
 
-export type InstallSaveTarget = 'local' | 'global';
+export type InstallSaveTarget = "local" | "global";
 
 export interface SetupWizardResult {
-  branchPrefix?: string;
-  hooks?: {
-    afterCreate?: string;
-    afterEnter?: string;
-    beforeRemove?: string;
-  };
-  installSaveTarget: InstallSaveTarget;
-  worktreePath?: string;
+	branchPrefix?: string;
+	hooks?: {
+		afterCreate?: string;
+		afterEnter?: string;
+		beforeRemove?: string;
+	};
+	installSaveTarget: InstallSaveTarget;
+	worktreePath?: string;
 }
 
 export interface InitCommandOptions {
-  cwd: string;
-  home?: string;
-  promptForSetup?: () => Promise<SetupWizardResult | null>;
-  shell?: string;
-  stderr?: (chunk: string) => void;
-  stdout: (chunk: string) => void;
-  write?: boolean;
+	cwd: string;
+	home?: string;
+	promptForSetup?: () => Promise<SetupWizardResult | null>;
+	shell?: string;
+	stderr?: (chunk: string) => void;
+	stdout: (chunk: string) => void;
+	write?: boolean;
 }
 
-export async function runInitCommand(options: InitCommandOptions): Promise<number> {
-  const shell = resolveSupportedShell(options.shell, process.env.SHELL);
-  const home = options.home ?? homedir();
+export async function runInitCommand(
+	options: InitCommandOptions,
+): Promise<number> {
+	const shell = resolveSupportedShell(options.shell, process.env.SHELL);
+	const home = options.home ?? homedir();
 
-  if (!shell) {
-    options.stderr?.(
-      'Unable to detect a supported shell. Specify one explicitly: bash, fish, or zsh.\n',
-    );
-    return 1;
-  }
+	if (!shell) {
+		options.stderr?.(
+			"Unable to detect a supported shell. Specify one explicitly: bash, fish, or zsh.\n",
+		);
+		return 1;
+	}
 
-  const script = renderShellIntegration(shell);
+	const script = renderShellIntegration(shell);
 
-  if (!options.write) {
-    options.stdout(script);
-    return 0;
-  }
+	if (!options.write) {
+		options.stdout(script);
+		return 0;
+	}
 
-  const rcPath = resolveShellConfigPath(shell, home);
-  await mkdir(dirname(rcPath), { recursive: true });
+	const rcPath = resolveShellConfigPath(shell, home);
+	await mkdir(dirname(rcPath), { recursive: true });
 
-  const current = await readExistingConfig(rcPath);
-  const next = upsertShellIntegration(current, script);
-  await writeFile(rcPath, next, 'utf8');
+	const current = await readExistingConfig(rcPath);
+	const next = upsertShellIntegration(current, script);
+	await writeFile(rcPath, next, "utf8");
 
-  options.stdout(`${rcPath}\n`);
+	options.stdout(`${rcPath}\n`);
 
-  // Run the setup wizard on the first-ever init (not on subsequent re-runs).
-  const { config: globalConfig } = await loadGlobalConfig(home);
-  const alreadyConfigured =
-    'shellIntegration' in globalConfig || 'installSaveTarget' in globalConfig;
-  const hasCustomPrompt = options.promptForSetup !== undefined;
-  const canPrompt = hasCustomPrompt || process.stdout.isTTY === true;
+	// Run the setup wizard on the first-ever init (not on subsequent re-runs).
+	const { config: globalConfig } = await loadGlobalConfig(home);
+	const alreadyConfigured =
+		"shellIntegration" in globalConfig || "installSaveTarget" in globalConfig;
+	const hasCustomPrompt = options.promptForSetup !== undefined;
+	const canPrompt = hasCustomPrompt || process.stdout.isTTY === true;
 
-  if (!alreadyConfigured && canPrompt) {
-    const prompt = options.promptForSetup ?? defaultPromptForSetup;
-    const result = await prompt();
-    if (result) {
-      await updateGlobalConfigKey('installSaveTarget', result.installSaveTarget, home);
-      await saveWizardConfig(result, options.cwd, home);
-    }
-  }
+	if (!alreadyConfigured && canPrompt) {
+		const prompt = options.promptForSetup ?? defaultPromptForSetup;
+		const result = await prompt();
+		if (result) {
+			await updateGlobalConfigKey(
+				"installSaveTarget",
+				result.installSaveTarget,
+				home,
+			);
+			await saveWizardConfig(result, options.cwd, home);
+		}
+	}
 
-  // Mark shell integration as installed so the first-run nudge is suppressed.
-  await updateGlobalConfigKey('shellIntegration', true, home);
+	// Mark shell integration as installed so the first-run nudge is suppressed.
+	await updateGlobalConfigKey("shellIntegration", true, home);
 
-  return 0;
+	return 0;
 }
 
 export function renderShellIntegration(shell: SupportedShell): string {
-  const commandBlocks = SHELL_WRAPPED_COMMANDS.map((command) =>
-    shell === 'fish' ? renderFishWrapper(command) : renderPosixWrapper(command),
-  ).join('\n\n');
+	const commandBlocks = SHELL_WRAPPED_COMMANDS.map((command) =>
+		shell === "fish" ? renderFishWrapper(command) : renderPosixWrapper(command),
+	).join("\n\n");
 
-  switch (shell) {
-    case 'fish':
-      return `${START_MARKER}
+	switch (shell) {
+		case "fish":
+			return `${START_MARKER}
 function gji --wraps gji --description 'gji shell integration'
 ${indentBlock(commandBlocks, 4)}
 
@@ -157,9 +169,9 @@ ${indentBlock(commandBlocks, 4)}
 end
 ${END_MARKER}
 `;
-    case 'bash':
-    case 'zsh':
-      return `${START_MARKER}
+		case "bash":
+		case "zsh":
+			return `${START_MARKER}
 gji() {
 ${indentBlock(commandBlocks, 2)}
 
@@ -167,106 +179,112 @@ ${indentBlock(commandBlocks, 2)}
 }
 ${END_MARKER}
 `;
-  }
+	}
 }
 
-export function upsertShellIntegration(existingConfig: string, script: string): string {
-  const trimmedScript = script.trimEnd();
-  const blockPattern = new RegExp(
-    `${escapeForRegExp(START_MARKER)}[\\s\\S]*?${escapeForRegExp(END_MARKER)}\\n?`,
-    'm',
-  );
+export function upsertShellIntegration(
+	existingConfig: string,
+	script: string,
+): string {
+	const trimmedScript = script.trimEnd();
+	const blockPattern = new RegExp(
+		`${escapeForRegExp(START_MARKER)}[\\s\\S]*?${escapeForRegExp(END_MARKER)}\\n?`,
+		"m",
+	);
 
-  if (blockPattern.test(existingConfig)) {
-    return ensureTrailingNewline(
-      existingConfig.replace(blockPattern, `${trimmedScript}\n`),
-    );
-  }
+	if (blockPattern.test(existingConfig)) {
+		return ensureTrailingNewline(
+			existingConfig.replace(blockPattern, `${trimmedScript}\n`),
+		);
+	}
 
-  const prefix = existingConfig.trimEnd();
+	const prefix = existingConfig.trimEnd();
 
-  if (prefix.length === 0) {
-    return ensureTrailingNewline(trimmedScript);
-  }
+	if (prefix.length === 0) {
+		return ensureTrailingNewline(trimmedScript);
+	}
 
-  return ensureTrailingNewline(`${prefix}\n\n${trimmedScript}`);
+	return ensureTrailingNewline(`${prefix}\n\n${trimmedScript}`);
 }
 
 async function saveWizardConfig(
-  result: SetupWizardResult,
-  cwd: string,
-  home: string,
+	result: SetupWizardResult,
+	cwd: string,
+	home: string,
 ): Promise<void> {
-  const values: Record<string, unknown> = {};
+	const values: Record<string, unknown> = {};
 
-  if (result.branchPrefix) values.branchPrefix = result.branchPrefix;
-  if (result.worktreePath) values.worktreePath = result.worktreePath;
+	if (result.branchPrefix) values.branchPrefix = result.branchPrefix;
+	if (result.worktreePath) values.worktreePath = result.worktreePath;
 
-  const hooks: Record<string, string> = {};
-  if (result.hooks?.afterCreate) hooks.afterCreate = result.hooks.afterCreate;
-  if (result.hooks?.afterEnter) hooks.afterEnter = result.hooks.afterEnter;
-  if (result.hooks?.beforeRemove) hooks.beforeRemove = result.hooks.beforeRemove;
-  if (Object.keys(hooks).length > 0) values.hooks = hooks;
+	const hooks: Record<string, string> = {};
+	if (result.hooks?.afterCreate) hooks.afterCreate = result.hooks.afterCreate;
+	if (result.hooks?.afterEnter) hooks.afterEnter = result.hooks.afterEnter;
+	if (result.hooks?.beforeRemove)
+		hooks.beforeRemove = result.hooks.beforeRemove;
+	if (Object.keys(hooks).length > 0) values.hooks = hooks;
 
-  if (Object.keys(values).length === 0) return;
+	if (Object.keys(values).length === 0) return;
 
-  if (result.installSaveTarget === 'local') {
-    const loaded = await loadConfig(cwd);
-    await saveLocalConfig(cwd, { ...loaded.config, ...values });
-  } else {
-    const { config: existing } = await loadGlobalConfig(home);
-    await saveGlobalConfig({ ...existing, ...values }, home);
-  }
+	if (result.installSaveTarget === "local") {
+		const loaded = await loadConfig(cwd);
+		await saveLocalConfig(cwd, { ...loaded.config, ...values });
+	} else {
+		const { config: existing } = await loadGlobalConfig(home);
+		await saveGlobalConfig({ ...existing, ...values }, home);
+	}
 }
 function resolveShellConfigPath(shell: SupportedShell, home: string): string {
-  switch (shell) {
-    case 'bash':
-      return join(home, '.bashrc');
-    case 'fish':
-      return join(home, '.config', 'fish', 'config.fish');
-    case 'zsh':
-      return join(home, '.zshrc');
-  }
+	switch (shell) {
+		case "bash":
+			return join(home, ".bashrc");
+		case "fish":
+			return join(home, ".config", "fish", "config.fish");
+		case "zsh":
+			return join(home, ".zshrc");
+	}
 }
 
 async function readExistingConfig(path: string): Promise<string> {
-  try {
-    return await readFile(path, 'utf8');
-  } catch (error) {
-    if (isMissingFileError(error)) {
-      return '';
-    }
+	try {
+		return await readFile(path, "utf8");
+	} catch (error) {
+		if (isMissingFileError(error)) {
+			return "";
+		}
 
-    throw error;
-  }
+		throw error;
+	}
 }
 
 function ensureTrailingNewline(value: string): string {
-  return value.endsWith('\n') ? value : `${value}\n`;
+	return value.endsWith("\n") ? value : `${value}\n`;
 }
 
 function escapeForRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+	return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function isMissingFileError(error: unknown): error is NodeJS.ErrnoException {
-  return error instanceof Error && 'code' in error && error.code === 'ENOENT';
+	return error instanceof Error && "code" in error && error.code === "ENOENT";
 }
 
 function renderFishWrapper(command: ShellWrappedCommand): string {
-  const nameTests = command.names.map((name) => `test $argv[1] = ${name}`);
-  const nameCondition =
-    nameTests.length === 1
-      ? nameTests[0]
-      : `begin; ${nameTests.join('; or ')}; end`;
+	const nameTests = command.names.map((name) => `test $argv[1] = ${name}`);
+	const nameCondition =
+		nameTests.length === 1
+			? nameTests[0]
+			: `begin; ${nameTests.join("; or ")}; end`;
 
-  const bypassTests = command.bypassOptions.map((opt) => `test $argv[1] = ${opt}`);
-  const bypassCondition =
-    bypassTests.length === 1
-      ? bypassTests[0]
-      : `begin; ${bypassTests.join('; or ')}; end`;
+	const bypassTests = command.bypassOptions.map(
+		(opt) => `test $argv[1] = ${opt}`,
+	);
+	const bypassCondition =
+		bypassTests.length === 1
+			? bypassTests[0]
+			: `begin; ${bypassTests.join("; or ")}; end`;
 
-  return `if test (count $argv) -gt 0; and ${nameCondition}
+	return `if test (count $argv) -gt 0; and ${nameCondition}
     set -e argv[1]
     if test (count $argv) -gt 0; and ${bypassCondition}
         command gji ${command.commandName} $argv
@@ -289,10 +307,14 @@ end`;
 }
 
 function renderPosixWrapper(command: ShellWrappedCommand): string {
-  const tests = command.names.map((name) => `[ "$1" = "${name}" ]`).join(' || ');
-  const bypassTests = command.bypassOptions.map((opt) => `[ "\${1:-}" = "${opt}" ]`).join(' || ');
+	const tests = command.names
+		.map((name) => `[ "$1" = "${name}" ]`)
+		.join(" || ");
+	const bypassTests = command.bypassOptions
+		.map((opt) => `[ "\${1:-}" = "${opt}" ]`)
+		.join(" || ");
 
-  return `if ${tests}; then
+	return `if ${tests}; then
   shift
   if ${bypassTests}; then
     command gji ${command.commandName} "$@"
@@ -311,91 +333,99 @@ fi`;
 }
 
 function indentBlock(value: string, spaces: number): string {
-  const prefix = ' '.repeat(spaces);
+	const prefix = " ".repeat(spaces);
 
-  return value
-    .split('\n')
-    .map((line) => line.length === 0 ? '' : `${prefix}${line}`)
-    .join('\n');
+	return value
+		.split("\n")
+		.map((line) => (line.length === 0 ? "" : `${prefix}${line}`))
+		.join("\n");
 }
 
 async function defaultPromptForSetup(): Promise<SetupWizardResult | null> {
-  intro('gji setup');
+	intro("gji setup");
 
-  const installSaveTarget = await select<InstallSaveTarget>({
-    message: 'Where should preferences be saved?',
-    options: [
-      { value: 'global', label: '~/.config/gji/config.json', hint: 'personal — never committed' },
-      { value: 'local', label: '.gji.json', hint: 'repo — committed with the project' },
-    ],
-  });
+	const installSaveTarget = await select<InstallSaveTarget>({
+		message: "Where should preferences be saved?",
+		options: [
+			{
+				value: "global",
+				label: "~/.config/gji/config.json",
+				hint: "personal — never committed",
+			},
+			{
+				value: "local",
+				label: ".gji.json",
+				hint: "repo — committed with the project",
+			},
+		],
+	});
 
-  if (isCancel(installSaveTarget)) {
-    outro('Setup skipped.');
-    return null;
-  }
+	if (isCancel(installSaveTarget)) {
+		outro("Setup skipped.");
+		return null;
+	}
 
-  const branchPrefix = await text({
-    message: 'Default branch prefix?',
-    placeholder: 'e.g. feat/ or fix/ — leave blank to skip',
-  });
+	const branchPrefix = await text({
+		message: "Default branch prefix?",
+		placeholder: "e.g. feat/ or fix/ — leave blank to skip",
+	});
 
-  if (isCancel(branchPrefix)) {
-    outro('Setup skipped.');
-    return null;
-  }
+	if (isCancel(branchPrefix)) {
+		outro("Setup skipped.");
+		return null;
+	}
 
-  const worktreePath = await text({
-    message: 'Worktree base path?',
-    placeholder: 'leave blank to use the default path',
-  });
+	const worktreePath = await text({
+		message: "Worktree base path?",
+		placeholder: "leave blank to use the default path",
+	});
 
-  if (isCancel(worktreePath)) {
-    outro('Setup skipped.');
-    return null;
-  }
+	if (isCancel(worktreePath)) {
+		outro("Setup skipped.");
+		return null;
+	}
 
-  const afterCreate = await text({
-    message: 'afterCreate hook — run after creating a worktree?',
-    placeholder: 'e.g. pnpm install — leave blank to skip',
-  });
+	const afterCreate = await text({
+		message: "afterCreate hook — run after creating a worktree?",
+		placeholder: "e.g. pnpm install — leave blank to skip",
+	});
 
-  if (isCancel(afterCreate)) {
-    outro('Setup skipped.');
-    return null;
-  }
+	if (isCancel(afterCreate)) {
+		outro("Setup skipped.");
+		return null;
+	}
 
-  const afterEnter = await text({
-    message: 'afterEnter hook — run after entering a worktree?',
-    placeholder: 'e.g. nvm use — leave blank to skip',
-  });
+	const afterEnter = await text({
+		message: "afterEnter hook — run after entering a worktree?",
+		placeholder: "e.g. nvm use — leave blank to skip",
+	});
 
-  if (isCancel(afterEnter)) {
-    outro('Setup skipped.');
-    return null;
-  }
+	if (isCancel(afterEnter)) {
+		outro("Setup skipped.");
+		return null;
+	}
 
-  const beforeRemove = await text({
-    message: 'beforeRemove hook — run before removing a worktree?',
-    placeholder: 'leave blank to skip',
-  });
+	const beforeRemove = await text({
+		message: "beforeRemove hook — run before removing a worktree?",
+		placeholder: "leave blank to skip",
+	});
 
-  if (isCancel(beforeRemove)) {
-    outro('Setup skipped.');
-    return null;
-  }
+	if (isCancel(beforeRemove)) {
+		outro("Setup skipped.");
+		return null;
+	}
 
-  outro('Setup complete!');
+	outro("Setup complete!");
 
-  const hooks: SetupWizardResult['hooks'] = {};
-  if (afterCreate) hooks.afterCreate = afterCreate;
-  if (afterEnter) hooks.afterEnter = afterEnter;
-  if (beforeRemove) hooks.beforeRemove = beforeRemove;
+	const hooks: SetupWizardResult["hooks"] = {};
+	if (afterCreate) hooks.afterCreate = afterCreate;
+	if (afterEnter) hooks.afterEnter = afterEnter;
+	if (beforeRemove) hooks.beforeRemove = beforeRemove;
 
-  return {
-    branchPrefix: branchPrefix || undefined,
-    hooks: Object.keys(hooks).length > 0 ? hooks : undefined,
-    installSaveTarget,
-    worktreePath: worktreePath || undefined,
-  };
+	return {
+		branchPrefix: branchPrefix || undefined,
+		hooks: Object.keys(hooks).length > 0 ? hooks : undefined,
+		installSaveTarget,
+		worktreePath: worktreePath || undefined,
+	};
 }

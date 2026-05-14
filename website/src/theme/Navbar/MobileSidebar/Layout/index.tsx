@@ -1,1 +1,1 @@
-export {default} from '@theme-original/Navbar/MobileSidebar/Layout';
+export { default } from "@theme-original/Navbar/MobileSidebar/Layout";

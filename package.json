@@ -49,7 +49,11 @@
     "docs:start": "pnpm --dir website start",
     "prepublishOnly": "pnpm test && pnpm build && pnpm generate-man",
     "test": "vitest run --passWithNoTests",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "lint": "biome lint --write .",
+    "format": "biome format --write .",
+    "typecheck": "tsc --noEmit",
+    "prepare": "prek install || true"
   },
   "dependencies": {
     "@clack/core": "0.5.0",
@@ -58,6 +62,8 @@
     "update-notifier": "^7.3.1"
   },
   "devDependencies": {
+    "@biomejs/biome": "^2.4.15",
+    "@j178/prek": "^0.3.13",
     "@types/node": "^24.6.0",
     "esbuild": "^0.27.0",
     "typescript": "^5.9.3",
