@@ -1,76 +1,77 @@
 {
-	"name": "@solaqua/gji",
-	"version": "0.6.2",
-	"description": "Git worktree CLI for fast context switching.",
-	"license": "MIT",
-	"author": "sjquant",
-	"type": "module",
-	"packageManager": "pnpm@10.6.3",
-	"homepage": "https://github.com/sjquant/gji#readme",
-	"bugs": {
-		"url": "https://github.com/sjquant/gji/issues"
-	},
-	"repository": {
-		"type": "git",
-		"url": "git+https://github.com/sjquant/gji.git"
-	},
-	"keywords": [
-		"git",
-		"worktree",
-		"cli",
-		"developer-tools",
-		"productivity",
-		"terminal"
-	],
-	"files": [
-		"dist",
-		"man",
-		"README.md",
-		"LICENSE"
-	],
-	"man": [
-		"man/man1/gji.1"
-	],
-	"publishConfig": {
-		"access": "public"
-	},
-	"engines": {
-		"node": ">=18"
-	},
-	"bin": {
-		"gji": "dist/index.js"
-	},
-	"scripts": {
-		"build": "node scripts/clean-dist.mjs && tsc -p tsconfig.build.json",
-		"generate:readme-demos": "node scripts/generate-readme-demos.mjs",
-		"bundle": "node scripts/bundle.mjs",
-		"generate-man": "node scripts/generate-man.mjs",
-		"docs:build": "pnpm --dir website build",
-		"docs:start": "pnpm --dir website start",
-		"prepublishOnly": "pnpm test && pnpm build && pnpm generate-man",
-		"test": "vitest run --passWithNoTests",
-		"test:watch": "vitest",
-		"lint": "biome lint --write .",
-		"format": "biome format --write .",
-		"typecheck": "tsc --noEmit"
-	},
-	"dependencies": {
-		"@clack/core": "0.5.0",
-		"@clack/prompts": "^0.11.0",
-		"commander": "^14.0.1",
-		"update-notifier": "^7.3.1"
-	},
-	"devDependencies": {
-		"@biomejs/biome": "^2.4.15",
-		"@j178/prek": "^0.3.13",
-		"@types/node": "^24.6.0",
-		"esbuild": "^0.27.0",
-		"typescript": "^5.9.3",
-		"vitest": "^3.2.4"
-	},
-	"pnpm": {
-		"onlyBuiltDependencies": [
-			"esbuild"
-		]
-	}
+  "name": "@solaqua/gji",
+  "version": "0.6.2",
+  "description": "Git worktree CLI for fast context switching.",
+  "license": "MIT",
+  "author": "sjquant",
+  "type": "module",
+  "packageManager": "pnpm@10.6.3",
+  "homepage": "https://github.com/sjquant/gji#readme",
+  "bugs": {
+    "url": "https://github.com/sjquant/gji/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/sjquant/gji.git"
+  },
+  "keywords": [
+    "git",
+    "worktree",
+    "cli",
+    "developer-tools",
+    "productivity",
+    "terminal"
+  ],
+  "files": [
+    "dist",
+    "man",
+    "README.md",
+    "LICENSE"
+  ],
+  "man": [
+    "man/man1/gji.1"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "bin": {
+    "gji": "dist/index.js"
+  },
+  "scripts": {
+    "build": "node scripts/clean-dist.mjs && tsc -p tsconfig.build.json",
+    "generate:readme-demos": "node scripts/generate-readme-demos.mjs",
+    "bundle": "node scripts/bundle.mjs",
+    "generate-man": "node scripts/generate-man.mjs",
+    "docs:build": "pnpm --dir website build",
+    "docs:start": "pnpm --dir website start",
+    "prepublishOnly": "pnpm test && pnpm build && pnpm generate-man",
+    "test": "vitest run --passWithNoTests",
+    "test:watch": "vitest",
+    "lint": "biome lint --write .",
+    "format": "biome format --write .",
+    "typecheck": "tsc --noEmit",
+    "prepare": "prek install || true"
+  },
+  "dependencies": {
+    "@clack/core": "0.5.0",
+    "@clack/prompts": "^0.11.0",
+    "commander": "^14.0.1",
+    "update-notifier": "^7.3.1"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.4.15",
+    "@j178/prek": "^0.3.13",
+    "@types/node": "^24.6.0",
+    "esbuild": "^0.27.0",
+    "typescript": "^5.9.3",
+    "vitest": "^3.2.4"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild"
+    ]
+  }
 }
