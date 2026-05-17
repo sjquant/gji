@@ -249,6 +249,7 @@ path=$(gji root --print)
 | `gji status [--json]` | repo overview, worktree health, ahead/behind |
 | `gji ls [--compact] [--json]` | list active worktrees |
 | `gji sync [--all]` | fetch and rebase worktrees onto default branch |
+| `gji sync-files [list\|add\|remove] [paths...]` | manage local files copied into new worktrees |
 | `gji clean [--stale] [--force] [--json]` | interactively prune linked worktrees |
 | `gji remove [branch] [--force] [--json]` | remove a worktree and its branch |
 | `gji trigger-hook <hook>` | run a hook in the current worktree |
@@ -272,7 +273,7 @@ No setup required. Optional config lives in:
 | `worktreePath` | base directory for new worktrees (absolute or `~/…`); overrides the default `../worktrees/<repo>/` layout |
 | `syncRemote` | remote for `gji sync` (default: `origin`) |
 | `syncDefaultBranch` | branch to rebase onto (default: remote `HEAD`) |
-| `syncFiles` | files to copy from main worktree into each new worktree |
+| `syncFiles` | files to copy from main worktree into each new worktree; use global per-repo config for private files |
 | `skipInstallPrompt` | `true` to disable the auto-install prompt permanently |
 | `installSaveTarget` | `"local"` or `"global"` — where **Always**/**Never** choices are persisted (default: `"local"`); set once during `gji init --write` |
 | `hooks` | lifecycle scripts (see [Hooks](#hooks)) |
@@ -284,6 +285,30 @@ No setup required. Optional config lives in:
   "syncRemote": "upstream",
   "syncDefaultBranch": "main",
   "syncFiles": [".env.example", ".nvmrc"]
+}
+```
+
+### Syncing local files
+
+Use `syncFiles` for private, gitignored, or machine-local files that every new worktree needs, such as `.env.local` or `.npmrc`. `gji new` copies these files from the main worktree before install hooks run, skips missing source files, and does not overwrite files that already exist in the target worktree.
+
+For private files, prefer the `sync-files` command. It writes to your global per-repo config so secret filenames do not need to be committed to `.gji.json`:
+
+```sh
+gji sync-files add .env.local .npmrc
+gji sync-files list
+gji sync-files remove .npmrc
+```
+
+This stores:
+
+```json
+{
+  "repos": {
+    "/home/me/code/my-repo": {
+      "syncFiles": [".env.local"]
+    }
+  }
 }
 ```
 

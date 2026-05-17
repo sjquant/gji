@@ -22,7 +22,7 @@ Use the global file for defaults you want everywhere. Use `.gji.json` when one r
 | `editor` | Default editor CLI for `gji open` and `gji new --open` (e.g. `cursor`, `code`, `zed`). Set with `gji open --save`. |
 | `syncRemote` | Remote used by `gji sync`. |
 | `syncDefaultBranch` | Branch used as the rebase target. |
-| `syncFiles` | Files copied from the main worktree into new worktrees. |
+| `syncFiles` | Files copied from the main worktree into new worktrees. Use global per-repo config for private files. |
 | `skipInstallPrompt` | Disable the automatic install prompt permanently. |
 | `installSaveTarget` | Persist install prompt choices locally or globally. |
 | `hooks` | Lifecycle commands for create, enter, and remove events. String hooks run through a shell; array hooks run as argv without a shell. |
@@ -91,6 +91,30 @@ gji config set branchPrefix feature/
   "syncFiles": [".env.example", ".nvmrc"]
 }
 ```
+
+### Sync private local files
+
+Use `sync-files` for gitignored or machine-local files such as `.env.local` and `.npmrc`:
+
+```bash
+gji sync-files add .env.local .npmrc
+gji sync-files list
+gji sync-files remove .npmrc
+```
+
+The command stores the list under the current repository inside your global config:
+
+```json
+{
+  "repos": {
+    "/home/me/code/my-repo": {
+      "syncFiles": [".env.local"]
+    }
+  }
+}
+```
+
+`gji new` copies configured files from the main worktree before install hooks run, skips missing source files, and never overwrites a file that already exists in the new worktree.
 
 ## CLI helpers
 

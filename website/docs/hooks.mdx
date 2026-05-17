@@ -7,6 +7,8 @@ description: Automate worktree setup and cleanup with afterCreate, afterEnter, a
 
 Hooks let `gji` run your setup and cleanup commands automatically at key lifecycle moments.
 
+If you only need to copy gitignored local files such as `.env.local` into new worktrees, use [`gji sync-files`](./configuration#sync-private-local-files) instead of a custom hook. Hooks are best for commands that actually need to run.
+
 ## Example
 
 ```json

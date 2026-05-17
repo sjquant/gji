@@ -16,6 +16,10 @@ const TOP_LEVEL_COMMANDS = [
 	{ name: "root", description: "print the main repository root path" },
 	{ name: "status", description: "summarize repository and worktree health" },
 	{ name: "sync", description: "fetch and update one or all worktrees" },
+	{
+		name: "sync-files",
+		description: "manage local files copied into new worktrees",
+	},
 	{ name: "ls", description: "list active worktrees" },
 	{ name: "clean", description: "interactively prune linked worktrees" },
 	{
@@ -103,6 +107,12 @@ _gji_completion() {
       ;;
     sync)
       COMPREPLY=( $(compgen -W "--all --json --help" -- "$cur") )
+      ;;
+    sync-files)
+      if [ "$COMP_CWORD" -eq 2 ]; then
+        COMPREPLY=( $(compgen -W "list add remove rm --json --help" -- "$cur") )
+        return 0
+      fi
       ;;
     ls)
       COMPREPLY=( $(compgen -W "--compact --json --help" -- "$cur") )
@@ -226,6 +236,12 @@ complete -c gji -n '__fish_seen_subcommand_from status' -l json -d 'print reposi
 complete -c gji -n '__fish_seen_subcommand_from sync' -l all -d 'sync every worktree in the repository'
 complete -c gji -n '__fish_seen_subcommand_from sync' -l json -d 'emit JSON on success or error instead of human-readable output'
 
+complete -c gji -n '__fish_seen_subcommand_from sync-files' -a 'list add remove rm' -d 'sync-files action'
+complete -c gji -n '__fish_seen_subcommand_from sync-files' -l json -d 'emit JSON instead of human-readable output'
+complete -c gji -n '__fish_seen_subcommand_from list; and __fish_seen_subcommand_from sync-files' -l json -d 'emit JSON instead of human-readable output'
+complete -c gji -n '__fish_seen_subcommand_from add; and __fish_seen_subcommand_from sync-files' -l json -d 'emit JSON instead of human-readable output'
+complete -c gji -n '__fish_seen_subcommand_from remove rm; and __fish_seen_subcommand_from sync-files' -l json -d 'emit JSON instead of human-readable output'
+
 complete -c gji -n '__fish_seen_subcommand_from ls' -l compact -d 'show only branch and path columns'
 complete -c gji -n '__fish_seen_subcommand_from ls' -l json -d 'print active worktrees as JSON'
 
@@ -309,6 +325,9 @@ case "\${words[2]}" in
     ;;
   sync)
     _arguments '--all[sync every worktree in the repository]' '--json[emit JSON on success or error instead of human-readable output]'
+    ;;
+  sync-files)
+    _arguments '--json[emit JSON instead of human-readable output]' '2:action:(list add remove rm)' '*:path: '
     ;;
   ls)
     _arguments '--compact[show only branch and path columns]' '--json[print active worktrees as JSON]'

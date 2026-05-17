@@ -42,6 +42,9 @@ describe("gji completion", () => {
 		expect(stdout.join("")).toContain("'open:open the worktree in an editor'");
 		expect(stdout.join("")).toContain("'jump:alias of go'");
 		expect(stdout.join("")).toContain(
+			"'sync-files:manage local files copied into new worktrees'",
+		);
+		expect(stdout.join("")).toContain(
 			"'warp:jump to any worktree across all known repos'",
 		);
 		expect(stdout.join("")).toContain("'2:shell:(bash fish zsh)'");
@@ -159,6 +162,12 @@ print -r -- "\${_comps[gji]-unset}"`,
 			"complete -c gji -n '__fish_use_subcommand' -a 'jump'",
 		);
 		expect(stdout.join("")).toContain(
+			"complete -c gji -n '__fish_use_subcommand' -a 'sync-files'",
+		);
+		expect(stdout.join("")).toContain(
+			"complete -c gji -n '__fish_seen_subcommand_from sync-files' -a 'list add remove rm'",
+		);
+		expect(stdout.join("")).toContain(
 			"complete -c gji -n '__fish_use_subcommand' -a 'warp'",
 		);
 		expect(stdout.join("")).toContain(
@@ -220,6 +229,8 @@ print -r -- "\${_comps[gji]-unset}"`,
 		expect(stdout.join("")).toContain("command gji ls --compact");
 		expect(stdout.join("")).toContain('branch = ($1 == "*" ? $2 : $1)');
 		expect(stdout.join("")).toContain("back history open go jump");
+		expect(stdout.join("")).toContain("sync-files");
+		expect(stdout.join("")).toContain("list add remove rm --json --help");
 		expect(stdout.join("")).toContain("--force --open --editor");
 		expect(stdout.join("")).toContain("go|jump)");
 		expect(stdout.join("")).toContain("open)");
