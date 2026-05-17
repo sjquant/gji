@@ -27,6 +27,7 @@ image: /img/social-card.png
 | `gji status [--json]` | Show repo health, active worktrees, and ahead/behind counts. |
 | `gji ls [--compact] [--json]` | Show detailed or compact worktree lists. |
 | `gji sync [--all]` | Fetch and rebase worktrees onto the default branch. |
+| `gji sync-files [--json] [list\|add\|remove] [paths...]` | Manage local files copied into new worktrees. |
 | `gji clean [--stale] [--force] [--json]` | Interactively prune linked worktrees. |
 | `gji remove [branch] [--force] [--json]` | Remove a worktree and its branch. |
 | `gji trigger-hook <hook>` | Re-run a configured hook in the current worktree. |
@@ -58,6 +59,7 @@ Use these when you need to understand the current set of worktrees and their sta
 ### Maintenance
 
 - `gji sync`
+- `gji sync-files`
 - `gji clean`
 - `gji remove`
 - `gji trigger-hook`
@@ -112,6 +114,16 @@ Use `gji warp` when branch intent matters more than the repo directory you happe
 gji trigger-hook afterCreate
 ```
 
+### Sync local files into future worktrees
+
+```bash
+gji sync-files add .env.local .npmrc
+gji sync-files list
+gji sync-files remove .npmrc
+```
+
+Use `sync-files` for gitignored or machine-local files that new worktrees need before install hooks run. The command writes to your global per-repo config, so private file names do not need to be committed to `.gji.json`.
+
 ### Return to the last worktree
 
 ```bash
@@ -145,6 +157,7 @@ Several commands support `--json` so shell scripts and tools can consume structu
 - `gji clean --json`
 - `gji remove --json`
 - `gji sync --json`
+- `gji sync-files --json`
 - `gji warp --json`
 
 `gji clean --stale` limits cleanup to clean branch worktrees whose upstream is gone and whose branch is already merged into the configured or remote default branch.

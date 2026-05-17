@@ -15,18 +15,7 @@ export async function syncFiles(
 	patterns: string[],
 ): Promise<void> {
 	for (const pattern of patterns) {
-		if (isAbsolute(pattern)) {
-			throw new Error(
-				`syncFiles: pattern must be a relative path, got: ${pattern}`,
-			);
-		}
-
-		const normalized = normalize(pattern);
-		if (normalized.startsWith("..")) {
-			throw new Error(
-				`syncFiles: pattern must not contain '..' segments, got: ${pattern}`,
-			);
-		}
+		const normalized = validateSyncFilePattern(pattern);
 
 		const sourcePath = join(mainRoot, normalized);
 		const destPath = join(targetPath, normalized);
@@ -46,6 +35,23 @@ export async function syncFiles(
 		await mkdir(dirname(destPath), { recursive: true });
 		await copyFile(sourcePath, destPath);
 	}
+}
+
+export function validateSyncFilePattern(pattern: string): string {
+	if (isAbsolute(pattern)) {
+		throw new Error(
+			`syncFiles: pattern must be a relative path, got: ${pattern}`,
+		);
+	}
+
+	const normalized = normalize(pattern);
+	if (normalized.startsWith("..")) {
+		throw new Error(
+			`syncFiles: pattern must not contain '..' segments, got: ${pattern}`,
+		);
+	}
+
+	return normalized;
 }
 
 async function fileExists(path: string): Promise<boolean> {

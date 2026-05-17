@@ -39,6 +39,16 @@ That deterministic layout makes shell aliases, editor bookmarks, and scripts eas
 
 Usually yes, because each worktree is a separate directory with its own dependency state. Hooks make that painless by running your install command automatically.
 
+## How do I copy gitignored files like `.env.local` into new worktrees?
+
+Use `gji sync-files` from the main repository:
+
+```bash
+gji sync-files add .env.local .npmrc
+```
+
+New worktrees receive those files before install hooks run. The setting is stored in your global per-repo config so private file names do not need to be committed.
+
 ## Can I use URL and PR number formats together?
 
 Yes. `gji pr` accepts a numeric PR reference or a full GitHub pull request URL.

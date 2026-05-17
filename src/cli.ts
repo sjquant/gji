@@ -20,6 +20,7 @@ import { registerRepo } from "./repo-registry.js";
 import { runRootCommand } from "./root.js";
 import { runStatusCommand } from "./status.js";
 import { runSyncCommand } from "./sync.js";
+import { runSyncFilesCommand } from "./sync-files-command.js";
 import { runTriggerHookCommand } from "./trigger-hook.js";
 import { runWarpCommand } from "./warp.js";
 
@@ -263,6 +264,31 @@ function registerCommands(program: Command): void {
 			"emit JSON on success or error instead of human-readable output",
 		)
 		.action(notImplemented("sync"));
+
+	const syncFilesCommand = program
+		.command("sync-files")
+		.description("manage local files copied into new worktrees")
+		.option("--json", "emit JSON instead of human-readable output")
+		.action(notImplemented("sync-files"));
+
+	syncFilesCommand
+		.command("list")
+		.description("list files synced into new worktrees for this repo")
+		.option("--json", "emit JSON instead of human-readable output")
+		.action(notImplemented("sync-files list"));
+
+	syncFilesCommand
+		.command("add <paths...>")
+		.description("add repo-local sync files to global config")
+		.option("--json", "emit JSON instead of human-readable output")
+		.action(notImplemented("sync-files add"));
+
+	syncFilesCommand
+		.command("remove <paths...>")
+		.alias("rm")
+		.description("remove repo-local sync files from global config")
+		.option("--json", "emit JSON instead of human-readable output")
+		.action(notImplemented("sync-files remove"));
 
 	program
 		.command("ls")
@@ -568,6 +594,79 @@ function attachCommandActions(
 				throw commanderExit(exitCode);
 			}
 		});
+
+	const syncFilesCommand = program.commands.find(
+		(command) => command.name() === "sync-files",
+	);
+
+	syncFilesCommand?.action(async (commandOptions: { json?: boolean }) => {
+		const exitCode = await runSyncFilesCommand({
+			action: "list",
+			cwd: options.cwd,
+			json: commandOptions.json,
+			stderr: options.stderr,
+			stdout: options.stdout,
+		});
+
+		if (exitCode !== 0) {
+			throw commanderExit(exitCode);
+		}
+	});
+
+	syncFilesCommand?.commands
+		.find((command) => command.name() === "list")
+		?.action(async (commandOptions: { json?: boolean }) => {
+			const exitCode = await runSyncFilesCommand({
+				action: "list",
+				cwd: options.cwd,
+				json: commandOptions.json || syncFilesCommand?.opts().json,
+				stderr: options.stderr,
+				stdout: options.stdout,
+			});
+
+			if (exitCode !== 0) {
+				throw commanderExit(exitCode);
+			}
+		});
+
+	syncFilesCommand?.commands
+		.find((command) => command.name() === "add")
+		?.action(async (paths: string[], commandOptions: { json?: boolean }) => {
+			const exitCode = await runSyncFilesCommand({
+				action: "add",
+				cwd: options.cwd,
+				json: commandOptions.json || syncFilesCommand?.opts().json,
+				paths,
+				stderr: options.stderr,
+				stdout: options.stdout,
+			});
+
+			if (exitCode !== 0) {
+				throw commanderExit(exitCode);
+			}
+		});
+
+	const runSyncFilesRemoveCommand = async (
+		paths: string[],
+		commandOptions: { json?: boolean },
+	) => {
+		const exitCode = await runSyncFilesCommand({
+			action: "remove",
+			cwd: options.cwd,
+			json: commandOptions.json || syncFilesCommand?.opts().json,
+			paths,
+			stderr: options.stderr,
+			stdout: options.stdout,
+		});
+
+		if (exitCode !== 0) {
+			throw commanderExit(exitCode);
+		}
+	};
+
+	syncFilesCommand?.commands
+		.find((command) => command.name() === "remove")
+		?.action(runSyncFilesRemoveCommand);
 
 	program.commands
 		.find((command) => command.name() === "ls")

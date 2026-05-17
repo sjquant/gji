@@ -55,7 +55,15 @@ If shell integration is active, commands like `gji new feature/foo` and `gji go 
 
 ## Optional next step: automate setup in each new worktree
 
-Many users want installs or environment setup to happen automatically.
+Many users want installs, environment setup, or local configuration files to be ready automatically.
+
+If every new worktree needs private files from your main worktree, register them first:
+
+```bash
+gji sync-files add .env.local .npmrc
+```
+
+`gji` stores that list in your global per-repo config and copies the files before setup hooks run.
 
 Add an `afterCreate` hook:
 
