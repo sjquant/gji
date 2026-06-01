@@ -28,7 +28,7 @@ const TOP_LEVEL_COMMANDS = [
 	},
 	{ name: "rm", description: "alias of remove" },
 	{
-		name: "trigger-hook",
+		name: "run-hook",
 		description: "run a named hook in the current worktree",
 	},
 	{ name: "warp", description: "jump to any worktree across all known repos" },
@@ -123,7 +123,7 @@ _gji_completion() {
     remove|rm)
       COMPREPLY=( $(compgen -W "$(__gji_worktree_branches) -f --force --dry-run --json --help" -- "$cur") )
       ;;
-    trigger-hook)
+    run-hook)
       COMPREPLY=( $(compgen -W "${hooks} --help" -- "$cur") )
       ;;
     warp)
@@ -167,7 +167,7 @@ function renderFishCompletion(): string {
 
 	const hookLines = HOOK_NAMES.map(
 		(hook) =>
-			`complete -c gji -n '__fish_seen_subcommand_from trigger-hook' -a '${hook}' -d 'hook'`,
+			`complete -c gji -n '__fish_seen_subcommand_from run-hook' -a '${hook}' -d 'hook'`,
 	).join("\n");
 
 	const configKeyLines = CONFIG_KEYS.map(
@@ -338,7 +338,7 @@ case "\${words[2]}" in
   remove|rm)
     _arguments '(-f --force)'{-f,--force}'[bypass prompts, force-remove a dirty worktree, and force-delete an unmerged branch]' '--dry-run[show what would be deleted without removing anything]' '--json[emit JSON on success or error instead of human-readable output]' '2:branch:->worktrees'
     ;;
-  trigger-hook)
+  run-hook)
     _arguments "2:hook:(${hooks})"
     ;;
   warp)

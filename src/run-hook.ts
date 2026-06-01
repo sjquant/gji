@@ -12,18 +12,18 @@ function isValidHook(hook: string): hook is keyof GjiHooks {
 	return (VALID_HOOKS as string[]).includes(hook);
 }
 
-export interface TriggerHookCommandOptions {
+export interface RunHookCommandOptions {
 	cwd: string;
 	hook: string;
 	stderr: (chunk: string) => void;
 }
 
-export async function runTriggerHookCommand(
-	options: TriggerHookCommandOptions,
+export async function runHookCommand(
+	options: RunHookCommandOptions,
 ): Promise<number> {
 	if (!isValidHook(options.hook)) {
 		options.stderr(
-			`gji trigger-hook: unknown hook '${options.hook}'. Valid hooks: ${VALID_HOOKS.join(", ")}\n`,
+			`gji run-hook: unknown hook '${options.hook}'. Valid hooks: ${VALID_HOOKS.join(", ")}\n`,
 		);
 		return 1;
 	}

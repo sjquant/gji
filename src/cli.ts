@@ -18,10 +18,10 @@ import { runRemoveCommand } from "./remove.js";
 import { detectRepository } from "./repo.js";
 import { registerRepo } from "./repo-registry.js";
 import { runRootCommand } from "./root.js";
+import { runHookCommand } from "./run-hook.js";
 import { runStatusCommand } from "./status.js";
 import { runSyncCommand } from "./sync.js";
 import { runSyncFilesCommand } from "./sync-files-command.js";
-import { runTriggerHookCommand } from "./trigger-hook.js";
 import { runWarpCommand } from "./warp.js";
 
 interface PackageMetadata {
@@ -331,11 +331,11 @@ function registerCommands(program: Command): void {
 		.action(notImplemented("remove"));
 
 	program
-		.command("trigger-hook <hook>")
+		.command("run-hook <hook>")
 		.description(
 			"run a named hook (afterCreate, afterEnter, beforeRemove) in the current worktree",
 		)
-		.action(notImplemented("trigger-hook"));
+		.action(notImplemented("run-hook"));
 
 	program
 		.command("warp [branch]")
@@ -732,9 +732,9 @@ function attachCommandActions(
 		?.action(runRemovalCommand);
 
 	program.commands
-		.find((command) => command.name() === "trigger-hook")
+		.find((command) => command.name() === "run-hook")
 		?.action(async (hook: string) => {
-			const exitCode = await runTriggerHookCommand({
+			const exitCode = await runHookCommand({
 				cwd: options.cwd,
 				hook,
 				stderr: options.stderr,

@@ -19,7 +19,7 @@ afterEach(() => {
 	process.env.HOME = originalHome;
 });
 
-describe("gji trigger-hook", () => {
+describe("gji run-hook", () => {
 	it("runs the afterCreate hook in the current worktree", async () => {
 		// Given a linked worktree with an afterCreate hook configured.
 		const repoRoot = await createRepository();
@@ -34,8 +34,8 @@ describe("gji trigger-hook", () => {
 			"utf8",
 		);
 
-		// When trigger-hook is run with afterCreate from inside that worktree.
-		const result = await runCli(["trigger-hook", "afterCreate"], {
+		// When run-hook is run with afterCreate from inside that worktree.
+		const result = await runCli(["run-hook", "afterCreate"], {
 			cwd: worktreePath,
 		});
 
@@ -71,8 +71,8 @@ describe("gji trigger-hook", () => {
 			"utf8",
 		);
 
-		// When trigger-hook runs the argv hook.
-		const result = await runCli(["trigger-hook", "afterCreate"], {
+		// When run-hook runs the argv hook.
+		const result = await runCli(["run-hook", "afterCreate"], {
 			cwd: worktreePath,
 		});
 
@@ -96,8 +96,8 @@ describe("gji trigger-hook", () => {
 			"utf8",
 		);
 
-		// When trigger-hook is run with afterEnter.
-		const result = await runCli(["trigger-hook", "afterEnter"], {
+		// When run-hook is run with afterEnter.
+		const result = await runCli(["run-hook", "afterEnter"], {
 			cwd: worktreePath,
 		});
 
@@ -120,8 +120,8 @@ describe("gji trigger-hook", () => {
 			"utf8",
 		);
 
-		// When trigger-hook is run with beforeRemove.
-		const result = await runCli(["trigger-hook", "beforeRemove"], {
+		// When run-hook is run with beforeRemove.
+		const result = await runCli(["run-hook", "beforeRemove"], {
 			cwd: worktreePath,
 		});
 
@@ -138,9 +138,9 @@ describe("gji trigger-hook", () => {
 
 		await runCli(["new", branchName], { cwd: repoRoot });
 
-		// When trigger-hook is called for a hook that is not configured.
+		// When run-hook is called for a hook that is not configured.
 		const stderr: string[] = [];
-		const result = await runCli(["trigger-hook", "afterCreate"], {
+		const result = await runCli(["run-hook", "afterCreate"], {
 			cwd: worktreePath,
 			stderr: (c) => stderr.push(c),
 		});
@@ -168,8 +168,8 @@ describe("gji trigger-hook", () => {
 			"utf8",
 		);
 
-		// When trigger-hook fires the hook.
-		await runCli(["trigger-hook", "afterCreate"], { cwd: worktreePath });
+		// When run-hook fires the hook.
+		await runCli(["run-hook", "afterCreate"], { cwd: worktreePath });
 
 		// Then GJI_BRANCH, GJI_PATH, and GJI_REPO are correctly set.
 		const output = await readFile(outputFile, "utf8");
@@ -192,9 +192,9 @@ describe("gji trigger-hook", () => {
 			"utf8",
 		);
 
-		// When trigger-hook is run with the failing hook.
+		// When run-hook is run with the failing hook.
 		const stderr: string[] = [];
-		const result = await runCli(["trigger-hook", "afterCreate"], {
+		const result = await runCli(["run-hook", "afterCreate"], {
 			cwd: worktreePath,
 			stderr: (c) => stderr.push(c),
 		});
@@ -212,9 +212,9 @@ describe("gji trigger-hook", () => {
 
 		await runCli(["new", branchName], { cwd: repoRoot });
 
-		// When trigger-hook is called with an unrecognised hook name.
+		// When run-hook is called with an unrecognised hook name.
 		const stderr: string[] = [];
-		const result = await runCli(["trigger-hook", "onSpookyEvent"], {
+		const result = await runCli(["run-hook", "onSpookyEvent"], {
 			cwd: worktreePath,
 			stderr: (c) => stderr.push(c),
 		});
@@ -237,8 +237,8 @@ describe("gji trigger-hook", () => {
 			"utf8",
 		);
 
-		// When trigger-hook is run from the main repo root.
-		const result = await runCli(["trigger-hook", "afterCreate"], {
+		// When run-hook is run from the main repo root.
+		const result = await runCli(["run-hook", "afterCreate"], {
 			cwd: repoRoot,
 		});
 
@@ -270,8 +270,8 @@ describe("gji trigger-hook", () => {
 			"utf8",
 		);
 
-		// When trigger-hook is run inside the linked worktree.
-		const result = await runCli(["trigger-hook", "afterCreate"], {
+		// When run-hook is run inside the linked worktree.
+		const result = await runCli(["run-hook", "afterCreate"], {
 			cwd: worktreePath,
 		});
 
