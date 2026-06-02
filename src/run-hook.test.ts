@@ -20,8 +20,8 @@ afterEach(() => {
 });
 
 describe("gji run-hook", () => {
-	it("runs the afterCreate hook in the current worktree", async () => {
-		// Given a linked worktree with an afterCreate hook configured.
+	it("runs the after-create hook in the current worktree", async () => {
+		// Given a linked worktree with an after-create hook configured.
 		const repoRoot = await createRepository();
 		const branchName = "feature/trigger-test";
 		const worktreePath = resolveWorktreePath(repoRoot, branchName);
@@ -30,12 +30,12 @@ describe("gji run-hook", () => {
 		await runCli(["new", branchName], { cwd: repoRoot });
 		await writeFile(
 			join(repoRoot, ".gji.json"),
-			JSON.stringify({ hooks: { afterCreate: `touch "${markerFile}"` } }),
+			JSON.stringify({ hooks: { "after-create": `touch "${markerFile}"` } }),
 			"utf8",
 		);
 
-		// When run-hook is run with afterCreate from inside that worktree.
-		const result = await runCli(["run-hook", "afterCreate"], {
+		// When run-hook is run with after-create from inside that worktree.
+		const result = await runCli(["run-hook", "after-create"], {
 			cwd: worktreePath,
 		});
 
@@ -45,7 +45,7 @@ describe("gji run-hook", () => {
 	});
 
 	it("runs argv hooks without shell evaluation", async () => {
-		// Given a linked worktree with an argv-form afterCreate hook and shell metacharacters in the branch name.
+		// Given a linked worktree with an argv-form after-create hook and shell metacharacters in the branch name.
 		const repoRoot = await createRepository();
 		const branchName = "feature/trigger-argv;touch-injected";
 		const worktreePath = resolveWorktreePath(repoRoot, branchName);
@@ -59,7 +59,7 @@ describe("gji run-hook", () => {
 			join(repoRoot, ".gji.json"),
 			JSON.stringify({
 				hooks: {
-					afterCreate: [
+					"after-create": [
 						process.execPath,
 						"-e",
 						script,
@@ -72,7 +72,7 @@ describe("gji run-hook", () => {
 		);
 
 		// When run-hook runs the argv hook.
-		const result = await runCli(["run-hook", "afterCreate"], {
+		const result = await runCli(["run-hook", "after-create"], {
 			cwd: worktreePath,
 		});
 
@@ -82,8 +82,8 @@ describe("gji run-hook", () => {
 		await expect(readFile(injectedFile)).rejects.toThrow();
 	});
 
-	it("runs the afterEnter hook in the current worktree", async () => {
-		// Given a linked worktree with an afterEnter hook configured.
+	it("runs the after-enter hook in the current worktree", async () => {
+		// Given a linked worktree with an after-enter hook configured.
 		const repoRoot = await createRepository();
 		const branchName = "feature/trigger-enter";
 		const worktreePath = resolveWorktreePath(repoRoot, branchName);
@@ -92,22 +92,22 @@ describe("gji run-hook", () => {
 		await runCli(["new", branchName], { cwd: repoRoot });
 		await writeFile(
 			join(repoRoot, ".gji.json"),
-			JSON.stringify({ hooks: { afterEnter: `touch "${markerFile}"` } }),
+			JSON.stringify({ hooks: { "after-enter": `touch "${markerFile}"` } }),
 			"utf8",
 		);
 
-		// When run-hook is run with afterEnter.
-		const result = await runCli(["run-hook", "afterEnter"], {
+		// When run-hook is run with after-enter.
+		const result = await runCli(["run-hook", "after-enter"], {
 			cwd: worktreePath,
 		});
 
-		// Then the afterEnter hook ran.
+		// Then the after-enter hook ran.
 		expect(result.exitCode).toBe(0);
 		await expect(readFile(markerFile)).resolves.toBeDefined();
 	});
 
-	it("runs the beforeRemove hook in the current worktree", async () => {
-		// Given a linked worktree with a beforeRemove hook configured.
+	it("runs the before-remove hook in the current worktree", async () => {
+		// Given a linked worktree with a before-remove hook configured.
 		const repoRoot = await createRepository();
 		const branchName = "feature/trigger-remove";
 		const worktreePath = resolveWorktreePath(repoRoot, branchName);
@@ -116,16 +116,16 @@ describe("gji run-hook", () => {
 		await runCli(["new", branchName], { cwd: repoRoot });
 		await writeFile(
 			join(repoRoot, ".gji.json"),
-			JSON.stringify({ hooks: { beforeRemove: `touch "${markerFile}"` } }),
+			JSON.stringify({ hooks: { "before-remove": `touch "${markerFile}"` } }),
 			"utf8",
 		);
 
-		// When run-hook is run with beforeRemove.
-		const result = await runCli(["run-hook", "beforeRemove"], {
+		// When run-hook is run with before-remove.
+		const result = await runCli(["run-hook", "before-remove"], {
 			cwd: worktreePath,
 		});
 
-		// Then the beforeRemove hook ran.
+		// Then the before-remove hook ran.
 		expect(result.exitCode).toBe(0);
 		await expect(readFile(markerFile)).resolves.toBeDefined();
 	});
@@ -140,7 +140,7 @@ describe("gji run-hook", () => {
 
 		// When run-hook is called for a hook that is not configured.
 		const stderr: string[] = [];
-		const result = await runCli(["run-hook", "afterCreate"], {
+		const result = await runCli(["run-hook", "after-create"], {
 			cwd: worktreePath,
 			stderr: (c) => stderr.push(c),
 		});
@@ -151,7 +151,7 @@ describe("gji run-hook", () => {
 	});
 
 	it("sets the correct context variables for the hook", async () => {
-		// Given an afterCreate hook that writes env vars to a file.
+		// Given an after-create hook that writes env vars to a file.
 		const repoRoot = await createRepository();
 		const branchName = "feature/ctx-check";
 		const worktreePath = resolveWorktreePath(repoRoot, branchName);
@@ -162,14 +162,14 @@ describe("gji run-hook", () => {
 			join(repoRoot, ".gji.json"),
 			JSON.stringify({
 				hooks: {
-					afterCreate: `printf '%s:%s:%s' "$GJI_BRANCH" "$GJI_PATH" "$GJI_REPO" > "${outputFile}"`,
+					"after-create": `printf '%s:%s:%s' "$GJI_BRANCH" "$GJI_PATH" "$GJI_REPO" > "${outputFile}"`,
 				},
 			}),
 			"utf8",
 		);
 
 		// When run-hook fires the hook.
-		await runCli(["run-hook", "afterCreate"], { cwd: worktreePath });
+		await runCli(["run-hook", "after-create"], { cwd: worktreePath });
 
 		// Then GJI_BRANCH, GJI_PATH, and GJI_REPO are correctly set.
 		const output = await readFile(outputFile, "utf8");
@@ -180,7 +180,7 @@ describe("gji run-hook", () => {
 	});
 
 	it("emits a warning but exits 0 when the hook command fails", async () => {
-		// Given a worktree with a failing afterCreate hook.
+		// Given a worktree with a failing after-create hook.
 		const repoRoot = await createRepository();
 		const branchName = "feature/fail-hook";
 		const worktreePath = resolveWorktreePath(repoRoot, branchName);
@@ -188,13 +188,13 @@ describe("gji run-hook", () => {
 		await runCli(["new", branchName], { cwd: repoRoot });
 		await writeFile(
 			join(repoRoot, ".gji.json"),
-			JSON.stringify({ hooks: { afterCreate: "exit 7" } }),
+			JSON.stringify({ hooks: { "after-create": "exit 7" } }),
 			"utf8",
 		);
 
 		// When run-hook is run with the failing hook.
 		const stderr: string[] = [];
-		const result = await runCli(["run-hook", "afterCreate"], {
+		const result = await runCli(["run-hook", "after-create"], {
 			cwd: worktreePath,
 			stderr: (c) => stderr.push(c),
 		});
@@ -222,7 +222,7 @@ describe("gji run-hook", () => {
 		// Then the command exits non-zero with an error naming the bad hook and listing valid ones.
 		expect(result.exitCode).toBe(1);
 		expect(stderr.join("")).toContain(
-			"unknown hook 'onSpookyEvent'. Valid hooks: afterCreate, afterEnter, beforeRemove",
+			"unknown hook 'onSpookyEvent'. Valid hooks: after-create, after-enter, before-remove",
 		);
 	});
 
@@ -233,12 +233,12 @@ describe("gji run-hook", () => {
 
 		await writeFile(
 			join(repoRoot, ".gji.json"),
-			JSON.stringify({ hooks: { afterCreate: `touch "${markerFile}"` } }),
+			JSON.stringify({ hooks: { "after-create": `touch "${markerFile}"` } }),
 			"utf8",
 		);
 
 		// When run-hook is run from the main repo root.
-		const result = await runCli(["run-hook", "afterCreate"], {
+		const result = await runCli(["run-hook", "after-create"], {
 			cwd: repoRoot,
 		});
 
@@ -248,7 +248,7 @@ describe("gji run-hook", () => {
 	});
 
 	it("picks up a hook defined only in per-repo global config", async () => {
-		// Given a global config with a per-repo afterCreate hook and no local .gji.json.
+		// Given a global config with a per-repo after-create hook and no local .gji.json.
 		const home = await mkdtemp(join(tmpdir(), "gji-home-"));
 		const repoRoot = await createRepository();
 		const branchName = "feature/per-repo-hook";
@@ -264,14 +264,14 @@ describe("gji run-hook", () => {
 			globalConfigPath,
 			JSON.stringify({
 				repos: {
-					[repoRoot]: { hooks: { afterCreate: `touch "${markerFile}"` } },
+					[repoRoot]: { hooks: { "after-create": `touch "${markerFile}"` } },
 				},
 			}),
 			"utf8",
 		);
 
 		// When run-hook is run inside the linked worktree.
-		const result = await runCli(["run-hook", "afterCreate"], {
+		const result = await runCli(["run-hook", "after-create"], {
 			cwd: worktreePath,
 		});
 

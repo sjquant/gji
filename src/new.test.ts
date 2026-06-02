@@ -604,7 +604,7 @@ describe("gji new", () => {
 			expect(writeConfigCalled).toBe(false);
 		});
 
-		it('runs install and writes hooks.afterCreate to local config when "always" is chosen', async () => {
+		it('runs install and writes hooks["after-create"] to local config when "always" is chosen', async () => {
 			// Given a repository with a detected package manager and an "always" prompt choice.
 			const repoRoot = await createRepository();
 			const branchName = "feature/install-always";
@@ -626,12 +626,12 @@ describe("gji new", () => {
 				stdout: () => undefined,
 			});
 
-			// Then hooks.afterCreate was written to local config with the install command.
+			// Then hooks["after-create"] was written to local config with the install command.
 			expect(result).toBe(0);
 			expect(writtenKeys).toHaveLength(1);
 			expect(writtenKeys[0].key).toBe("hooks");
 			expect(
-				(writtenKeys[0].value as Record<string, unknown>).afterCreate,
+				(writtenKeys[0].value as Record<string, unknown>)["after-create"],
 			).toBe("pnpm install");
 		});
 
@@ -695,14 +695,14 @@ describe("gji new", () => {
 			expect(promptCalled).toBe(false);
 		});
 
-		it("suppresses the prompt when hooks.afterCreate is already set in effective config", async () => {
-			// Given a repository with hooks.afterCreate already configured.
+		it('suppresses the prompt when hooks["after-create"] is already set in effective config', async () => {
+			// Given a repository with hooks["after-create"] already configured.
 			const repoRoot = await createRepository();
 			const branchName = "feature/install-hook-set";
 			let promptCalled = false;
 			await writeFile(
 				join(repoRoot, ".gji.json"),
-				JSON.stringify({ hooks: { afterCreate: "true" } }),
+				JSON.stringify({ hooks: { "after-create": "true" } }),
 				"utf8",
 			);
 			const runNewCommand = createNewCommand({
@@ -713,7 +713,7 @@ describe("gji new", () => {
 				},
 			});
 
-			// When gji new runs with an afterCreate hook already configured.
+			// When gji new runs with an after-create hook already configured.
 			const result = await runNewCommand({
 				branch: branchName,
 				cwd: repoRoot,
@@ -726,14 +726,14 @@ describe("gji new", () => {
 			expect(promptCalled).toBe(false);
 		});
 
-		it("suppresses the prompt when hooks.afterCreate is an argv command in effective config", async () => {
-			// Given a repository with an argv-form hooks.afterCreate already configured.
+		it('suppresses the prompt when hooks["after-create"] is an argv command in effective config', async () => {
+			// Given a repository with an argv-form hooks["after-create"] already configured.
 			const repoRoot = await createRepository();
 			const branchName = "feature/install-argv-hook-set";
 			let promptCalled = false;
 			await writeFile(
 				join(repoRoot, ".gji.json"),
-				JSON.stringify({ hooks: { afterCreate: ["npm", "ci"] } }),
+				JSON.stringify({ hooks: { "after-create": ["npm", "ci"] } }),
 				"utf8",
 			);
 			const runNewCommand = createNewCommand({
@@ -744,7 +744,7 @@ describe("gji new", () => {
 				},
 			});
 
-			// When gji new runs with an argv afterCreate hook already configured.
+			// When gji new runs with an argv after-create hook already configured.
 			const result = await runNewCommand({
 				branch: branchName,
 				cwd: repoRoot,
@@ -757,14 +757,14 @@ describe("gji new", () => {
 			expect(promptCalled).toBe(false);
 		});
 
-		it('"always" deep-merges into existing local hooks preserving non-afterCreate keys', async () => {
-			// Given a repository with an existing afterEnter hook in local config.
+		it('"always" deep-merges into existing local hooks preserving non-after-create keys', async () => {
+			// Given a repository with an existing after-enter hook in local config.
 			const repoRoot = await createRepository();
 			const branchName = "feature/install-always-merge";
 			const writtenKeys: Array<{ key: string; value: unknown }> = [];
 			await writeFile(
 				join(repoRoot, ".gji.json"),
-				JSON.stringify({ hooks: { afterEnter: "echo entered" } }),
+				JSON.stringify({ hooks: { "after-enter": "echo entered" } }),
 				"utf8",
 			);
 			const runNewCommand = createNewCommand({
@@ -784,11 +784,11 @@ describe("gji new", () => {
 				stdout: () => undefined,
 			});
 
-			// Then the written hooks object includes both afterCreate and the preserved afterEnter.
+			// Then the written hooks object includes both after-create and the preserved after-enter.
 			expect(result).toBe(0);
 			const hooks = writtenKeys[0].value as Record<string, unknown>;
-			expect(hooks.afterCreate).toBe("pnpm install");
-			expect(hooks.afterEnter).toBe("echo entered");
+			expect(hooks["after-create"]).toBe("pnpm install");
+			expect(hooks["after-enter"]).toBe("echo entered");
 		});
 
 		it("emits a warning and does not abort when writing config fails", async () => {
@@ -912,13 +912,13 @@ describe("gji new", () => {
 				stdout: () => undefined,
 			});
 
-			// Then hooks.afterCreate is written to the global per-repo config, not local.
+			// Then hooks["after-create"] is written to the global per-repo config, not local.
 			expect(result).toBe(0);
 			expect(writtenLocalKey).toBe(false);
 			expect(writtenGlobalKeys).toHaveLength(1);
 			expect(writtenGlobalKeys[0].key).toBe("hooks");
 			expect(
-				(writtenGlobalKeys[0].value as Record<string, unknown>).afterCreate,
+				(writtenGlobalKeys[0].value as Record<string, unknown>)["after-create"],
 			).toBe("pnpm install");
 		});
 

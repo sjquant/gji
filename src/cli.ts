@@ -333,7 +333,7 @@ function registerCommands(program: Command): void {
 	program
 		.command("run-hook <hook>")
 		.description(
-			"run a named hook (afterCreate, afterEnter, beforeRemove) in the current worktree",
+			"run a named hook (after-create, after-enter, before-remove) in the current worktree",
 		)
 		.action(notImplemented("run-hook"));
 

@@ -87,12 +87,14 @@ describe("extractHooks", () => {
 		expect(extractHooks({})).toEqual({});
 	});
 
-	it("extracts afterCreate", () => {
-		// Given a config with only an afterCreate hook.
+	it("extracts after-create", () => {
+		// Given a config with only an after-create hook.
 		// Then extractHooks returns only that hook.
-		expect(extractHooks({ hooks: { afterCreate: "pnpm install" } })).toEqual({
-			afterCreate: "pnpm install",
-		});
+		expect(extractHooks({ hooks: { "after-create": "pnpm install" } })).toEqual(
+			{
+				"after-create": "pnpm install",
+			},
+		);
 	});
 
 	it("extracts all three hook types", () => {
@@ -100,27 +102,35 @@ describe("extractHooks", () => {
 		// Then extractHooks returns all three.
 		expect(
 			extractHooks({
-				hooks: { afterCreate: "a", afterEnter: "b", beforeRemove: "c" },
+				hooks: {
+					"after-create": "a",
+					"after-enter": "b",
+					"before-remove": "c",
+				},
 			}),
-		).toEqual({ afterCreate: "a", afterEnter: "b", beforeRemove: "c" });
+		).toEqual({
+			"after-create": "a",
+			"after-enter": "b",
+			"before-remove": "c",
+		});
 	});
 
 	it("extracts argv hook commands", () => {
 		// Given a config with an argv-form hook command.
-		const config = { hooks: { afterCreate: ["pnpm", "install"] } };
+		const config = { hooks: { "after-create": ["pnpm", "install"] } };
 
 		// When hooks are extracted.
 		const hooks = extractHooks(config);
 
 		// Then the argv command is preserved.
-		expect(hooks).toEqual({ afterCreate: ["pnpm", "install"] });
+		expect(hooks).toEqual({ "after-create": ["pnpm", "install"] });
 	});
 
 	it("ignores non-string hook values", () => {
 		// Given a config with hooks set to non-string values.
 		// Then extractHooks omits those keys.
 		expect(
-			extractHooks({ hooks: { afterCreate: 123, afterEnter: null } }),
+			extractHooks({ hooks: { "after-create": 123, "after-enter": null } }),
 		).toEqual({});
 	});
 
@@ -128,9 +138,9 @@ describe("extractHooks", () => {
 		// Given a config with empty and mixed-type argv hook commands.
 		const config = {
 			hooks: {
-				afterCreate: [],
-				afterEnter: ["pnpm", 123],
-				beforeRemove: ["", "arg"],
+				"after-create": [],
+				"after-enter": ["pnpm", 123],
+				"before-remove": ["", "arg"],
 			},
 		};
 
@@ -139,6 +149,22 @@ describe("extractHooks", () => {
 
 		// Then invalid argv commands are omitted.
 		expect(hooks).toEqual({});
+	});
+
+	it("accepts legacy camelCase keys as fallback", () => {
+		// Given a config with the old camelCase afterCreate key.
+		// Then extractHooks maps it to the kebab-case key.
+		expect(extractHooks({ hooks: { afterCreate: "pnpm install" } })).toEqual({
+			"after-create": "pnpm install",
+		});
+	});
+
+	it("prefers kebab-case over camelCase when both present", () => {
+		// Given a config with both the old and new keys for the same hook.
+		// Then the kebab-case value wins.
+		expect(
+			extractHooks({ hooks: { afterCreate: "old", "after-create": "new" } }),
+		).toEqual({ "after-create": "new" });
 	});
 
 	it("ignores a hooks key that is not a plain object", () => {
@@ -281,7 +307,7 @@ describe("runHook", () => {
 
 describe("hook config layering", () => {
 	it("merges global and project hooks so both apply when they use different keys", async () => {
-		// Given a global config with afterEnter and a project config with afterCreate.
+		// Given a global config with after-enter and a project config with after-create.
 		const home = await mkdtemp(join(tmpdir(), "gji-home-"));
 		const repoRoot = await createRepository();
 		const branchName = "feature/layered-hooks";
@@ -293,25 +319,25 @@ describe("hook config layering", () => {
 		await mkdir(dirname(globalConfigPath), { recursive: true });
 		await writeFile(
 			globalConfigPath,
-			JSON.stringify({ hooks: { afterEnter: "echo enter" } }),
+			JSON.stringify({ hooks: { "after-enter": "echo enter" } }),
 			"utf8",
 		);
 		await writeFile(
 			join(repoRoot, ".gji.json"),
-			JSON.stringify({ hooks: { afterCreate: `touch "${localMarker}"` } }),
+			JSON.stringify({ hooks: { "after-create": `touch "${localMarker}"` } }),
 			"utf8",
 		);
 
 		// When gji new is run.
 		const result = await runCli(["new", branchName], { cwd: repoRoot });
 
-		// Then the project afterCreate hook ran and the global afterEnter was not discarded.
+		// Then the project after-create hook ran and the global after-enter was not discarded.
 		expect(result.exitCode).toBe(0);
 		await expect(readFile(localMarker)).resolves.toBeDefined();
 	});
 
 	it("project hook overrides global hook for the same key", async () => {
-		// Given global and project configs that both define afterCreate with different commands.
+		// Given global and project configs that both define after-create with different commands.
 		const home = await mkdtemp(join(tmpdir(), "gji-home-"));
 		const repoRoot = await createRepository();
 		const branchName = "feature/override-hook";
@@ -324,12 +350,12 @@ describe("hook config layering", () => {
 		await mkdir(dirname(globalConfigPath), { recursive: true });
 		await writeFile(
 			globalConfigPath,
-			JSON.stringify({ hooks: { afterCreate: `touch "${globalMarker}"` } }),
+			JSON.stringify({ hooks: { "after-create": `touch "${globalMarker}"` } }),
 			"utf8",
 		);
 		await writeFile(
 			join(repoRoot, ".gji.json"),
-			JSON.stringify({ hooks: { afterCreate: `touch "${localMarker}"` } }),
+			JSON.stringify({ hooks: { "after-create": `touch "${localMarker}"` } }),
 			"utf8",
 		);
 
@@ -343,9 +369,9 @@ describe("hook config layering", () => {
 	});
 });
 
-describe("gji new with afterCreate hook", () => {
-	it("runs the configured afterCreate hook in the new worktree directory", async () => {
-		// Given a project config with an afterCreate hook that creates a marker file.
+describe("gji new with after-create hook", () => {
+	it("runs the configured after-create hook in the new worktree directory", async () => {
+		// Given a project config with an after-create hook that creates a marker file.
 		const repoRoot = await createRepository();
 		const branchName = "feature/hook-test";
 		const worktreePath = resolveWorktreePath(repoRoot, branchName);
@@ -353,7 +379,7 @@ describe("gji new with afterCreate hook", () => {
 
 		await writeFile(
 			join(repoRoot, ".gji.json"),
-			JSON.stringify({ hooks: { afterCreate: `touch "${markerFile}"` } }),
+			JSON.stringify({ hooks: { "after-create": `touch "${markerFile}"` } }),
 			"utf8",
 		);
 
@@ -365,8 +391,8 @@ describe("gji new with afterCreate hook", () => {
 		await expect(readFile(markerFile)).resolves.toBeDefined();
 	});
 
-	it("still creates the worktree when the afterCreate hook fails", async () => {
-		// Given a project config with an afterCreate hook that exits non-zero.
+	it("still creates the worktree when the after-create hook fails", async () => {
+		// Given a project config with an after-create hook that exits non-zero.
 		const repoRoot = await createRepository();
 		const branchName = "feature/hook-fail";
 		const worktreePath = resolveWorktreePath(repoRoot, branchName);
@@ -374,7 +400,7 @@ describe("gji new with afterCreate hook", () => {
 
 		await writeFile(
 			join(repoRoot, ".gji.json"),
-			JSON.stringify({ hooks: { afterCreate: "exit 1" } }),
+			JSON.stringify({ hooks: { "after-create": "exit 1" } }),
 			"utf8",
 		);
 
@@ -391,9 +417,9 @@ describe("gji new with afterCreate hook", () => {
 	});
 });
 
-describe("gji pr with afterCreate hook", () => {
-	it("runs the configured afterCreate hook after checking out a PR worktree", async () => {
-		// Given a repository with an origin remote exposing a PR ref and an afterCreate hook.
+describe("gji pr with after-create hook", () => {
+	it("runs the configured after-create hook after checking out a PR worktree", async () => {
+		// Given a repository with an origin remote exposing a PR ref and an after-create hook.
 		const { repoRoot } = await createRepositoryWithOrigin();
 		await runGit(repoRoot, ["checkout", "-b", "feature/pr-source"]);
 		await commitFile(repoRoot, "pr.txt", "change\n", "pr commit");
@@ -405,22 +431,22 @@ describe("gji pr with afterCreate hook", () => {
 
 		await writeFile(
 			join(repoRoot, ".gji.json"),
-			JSON.stringify({ hooks: { afterCreate: `touch "${markerFile}"` } }),
+			JSON.stringify({ hooks: { "after-create": `touch "${markerFile}"` } }),
 			"utf8",
 		);
 
 		// When gji pr fetches and creates the PR worktree.
 		const result = await runCli(["pr", "1"], { cwd: repoRoot });
 
-		// Then the afterCreate hook ran inside the new PR worktree.
+		// Then the after-create hook ran inside the new PR worktree.
 		expect(result.exitCode).toBe(0);
 		await expect(readFile(markerFile)).resolves.toBeDefined();
 	});
 });
 
-describe("gji remove with beforeRemove hook", () => {
-	it("runs the configured beforeRemove hook before removing the worktree", async () => {
-		// Given an existing worktree and a project config with a beforeRemove hook.
+describe("gji remove with before-remove hook", () => {
+	it("runs the configured before-remove hook before removing the worktree", async () => {
+		// Given an existing worktree and a project config with a before-remove hook.
 		const repoRoot = await createRepository();
 		const branchName = "feature/to-remove";
 		const markerFile = join(repoRoot, "before-remove-ran.txt");
@@ -428,7 +454,7 @@ describe("gji remove with beforeRemove hook", () => {
 		await runCli(["new", branchName], { cwd: repoRoot });
 		await writeFile(
 			join(repoRoot, ".gji.json"),
-			JSON.stringify({ hooks: { beforeRemove: `touch "${markerFile}"` } }),
+			JSON.stringify({ hooks: { "before-remove": `touch "${markerFile}"` } }),
 			"utf8",
 		);
 

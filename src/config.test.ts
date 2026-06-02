@@ -259,7 +259,7 @@ describe("loadEffectiveConfig – per-repo global config", () => {
 	});
 
 	it("per-repo global hooks override global base hooks for the same key", async () => {
-		// Given a global config with a base afterCreate hook and a per-repo afterCreate hook.
+		// Given a global config with a base after-create hook and a per-repo after-create hook.
 		const home = await mkdtemp(join(tmpdir(), "gji-home-"));
 		const repoRoot = await mkdtemp(join(tmpdir(), "gji-repo-"));
 		const globalConfigPath = GLOBAL_CONFIG_FILE_PATH(home);
@@ -269,9 +269,9 @@ describe("loadEffectiveConfig – per-repo global config", () => {
 		await writeFile(
 			globalConfigPath,
 			JSON.stringify({
-				hooks: { afterCreate: "echo global" },
+				hooks: { "after-create": "echo global" },
 				repos: {
-					[repoRoot]: { hooks: { afterCreate: "echo per-repo" } },
+					[repoRoot]: { hooks: { "after-create": "echo per-repo" } },
 				},
 			}),
 			"utf8",
@@ -281,13 +281,13 @@ describe("loadEffectiveConfig – per-repo global config", () => {
 		const config = await loadEffectiveConfig(repoRoot, home);
 
 		// Then the per-repo hook wins for that key.
-		expect((config.hooks as Record<string, string>).afterCreate).toBe(
+		expect((config.hooks as Record<string, string>)["after-create"]).toBe(
 			"echo per-repo",
 		);
 	});
 
 	it("per-repo global hooks combine with global base hooks for different keys", async () => {
-		// Given global base has afterEnter and per-repo has afterCreate.
+		// Given global base has after-enter and per-repo has after-create.
 		const home = await mkdtemp(join(tmpdir(), "gji-home-"));
 		const repoRoot = await mkdtemp(join(tmpdir(), "gji-repo-"));
 		const globalConfigPath = GLOBAL_CONFIG_FILE_PATH(home);
@@ -297,9 +297,9 @@ describe("loadEffectiveConfig – per-repo global config", () => {
 		await writeFile(
 			globalConfigPath,
 			JSON.stringify({
-				hooks: { afterEnter: "echo enter" },
+				hooks: { "after-enter": "echo enter" },
 				repos: {
-					[repoRoot]: { hooks: { afterCreate: "echo create" } },
+					[repoRoot]: { hooks: { "after-create": "echo create" } },
 				},
 			}),
 			"utf8",
@@ -309,16 +309,16 @@ describe("loadEffectiveConfig – per-repo global config", () => {
 		const config = await loadEffectiveConfig(repoRoot, home);
 
 		// Then both hooks are present in the effective config.
-		expect((config.hooks as Record<string, string>).afterEnter).toBe(
+		expect((config.hooks as Record<string, string>)["after-enter"]).toBe(
 			"echo enter",
 		);
-		expect((config.hooks as Record<string, string>).afterCreate).toBe(
+		expect((config.hooks as Record<string, string>)["after-create"]).toBe(
 			"echo create",
 		);
 	});
 
 	it("local hooks override per-repo global hooks for the same key", async () => {
-		// Given per-repo global and local configs both define afterCreate.
+		// Given per-repo global and local configs both define after-create.
 		const home = await mkdtemp(join(tmpdir(), "gji-home-"));
 		const repoRoot = await mkdtemp(join(tmpdir(), "gji-repo-"));
 		const globalConfigPath = GLOBAL_CONFIG_FILE_PATH(home);
@@ -329,14 +329,14 @@ describe("loadEffectiveConfig – per-repo global config", () => {
 			globalConfigPath,
 			JSON.stringify({
 				repos: {
-					[repoRoot]: { hooks: { afterCreate: "echo per-repo" } },
+					[repoRoot]: { hooks: { "after-create": "echo per-repo" } },
 				},
 			}),
 			"utf8",
 		);
 		await writeFile(
 			join(repoRoot, CONFIG_FILE_NAME),
-			JSON.stringify({ hooks: { afterCreate: "echo local" } }),
+			JSON.stringify({ hooks: { "after-create": "echo local" } }),
 			"utf8",
 		);
 
@@ -344,7 +344,7 @@ describe("loadEffectiveConfig – per-repo global config", () => {
 		const config = await loadEffectiveConfig(repoRoot, home);
 
 		// Then the local hook wins.
-		expect((config.hooks as Record<string, string>).afterCreate).toBe(
+		expect((config.hooks as Record<string, string>)["after-create"]).toBe(
 			"echo local",
 		);
 	});
@@ -492,7 +492,7 @@ describe("updateGlobalRepoConfigKey", () => {
 		await writeFile(
 			globalConfigPath,
 			JSON.stringify({
-				repos: { [repoRoot]: { hooks: { afterCreate: "npm install" } } },
+				repos: { [repoRoot]: { hooks: { "after-create": "npm install" } } },
 			}),
 			"utf8",
 		);
@@ -508,7 +508,7 @@ describe("updateGlobalRepoConfigKey", () => {
 			repoRoot
 		] as Record<string, unknown>;
 		expect(entry.branchPrefix).toBe("feat/");
-		expect((entry.hooks as Record<string, unknown>).afterCreate).toBe(
+		expect((entry.hooks as Record<string, unknown>)["after-create"]).toBe(
 			"npm install",
 		);
 	});
@@ -580,7 +580,7 @@ describe("loadEffectiveConfig – onWarning callback", () => {
 			join(repoRoot, CONFIG_FILE_NAME),
 			JSON.stringify({
 				branchPrefix: "feat/",
-				hooks: { afterCreate: "echo hi" },
+				hooks: { "after-create": "echo hi" },
 			}),
 			"utf8",
 		);

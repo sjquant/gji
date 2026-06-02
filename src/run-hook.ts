@@ -3,9 +3,9 @@ import { extractHooks, type GjiHooks, runHook } from "./hooks.js";
 import { detectRepository, listWorktrees } from "./repo.js";
 
 const VALID_HOOKS: Array<keyof GjiHooks> = [
-	"afterCreate",
-	"afterEnter",
-	"beforeRemove",
+	"after-create",
+	"after-enter",
+	"before-remove",
 ];
 
 function isValidHook(hook: string): hook is keyof GjiHooks {

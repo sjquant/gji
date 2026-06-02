@@ -62,7 +62,7 @@ export async function runBackCommand(
 		);
 		const hooks = extractHooks(config);
 		await runHook(
-			hooks.afterEnter,
+			hooks["after-enter"],
 			target.path,
 			{
 				branch: target.branch ?? undefined,

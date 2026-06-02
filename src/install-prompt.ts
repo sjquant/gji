@@ -52,7 +52,7 @@ export async function maybeRunInstallPrompt(
 
 	// Skip if afterCreate hook is already configured in effective config.
 	const hooks = isPlainObject(config.hooks) ? config.hooks : null;
-	if (isConfiguredHookCommand(hooks?.afterCreate)) {
+	if (isConfiguredHookCommand(hooks?.["after-create"])) {
 		return;
 	}
 
@@ -100,17 +100,17 @@ export async function maybeRunInstallPrompt(
 				const existingHooks = await loadExistingGlobalRepoHooks(repoRoot);
 				await writeGlobalKey(repoRoot, "hooks", {
 					...existingHooks,
-					afterCreate: pm.installCommand,
+					"after-create": pm.installCommand,
 				});
 			} else {
-				// Read local config hooks to deep-merge so other hook keys (e.g. afterEnter) are preserved.
+				// Read local config hooks to deep-merge so other hook keys (e.g. after-enter) are preserved.
 				const { config: localConfig } = await loadConfig(repoRoot);
 				const existingLocalHooks = isPlainObject(localConfig.hooks)
 					? localConfig.hooks
 					: {};
 				await writeKey(repoRoot, "hooks", {
 					...existingLocalHooks,
-					afterCreate: pm.installCommand,
+					"after-create": pm.installCommand,
 				});
 			}
 		} catch (error) {
@@ -201,7 +201,7 @@ async function defaultPromptForInstallChoice(
 		options: [
 			{ value: "yes", label: "Yes", hint: "run once" },
 			{ value: "no", label: "No", hint: "skip this time" },
-			{ value: "always", label: "Always", hint: "save as afterCreate hook" },
+			{ value: "always", label: "Always", hint: "save as after-create hook" },
 			{
 				value: "never",
 				label: "Never",

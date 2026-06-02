@@ -196,7 +196,7 @@ export function createPrCommand(
 
 		const hooks = extractHooks(config);
 		await runHook(
-			hooks.afterCreate,
+			hooks["after-create"],
 			worktreePath,
 			{
 				branch: branchName,

@@ -36,7 +36,7 @@ const TOP_LEVEL_COMMANDS = [
 ] as const;
 
 const SHELL_NAMES = ["bash", "fish", "zsh"] as const;
-const HOOK_NAMES = ["afterCreate", "afterEnter", "beforeRemove"] as const;
+const HOOK_NAMES = ["after-create", "after-enter", "before-remove"] as const;
 const CONFIG_KEYS = Array.from(KNOWN_GLOBAL_CONFIG_KEYS);
 
 export function renderShellCompletion(shell: "bash" | "fish" | "zsh"): string {
