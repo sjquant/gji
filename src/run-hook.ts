@@ -3,32 +3,39 @@ import { extractHooks, type GjiHooks, runHook } from "./hooks.js";
 import { detectRepository, listWorktrees } from "./repo.js";
 
 const VALID_HOOKS: Array<keyof GjiHooks> = [
-	"afterCreate",
-	"afterEnter",
-	"beforeRemove",
+	"after-create",
+	"after-enter",
+	"before-remove",
 ];
+
+const CAMEL_ALIASES: Partial<Record<string, keyof GjiHooks>> = {
+	afterCreate: "after-create",
+	afterEnter: "after-enter",
+	beforeRemove: "before-remove",
+};
 
 function isValidHook(hook: string): hook is keyof GjiHooks {
 	return (VALID_HOOKS as string[]).includes(hook);
 }
 
-export interface TriggerHookCommandOptions {
+export interface RunHookCommandOptions {
 	cwd: string;
 	hook: string;
 	stderr: (chunk: string) => void;
 }
 
-export async function runTriggerHookCommand(
-	options: TriggerHookCommandOptions,
+export async function runHookCommand(
+	options: RunHookCommandOptions,
 ): Promise<number> {
-	if (!isValidHook(options.hook)) {
+	const normalized = CAMEL_ALIASES[options.hook] ?? options.hook;
+	if (!isValidHook(normalized)) {
 		options.stderr(
-			`gji trigger-hook: unknown hook '${options.hook}'. Valid hooks: ${VALID_HOOKS.join(", ")}\n`,
+			`gji run-hook: unknown hook '${options.hook}'. Valid hooks: ${VALID_HOOKS.join(", ")}\n`,
 		);
 		return 1;
 	}
 
-	const hookName = options.hook;
+	const hookName = normalized;
 	const repository = await detectRepository(options.cwd);
 	const config = await loadEffectiveConfig(
 		repository.repoRoot,

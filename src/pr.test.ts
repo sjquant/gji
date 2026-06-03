@@ -612,7 +612,7 @@ describe("gji pr", () => {
 			expect(writeConfigCalled).toBe(false);
 		});
 
-		it('runs install and writes hooks.afterCreate to local config when "always" is chosen', async () => {
+		it('runs install and writes hooks["after-create"] to local config when "always" is chosen', async () => {
 			// Given a PR repo with a detected package manager and an "always" prompt choice.
 			const repoRoot = await setupPrRepo("2003");
 			const writtenKeys: Array<{ key: string; value: unknown }> = [];
@@ -633,12 +633,12 @@ describe("gji pr", () => {
 				stdout: () => undefined,
 			});
 
-			// Then hooks.afterCreate was written to local config with the install command.
+			// Then hooks["after-create"] was written to local config with the install command.
 			expect(result).toBe(0);
 			expect(writtenKeys).toHaveLength(1);
 			expect(writtenKeys[0].key).toBe("hooks");
 			expect(
-				(writtenKeys[0].value as Record<string, unknown>).afterCreate,
+				(writtenKeys[0].value as Record<string, unknown>)["after-create"],
 			).toBe("pnpm install");
 		});
 
@@ -700,13 +700,13 @@ describe("gji pr", () => {
 			expect(promptCalled).toBe(false);
 		});
 
-		it("suppresses the prompt when hooks.afterCreate is already set in effective config", async () => {
-			// Given a PR repo with hooks.afterCreate already configured.
+		it('suppresses the prompt when hooks["after-create"] is already set in effective config', async () => {
+			// Given a PR repo with hooks["after-create"] already configured.
 			const repoRoot = await setupPrRepo("2006");
 			let promptCalled = false;
 			await writeFile(
 				join(repoRoot, ".gji.json"),
-				JSON.stringify({ hooks: { afterCreate: "true" } }),
+				JSON.stringify({ hooks: { "after-create": "true" } }),
 				"utf8",
 			);
 			const runPrCmd = createPrCommand({
@@ -717,7 +717,7 @@ describe("gji pr", () => {
 				},
 			});
 
-			// When gji pr runs with an afterCreate hook already configured.
+			// When gji pr runs with an after-create hook already configured.
 			const result = await runPrCmd({
 				cwd: repoRoot,
 				number: "2006",
@@ -730,13 +730,13 @@ describe("gji pr", () => {
 			expect(promptCalled).toBe(false);
 		});
 
-		it("suppresses the prompt when hooks.afterCreate is an argv command in effective config", async () => {
-			// Given a PR repo with an argv-form hooks.afterCreate already configured.
+		it('suppresses the prompt when hooks["after-create"] is an argv command in effective config', async () => {
+			// Given a PR repo with an argv-form hooks["after-create"] already configured.
 			const repoRoot = await setupPrRepo("2016");
 			let promptCalled = false;
 			await writeFile(
 				join(repoRoot, ".gji.json"),
-				JSON.stringify({ hooks: { afterCreate: ["npm", "ci"] } }),
+				JSON.stringify({ hooks: { "after-create": ["npm", "ci"] } }),
 				"utf8",
 			);
 			const runPrCmd = createPrCommand({
@@ -747,7 +747,7 @@ describe("gji pr", () => {
 				},
 			});
 
-			// When gji pr runs with an argv afterCreate hook already configured.
+			// When gji pr runs with an argv after-create hook already configured.
 			const result = await runPrCmd({
 				cwd: repoRoot,
 				number: "2016",
@@ -760,13 +760,13 @@ describe("gji pr", () => {
 			expect(promptCalled).toBe(false);
 		});
 
-		it('"always" deep-merges into existing local hooks preserving non-afterCreate keys', async () => {
-			// Given a PR repo with an existing afterEnter hook in local config.
+		it('"always" deep-merges into existing local hooks preserving non-after-create keys', async () => {
+			// Given a PR repo with an existing after-enter hook in local config.
 			const repoRoot = await setupPrRepo("2007");
 			const writtenKeys: Array<{ key: string; value: unknown }> = [];
 			await writeFile(
 				join(repoRoot, ".gji.json"),
-				JSON.stringify({ hooks: { afterEnter: "echo entered" } }),
+				JSON.stringify({ hooks: { "after-enter": "echo entered" } }),
 				"utf8",
 			);
 			const runPrCmd = createPrCommand({
@@ -786,12 +786,12 @@ describe("gji pr", () => {
 				stdout: () => undefined,
 			});
 
-			// Then the written hooks object includes both afterCreate and the preserved afterEnter.
+			// Then the written hooks object includes both after-create and the preserved after-enter.
 			expect(result).toBe(0);
 			expect(writtenKeys).toHaveLength(1);
 			const hooks = writtenKeys[0].value as Record<string, unknown>;
-			expect(hooks.afterCreate).toBe("pnpm install");
-			expect(hooks.afterEnter).toBe("echo entered");
+			expect(hooks["after-create"]).toBe("pnpm install");
+			expect(hooks["after-enter"]).toBe("echo entered");
 		});
 
 		it("emits a warning and does not abort when writing config fails", async () => {

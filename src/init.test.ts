@@ -192,7 +192,7 @@ describe("gji init --write setup wizard", () => {
 				installSaveTarget: "global",
 				branchPrefix: "feat/",
 				worktreePath: "~/worktrees",
-				hooks: { afterCreate: "pnpm install" },
+				hooks: { "after-create": "pnpm install" },
 			}),
 		});
 
@@ -204,7 +204,7 @@ describe("gji init --write setup wizard", () => {
 		expect(globalConfig.installSaveTarget).toBe("global");
 		expect(globalConfig.branchPrefix).toBe("feat/");
 		expect(globalConfig.worktreePath).toBe("~/worktrees");
-		expect(globalConfig.hooks).toEqual({ afterCreate: "pnpm install" });
+		expect(globalConfig.hooks).toEqual({ "after-create": "pnpm install" });
 		expect(globalConfig.shellIntegration).toBe(true);
 	});
 

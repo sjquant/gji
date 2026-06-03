@@ -184,7 +184,7 @@ export function createNewCommand(
 						`Hint: Use 'gji remove ${worktreeName}' or 'gji clean' to remove the existing worktree\n`,
 					);
 					options.stderr(
-						`Hint: Use 'gji trigger-hook afterCreate' inside the worktree to re-run setup hooks\n`,
+						`Hint: Use 'gji run-hook after-create' inside the worktree to re-run setup hooks\n`,
 					);
 				}
 				return 1;
@@ -259,7 +259,7 @@ export function createNewCommand(
 
 		const hooks = extractHooks(config);
 		await runHook(
-			hooks.afterCreate,
+			hooks["after-create"],
 			worktreePath,
 			{
 				branch: worktreeName,

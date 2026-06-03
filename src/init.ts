@@ -81,9 +81,9 @@ export type InstallSaveTarget = "local" | "global";
 export interface SetupWizardResult {
 	branchPrefix?: string;
 	hooks?: {
-		afterCreate?: string;
-		afterEnter?: string;
-		beforeRemove?: string;
+		"after-create"?: string;
+		"after-enter"?: string;
+		"before-remove"?: string;
 	};
 	installSaveTarget: InstallSaveTarget;
 	worktreePath?: string;
@@ -218,10 +218,12 @@ async function saveWizardConfig(
 	if (result.worktreePath) values.worktreePath = result.worktreePath;
 
 	const hooks: Record<string, string> = {};
-	if (result.hooks?.afterCreate) hooks.afterCreate = result.hooks.afterCreate;
-	if (result.hooks?.afterEnter) hooks.afterEnter = result.hooks.afterEnter;
-	if (result.hooks?.beforeRemove)
-		hooks.beforeRemove = result.hooks.beforeRemove;
+	if (result.hooks?.["after-create"])
+		hooks["after-create"] = result.hooks["after-create"];
+	if (result.hooks?.["after-enter"])
+		hooks["after-enter"] = result.hooks["after-enter"];
+	if (result.hooks?.["before-remove"])
+		hooks["before-remove"] = result.hooks["before-remove"];
 	if (Object.keys(hooks).length > 0) values.hooks = hooks;
 
 	if (Object.keys(values).length === 0) return;
@@ -386,7 +388,7 @@ async function defaultPromptForSetup(): Promise<SetupWizardResult | null> {
 	}
 
 	const afterCreate = await text({
-		message: "afterCreate hook — run after creating a worktree?",
+		message: "after-create hook — run after creating a worktree?",
 		placeholder: "e.g. pnpm install — leave blank to skip",
 	});
 
@@ -396,7 +398,7 @@ async function defaultPromptForSetup(): Promise<SetupWizardResult | null> {
 	}
 
 	const afterEnter = await text({
-		message: "afterEnter hook — run after entering a worktree?",
+		message: "after-enter hook — run after entering a worktree?",
 		placeholder: "e.g. nvm use — leave blank to skip",
 	});
 
@@ -406,7 +408,7 @@ async function defaultPromptForSetup(): Promise<SetupWizardResult | null> {
 	}
 
 	const beforeRemove = await text({
-		message: "beforeRemove hook — run before removing a worktree?",
+		message: "before-remove hook — run before removing a worktree?",
 		placeholder: "leave blank to skip",
 	});
 
@@ -418,9 +420,9 @@ async function defaultPromptForSetup(): Promise<SetupWizardResult | null> {
 	outro("Setup complete!");
 
 	const hooks: SetupWizardResult["hooks"] = {};
-	if (afterCreate) hooks.afterCreate = afterCreate;
-	if (afterEnter) hooks.afterEnter = afterEnter;
-	if (beforeRemove) hooks.beforeRemove = beforeRemove;
+	if (afterCreate) hooks["after-create"] = afterCreate;
+	if (afterEnter) hooks["after-enter"] = afterEnter;
+	if (beforeRemove) hooks["before-remove"] = beforeRemove;
 
 	return {
 		branchPrefix: branchPrefix || undefined,

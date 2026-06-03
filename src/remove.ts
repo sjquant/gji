@@ -136,7 +136,7 @@ export function createRemoveCommand(
 		);
 		const hooks = extractHooks(config);
 		await runHook(
-			hooks.beforeRemove,
+			hooks["before-remove"],
 			worktree.path,
 			{
 				branch: worktree.branch ?? undefined,

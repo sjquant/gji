@@ -3,9 +3,9 @@ import { spawn } from "node:child_process";
 export type GjiHookCommand = string | string[];
 
 export interface GjiHooks {
-	afterCreate?: GjiHookCommand;
-	afterEnter?: GjiHookCommand;
-	beforeRemove?: GjiHookCommand;
+	"after-create"?: GjiHookCommand;
+	"after-enter"?: GjiHookCommand;
+	"before-remove"?: GjiHookCommand;
 }
 
 export interface HookContext {
@@ -134,9 +134,13 @@ export function extractHooks(config: Record<string, unknown>): GjiHooks {
 	const hooks = raw as Record<string, unknown>;
 
 	return {
-		afterCreate: parseHookCommand(hooks.afterCreate),
-		afterEnter: parseHookCommand(hooks.afterEnter),
-		beforeRemove: parseHookCommand(hooks.beforeRemove),
+		"after-create": parseHookCommand(
+			hooks["after-create"] ?? hooks.afterCreate,
+		),
+		"after-enter": parseHookCommand(hooks["after-enter"] ?? hooks.afterEnter),
+		"before-remove": parseHookCommand(
+			hooks["before-remove"] ?? hooks.beforeRemove,
+		),
 	};
 }
 

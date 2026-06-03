@@ -96,7 +96,7 @@ export function createGoCommand(
 		);
 		const hooks = extractHooks(config);
 		await runHook(
-			hooks.afterEnter,
+			hooks["after-enter"],
 			resolvedPath,
 			{
 				branch: chosenWorktree?.branch ?? undefined,
