@@ -726,6 +726,37 @@ describe("gji new", () => {
 			expect(promptCalled).toBe(false);
 		});
 
+		it("suppresses the prompt when legacy camelCase afterCreate hook is already configured", async () => {
+			// Given a repository with an old-format camelCase afterCreate hook.
+			const repoRoot = await createRepository();
+			const branchName = "feature/install-legacy-hook-set";
+			let promptCalled = false;
+			await writeFile(
+				join(repoRoot, ".gji.json"),
+				JSON.stringify({ hooks: { afterCreate: "pnpm install" } }),
+				"utf8",
+			);
+			const runNewCommand = createNewCommand({
+				detectInstallPackageManager: async () => fakePm,
+				promptForInstallChoice: async () => {
+					promptCalled = true;
+					return "yes";
+				},
+			});
+
+			// When gji new runs with a legacy camelCase after-create hook already configured.
+			const result = await runNewCommand({
+				branch: branchName,
+				cwd: repoRoot,
+				stderr: () => undefined,
+				stdout: () => undefined,
+			});
+
+			// Then no prompt appeared — the legacy key is recognised.
+			expect(result).toBe(0);
+			expect(promptCalled).toBe(false);
+		});
+
 		it('suppresses the prompt when hooks["after-create"] is an argv command in effective config', async () => {
 			// Given a repository with an argv-form hooks["after-create"] already configured.
 			const repoRoot = await createRepository();

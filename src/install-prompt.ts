@@ -10,6 +10,7 @@ import {
 	updateLocalConfigKey,
 } from "./config.js";
 import { isHeadless } from "./headless.js";
+import { extractHooks } from "./hooks.js";
 import {
 	detectPackageManager,
 	type PackageManager,
@@ -50,9 +51,8 @@ export async function maybeRunInstallPrompt(
 		return;
 	}
 
-	// Skip if afterCreate hook is already configured in effective config.
-	const hooks = isPlainObject(config.hooks) ? config.hooks : null;
-	if (isConfiguredHookCommand(hooks?.["after-create"])) {
+	// Skip if an after-create hook is already configured (accepts both kebab and legacy camelCase).
+	if (extractHooks(config as Record<string, unknown>)["after-create"]) {
 		return;
 	}
 
@@ -97,19 +97,28 @@ export async function maybeRunInstallPrompt(
 		try {
 			if (saveGlobal) {
 				// Deep-merge with any existing per-repo global hooks so other keys are preserved.
-				const existingHooks = await loadExistingGlobalRepoHooks(repoRoot);
+				const existingRaw = await loadExistingGlobalRepoHooks(repoRoot);
+				const existing = extractHooks({ hooks: existingRaw });
 				await writeGlobalKey(repoRoot, "hooks", {
-					...existingHooks,
+					...(existing["after-enter"] !== undefined && {
+						"after-enter": existing["after-enter"],
+					}),
+					...(existing["before-remove"] !== undefined && {
+						"before-remove": existing["before-remove"],
+					}),
 					"after-create": pm.installCommand,
 				});
 			} else {
 				// Read local config hooks to deep-merge so other hook keys (e.g. after-enter) are preserved.
 				const { config: localConfig } = await loadConfig(repoRoot);
-				const existingLocalHooks = isPlainObject(localConfig.hooks)
-					? localConfig.hooks
-					: {};
+				const existing = extractHooks(localConfig as Record<string, unknown>);
 				await writeKey(repoRoot, "hooks", {
-					...existingLocalHooks,
+					...(existing["after-enter"] !== undefined && {
+						"after-enter": existing["after-enter"],
+					}),
+					...(existing["before-remove"] !== undefined && {
+						"before-remove": existing["before-remove"],
+					}),
 					"after-create": pm.installCommand,
 				});
 			}
@@ -219,15 +228,4 @@ async function defaultPromptForInstallChoice(
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function isConfiguredHookCommand(value: unknown): boolean {
-	if (typeof value === "string") return value.length > 0;
-
-	return (
-		Array.isArray(value) &&
-		value.length > 0 &&
-		value[0] !== "" &&
-		value.every((item) => typeof item === "string")
-	);
 }

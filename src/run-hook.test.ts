@@ -279,4 +279,52 @@ describe("gji run-hook", () => {
 		expect(result.exitCode).toBe(0);
 		await expect(readFile(markerFile)).resolves.toBeDefined();
 	});
+
+	it("accepts legacy camelCase hook names as arguments", async () => {
+		// Given a worktree with an after-create hook configured.
+		const repoRoot = await createRepository();
+		const branchName = "feature/camel-compat";
+		const worktreePath = resolveWorktreePath(repoRoot, branchName);
+		const markerFile = join(worktreePath, ".camel-hook-ran");
+
+		await runCli(["new", branchName], { cwd: repoRoot });
+		await writeFile(
+			join(repoRoot, ".gji.json"),
+			JSON.stringify({ hooks: { "after-create": `touch "${markerFile}"` } }),
+			"utf8",
+		);
+
+		// When run-hook is called with the old camelCase argument form.
+		const result = await runCli(["run-hook", "afterCreate"], {
+			cwd: worktreePath,
+		});
+
+		// Then the hook still runs correctly.
+		expect(result.exitCode).toBe(0);
+		await expect(readFile(markerFile)).resolves.toBeDefined();
+	});
+
+	it("trigger-hook alias still works", async () => {
+		// Given a worktree with an after-create hook configured.
+		const repoRoot = await createRepository();
+		const branchName = "feature/trigger-alias";
+		const worktreePath = resolveWorktreePath(repoRoot, branchName);
+		const markerFile = join(worktreePath, ".alias-hook-ran");
+
+		await runCli(["new", branchName], { cwd: repoRoot });
+		await writeFile(
+			join(repoRoot, ".gji.json"),
+			JSON.stringify({ hooks: { "after-create": `touch "${markerFile}"` } }),
+			"utf8",
+		);
+
+		// When the old trigger-hook command name is used.
+		const result = await runCli(["trigger-hook", "after-create"], {
+			cwd: worktreePath,
+		});
+
+		// Then the hook runs via the alias without error.
+		expect(result.exitCode).toBe(0);
+		await expect(readFile(markerFile)).resolves.toBeDefined();
+	});
 });
