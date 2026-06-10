@@ -1,5 +1,5 @@
 {
-  "name": "@solaqua/gji",
+  "name": "gji",
   "version": "0.7.0",
   "description": "Git worktree CLI for fast context switching.",
   "license": "MIT",
