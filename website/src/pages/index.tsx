@@ -131,7 +131,7 @@ export default function Home(): ReactNode {
 		applicationCategory: "DeveloperApplication",
 		description: siteDescription,
 		url: siteUrl,
-		downloadUrl: "https://www.npmjs.com/package/@solaqua/gji",
+		downloadUrl: "https://www.npmjs.com/package/gji",
 		codeRepository: "https://github.com/sjquant/gji",
 		keywords: siteKeywords,
 		image: socialImageUrl,

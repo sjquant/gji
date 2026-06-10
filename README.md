@@ -66,7 +66,7 @@ That makes Git worktrees more important, because a single shared checkout become
 ## Install
 
 ```sh
-npm install -g @solaqua/gji
+npm install -g gji
 ```
 
 Then add shell integration so `gji go`, `gji new`, and `gji remove` can change your directory:

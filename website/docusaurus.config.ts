@@ -22,7 +22,7 @@ const config: Config = {
 	},
 	customFields: {
 		githubUrl: "https://github.com/sjquant/gji",
-		npmUrl: "https://www.npmjs.com/package/@solaqua/gji",
+		npmUrl: "https://www.npmjs.com/package/gji",
 	},
 	presets: [
 		[
@@ -105,7 +105,7 @@ const config: Config = {
 					],
 				},
 				{
-					href: "https://www.npmjs.com/package/@solaqua/gji",
+					href: "https://www.npmjs.com/package/gji",
 					label: "npm",
 					position: "right",
 				},
@@ -141,7 +141,7 @@ const config: Config = {
 						},
 						{
 							label: "npm",
-							href: "https://www.npmjs.com/package/@solaqua/gji",
+							href: "https://www.npmjs.com/package/gji",
 						},
 						{
 							label: "Issues",
