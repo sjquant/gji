@@ -250,7 +250,7 @@ export async function resolveWarpTarget(options: {
 			repoName: item.repoName,
 			worktree: item.worktree,
 		})),
-		{ query: options.branch },
+		options.branch,
 	);
 
 	if (options.branch) {

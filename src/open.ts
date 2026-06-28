@@ -72,7 +72,7 @@ export function createOpenCommand(
 					repoName: repository.repoName,
 					worktree,
 				})),
-				{ query: options.branch },
+				options.branch,
 			);
 			const entry = matches[0];
 			if (!entry) {

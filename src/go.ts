@@ -76,7 +76,7 @@ export function createGoCommand(
 				repoName: repository.repoName,
 				worktree,
 			})),
-			{ query: options.branch },
+			options.branch,
 		);
 		const prompted = options.branch ? null : await prompt(promptEntries);
 		const resolvedPath = options.branch

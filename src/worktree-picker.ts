@@ -12,24 +12,21 @@ export interface WorktreePromptSource {
 }
 
 export interface WorktreePromptEntry extends WorktreeEntry {
-	badges: string[];
-	group: "current" | "recent" | "other";
+	group: "recent" | "other";
 	hint: string;
 	label: string;
-	lastActivityTimestamp: number | null;
-	lastActivityType: "used" | "worked" | null;
 	repoName: string;
-	searchText: string;
 }
 
-interface BuildWorktreePromptEntriesOptions {
-	query?: string;
-	now?: number;
+interface ScoredWorktreePromptEntry extends WorktreePromptEntry {
+	lastActivityTimestamp: number | null;
+	matchScore: number;
+	searchText: string;
 }
 
 export async function buildWorktreePromptEntries(
 	sources: WorktreePromptSource[],
-	options: BuildWorktreePromptEntriesOptions = {},
+	query?: string,
 ): Promise<WorktreePromptEntry[]> {
 	const [history, infos] = await Promise.all([
 		loadHistory(),
@@ -41,11 +38,18 @@ export async function buildWorktreePromptEntries(
 			source,
 			infos[index],
 			historyByPath.get(source.worktree.path)?.timestamp ?? null,
-			options.now ?? Date.now(),
+			Date.now(),
 		),
 	);
 
-	return sortAndFilterWorktreePromptEntries(entries, options.query);
+	return sortAndFilterWorktreePromptEntries(entries, query).map(
+		({
+			lastActivityTimestamp: _lastActivityTimestamp,
+			matchScore: _matchScore,
+			searchText: _searchText,
+			...entry
+		}) => entry,
+	);
 }
 
 function buildWorktreePromptEntry(
@@ -53,7 +57,7 @@ function buildWorktreePromptEntry(
 	info: WorktreeInfo,
 	lastUsedTimestamp: number | null,
 	now: number,
-): WorktreePromptEntry {
+): ScoredWorktreePromptEntry {
 	const lastWorkedTimestamp =
 		info.lastCommitTimestamp === null ? null : info.lastCommitTimestamp * 1000;
 	const lastActivityTimestamp = lastUsedTimestamp ?? lastWorkedTimestamp;
@@ -81,16 +85,11 @@ function buildWorktreePromptEntry(
 
 	return {
 		...source.worktree,
-		badges,
-		group: source.worktree.isCurrent
-			? "current"
-			: lastUsedTimestamp !== null
-				? "recent"
-				: "other",
+		group: lastUsedTimestamp !== null ? "recent" : "other",
 		hint,
 		label,
 		lastActivityTimestamp,
-		lastActivityType,
+		matchScore: 0,
 		repoName: source.repoName,
 		searchText: buildSearchText(source.repoName, source.worktree),
 	};
@@ -130,7 +129,7 @@ function isUpToDate(upstream: UpstreamState): boolean {
 
 function formatPromptRecency(
 	timestamp: number | null,
-	type: WorktreePromptEntry["lastActivityType"],
+	type: "used" | "worked" | null,
 	now: number,
 ): string {
 	if (timestamp === null || type === null) {
@@ -141,10 +140,7 @@ function formatPromptRecency(
 	return `${label}: ${formatPickerAge(timestamp, now)}`;
 }
 
-export function formatPickerAge(
-	timestamp: number,
-	now: number = Date.now(),
-): string {
+function formatPickerAge(timestamp: number, now: number): string {
 	const ageSeconds = Math.max(0, Math.floor((now - timestamp) / 1000));
 
 	if (ageSeconds < 60) {
@@ -192,60 +188,59 @@ function buildSearchText(repoName: string, worktree: WorktreeEntry): string {
 		.toLowerCase();
 }
 
-export function sortAndFilterWorktreePromptEntries(
-	entries: WorktreePromptEntry[],
+function sortAndFilterWorktreePromptEntries(
+	entries: ScoredWorktreePromptEntry[],
 	query?: string,
-): WorktreePromptEntry[] {
+): ScoredWorktreePromptEntry[] {
 	const normalizedQuery = query?.trim().toLowerCase();
-	const scoredEntries = entries
-		.map((entry) => ({
-			entry,
-			score: normalizedQuery ? scoreWorktreeMatch(entry, normalizedQuery) : 0,
-		}))
-		.filter(({ score }) => normalizedQuery === undefined || score !== null);
+	const scoredEntries = entries.flatMap((entry) => {
+		const matchScore = normalizedQuery
+			? scoreWorktreeMatch(entry, normalizedQuery)
+			: 0;
 
-	return scoredEntries
-		.sort((a, b) => comparePromptEntries(a, b, normalizedQuery !== undefined))
-		.map(({ entry }) => entry);
+		return matchScore === null ? [] : [{ ...entry, matchScore }];
+	});
+
+	return scoredEntries.sort((a, b) =>
+		comparePromptEntries(a, b, normalizedQuery !== undefined),
+	);
 }
 
 function comparePromptEntries(
-	a: { entry: WorktreePromptEntry; score: number | null },
-	b: { entry: WorktreePromptEntry; score: number | null },
+	a: ScoredWorktreePromptEntry,
+	b: ScoredWorktreePromptEntry,
 	hasQuery: boolean,
 ): number {
-	if (a.entry.isCurrent && !b.entry.isCurrent) return -1;
-	if (!a.entry.isCurrent && b.entry.isCurrent) return 1;
+	if (a.isCurrent && !b.isCurrent) return -1;
+	if (!a.isCurrent && b.isCurrent) return 1;
 
-	if (hasQuery && a.score !== b.score) {
-		return (b.score ?? 0) - (a.score ?? 0);
+	if (hasQuery && a.matchScore !== b.matchScore) {
+		return b.matchScore - a.matchScore;
 	}
 
-	if (a.entry.group !== b.entry.group) {
-		return groupRank(a.entry.group) - groupRank(b.entry.group);
+	if (a.group !== b.group) {
+		return groupRank(a.group) - groupRank(b.group);
 	}
 
-	const aRecent = a.entry.lastActivityTimestamp ?? 0;
-	const bRecent = b.entry.lastActivityTimestamp ?? 0;
+	const aRecent = a.lastActivityTimestamp ?? 0;
+	const bRecent = b.lastActivityTimestamp ?? 0;
 	if (aRecent !== bRecent) {
 		return bRecent - aRecent;
 	}
 
 	return (
-		a.entry.repoName.localeCompare(b.entry.repoName) ||
-		(a.entry.branch ?? "").localeCompare(b.entry.branch ?? "") ||
-		a.entry.path.localeCompare(b.entry.path)
+		a.repoName.localeCompare(b.repoName) ||
+		(a.branch ?? "").localeCompare(b.branch ?? "") ||
+		a.path.localeCompare(b.path)
 	);
 }
 
 function groupRank(group: WorktreePromptEntry["group"]): number {
-	if (group === "current") return 0;
-	if (group === "recent") return 1;
-	return 2;
+	return group === "recent" ? 0 : 1;
 }
 
 function scoreWorktreeMatch(
-	entry: WorktreePromptEntry,
+	entry: ScoredWorktreePromptEntry,
 	query: string,
 ): number | null {
 	const branch = entry.branch ?? "detached";
@@ -260,21 +255,7 @@ function scoreWorktreeMatch(
 		return 1000;
 	}
 
-	const tokens = query.split(/\s+/).filter(Boolean);
-	if (tokens.length === 0) {
-		return null;
-	}
-
-	let score = 0;
-	for (const token of tokens) {
-		const index = entry.searchText.indexOf(token);
-		if (index === -1) {
-			return null;
-		}
-		score += Math.max(1, 200 - index);
-	}
-
-	return score;
+	return entry.searchText.includes(query) ? 1 : null;
 }
 
 function middleEllipsize(value: string, maxLength: number): string {
