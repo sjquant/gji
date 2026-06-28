@@ -5,6 +5,8 @@ import {
 } from "./git.js";
 import type { WorktreeEntry } from "./repo.js";
 
+const MAX_WORKTREE_INFO_READ_CONCURRENCY = 8;
+
 export interface WorktreeInfo extends WorktreeEntry {
 	lastCommitTimestamp: number | null;
 	status: WorktreeHealth["status"] | "unknown";
@@ -29,7 +31,37 @@ export type UpstreamState =
 export async function readWorktreeInfos(
 	worktrees: WorktreeEntry[],
 ): Promise<WorktreeInfo[]> {
-	return Promise.all(worktrees.map((worktree) => readWorktreeInfo(worktree)));
+	return mapWithConcurrency(
+		worktrees,
+		MAX_WORKTREE_INFO_READ_CONCURRENCY,
+		readWorktreeInfo,
+	);
+}
+
+async function mapWithConcurrency<Input, Output>(
+	items: Input[],
+	limit: number,
+	mapper: (item: Input) => Promise<Output>,
+): Promise<Output[]> {
+	const results: Output[] = new Array(items.length);
+	let nextIndex = 0;
+
+	async function readNext(): Promise<void> {
+		for (;;) {
+			const index = nextIndex;
+			nextIndex += 1;
+
+			if (index >= items.length) return;
+
+			results[index] = await mapper(items[index]);
+		}
+	}
+
+	await Promise.all(
+		Array.from({ length: Math.min(limit, items.length) }, () => readNext()),
+	);
+
+	return results;
 }
 
 async function readWorktreeInfo(
