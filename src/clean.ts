@@ -1,4 +1,4 @@
-import { confirm, isCancel, multiselect } from "@clack/prompts";
+import { confirm, isCancel } from "@clack/prompts";
 
 import { loadEffectiveConfig } from "./config.js";
 import {
@@ -12,7 +12,6 @@ import type { WorktreeEntry } from "./repo.js";
 import {
 	formatLastCommit,
 	formatUpstreamState,
-	formatWorktreeHint,
 	readWorktreeInfos,
 	serializeWorktreeInfo,
 	type WorktreeInfo,
@@ -26,6 +25,11 @@ import {
 	loadLinkedWorktrees,
 	removeWorktree,
 } from "./worktree-management.js";
+import {
+	buildWorktreePromptEntries,
+	promptForMultipleWorktrees,
+	type WorktreePromptEntry,
+} from "./worktree-picker.js";
 import {
 	defaultConfirmForceDeleteBranch,
 	defaultConfirmForceRemoveWorktree,
@@ -45,7 +49,9 @@ export interface CleanCommandDependencies {
 	confirmForceDeleteBranch: (branch: string) => Promise<boolean>;
 	confirmForceRemoveWorktree: (worktreePath: string) => Promise<boolean>;
 	confirmRemoval: (worktrees: WorktreeEntry[]) => Promise<boolean>;
-	promptForWorktrees: (worktrees: WorktreeEntry[]) => Promise<string[] | null>;
+	promptForWorktrees: (
+		worktrees: WorktreePromptEntry[],
+	) => Promise<string[] | null>;
 }
 
 export function createCleanCommand(
@@ -108,7 +114,14 @@ export function createCleanCommand(
 			(options.dryRun && (options.stale || options.json || isHeadless()));
 		const selections = shouldSelectAll
 			? cleanupCandidates.map((w) => w.path)
-			: await promptForWorktrees(cleanupCandidates);
+			: await promptForWorktrees(
+					await buildWorktreePromptEntries(
+						cleanupCandidates.map((worktree) => ({
+							repoName: repository.repoName,
+							worktree,
+						})),
+					),
+				);
 
 		if (!selections || selections.length === 0) {
 			options.stderr("Aborted\n");
@@ -418,23 +431,9 @@ function toMessage(error: unknown): string {
 }
 
 async function defaultPromptForWorktrees(
-	worktrees: WorktreeEntry[],
+	worktrees: WorktreePromptEntry[],
 ): Promise<string[] | null> {
-	const infos = await readWorktreeInfos(worktrees);
-
-	const choice = await multiselect<string>({
-		message: "Choose worktrees to clean",
-		options: worktrees.map((worktree, i) => {
-			return {
-				hint: formatWorktreeHint(infos[i]),
-				label: worktree.branch ?? "(detached)",
-				value: worktree.path,
-			};
-		}),
-		required: true,
-	});
-
-	return isCancel(choice) ? null : choice;
+	return promptForMultipleWorktrees("Choose worktrees to clean", worktrees);
 }
 
 async function defaultConfirmRemoval(

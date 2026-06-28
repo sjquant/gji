@@ -1,9 +1,11 @@
-import { writeFile } from "node:fs/promises";
+import { mkdtemp, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
 import { createCleanCommand } from "./clean.js";
+import { HISTORY_FILE_PATH } from "./history.js";
 import {
 	addLinkedWorktree,
 	commitFile,
@@ -204,6 +206,70 @@ describe("gji clean", () => {
 		await expect(branchExists(repoRoot, currentBranch)).resolves.toBe(true);
 		await expect(pathExists(otherWorktreePath)).resolves.toBe(false);
 		await expect(branchExists(repoRoot, otherBranch)).resolves.toBe(false);
+	});
+
+	it("shows recency, path, and dirty state in the clean picker", async () => {
+		// Given a dirty linked worktree with last-used history metadata.
+		const originalConfigDir = process.env.GJI_CONFIG_DIR;
+		process.env.GJI_CONFIG_DIR = await mkdtemp(join(tmpdir(), "gji-config-"));
+		const repoRoot = await createRepository();
+		const branch = "feature/clean-safety-labels";
+		const worktreePath = await addLinkedWorktree(repoRoot, branch);
+		const repoName = repoRoot.split("/").at(-1)!;
+		await writeFile(join(worktreePath, "dirty.txt"), "dirty", "utf8");
+		await writeFile(
+			HISTORY_FILE_PATH(),
+			`${JSON.stringify(
+				[
+					{
+						branch,
+						path: worktreePath,
+						timestamp: Date.now() - 2 * 60 * 60 * 1000,
+					},
+				],
+				null,
+				2,
+			)}\n`,
+			"utf8",
+		);
+		let capturedEntry: { label: string; path: string } | undefined;
+		const runCleanCommand = createCleanCommand({
+			confirmRemoval: async () => {
+				throw new Error("confirmRemoval should not run after cancellation");
+			},
+			promptForWorktrees: async (worktrees) => {
+				const entry = worktrees.find((worktree) => worktree.branch === branch);
+				capturedEntry = entry
+					? { label: entry.label, path: entry.path }
+					: undefined;
+				return null;
+			},
+		});
+
+		try {
+			// When gji clean shows its picker.
+			const result = await runCleanCommand({
+				cwd: repoRoot,
+				stderr: () => undefined,
+				stdout: () => undefined,
+			});
+
+			// Then the picker entry exposes safety-critical context before confirmation.
+			expect(result).toBe(1);
+			expect(capturedEntry?.label).toContain(repoName);
+			expect(capturedEntry?.label).toContain(branch);
+			expect(capturedEntry?.label).toContain("[dirty]");
+			expect(capturedEntry?.label).toContain("last used: 2h ago");
+			expect(capturedEntry?.label).toContain("clean-safety-labels");
+			expect(capturedEntry?.path).toBe(worktreePath);
+			await expect(pathExists(worktreePath)).resolves.toBe(true);
+		} finally {
+			if (originalConfigDir === undefined) {
+				delete process.env.GJI_CONFIG_DIR;
+			} else {
+				process.env.GJI_CONFIG_DIR = originalConfigDir;
+			}
+		}
 	});
 
 	it("removes only safe stale worktrees when --stale --force is used", async () => {

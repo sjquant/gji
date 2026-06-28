@@ -1482,14 +1482,33 @@ describe("gji new", () => {
 			generateBranchPlaceholder(() => 0.99),
 		];
 
-		// Then the generated names stay slug-safe and use the curated funny roots.
+		// When each generated placeholder is checked.
+
+		// Then the generated names stay slug-safe and use curated funny roots with a suffix.
 		for (const placeholder of placeholders) {
+			const parts = placeholder.split("-");
+			const suffix = parts.at(-1);
+
 			expect(placeholder).toMatch(/^[a-z0-9-]+$/);
-			expect(placeholder.split("-")[0]).toMatch(
-				/^(socrates|prometheus|beethoven|ada|turing|hypatia|tesla|curie|diogenes|plato|hephaestus|athena|archimedes|euclid|heraclitus|galileo|newton|lovelace|nietzsche|kafka)$/,
+			expect(parts[0]).toMatch(
+				/^(socrates|prometheus|beethoven|ada|turing|hypatia|tesla|curie|diogenes|plato|hephaestus|athena|archimedes|euclid|heraclitus|galileo|newton|lovelace|nietzsche|kafka|sappho|aristotle|pythagoras|artemis|apollo|minerva|persephone|icarus|odysseus|murasaki|shakespeare|frida|davinci|kepler|copernicus|faraday|noether|hopper|boole|shannon|gauss|ramanujan|austen|borges|zeno)$/,
 			);
-			expect(placeholder.split("-").length).toBeGreaterThan(1);
+			expect(parts.length).toBeGreaterThan(2);
+			expect(suffix).toMatch(/^[a-z0-9]{3}$/);
 		}
+		expect(placeholders[2]).toBe("zeno-debugged-the-toaster-999");
+	});
+
+	it("generates the placeholder suffix from the injected random source", () => {
+		// Given a deterministic random sequence for root, antic, and suffix characters.
+		const randomValues = [0, 0.99, 0, 0.5, 0.99];
+		const random = () => randomValues.shift() ?? 0;
+
+		// When the placeholder is generated.
+		const placeholder = generateBranchPlaceholder(random);
+
+		// Then the suffix consumes values from the same injectable random source.
+		expect(placeholder).toBe("socrates-debugged-the-toaster-as9");
 	});
 });
 

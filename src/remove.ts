@@ -1,11 +1,11 @@
 import { basename } from "node:path";
 
-import { confirm, isCancel, select } from "@clack/prompts";
+import { confirm, isCancel } from "@clack/prompts";
 
 import { loadEffectiveConfig } from "./config.js";
 import { isHeadless } from "./headless.js";
 import { extractHooks, runHook } from "./hooks.js";
-import { sortByCurrentFirst, type WorktreeEntry } from "./repo.js";
+import type { WorktreeEntry } from "./repo.js";
 import { writeShellOutput } from "./shell-handoff.js";
 import {
 	deleteBranch,
@@ -16,6 +16,11 @@ import {
 	loadLinkedWorktrees,
 	removeWorktree,
 } from "./worktree-management.js";
+import {
+	buildWorktreePromptEntries,
+	promptForSingleWorktree,
+	type WorktreePromptEntry,
+} from "./worktree-picker.js";
 import {
 	defaultConfirmForceDeleteBranch,
 	defaultConfirmForceRemoveWorktree,
@@ -35,7 +40,9 @@ export interface RemoveCommandDependencies {
 	confirmForceDeleteBranch: (branch: string) => Promise<boolean>;
 	confirmForceRemoveWorktree: (worktreePath: string) => Promise<boolean>;
 	confirmRemoval: (worktree: WorktreeEntry) => Promise<boolean>;
-	promptForWorktree: (worktrees: WorktreeEntry[]) => Promise<string | null>;
+	promptForWorktree: (
+		worktrees: WorktreePromptEntry[],
+	) => Promise<string | null>;
 }
 
 const REMOVE_OUTPUT_FILE_ENV = "GJI_REMOVE_OUTPUT_FILE";
@@ -78,7 +85,14 @@ export function createRemoveCommand(
 
 		const selection =
 			options.branch ??
-			(await promptForWorktree(sortByCurrentFirst(linkedWorktrees)));
+			(await promptForWorktree(
+				await buildWorktreePromptEntries(
+					linkedWorktrees.map((worktree) => ({
+						repoName: repository.repoName,
+						worktree,
+					})),
+				),
+			));
 
 		if (!selection) {
 			options.stderr("Aborted\n");
@@ -214,18 +228,9 @@ export function createRemoveCommand(
 export const runRemoveCommand = createRemoveCommand();
 
 async function defaultPromptForWorktree(
-	worktrees: WorktreeEntry[],
+	worktrees: WorktreePromptEntry[],
 ): Promise<string | null> {
-	const choice = await select<string>({
-		message: "Choose a worktree to finish",
-		options: worktrees.map((worktree) => ({
-			hint: worktree.isCurrent ? `${worktree.path} (current)` : worktree.path,
-			label: worktree.branch ?? "(detached)",
-			value: worktree.path,
-		})),
-	});
-
-	return isCancel(choice) ? null : choice;
+	return promptForSingleWorktree("Choose a worktree to finish", worktrees);
 }
 
 async function defaultConfirmRemoval(

@@ -13,7 +13,7 @@ import {
 import { defaultSpawnEditor, EDITORS } from "./editor.js";
 import { syncFiles } from "./file-sync.js";
 import { isHeadless } from "./headless.js";
-import { appendHistory } from "./history.js";
+import { recordWorktreeUsage } from "./history.js";
 import { extractHooks, runHook } from "./hooks.js";
 import {
 	type InstallPromptDependencies,
@@ -192,7 +192,7 @@ export function createNewCommand(
 				const choice = await prompt(worktreePath);
 
 				if (choice === "reuse") {
-					appendHistory(worktreePath, worktreeName).catch(() => undefined);
+					await recordWorktreeUsage(worktreePath, worktreeName);
 					await writeOutput(worktreePath, options.stdout);
 					return 0;
 				}
@@ -274,7 +274,7 @@ export function createNewCommand(
 				`${JSON.stringify({ branch: worktreeName, path: worktreePath }, null, 2)}\n`,
 			);
 		} else {
-			await appendHistory(worktreePath, worktreeName);
+			await recordWorktreeUsage(worktreePath, worktreeName);
 			await writeOutput(worktreePath, options.stdout);
 		}
 
@@ -319,6 +319,31 @@ export function generateBranchPlaceholder(
 		"lovelace",
 		"nietzsche",
 		"kafka",
+		"sappho",
+		"aristotle",
+		"pythagoras",
+		"artemis",
+		"apollo",
+		"minerva",
+		"persephone",
+		"icarus",
+		"odysseus",
+		"murasaki",
+		"shakespeare",
+		"frida",
+		"davinci",
+		"kepler",
+		"copernicus",
+		"faraday",
+		"noether",
+		"hopper",
+		"boole",
+		"shannon",
+		"gauss",
+		"ramanujan",
+		"austen",
+		"borges",
+		"zeno",
 	];
 	const antics = [
 		"borrowed-a-bike",
@@ -336,9 +361,56 @@ export function generateBranchPlaceholder(
 		"washed-the-dishes",
 		"folded-the-laundry",
 		"took-a-nap",
+		"lost-a-sock",
+		"patched-the-boat",
+		"alphabetized-the-spoons",
+		"argued-with-the-calendar",
+		"misplaced-the-moon",
+		"painted-the-fence",
+		"overcooked-the-rice",
+		"packed-the-snacks",
+		"dropped-the-spoon",
+		"hid-the-remote",
+		"untangled-the-cables",
+		"rebooted-the-kettle",
+		"indexed-the-attic",
+		"forgot-the-password",
+		"sorted-the-buttons",
+		"mopped-the-ceiling",
+		"polished-the-doorknob",
+		"misread-the-map",
+		"reheated-the-tea",
+		"fixed-the-squeak",
+		"labeled-the-drawer",
+		"stacked-the-chairs",
+		"overslept-the-standup",
+		"claimed-the-last-bagel",
+		"debugged-the-toaster",
 	];
 
-	return `${pickRandom(roots, random)}-${pickRandom(antics, random)}`;
+	const root = pickRandom(roots, random);
+	const antic = pickRandom(antics, random);
+	const suffix = generateBranchPlaceholderSuffix(random);
+
+	return `${root}-${antic}-${suffix}`;
+}
+
+function pickRandom(values: string[], random: () => number): string {
+	const index = Math.floor(random() * values.length);
+
+	return values[Math.min(index, values.length - 1)];
+}
+
+function generateBranchPlaceholderSuffix(random: () => number): string {
+	const characters = "abcdefghijklmnopqrstuvwxyz0123456789";
+	let suffix = "";
+
+	for (let index = 0; index < 3; index += 1) {
+		const characterIndex = Math.floor(random() * characters.length);
+		suffix += characters[Math.min(characterIndex, characters.length - 1)];
+	}
+
+	return suffix;
 }
 
 function applyConfiguredBranchPrefix(
@@ -397,12 +469,6 @@ async function defaultPromptForBranch(
 	}
 
 	return choice.trim();
-}
-
-function pickRandom(values: string[], random: () => number): string {
-	const index = Math.floor(random() * values.length);
-
-	return values[Math.min(index, values.length - 1)];
 }
 
 async function localBranchExists(

@@ -1,10 +1,12 @@
-import { mkdir, readFile } from "node:fs/promises";
-import { join } from "node:path";
+import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { basename, join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
 import { runCli } from "./cli.js";
-import { createGoCommand, formatUpstreamHint } from "./go.js";
+import { createGoCommand } from "./go.js";
+import { HISTORY_FILE_PATH } from "./history.js";
 import {
 	addLinkedWorktree,
 	createRepository,
@@ -102,6 +104,193 @@ describe("gji root", () => {
 });
 
 describe("gji go", () => {
+	it("resolves a direct query argument by searchable branch text", async () => {
+		// Given two linked worktrees where only one branch matches a partial query.
+		const repoRoot = await createRepository();
+		const matchingPath = await addLinkedWorktree(
+			repoRoot,
+			"feature/billing-auth",
+		);
+		await addLinkedWorktree(repoRoot, "feature/profile");
+		const stdout: string[] = [];
+
+		// When gji go runs with a partial query argument.
+		const result = await runCli(["go", "--print", "billing"], {
+			cwd: repoRoot,
+			stdout: (chunk) => stdout.push(chunk),
+		});
+
+		// Then it navigates to the searchable matching worktree.
+		expect(result.exitCode).toBe(0);
+		expect(stdout.join("").trim()).toBe(matchingPath);
+	});
+
+	it("prefers an exact direct query over the current fuzzy match", async () => {
+		// Given a current linked worktree whose branch only fuzzily matches another exact branch.
+		const repoRoot = await createRepository();
+		const currentPath = await addLinkedWorktree(repoRoot, "myfoo");
+		const exactPath = await addLinkedWorktree(repoRoot, "foo");
+		const stdout: string[] = [];
+
+		// When gji go runs with the exact branch query from the fuzzy current worktree.
+		const result = await runCli(["go", "--print", "foo"], {
+			cwd: currentPath,
+			stdout: (chunk) => stdout.push(chunk),
+		});
+
+		// Then it navigates to the exact match instead of the current fuzzy match.
+		expect(result.exitCode).toBe(0);
+		expect(stdout.join("").trim()).toBe(exactPath);
+	});
+
+	it("does not resolve a blank direct query to the first worktree", async () => {
+		// Given a repository with a linked worktree.
+		const repoRoot = await createRepository();
+		await addLinkedWorktree(repoRoot, "feature/go-blank-query");
+		const stderr: string[] = [];
+
+		// When gji go runs with a direct query that trims to empty text.
+		const result = await runCli(["go", "--print", "   "], {
+			cwd: repoRoot,
+			stderr: (chunk) => stderr.push(chunk),
+			stdout: () => undefined,
+		});
+
+		// Then it reports no match instead of silently choosing a worktree.
+		expect(result.exitCode).toBe(1);
+		expect(stderr.join("")).toContain("No worktree found");
+	});
+
+	it("does not resolve an ambiguous repo-name query to the first worktree", async () => {
+		// Given a repository with multiple linked worktrees under the same repo name.
+		const repoRoot = await createRepository();
+		await addLinkedWorktree(repoRoot, "feature/go-repo-query-one");
+		await addLinkedWorktree(repoRoot, "feature/go-repo-query-two");
+		const stderr: string[] = [];
+
+		// When gji go runs with only the repo name as a direct query.
+		const result = await runCli(["go", "--print", basename(repoRoot)], {
+			cwd: repoRoot,
+			stderr: (chunk) => stderr.push(chunk),
+			stdout: () => undefined,
+		});
+
+		// Then it reports no match instead of silently choosing one worktree.
+		expect(result.exitCode).toBe(1);
+		expect(stderr.join("")).toContain("No worktree found");
+	});
+
+	it("prints the target path when last-used history cannot be written", async () => {
+		// Given a valid linked worktree and a history path that cannot be written as a file.
+		const originalConfigDir = process.env.GJI_CONFIG_DIR;
+		process.env.GJI_CONFIG_DIR = await mkdtemp(join(tmpdir(), "gji-config-"));
+		const repoRoot = await createRepository();
+		const branchName = "feature/go-history-unwritable";
+		const worktreePath = await addLinkedWorktree(repoRoot, branchName);
+		const stdout: string[] = [];
+
+		try {
+			await mkdir(HISTORY_FILE_PATH());
+
+			// When gji go navigates successfully.
+			const result = await runCli(["go", "--print", branchName], {
+				cwd: repoRoot,
+				stdout: (chunk) => stdout.push(chunk),
+			});
+
+			// Then the auxiliary history write failure does not fail navigation.
+			expect(result.exitCode).toBe(0);
+			expect(stdout.join("").trim()).toBe(worktreePath);
+		} finally {
+			if (originalConfigDir === undefined) {
+				delete process.env.GJI_CONFIG_DIR;
+			} else {
+				process.env.GJI_CONFIG_DIR = originalConfigDir;
+			}
+		}
+	});
+
+	it("sorts picker entries current first, then recently used, and shows recency", async () => {
+		// Given linked worktrees with seeded history metadata.
+		const originalConfigDir = process.env.GJI_CONFIG_DIR;
+		process.env.GJI_CONFIG_DIR = await mkdtemp(join(tmpdir(), "gji-config-"));
+		const repoRoot = await createRepository();
+		const currentBranch = "feature/current-picker";
+		const recentBranch = "feature/recent-picker";
+		const olderBranch = "feature/older-picker";
+		const currentPath = await addLinkedWorktree(repoRoot, currentBranch);
+		const recentPath = await addLinkedWorktree(repoRoot, recentBranch);
+		const olderPath = await addLinkedWorktree(repoRoot, olderBranch);
+		const repoName = repoRoot.split("/").at(-1)!;
+		const now = Date.now();
+		let capturedEntries: Array<{
+			branch: string | null;
+			isCurrent: boolean;
+			label: string;
+		}> = [];
+		const runGoCommand = createGoCommand({
+			promptForWorktree: async (worktrees) => {
+				capturedEntries = worktrees.map((worktree) => ({
+					branch: worktree.branch,
+					isCurrent: worktree.isCurrent,
+					label: worktree.label,
+				}));
+				return currentPath;
+			},
+		});
+
+		try {
+			await writeFile(
+				HISTORY_FILE_PATH(),
+				`${JSON.stringify(
+					[
+						{
+							branch: recentBranch,
+							path: recentPath,
+							timestamp: now - 4 * 60 * 1000,
+						},
+						{
+							branch: olderBranch,
+							path: olderPath,
+							timestamp: now - 2 * 60 * 60 * 1000,
+						},
+					],
+					null,
+					2,
+				)}\n`,
+				"utf8",
+			);
+
+			// When gji go prompts from inside the current worktree.
+			const result = await runGoCommand({
+				cwd: currentPath,
+				stderr: () => undefined,
+				stdout: () => undefined,
+			});
+
+			// Then the current worktree is first and recency appears in picker hints.
+			expect(result).toBe(0);
+			expect(capturedEntries[0]).toMatchObject({
+				branch: currentBranch,
+				isCurrent: true,
+			});
+			expect(capturedEntries[1].branch).toBe(recentBranch);
+			expect(capturedEntries[1].label).toContain(repoName);
+			expect(capturedEntries[1].label).toContain(recentBranch);
+			expect(capturedEntries[1].label).toContain("last used: 4m ago");
+			expect(capturedEntries[1].label).toContain("recent-picker");
+			expect(capturedEntries[2].branch).toBe(olderBranch);
+			expect(capturedEntries[2].label).toContain("last used: 2h ago");
+			expect(capturedEntries[0].label).toContain("[current]");
+		} finally {
+			if (originalConfigDir === undefined) {
+				delete process.env.GJI_CONFIG_DIR;
+			} else {
+				process.env.GJI_CONFIG_DIR = originalConfigDir;
+			}
+		}
+	});
+
 	it("prints the linked worktree path explicitly with --print", async () => {
 		// Given an existing linked worktree for a branch.
 		const repoRoot = await createRepository();
@@ -268,83 +457,5 @@ describe("gji go", () => {
 		);
 		expect(stderrText).toContain("Hint:");
 		expect(stderrText).toContain("gji ls");
-	});
-});
-
-describe("formatUpstreamHint", () => {
-	const base = { ahead: 0, behind: 0, status: "clean" as const };
-
-	it("returns null for detached worktrees (branch is null)", () => {
-		expect(
-			formatUpstreamHint(null, {
-				...base,
-				hasUpstream: false,
-				upstreamGone: false,
-			}),
-		).toBeNull();
-	});
-
-	it('returns "no upstream" when branch has no upstream configured', () => {
-		expect(
-			formatUpstreamHint("main", {
-				...base,
-				hasUpstream: false,
-				upstreamGone: false,
-			}),
-		).toBe("no upstream");
-	});
-
-	it('returns "upstream gone" when the remote branch was deleted', () => {
-		expect(
-			formatUpstreamHint("main", {
-				...base,
-				hasUpstream: true,
-				upstreamGone: true,
-			}),
-		).toBe("upstream gone");
-	});
-
-	it('returns "up to date" when ahead and behind are both 0', () => {
-		expect(
-			formatUpstreamHint("main", {
-				...base,
-				hasUpstream: true,
-				upstreamGone: false,
-			}),
-		).toBe("up to date");
-	});
-
-	it('returns "ahead N" when only ahead', () => {
-		expect(
-			formatUpstreamHint("main", {
-				...base,
-				hasUpstream: true,
-				upstreamGone: false,
-				ahead: 3,
-			}),
-		).toBe("ahead 3");
-	});
-
-	it('returns "behind N" when only behind', () => {
-		expect(
-			formatUpstreamHint("main", {
-				...base,
-				hasUpstream: true,
-				upstreamGone: false,
-				behind: 2,
-			}),
-		).toBe("behind 2");
-	});
-
-	it('returns "ahead N, behind M" when diverged', () => {
-		expect(
-			formatUpstreamHint("main", {
-				...base,
-				hasUpstream: true,
-				upstreamGone: false,
-				ahead: 4,
-				behind: 1,
-			}),
-		).toBe("ahead 4, behind 1");
 	});
 });

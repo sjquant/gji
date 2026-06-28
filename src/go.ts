@@ -1,19 +1,18 @@
 import { basename } from "node:path";
 
-import { isCancel, select } from "@clack/prompts";
 import { loadEffectiveConfig } from "./config.js";
-import { readWorktreeHealth, type WorktreeHealth } from "./git.js";
 import { isHeadless } from "./headless.js";
-import { appendHistory } from "./history.js";
+import { recordWorktreeUsage } from "./history.js";
 import { extractHooks, runHook } from "./hooks.js";
-import {
-	detectRepository,
-	listWorktrees,
-	sortByCurrentFirst,
-	type WorktreeEntry,
-} from "./repo.js";
+import { detectRepository, listWorktrees, type WorktreeEntry } from "./repo.js";
 import { writeShellOutput } from "./shell-handoff.js";
 import { resolveWarpTarget } from "./warp.js";
+import {
+	buildWorktreePromptEntries,
+	promptForSingleWorktree,
+	resolveWorktreeQuery,
+	type WorktreePromptEntry,
+} from "./worktree-picker.js";
 
 export interface GoCommandOptions {
 	branch?: string;
@@ -24,7 +23,9 @@ export interface GoCommandOptions {
 }
 
 export interface GoCommandDependencies {
-	promptForWorktree: (worktrees: WorktreeEntry[]) => Promise<string | null>;
+	promptForWorktree: (
+		worktrees: WorktreePromptEntry[],
+	) => Promise<string | null>;
 }
 
 const GO_OUTPUT_FILE_ENV = "GJI_GO_OUTPUT_FILE";
@@ -58,7 +59,7 @@ export function createGoCommand(
 				commandName: "gji go",
 			});
 			if (!target) return 1;
-			appendHistory(target.path, target.branch).catch(() => undefined);
+			await recordWorktreeUsage(target.path, target.branch);
 			await writeShellOutput(GO_OUTPUT_FILE_ENV, target.path, options.stdout);
 			return 0;
 		}
@@ -70,11 +71,19 @@ export function createGoCommand(
 			return 1;
 		}
 
-		const prompted = options.branch
-			? null
-			: await prompt(sortByCurrentFirst(worktrees));
+		const promptSources = worktrees.map((worktree) => ({
+			repoName: repository.repoName,
+			worktree,
+		}));
+		const promptEntries = options.branch
+			? []
+			: await buildWorktreePromptEntries(promptSources);
+		const queried = options.branch
+			? resolveWorktreeQuery(promptSources, options.branch)
+			: null;
+		const prompted = options.branch ? null : await prompt(promptEntries);
 		const resolvedPath = options.branch
-			? worktrees.find((entry) => entry.branch === options.branch)?.path
+			? queried?.worktree.path
 			: (prompted ?? undefined);
 
 		if (!resolvedPath) {
@@ -106,9 +115,7 @@ export function createGoCommand(
 			options.stderr,
 		);
 
-		appendHistory(resolvedPath, chosenWorktree?.branch ?? null).catch(
-			() => undefined,
-		);
+		await recordWorktreeUsage(resolvedPath, chosenWorktree?.branch ?? null);
 		await writeShellOutput(GO_OUTPUT_FILE_ENV, resolvedPath, options.stdout);
 		return 0;
 	};
@@ -117,47 +124,7 @@ export function createGoCommand(
 export const runGoCommand = createGoCommand();
 
 async function promptForWorktree(
-	worktrees: WorktreeEntry[],
+	worktrees: WorktreePromptEntry[],
 ): Promise<string | null> {
-	const healthResults = await Promise.allSettled(
-		worktrees.map((w) => readWorktreeHealth(w.path)),
-	);
-
-	const choice = await select<string>({
-		message: "Choose a worktree",
-		options: worktrees.map((worktree, i) => {
-			const health =
-				healthResults[i].status === "fulfilled" ? healthResults[i].value : null;
-			const pathHint = worktree.isCurrent
-				? `${worktree.path} (current)`
-				: worktree.path;
-			const upstream = health
-				? formatUpstreamHint(worktree.branch, health)
-				: null;
-			return {
-				value: worktree.path,
-				label: worktree.branch ?? "(detached)",
-				hint: upstream ? `${upstream} · ${pathHint}` : pathHint,
-			};
-		}),
-	});
-
-	if (isCancel(choice)) {
-		return null;
-	}
-
-	return choice;
-}
-
-export function formatUpstreamHint(
-	branch: string | null,
-	health: WorktreeHealth,
-): string | null {
-	if (branch === null) return null;
-	if (!health.hasUpstream) return "no upstream";
-	if (health.upstreamGone) return "upstream gone";
-	if (health.ahead === 0 && health.behind === 0) return "up to date";
-	if (health.ahead === 0) return `behind ${health.behind}`;
-	if (health.behind === 0) return `ahead ${health.ahead}`;
-	return `ahead ${health.ahead}, behind ${health.behind}`;
+	return promptForSingleWorktree("Choose a worktree", worktrees);
 }

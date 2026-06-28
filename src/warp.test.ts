@@ -1,8 +1,9 @@
-import { mkdtemp, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
+import { HISTORY_FILE_PATH } from "./history.js";
 import {
 	addLinkedWorktree,
 	createRepository,
@@ -100,6 +101,51 @@ describe("resolveWarpTarget", () => {
 		// Then it returns the matching worktree path.
 		expect(result).not.toBeNull();
 		expect(result!.path).toBe(worktreePath);
+	});
+
+	it("resolves a worktree by fuzzy branch query", async () => {
+		// Given a registered repo with multiple linked worktrees.
+		const configDir = await makeConfigDir();
+		process.env.GJI_CONFIG_DIR = configDir;
+		const repoRoot = await createRepository();
+		const matchingPath = await addLinkedWorktree(
+			repoRoot,
+			"feature/searchable-auth",
+		);
+		await addLinkedWorktree(repoRoot, "feature/dashboard");
+		await registerRepo(repoRoot);
+
+		// When resolveWarpTarget is called with a partial query.
+		const result = await resolveWarpTarget({
+			branch: "searchable",
+			cwd: "/",
+			stderr: () => undefined,
+		});
+
+		// Then it returns the fuzzy matching worktree path.
+		expect(result).not.toBeNull();
+		expect(result!.path).toBe(matchingPath);
+	});
+
+	it("prefers an exact branch query over the current fuzzy match", async () => {
+		// Given a current linked worktree whose branch only fuzzily matches another exact branch.
+		const configDir = await makeConfigDir();
+		process.env.GJI_CONFIG_DIR = configDir;
+		const repoRoot = await createRepository();
+		const currentPath = await addLinkedWorktree(repoRoot, "myfoo");
+		const exactPath = await addLinkedWorktree(repoRoot, "foo");
+		await registerRepo(repoRoot);
+
+		// When resolveWarpTarget runs with the exact branch query from the fuzzy current worktree.
+		const result = await resolveWarpTarget({
+			branch: "foo",
+			cwd: currentPath,
+			stderr: () => undefined,
+		});
+
+		// Then it resolves the exact match instead of the current fuzzy match.
+		expect(result).not.toBeNull();
+		expect(result!.path).toBe(exactPath);
 	});
 
 	it("returns null with an error when the branch query has no match", async () => {
@@ -273,5 +319,31 @@ describe("gji warp --json", () => {
 		const parsed = JSON.parse(outputs.join(""));
 		expect(parsed.branch).toBe("feature/warp-new-deduped");
 		expect(typeof parsed.path).toBe("string");
+	});
+});
+
+describe("gji warp", () => {
+	it("writes the target path when last-used history cannot be written", async () => {
+		// Given a registered repo and a history path that cannot be written as a file.
+		const configDir = await makeConfigDir();
+		process.env.GJI_CONFIG_DIR = configDir;
+		const repoRoot = await createRepository();
+		const branch = "feature/warp-history-unwritable";
+		const worktreePath = await addLinkedWorktree(repoRoot, branch);
+		const outputs: string[] = [];
+		await registerRepo(repoRoot);
+		await mkdir(HISTORY_FILE_PATH());
+
+		// When gji warp navigates successfully.
+		const exitCode = await runWarpCommand({
+			branch,
+			cwd: repoRoot,
+			stderr: () => undefined,
+			stdout: (msg) => outputs.push(msg),
+		});
+
+		// Then the auxiliary history write failure does not fail navigation.
+		expect(exitCode).toBe(0);
+		expect(outputs.join("").trim()).toBe(worktreePath);
 	});
 });
