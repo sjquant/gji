@@ -40,9 +40,11 @@ export async function buildWorktreePromptEntries(
 		),
 	);
 
-	return sortWorktreePromptEntries(entries).map(
-		({ lastActivityTimestamp: _lastActivityTimestamp, ...entry }) => entry,
-	);
+	return entries
+		.sort(comparePromptEntries)
+		.map(
+			({ lastActivityTimestamp: _lastActivityTimestamp, ...entry }) => entry,
+		);
 }
 
 export function resolveWorktreeQuery(
@@ -299,12 +301,6 @@ function buildSearchText(
 function normalizeQuery(query?: string): string | null {
 	const normalized = query?.trim().toLowerCase();
 	return normalized && normalized.length > 0 ? normalized : null;
-}
-
-function sortWorktreePromptEntries(
-	entries: SortableWorktreePromptEntry[],
-): SortableWorktreePromptEntry[] {
-	return entries.sort(comparePromptEntries);
 }
 
 function comparePromptEntries(
