@@ -85,6 +85,7 @@ describe("gji remove", () => {
 		const repoRoot = await createRepository();
 		const branch = "feature/remove-safety-labels";
 		const worktreePath = await addLinkedWorktree(repoRoot, branch);
+		const repoName = repoRoot.split("/").at(-1)!;
 		await writeFile(join(worktreePath, "dirty.txt"), "dirty", "utf8");
 		await writeFile(
 			HISTORY_FILE_PATH(),
@@ -101,13 +102,13 @@ describe("gji remove", () => {
 			)}\n`,
 			"utf8",
 		);
-		let capturedEntry: { hint: string; path: string } | undefined;
+		let capturedEntry: { label: string; path: string } | undefined;
 		const runRemoveCommand = createRemoveCommand({
 			confirmRemoval: async () => false,
 			promptForWorktree: async (worktrees) => {
 				const entry = worktrees.find((worktree) => worktree.branch === branch);
 				capturedEntry = entry
-					? { hint: entry.hint, path: entry.path }
+					? { label: entry.label, path: entry.path }
 					: undefined;
 				return worktreePath;
 			},
@@ -123,8 +124,11 @@ describe("gji remove", () => {
 
 			// Then the picker entry exposes safety-critical context before confirmation.
 			expect(result).toBe(1);
-			expect(capturedEntry?.hint).toContain("[dirty]");
-			expect(capturedEntry?.hint).toContain("last used: 4m ago");
+			expect(capturedEntry?.label).toContain(repoName);
+			expect(capturedEntry?.label).toContain(branch);
+			expect(capturedEntry?.label).toContain("[dirty]");
+			expect(capturedEntry?.label).toContain("last used: 4m ago");
+			expect(capturedEntry?.label).toContain("remove-safety-labels");
 			expect(capturedEntry?.path).toBe(worktreePath);
 			await expect(pathExists(worktreePath)).resolves.toBe(true);
 		} finally {

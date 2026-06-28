@@ -1,4 +1,4 @@
-import { groupMultiselect, isCancel, select, text } from "@clack/prompts";
+import { groupMultiselect, isCancel, select } from "@clack/prompts";
 
 import { loadHistory } from "./history.js";
 import type { WorktreeEntry } from "./repo.js";
@@ -62,29 +62,13 @@ export function resolveWorktreeQuery(
 	return filterWorktreePromptSources(sources, query)[0] ?? null;
 }
 
-export function filterWorktreePromptEntries(
-	entries: WorktreePromptEntry[],
-	query: string,
-): WorktreePromptEntry[] {
-	const normalizedQuery = normalizeQuery(query);
-	if (normalizedQuery === null) return entries;
-
-	return entries.filter(
-		(entry) => scoreWorktreeMatch(entry, normalizedQuery) !== null,
-	);
-}
-
 export async function promptForSingleWorktree(
 	message: string,
 	worktrees: WorktreePromptEntry[],
 ): Promise<string | null> {
-	const filtered = await promptForFilteredWorktrees(worktrees);
-	if (filtered === null) return null;
-
 	const choice = await select<string>({
 		message,
-		options: filtered.map((worktree) => ({
-			hint: worktree.hint,
+		options: worktrees.map((worktree) => ({
 			label: worktree.label,
 			value: worktree.path,
 		})),
@@ -98,12 +82,9 @@ export async function promptForMultipleWorktrees(
 	message: string,
 	worktrees: WorktreePromptEntry[],
 ): Promise<string[] | null> {
-	const filtered = await promptForFilteredWorktrees(worktrees);
-	if (filtered === null) return null;
-
 	const choice = await groupMultiselect<string>({
 		message,
-		options: groupPromptEntries(filtered),
+		options: groupPromptEntries(worktrees),
 		required: true,
 		selectableGroups: false,
 	});
@@ -155,23 +136,6 @@ function compareQueryMatches(
 	);
 }
 
-async function promptForFilteredWorktrees(
-	worktrees: WorktreePromptEntry[],
-): Promise<WorktreePromptEntry[] | null> {
-	const query = await text({
-		message: "Filter worktrees",
-		placeholder: "Type to filter, leave empty to show all",
-		validate: (value) =>
-			filterWorktreePromptEntries(worktrees, value).length === 0
-				? "No matching worktrees"
-				: undefined,
-	});
-
-	if (isCancel(query)) return null;
-
-	return filterWorktreePromptEntries(worktrees, query);
-}
-
 function groupPromptEntries(
 	worktrees: WorktreePromptEntry[],
 ): Record<string, { hint: string; label: string; value: string }[]> {
@@ -216,11 +180,22 @@ function buildWorktreePromptEntry(
 		lastActivityType,
 		now,
 	);
-	const label = `${middleEllipsize(source.repoName, 22)} › ${middleEllipsize(branch, 34)}`;
+	const status =
+		badges.length > 0 ? badges.map((badge) => `[${badge}]`).join(" ") : null;
+	const path = middleEllipsize(source.worktree.path, 76);
+	const label = [
+		middleEllipsize(source.repoName, 22),
+		middleEllipsize(branch, 34),
+		status,
+		recency,
+		path,
+	]
+		.filter((part): part is string => part !== null && part.length > 0)
+		.join(" · ");
 	const hint = [
 		badges.length > 0 ? badges.map((badge) => `[${badge}]`).join(" ") : null,
 		recency,
-		middleEllipsize(source.worktree.path, 76),
+		path,
 	]
 		.filter((part): part is string => part !== null && part.length > 0)
 		.join(" · ");

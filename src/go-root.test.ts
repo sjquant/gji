@@ -184,18 +184,19 @@ describe("gji go", () => {
 		const currentPath = await addLinkedWorktree(repoRoot, currentBranch);
 		const recentPath = await addLinkedWorktree(repoRoot, recentBranch);
 		const olderPath = await addLinkedWorktree(repoRoot, olderBranch);
+		const repoName = repoRoot.split("/").at(-1)!;
 		const now = Date.now();
 		let capturedEntries: Array<{
 			branch: string | null;
-			hint: string;
 			isCurrent: boolean;
+			label: string;
 		}> = [];
 		const runGoCommand = createGoCommand({
 			promptForWorktree: async (worktrees) => {
 				capturedEntries = worktrees.map((worktree) => ({
 					branch: worktree.branch,
-					hint: worktree.hint,
 					isCurrent: worktree.isCurrent,
+					label: worktree.label,
 				}));
 				return currentPath;
 			},
@@ -237,10 +238,13 @@ describe("gji go", () => {
 				isCurrent: true,
 			});
 			expect(capturedEntries[1].branch).toBe(recentBranch);
-			expect(capturedEntries[1].hint).toContain("last used: 4m ago");
+			expect(capturedEntries[1].label).toContain(repoName);
+			expect(capturedEntries[1].label).toContain(recentBranch);
+			expect(capturedEntries[1].label).toContain("last used: 4m ago");
+			expect(capturedEntries[1].label).toContain("recent-picker");
 			expect(capturedEntries[2].branch).toBe(olderBranch);
-			expect(capturedEntries[2].hint).toContain("last used: 2h ago");
-			expect(capturedEntries[0].hint).toContain("[current]");
+			expect(capturedEntries[2].label).toContain("last used: 2h ago");
+			expect(capturedEntries[0].label).toContain("[current]");
 		} finally {
 			if (originalConfigDir === undefined) {
 				delete process.env.GJI_CONFIG_DIR;
