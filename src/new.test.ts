@@ -1482,14 +1482,17 @@ describe("gji new", () => {
 			generateBranchPlaceholder(() => 0.99),
 		];
 
+		// When each generated placeholder is checked.
+
 		// Then the generated names stay slug-safe and use the curated funny roots.
 		for (const placeholder of placeholders) {
 			expect(placeholder).toMatch(/^[a-z0-9-]+$/);
 			expect(placeholder.split("-")[0]).toMatch(
-				/^(socrates|prometheus|beethoven|ada|turing|hypatia|tesla|curie|diogenes|plato|hephaestus|athena|archimedes|euclid|heraclitus|galileo|newton|lovelace|nietzsche|kafka)$/,
+				/^(socrates|prometheus|beethoven|ada|turing|hypatia|tesla|curie|diogenes|plato|hephaestus|athena|archimedes|euclid|heraclitus|galileo|newton|lovelace|nietzsche|kafka|sappho|aristotle|pythagoras|artemis|apollo|minerva|persephone|icarus|odysseus|murasaki|shakespeare|frida|davinci|kepler|copernicus|faraday|noether|hopper|boole|shannon|gauss|ramanujan|austen|borges|zeno)$/,
 			);
 			expect(placeholder.split("-").length).toBeGreaterThan(1);
 		}
+		expect(placeholders[2]).toBe("zeno-debugged-the-toaster");
 	});
 });
 
