@@ -49,6 +49,8 @@ export function resolveWorktreeQuery(
 	sources: WorktreePromptSource[],
 	query: string,
 ): WorktreePromptSource | null {
+	if (normalizeQuery(query) === null) return null;
+
 	return filterWorktreePromptSources(sources, query)[0] ?? null;
 }
 

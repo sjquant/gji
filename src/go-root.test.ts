@@ -143,6 +143,24 @@ describe("gji go", () => {
 		expect(stdout.join("").trim()).toBe(exactPath);
 	});
 
+	it("does not resolve a blank direct query to the first worktree", async () => {
+		// Given a repository with a linked worktree.
+		const repoRoot = await createRepository();
+		await addLinkedWorktree(repoRoot, "feature/go-blank-query");
+		const stderr: string[] = [];
+
+		// When gji go runs with a direct query that trims to empty text.
+		const result = await runCli(["go", "--print", "   "], {
+			cwd: repoRoot,
+			stderr: (chunk) => stderr.push(chunk),
+			stdout: () => undefined,
+		});
+
+		// Then it reports no match instead of silently choosing a worktree.
+		expect(result.exitCode).toBe(1);
+		expect(stderr.join("")).toContain("No worktree found");
+	});
+
 	it("prints the target path when last-used history cannot be written", async () => {
 		// Given a valid linked worktree and a history path that cannot be written as a file.
 		const originalConfigDir = process.env.GJI_CONFIG_DIR;
