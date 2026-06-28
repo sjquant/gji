@@ -15,12 +15,12 @@ import {
 	type EditorDefinition,
 } from "./editor.js";
 import { isHeadless } from "./headless.js";
+import { appendHistory } from "./history.js";
+import { detectRepository, listWorktrees, type WorktreeEntry } from "./repo.js";
 import {
-	detectRepository,
-	listWorktrees,
-	sortByCurrentFirst,
-	type WorktreeEntry,
-} from "./repo.js";
+	buildWorktreePromptEntries,
+	type WorktreePromptEntry,
+} from "./worktree-picker.js";
 
 export type { EditorDefinition };
 
@@ -39,7 +39,9 @@ export interface OpenCommandOptions {
 export interface OpenCommandDependencies {
 	detectEditors: () => Promise<EditorDefinition[]>;
 	promptForEditor: (editors: EditorDefinition[]) => Promise<string | null>;
-	promptForWorktree: (worktrees: WorktreeEntry[]) => Promise<string | null>;
+	promptForWorktree: (
+		worktrees: WorktreePromptEntry[],
+	) => Promise<string | null>;
 	spawnEditor: (cli: string, args: string[]) => Promise<void>;
 }
 
@@ -63,25 +65,42 @@ export function createOpenCommand(
 
 		// Resolve target worktree path.
 		let targetPath: string;
+		let targetWorktree: WorktreeEntry | undefined;
 		if (options.branch) {
-			const entry = worktrees.find((w) => w.branch === options.branch);
+			const matches = await buildWorktreePromptEntries(
+				worktrees.map((worktree) => ({
+					repoName: repository.repoName,
+					worktree,
+				})),
+				{ query: options.branch },
+			);
+			const entry = matches[0];
 			if (!entry) {
 				options.stderr(
-					`gji open: no worktree found for branch: ${options.branch}\n`,
+					`gji open: no worktree found matching: ${options.branch}\n`,
 				);
 				options.stderr(`Hint: Use 'gji ls' to see available worktrees\n`);
 				return 1;
 			}
 			targetPath = entry.path;
+			targetWorktree = entry;
 		} else if (isHeadless()) {
-			targetPath = worktrees.find((w) => w.isCurrent)?.path ?? options.cwd;
+			targetWorktree = worktrees.find((w) => w.isCurrent);
+			targetPath = targetWorktree?.path ?? options.cwd;
 		} else {
-			const chosen = await promptForWorktree(sortByCurrentFirst(worktrees));
+			const entries = await buildWorktreePromptEntries(
+				worktrees.map((worktree) => ({
+					repoName: repository.repoName,
+					worktree,
+				})),
+			);
+			const chosen = await promptForWorktree(entries);
 			if (!chosen) {
 				options.stderr("Aborted\n");
 				return 1;
 			}
 			targetPath = chosen;
+			targetWorktree = worktrees.find((w) => w.path === chosen);
 		}
 
 		// Resolve which editor to use.
@@ -155,6 +174,7 @@ export function createOpenCommand(
 		}
 
 		const displayName = editorDef?.name ?? editorCli;
+		await appendHistory(targetPath, targetWorktree?.branch ?? null);
 		options.stdout(`Opened ${targetPath} in ${displayName}\n`);
 		return 0;
 	};
@@ -182,15 +202,16 @@ async function isCommandAvailable(command: string): Promise<boolean> {
 }
 
 async function defaultPromptForWorktree(
-	worktrees: WorktreeEntry[],
+	worktrees: WorktreePromptEntry[],
 ): Promise<string | null> {
 	const choice = await select<string>({
 		message: "Choose a worktree to open",
 		options: worktrees.map((w) => ({
 			value: w.path,
-			label: w.branch ?? "(detached)",
-			hint: w.isCurrent ? `${w.path} (current)` : w.path,
+			label: w.label,
+			hint: w.hint,
 		})),
+		maxItems: 12,
 	});
 
 	if (isCancel(choice)) return null;

@@ -2,18 +2,17 @@ import { basename } from "node:path";
 
 import { isCancel, select } from "@clack/prompts";
 import { loadEffectiveConfig } from "./config.js";
-import { readWorktreeHealth, type WorktreeHealth } from "./git.js";
+import type { WorktreeHealth } from "./git.js";
 import { isHeadless } from "./headless.js";
 import { appendHistory } from "./history.js";
 import { extractHooks, runHook } from "./hooks.js";
-import {
-	detectRepository,
-	listWorktrees,
-	sortByCurrentFirst,
-	type WorktreeEntry,
-} from "./repo.js";
+import { detectRepository, listWorktrees, type WorktreeEntry } from "./repo.js";
 import { writeShellOutput } from "./shell-handoff.js";
 import { resolveWarpTarget } from "./warp.js";
+import {
+	buildWorktreePromptEntries,
+	type WorktreePromptEntry,
+} from "./worktree-picker.js";
 
 export interface GoCommandOptions {
 	branch?: string;
@@ -24,7 +23,9 @@ export interface GoCommandOptions {
 }
 
 export interface GoCommandDependencies {
-	promptForWorktree: (worktrees: WorktreeEntry[]) => Promise<string | null>;
+	promptForWorktree: (
+		worktrees: WorktreePromptEntry[],
+	) => Promise<string | null>;
 }
 
 const GO_OUTPUT_FILE_ENV = "GJI_GO_OUTPUT_FILE";
@@ -58,7 +59,7 @@ export function createGoCommand(
 				commandName: "gji go",
 			});
 			if (!target) return 1;
-			appendHistory(target.path, target.branch).catch(() => undefined);
+			await appendHistory(target.path, target.branch);
 			await writeShellOutput(GO_OUTPUT_FILE_ENV, target.path, options.stdout);
 			return 0;
 		}
@@ -70,11 +71,16 @@ export function createGoCommand(
 			return 1;
 		}
 
-		const prompted = options.branch
-			? null
-			: await prompt(sortByCurrentFirst(worktrees));
+		const promptEntries = await buildWorktreePromptEntries(
+			worktrees.map((worktree) => ({
+				repoName: repository.repoName,
+				worktree,
+			})),
+			{ query: options.branch },
+		);
+		const prompted = options.branch ? null : await prompt(promptEntries);
 		const resolvedPath = options.branch
-			? worktrees.find((entry) => entry.branch === options.branch)?.path
+			? promptEntries[0]?.path
 			: (prompted ?? undefined);
 
 		if (!resolvedPath) {
@@ -106,9 +112,7 @@ export function createGoCommand(
 			options.stderr,
 		);
 
-		appendHistory(resolvedPath, chosenWorktree?.branch ?? null).catch(
-			() => undefined,
-		);
+		await appendHistory(resolvedPath, chosenWorktree?.branch ?? null);
 		await writeShellOutput(GO_OUTPUT_FILE_ENV, resolvedPath, options.stdout);
 		return 0;
 	};
@@ -117,29 +121,18 @@ export function createGoCommand(
 export const runGoCommand = createGoCommand();
 
 async function promptForWorktree(
-	worktrees: WorktreeEntry[],
+	worktrees: WorktreePromptEntry[],
 ): Promise<string | null> {
-	const healthResults = await Promise.allSettled(
-		worktrees.map((w) => readWorktreeHealth(w.path)),
-	);
-
 	const choice = await select<string>({
 		message: "Choose a worktree",
-		options: worktrees.map((worktree, i) => {
-			const health =
-				healthResults[i].status === "fulfilled" ? healthResults[i].value : null;
-			const pathHint = worktree.isCurrent
-				? `${worktree.path} (current)`
-				: worktree.path;
-			const upstream = health
-				? formatUpstreamHint(worktree.branch, health)
-				: null;
+		options: worktrees.map((worktree) => {
 			return {
 				value: worktree.path,
-				label: worktree.branch ?? "(detached)",
-				hint: upstream ? `${upstream} · ${pathHint}` : pathHint,
+				label: worktree.label,
+				hint: worktree.hint,
 			};
 		}),
+		maxItems: 12,
 	});
 
 	if (isCancel(choice)) {

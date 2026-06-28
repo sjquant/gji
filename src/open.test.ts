@@ -4,6 +4,7 @@ import { join } from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
+import { loadHistory } from "./history.js";
 import { createOpenCommand } from "./open.js";
 import {
 	addLinkedWorktree,
@@ -137,6 +138,33 @@ describe("gji open", () => {
 		// Then it opens the matching worktree without prompting.
 		expect(result).toBe(0);
 		expect(spawned[0].args).toContain(worktreePath);
+	});
+
+	it("records last-used history after opening a queried worktree", async () => {
+		// Given a repository with a linked worktree matching a partial query.
+		const repoRoot = await createRepository();
+		const branch = "feature/open-query-history";
+		const worktreePath = await addLinkedWorktree(repoRoot, branch);
+		const runOpenCommand = createOpenCommand({
+			promptForWorktree: async () => {
+				throw new Error("prompt must not be called when query is given");
+			},
+			spawnEditor: async () => undefined,
+		});
+
+		// When gji open runs with a query and launches the editor successfully.
+		const result = await runOpenCommand({
+			branch: "query-history",
+			cwd: repoRoot,
+			editor: "code",
+			stderr: () => undefined,
+			stdout: () => undefined,
+		});
+
+		// Then it opens the matching worktree and records it as last used.
+		expect(result).toBe(0);
+		const history = await loadHistory();
+		expect(history[0]).toMatchObject({ branch, path: worktreePath });
 	});
 
 	it("opens the current worktree in the specified editor", async () => {

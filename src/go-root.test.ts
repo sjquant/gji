@@ -1,10 +1,12 @@
-import { mkdir, readFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
 import { runCli } from "./cli.js";
 import { createGoCommand, formatUpstreamHint } from "./go.js";
+import { HISTORY_FILE_PATH } from "./history.js";
 import {
 	addLinkedWorktree,
 	createRepository,
@@ -102,6 +104,104 @@ describe("gji root", () => {
 });
 
 describe("gji go", () => {
+	it("resolves a direct query argument by searchable branch text", async () => {
+		// Given two linked worktrees where only one branch matches a partial query.
+		const repoRoot = await createRepository();
+		const matchingPath = await addLinkedWorktree(
+			repoRoot,
+			"feature/billing-auth",
+		);
+		await addLinkedWorktree(repoRoot, "feature/profile");
+		const stdout: string[] = [];
+
+		// When gji go runs with a partial query argument.
+		const result = await runCli(["go", "--print", "billing"], {
+			cwd: repoRoot,
+			stdout: (chunk) => stdout.push(chunk),
+		});
+
+		// Then it navigates to the searchable matching worktree.
+		expect(result.exitCode).toBe(0);
+		expect(stdout.join("").trim()).toBe(matchingPath);
+	});
+
+	it("sorts picker entries current first, then recently used, and shows recency", async () => {
+		// Given linked worktrees with seeded history metadata.
+		const originalConfigDir = process.env.GJI_CONFIG_DIR;
+		process.env.GJI_CONFIG_DIR = await mkdtemp(join(tmpdir(), "gji-config-"));
+		const repoRoot = await createRepository();
+		const currentBranch = "feature/current-picker";
+		const recentBranch = "feature/recent-picker";
+		const olderBranch = "feature/older-picker";
+		const currentPath = await addLinkedWorktree(repoRoot, currentBranch);
+		const recentPath = await addLinkedWorktree(repoRoot, recentBranch);
+		const olderPath = await addLinkedWorktree(repoRoot, olderBranch);
+		const now = Date.now();
+		let capturedEntries: Array<{
+			branch: string | null;
+			hint: string;
+			isCurrent: boolean;
+		}> = [];
+		const runGoCommand = createGoCommand({
+			promptForWorktree: async (worktrees) => {
+				capturedEntries = worktrees.map((worktree) => ({
+					branch: worktree.branch,
+					hint: worktree.hint,
+					isCurrent: worktree.isCurrent,
+				}));
+				return currentPath;
+			},
+		});
+
+		try {
+			await writeFile(
+				HISTORY_FILE_PATH(),
+				`${JSON.stringify(
+					[
+						{
+							branch: recentBranch,
+							path: recentPath,
+							timestamp: now - 4 * 60 * 1000,
+						},
+						{
+							branch: olderBranch,
+							path: olderPath,
+							timestamp: now - 2 * 60 * 60 * 1000,
+						},
+					],
+					null,
+					2,
+				)}\n`,
+				"utf8",
+			);
+
+			// When gji go prompts from inside the current worktree.
+			const result = await runGoCommand({
+				cwd: currentPath,
+				stderr: () => undefined,
+				stdout: () => undefined,
+			});
+
+			// Then the current worktree is first and recency appears in picker hints.
+			expect(result).toBe(0);
+			expect(capturedEntries[0]).toMatchObject({
+				branch: currentBranch,
+				isCurrent: true,
+			});
+			expect(capturedEntries[1].branch).toBe(recentBranch);
+			expect(capturedEntries[1].hint).toContain("last used: 4m ago");
+			expect(capturedEntries[2].branch).toBe(olderBranch);
+			expect(capturedEntries[2].hint).toContain("last used: 2h ago");
+			expect(capturedEntries[0].hint).toContain("[current]");
+		} finally {
+			if (originalConfigDir === undefined) {
+				delete process.env.GJI_CONFIG_DIR;
+			} else {
+				process.env.GJI_CONFIG_DIR = originalConfigDir;
+			}
+		}
+	});
+
 	it("prints the linked worktree path explicitly with --print", async () => {
 		// Given an existing linked worktree for a branch.
 		const repoRoot = await createRepository();

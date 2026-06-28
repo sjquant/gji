@@ -113,7 +113,7 @@ export function createPrCommand(
 			const choice = await prompt(worktreePath);
 
 			if (choice === "reuse") {
-				appendHistory(worktreePath, branchName).catch(() => undefined);
+				await appendHistory(worktreePath, branchName);
 				await writeOutput(worktreePath, options.stdout);
 				return 0;
 			}

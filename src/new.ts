@@ -192,7 +192,7 @@ export function createNewCommand(
 				const choice = await prompt(worktreePath);
 
 				if (choice === "reuse") {
-					appendHistory(worktreePath, worktreeName).catch(() => undefined);
+					await appendHistory(worktreePath, worktreeName);
 					await writeOutput(worktreePath, options.stdout);
 					return 0;
 				}

@@ -2,13 +2,16 @@ import { realpath } from "node:fs/promises";
 import { basename, resolve } from "node:path";
 import { isCancel, select } from "@clack/prompts";
 
-import { readWorktreeHealth, type WorktreeHealth } from "./git.js";
 import { isHeadless } from "./headless.js";
 import { appendHistory } from "./history.js";
 import { runNewCommand } from "./new.js";
-import { listWorktrees, type WorktreeEntry } from "./repo.js";
+import { detectRepository, listWorktrees, type WorktreeEntry } from "./repo.js";
 import { loadRegistry, type RepoRegistryEntry } from "./repo-registry.js";
 import { writeShellOutput } from "./shell-handoff.js";
+import {
+	buildWorktreePromptEntries,
+	type WorktreePromptEntry,
+} from "./worktree-picker.js";
 
 const WARP_OUTPUT_FILE_ENV = "GJI_WARP_OUTPUT_FILE";
 
@@ -72,7 +75,7 @@ async function runWarpNavigate(options: WarpCommandOptions): Promise<number> {
 		return 0;
 	}
 
-	appendHistory(target.path, target.branch).catch(() => undefined);
+	await appendHistory(target.path, target.branch);
 	await writeShellOutput(WARP_OUTPUT_FILE_ENV, target.path, options.stdout);
 	return 0;
 }
@@ -180,21 +183,6 @@ async function canonicalizeRepoPath(repoPath: string): Promise<string> {
 	}
 }
 
-function findByQuery(items: WarpItem[], query: string): WarpItem | null {
-	const slashIdx = query.indexOf("/");
-	if (slashIdx !== -1) {
-		const repoQuery = query.slice(0, slashIdx);
-		const branchQuery = query.slice(slashIdx + 1);
-		const match = items.find(
-			(item) =>
-				item.repoName === repoQuery && item.worktree.branch === branchQuery,
-		);
-		if (match) return match;
-	}
-
-	return items.find((item) => item.worktree.branch === query) ?? null;
-}
-
 export interface WarpTarget {
 	branch: string | null;
 	path: string;
@@ -219,6 +207,9 @@ export async function resolveWarpTarget(options: {
 	};
 
 	const registry = await loadRegistry();
+	const currentRoot = await detectRepository(options.cwd)
+		.then((repository) => repository.currentRoot)
+		.catch(() => null);
 	if (registry.length === 0) {
 		emitError(
 			"not in a git repository and no repos registered yet.",
@@ -239,7 +230,13 @@ export async function resolveWarpTarget(options: {
 		if (result.status === "rejected") continue;
 		const { repoName, worktrees } = result.value;
 		for (const worktree of worktrees) {
-			allItems.push({ repoName, worktree });
+			allItems.push({
+				repoName,
+				worktree: {
+					...worktree,
+					isCurrent: currentRoot !== null && worktree.path === currentRoot,
+				},
+			});
 		}
 	}
 
@@ -248,42 +245,41 @@ export async function resolveWarpTarget(options: {
 		return null;
 	}
 
+	const promptEntries = await buildWorktreePromptEntries(
+		allItems.map((item) => ({
+			repoName: item.repoName,
+			worktree: item.worktree,
+		})),
+		{ query: options.branch },
+	);
+
 	if (options.branch) {
-		const match = findByQuery(allItems, options.branch);
+		const match = promptEntries[0];
 		if (!match) {
 			emitError(`no worktree found matching: ${options.branch}`);
 			return null;
 		}
-		return { branch: match.worktree.branch, path: match.worktree.path };
+		return { branch: match.branch, path: match.path };
 	}
 
-	const path = await promptForWarpTarget(allItems);
+	const path = await promptForWarpTarget(promptEntries);
 	if (!path) {
 		options.stderr("Aborted\n");
 		return null;
 	}
-	const chosen = allItems.find((item) => item.worktree.path === path);
-	return { branch: chosen?.worktree.branch ?? null, path };
+	const chosen = promptEntries.find((item) => item.path === path);
+	return { branch: chosen?.branch ?? null, path };
 }
 
-async function promptForWarpTarget(items: WarpItem[]): Promise<string | null> {
-	const healthResults = await Promise.allSettled(
-		items.map((item) => readWorktreeHealth(item.worktree.path)),
-	);
-
+async function promptForWarpTarget(
+	items: WorktreePromptEntry[],
+): Promise<string | null> {
 	const choice = await select<string>({
 		message: "Warp to a worktree",
-		options: items.map((item, i) => {
-			const health =
-				healthResults[i].status === "fulfilled" ? healthResults[i].value : null;
-			const upstream = health ? formatHint(item.worktree.branch, health) : null;
-			const label = `${item.repoName} › ${item.worktree.branch ?? "(detached)"}`;
-			const pathHint = item.worktree.isCurrent
-				? `${item.worktree.path} (current)`
-				: item.worktree.path;
-			const hint = upstream ? `${upstream} · ${pathHint}` : pathHint;
-			return { hint, label, value: item.worktree.path };
+		options: items.map((item) => {
+			return { hint: item.hint, label: item.label, value: item.path };
 		}),
+		maxItems: 12,
 	});
 
 	if (isCancel(choice)) {
@@ -291,17 +287,4 @@ async function promptForWarpTarget(items: WarpItem[]): Promise<string | null> {
 	}
 
 	return choice;
-}
-
-function formatHint(
-	branch: string | null,
-	health: WorktreeHealth,
-): string | null {
-	if (branch === null) return null;
-	if (!health.hasUpstream) return "no upstream";
-	if (health.upstreamGone) return "upstream gone";
-	if (health.ahead === 0 && health.behind === 0) return "up to date";
-	if (health.ahead === 0) return `behind ${health.behind}`;
-	if (health.behind === 0) return `ahead ${health.ahead}`;
-	return `ahead ${health.ahead}, behind ${health.behind}`;
 }

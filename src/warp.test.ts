@@ -102,6 +102,30 @@ describe("resolveWarpTarget", () => {
 		expect(result!.path).toBe(worktreePath);
 	});
 
+	it("resolves a worktree by fuzzy branch query", async () => {
+		// Given a registered repo with multiple linked worktrees.
+		const configDir = await makeConfigDir();
+		process.env.GJI_CONFIG_DIR = configDir;
+		const repoRoot = await createRepository();
+		const matchingPath = await addLinkedWorktree(
+			repoRoot,
+			"feature/searchable-auth",
+		);
+		await addLinkedWorktree(repoRoot, "feature/dashboard");
+		await registerRepo(repoRoot);
+
+		// When resolveWarpTarget is called with a partial query.
+		const result = await resolveWarpTarget({
+			branch: "searchable",
+			cwd: "/",
+			stderr: () => undefined,
+		});
+
+		// Then it returns the fuzzy matching worktree path.
+		expect(result).not.toBeNull();
+		expect(result!.path).toBe(matchingPath);
+	});
+
 	it("returns null with an error when the branch query has no match", async () => {
 		// Given a registered repo with no matching worktree.
 		const configDir = await makeConfigDir();

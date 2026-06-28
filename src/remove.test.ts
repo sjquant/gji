@@ -1,8 +1,10 @@
-import { readFile, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
+import { HISTORY_FILE_PATH } from "./history.js";
 import { createRemoveCommand } from "./remove.js";
 import {
 	addLinkedWorktree,
@@ -74,6 +76,64 @@ describe("gji remove", () => {
 		// Then the current linked worktree (worktreeA) appears first with isCurrent: true.
 		expect(capturedWorktrees[0]).toEqual({ branch: branchA, isCurrent: true });
 		expect(capturedWorktrees.slice(1).every((w) => !w.isCurrent)).toBe(true);
+	});
+
+	it("shows recency, path, and dirty state in the destructive picker", async () => {
+		// Given a dirty linked worktree with last-used history metadata.
+		const originalConfigDir = process.env.GJI_CONFIG_DIR;
+		process.env.GJI_CONFIG_DIR = await mkdtemp(join(tmpdir(), "gji-config-"));
+		const repoRoot = await createRepository();
+		const branch = "feature/remove-safety-labels";
+		const worktreePath = await addLinkedWorktree(repoRoot, branch);
+		await writeFile(join(worktreePath, "dirty.txt"), "dirty", "utf8");
+		await writeFile(
+			HISTORY_FILE_PATH(),
+			`${JSON.stringify(
+				[
+					{
+						branch,
+						path: worktreePath,
+						timestamp: Date.now() - 4 * 60 * 1000,
+					},
+				],
+				null,
+				2,
+			)}\n`,
+			"utf8",
+		);
+		let capturedEntry: { hint: string; path: string } | undefined;
+		const runRemoveCommand = createRemoveCommand({
+			confirmRemoval: async () => false,
+			promptForWorktree: async (worktrees) => {
+				const entry = worktrees.find((worktree) => worktree.branch === branch);
+				capturedEntry = entry
+					? { hint: entry.hint, path: entry.path }
+					: undefined;
+				return worktreePath;
+			},
+		});
+
+		try {
+			// When gji remove shows its picker.
+			const result = await runRemoveCommand({
+				cwd: repoRoot,
+				stderr: () => undefined,
+				stdout: () => undefined,
+			});
+
+			// Then the picker entry exposes safety-critical context before confirmation.
+			expect(result).toBe(1);
+			expect(capturedEntry?.hint).toContain("[dirty]");
+			expect(capturedEntry?.hint).toContain("last used: 4m ago");
+			expect(capturedEntry?.path).toBe(worktreePath);
+			await expect(pathExists(worktreePath)).resolves.toBe(true);
+		} finally {
+			if (originalConfigDir === undefined) {
+				delete process.env.GJI_CONFIG_DIR;
+			} else {
+				process.env.GJI_CONFIG_DIR = originalConfigDir;
+			}
+		}
 	});
 
 	it("prompts for linked worktrees including detached entries", async () => {

@@ -43,13 +43,11 @@ export async function appendHistory(
 	const historyPath = HISTORY_FILE_PATH(home);
 	const existing = await loadHistory(home);
 
-	// Skip if the most recent entry is the same path (no-op navigation)
-	if (existing.length > 0 && existing[0].path === path) {
-		return;
-	}
-
 	const entry: HistoryEntry = { branch, path, timestamp: Date.now() };
-	const next = [entry, ...existing].slice(0, MAX_HISTORY_ENTRIES);
+	const next = [
+		entry,
+		...existing.filter((existingEntry) => existingEntry.path !== path),
+	].slice(0, MAX_HISTORY_ENTRIES);
 
 	await mkdir(dirname(historyPath), { recursive: true });
 	await writeFile(historyPath, `${JSON.stringify(next, null, 2)}\n`, "utf8");
