@@ -388,7 +388,29 @@ export function generateBranchPlaceholder(
 		"debugged-the-toaster",
 	];
 
-	return `${pickRandom(roots, random)}-${pickRandom(antics, random)}`;
+	const root = pickRandom(roots, random);
+	const antic = pickRandom(antics, random);
+	const suffix = generateBranchPlaceholderSuffix(random);
+
+	return `${root}-${antic}-${suffix}`;
+}
+
+function pickRandom(values: string[], random: () => number): string {
+	const index = Math.floor(random() * values.length);
+
+	return values[Math.min(index, values.length - 1)];
+}
+
+function generateBranchPlaceholderSuffix(random: () => number): string {
+	const characters = "abcdefghijklmnopqrstuvwxyz0123456789";
+	let suffix = "";
+
+	for (let index = 0; index < 3; index += 1) {
+		const characterIndex = Math.floor(random() * characters.length);
+		suffix += characters[Math.min(characterIndex, characters.length - 1)];
+	}
+
+	return suffix;
 }
 
 function applyConfiguredBranchPrefix(
@@ -447,12 +469,6 @@ async function defaultPromptForBranch(
 	}
 
 	return choice.trim();
-}
-
-function pickRandom(values: string[], random: () => number): string {
-	const index = Math.floor(random() * values.length);
-
-	return values[Math.min(index, values.length - 1)];
 }
 
 async function localBranchExists(
