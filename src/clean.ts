@@ -1,4 +1,4 @@
-import { confirm, groupMultiselect, isCancel } from "@clack/prompts";
+import { confirm, isCancel } from "@clack/prompts";
 
 import { loadEffectiveConfig } from "./config.js";
 import {
@@ -27,6 +27,7 @@ import {
 } from "./worktree-management.js";
 import {
 	buildWorktreePromptEntries,
+	promptForMultipleWorktrees,
 	type WorktreePromptEntry,
 } from "./worktree-picker.js";
 import {
@@ -432,36 +433,7 @@ function toMessage(error: unknown): string {
 async function defaultPromptForWorktrees(
 	worktrees: WorktreePromptEntry[],
 ): Promise<string[] | null> {
-	const choice = await groupMultiselect<string>({
-		message: "Choose worktrees to clean",
-		options: groupPromptEntries(worktrees),
-		required: true,
-		selectableGroups: false,
-	});
-
-	return isCancel(choice) ? null : choice;
-}
-
-function groupPromptEntries(
-	worktrees: WorktreePromptEntry[],
-): Record<string, { hint: string; label: string; value: string }[]> {
-	const groups: Record<
-		string,
-		{ hint: string; label: string; value: string }[]
-	> = {};
-
-	for (const worktree of worktrees) {
-		const group =
-			worktree.group === "recent" ? "Recent worktrees" : "Current repo";
-		groups[group] ??= [];
-		groups[group].push({
-			hint: worktree.hint,
-			label: worktree.label,
-			value: worktree.path,
-		});
-	}
-
-	return groups;
+	return promptForMultipleWorktrees("Choose worktrees to clean", worktrees);
 }
 
 async function defaultConfirmRemoval(

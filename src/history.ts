@@ -53,6 +53,18 @@ export async function appendHistory(
 	await writeFile(historyPath, `${JSON.stringify(next, null, 2)}\n`, "utf8");
 }
 
+export async function recordWorktreeUsage(
+	path: string,
+	branch: string | null,
+	home: string = homedir(),
+): Promise<void> {
+	try {
+		await appendHistory(path, branch, home);
+	} catch {
+		// Usage history is advisory metadata; primary command success should stand.
+	}
+}
+
 function isHistoryEntry(value: unknown): value is HistoryEntry {
 	return (
 		typeof value === "object" &&

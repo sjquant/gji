@@ -11,7 +11,7 @@ import {
 } from "./conflict.js";
 import { syncFiles } from "./file-sync.js";
 import { isHeadless } from "./headless.js";
-import { appendHistory } from "./history.js";
+import { recordWorktreeUsage } from "./history.js";
 import { extractHooks, runHook } from "./hooks.js";
 import {
 	type InstallPromptDependencies,
@@ -113,7 +113,7 @@ export function createPrCommand(
 			const choice = await prompt(worktreePath);
 
 			if (choice === "reuse") {
-				await appendHistory(worktreePath, branchName);
+				await recordWorktreeUsage(worktreePath, branchName);
 				await writeOutput(worktreePath, options.stdout);
 				return 0;
 			}
@@ -211,7 +211,7 @@ export function createPrCommand(
 				`${JSON.stringify({ branch: branchName, path: worktreePath }, null, 2)}\n`,
 			);
 		} else {
-			await appendHistory(worktreePath, branchName);
+			await recordWorktreeUsage(worktreePath, branchName);
 			await writeOutput(worktreePath, options.stdout);
 		}
 

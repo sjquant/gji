@@ -15,10 +15,12 @@ import {
 	type EditorDefinition,
 } from "./editor.js";
 import { isHeadless } from "./headless.js";
-import { appendHistory } from "./history.js";
+import { recordWorktreeUsage } from "./history.js";
 import { detectRepository, listWorktrees, type WorktreeEntry } from "./repo.js";
 import {
 	buildWorktreePromptEntries,
+	promptForSingleWorktree,
+	resolveWorktreeQuery,
 	type WorktreePromptEntry,
 } from "./worktree-picker.js";
 
@@ -67,23 +69,22 @@ export function createOpenCommand(
 		let targetPath: string;
 		let targetWorktree: WorktreeEntry | undefined;
 		if (options.branch) {
-			const matches = await buildWorktreePromptEntries(
+			const match = resolveWorktreeQuery(
 				worktrees.map((worktree) => ({
 					repoName: repository.repoName,
 					worktree,
 				})),
 				options.branch,
 			);
-			const entry = matches[0];
-			if (!entry) {
+			if (!match) {
 				options.stderr(
 					`gji open: no worktree found matching: ${options.branch}\n`,
 				);
 				options.stderr(`Hint: Use 'gji ls' to see available worktrees\n`);
 				return 1;
 			}
-			targetPath = entry.path;
-			targetWorktree = entry;
+			targetPath = match.worktree.path;
+			targetWorktree = match.worktree;
 		} else if (isHeadless()) {
 			targetWorktree = worktrees.find((w) => w.isCurrent);
 			targetPath = targetWorktree?.path ?? options.cwd;
@@ -174,7 +175,7 @@ export function createOpenCommand(
 		}
 
 		const displayName = editorDef?.name ?? editorCli;
-		await appendHistory(targetPath, targetWorktree?.branch ?? null);
+		await recordWorktreeUsage(targetPath, targetWorktree?.branch ?? null);
 		options.stdout(`Opened ${targetPath} in ${displayName}\n`);
 		return 0;
 	};
@@ -204,18 +205,7 @@ async function isCommandAvailable(command: string): Promise<boolean> {
 async function defaultPromptForWorktree(
 	worktrees: WorktreePromptEntry[],
 ): Promise<string | null> {
-	const choice = await select<string>({
-		message: "Choose a worktree to open",
-		options: worktrees.map((w) => ({
-			value: w.path,
-			label: w.label,
-			hint: w.hint,
-		})),
-		maxItems: 12,
-	});
-
-	if (isCancel(choice)) return null;
-	return choice;
+	return promptForSingleWorktree("Choose a worktree to open", worktrees);
 }
 
 async function defaultPromptForEditor(

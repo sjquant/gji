@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import { runCli } from "./cli.js";
-import { createGoCommand, formatUpstreamHint } from "./go.js";
+import { createGoCommand } from "./go.js";
 import { HISTORY_FILE_PATH } from "./history.js";
 import {
 	addLinkedWorktree,
@@ -123,6 +123,54 @@ describe("gji go", () => {
 		// Then it navigates to the searchable matching worktree.
 		expect(result.exitCode).toBe(0);
 		expect(stdout.join("").trim()).toBe(matchingPath);
+	});
+
+	it("prefers an exact direct query over the current fuzzy match", async () => {
+		// Given a current linked worktree whose branch only fuzzily matches another exact branch.
+		const repoRoot = await createRepository();
+		const currentPath = await addLinkedWorktree(repoRoot, "myfoo");
+		const exactPath = await addLinkedWorktree(repoRoot, "foo");
+		const stdout: string[] = [];
+
+		// When gji go runs with the exact branch query from the fuzzy current worktree.
+		const result = await runCli(["go", "--print", "foo"], {
+			cwd: currentPath,
+			stdout: (chunk) => stdout.push(chunk),
+		});
+
+		// Then it navigates to the exact match instead of the current fuzzy match.
+		expect(result.exitCode).toBe(0);
+		expect(stdout.join("").trim()).toBe(exactPath);
+	});
+
+	it("prints the target path when last-used history cannot be written", async () => {
+		// Given a valid linked worktree and a history path that cannot be written as a file.
+		const originalConfigDir = process.env.GJI_CONFIG_DIR;
+		process.env.GJI_CONFIG_DIR = await mkdtemp(join(tmpdir(), "gji-config-"));
+		const repoRoot = await createRepository();
+		const branchName = "feature/go-history-unwritable";
+		const worktreePath = await addLinkedWorktree(repoRoot, branchName);
+		const stdout: string[] = [];
+
+		try {
+			await mkdir(HISTORY_FILE_PATH());
+
+			// When gji go navigates successfully.
+			const result = await runCli(["go", "--print", branchName], {
+				cwd: repoRoot,
+				stdout: (chunk) => stdout.push(chunk),
+			});
+
+			// Then the auxiliary history write failure does not fail navigation.
+			expect(result.exitCode).toBe(0);
+			expect(stdout.join("").trim()).toBe(worktreePath);
+		} finally {
+			if (originalConfigDir === undefined) {
+				delete process.env.GJI_CONFIG_DIR;
+			} else {
+				process.env.GJI_CONFIG_DIR = originalConfigDir;
+			}
+		}
 	});
 
 	it("sorts picker entries current first, then recently used, and shows recency", async () => {
@@ -368,83 +416,5 @@ describe("gji go", () => {
 		);
 		expect(stderrText).toContain("Hint:");
 		expect(stderrText).toContain("gji ls");
-	});
-});
-
-describe("formatUpstreamHint", () => {
-	const base = { ahead: 0, behind: 0, status: "clean" as const };
-
-	it("returns null for detached worktrees (branch is null)", () => {
-		expect(
-			formatUpstreamHint(null, {
-				...base,
-				hasUpstream: false,
-				upstreamGone: false,
-			}),
-		).toBeNull();
-	});
-
-	it('returns "no upstream" when branch has no upstream configured', () => {
-		expect(
-			formatUpstreamHint("main", {
-				...base,
-				hasUpstream: false,
-				upstreamGone: false,
-			}),
-		).toBe("no upstream");
-	});
-
-	it('returns "upstream gone" when the remote branch was deleted', () => {
-		expect(
-			formatUpstreamHint("main", {
-				...base,
-				hasUpstream: true,
-				upstreamGone: true,
-			}),
-		).toBe("upstream gone");
-	});
-
-	it('returns "up to date" when ahead and behind are both 0', () => {
-		expect(
-			formatUpstreamHint("main", {
-				...base,
-				hasUpstream: true,
-				upstreamGone: false,
-			}),
-		).toBe("up to date");
-	});
-
-	it('returns "ahead N" when only ahead', () => {
-		expect(
-			formatUpstreamHint("main", {
-				...base,
-				hasUpstream: true,
-				upstreamGone: false,
-				ahead: 3,
-			}),
-		).toBe("ahead 3");
-	});
-
-	it('returns "behind N" when only behind', () => {
-		expect(
-			formatUpstreamHint("main", {
-				...base,
-				hasUpstream: true,
-				upstreamGone: false,
-				behind: 2,
-			}),
-		).toBe("behind 2");
-	});
-
-	it('returns "ahead N, behind M" when diverged', () => {
-		expect(
-			formatUpstreamHint("main", {
-				...base,
-				hasUpstream: true,
-				upstreamGone: false,
-				ahead: 4,
-				behind: 1,
-			}),
-		).toBe("ahead 4, behind 1");
 	});
 });

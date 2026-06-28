@@ -1,6 +1,6 @@
 import { basename } from "node:path";
 
-import { confirm, isCancel, select } from "@clack/prompts";
+import { confirm, isCancel } from "@clack/prompts";
 
 import { loadEffectiveConfig } from "./config.js";
 import { isHeadless } from "./headless.js";
@@ -18,6 +18,7 @@ import {
 } from "./worktree-management.js";
 import {
 	buildWorktreePromptEntries,
+	promptForSingleWorktree,
 	type WorktreePromptEntry,
 } from "./worktree-picker.js";
 import {
@@ -229,17 +230,7 @@ export const runRemoveCommand = createRemoveCommand();
 async function defaultPromptForWorktree(
 	worktrees: WorktreePromptEntry[],
 ): Promise<string | null> {
-	const choice = await select<string>({
-		message: "Choose a worktree to finish",
-		options: worktrees.map((worktree) => ({
-			hint: worktree.hint,
-			label: worktree.label,
-			value: worktree.path,
-		})),
-		maxItems: 12,
-	});
-
-	return isCancel(choice) ? null : choice;
+	return promptForSingleWorktree("Choose a worktree to finish", worktrees);
 }
 
 async function defaultConfirmRemoval(

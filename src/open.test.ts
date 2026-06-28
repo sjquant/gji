@@ -1,10 +1,10 @@
-import { mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { loadHistory } from "./history.js";
+import { HISTORY_FILE_PATH, loadHistory } from "./history.js";
 import { createOpenCommand } from "./open.js";
 import {
 	addLinkedWorktree,
@@ -140,6 +140,35 @@ describe("gji open", () => {
 		expect(spawned[0].args).toContain(worktreePath);
 	});
 
+	it("prefers an exact direct query over the current fuzzy match", async () => {
+		// Given a current linked worktree whose branch only fuzzily matches another exact branch.
+		const repoRoot = await createRepository();
+		const currentPath = await addLinkedWorktree(repoRoot, "myfoo");
+		const exactPath = await addLinkedWorktree(repoRoot, "foo");
+		const spawned: { cli: string; args: string[] }[] = [];
+		const runOpenCommand = createOpenCommand({
+			promptForWorktree: async () => {
+				throw new Error("prompt must not be called when query is given");
+			},
+			spawnEditor: async (cli, args) => {
+				spawned.push({ cli, args });
+			},
+		});
+
+		// When gji open runs with the exact branch query from the fuzzy current worktree.
+		const result = await runOpenCommand({
+			branch: "foo",
+			cwd: currentPath,
+			editor: "code",
+			stderr: () => undefined,
+			stdout: () => undefined,
+		});
+
+		// Then it opens the exact match instead of the current fuzzy match.
+		expect(result).toBe(0);
+		expect(spawned[0].args).toContain(exactPath);
+	});
+
 	it("records last-used history after opening a queried worktree", async () => {
 		// Given a repository with a linked worktree matching a partial query.
 		const repoRoot = await createRepository();
@@ -165,6 +194,35 @@ describe("gji open", () => {
 		expect(result).toBe(0);
 		const history = await loadHistory();
 		expect(history[0]).toMatchObject({ branch, path: worktreePath });
+	});
+
+	it("opens the worktree when last-used history cannot be written", async () => {
+		// Given a valid linked worktree and a history path that cannot be written as a file.
+		const repoRoot = await createRepository();
+		const branch = "feature/open-history-unwritable";
+		const worktreePath = await addLinkedWorktree(repoRoot, branch);
+		const spawned: { cli: string; args: string[] }[] = [];
+		const stdout: string[] = [];
+		const runOpenCommand = createOpenCommand({
+			spawnEditor: async (cli, args) => {
+				spawned.push({ cli, args });
+			},
+		});
+		await mkdir(HISTORY_FILE_PATH());
+
+		// When gji open launches the editor successfully.
+		const result = await runOpenCommand({
+			branch,
+			cwd: repoRoot,
+			editor: "code",
+			stderr: () => undefined,
+			stdout: (chunk) => stdout.push(chunk),
+		});
+
+		// Then the auxiliary history write failure does not fail the open command.
+		expect(result).toBe(0);
+		expect(spawned[0].args).toContain(worktreePath);
+		expect(stdout.join("")).toContain(`Opened ${worktreePath}`);
 	});
 
 	it("opens the current worktree in the specified editor", async () => {

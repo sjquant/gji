@@ -13,7 +13,7 @@ import {
 import { defaultSpawnEditor, EDITORS } from "./editor.js";
 import { syncFiles } from "./file-sync.js";
 import { isHeadless } from "./headless.js";
-import { appendHistory } from "./history.js";
+import { recordWorktreeUsage } from "./history.js";
 import { extractHooks, runHook } from "./hooks.js";
 import {
 	type InstallPromptDependencies,
@@ -192,7 +192,7 @@ export function createNewCommand(
 				const choice = await prompt(worktreePath);
 
 				if (choice === "reuse") {
-					await appendHistory(worktreePath, worktreeName);
+					await recordWorktreeUsage(worktreePath, worktreeName);
 					await writeOutput(worktreePath, options.stdout);
 					return 0;
 				}
@@ -274,7 +274,7 @@ export function createNewCommand(
 				`${JSON.stringify({ branch: worktreeName, path: worktreePath }, null, 2)}\n`,
 			);
 		} else {
-			await appendHistory(worktreePath, worktreeName);
+			await recordWorktreeUsage(worktreePath, worktreeName);
 			await writeOutput(worktreePath, options.stdout);
 		}
 

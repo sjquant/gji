@@ -93,19 +93,6 @@ export function serializeWorktreeInfo(
 	};
 }
 
-export function formatWorktreeHint(info: WorktreeInfo): string {
-	const details = [
-		`status: ${info.status}`,
-		`upstream: ${formatUpstreamState(info.upstream)}`,
-	];
-
-	if (info.lastCommitTimestamp !== null) {
-		details.push(`last: ${formatRelativeAge(info.lastCommitTimestamp)}`);
-	}
-
-	return `${info.path} (${details.join(", ")})`;
-}
-
 export function formatUpstreamState(upstream: UpstreamState): string {
 	if (upstream.kind === "detached") {
 		return "n/a";

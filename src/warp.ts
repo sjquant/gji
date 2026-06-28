@@ -3,13 +3,15 @@ import { basename, resolve } from "node:path";
 import { isCancel, select } from "@clack/prompts";
 
 import { isHeadless } from "./headless.js";
-import { appendHistory } from "./history.js";
+import { recordWorktreeUsage } from "./history.js";
 import { runNewCommand } from "./new.js";
 import { detectRepository, listWorktrees, type WorktreeEntry } from "./repo.js";
 import { loadRegistry, type RepoRegistryEntry } from "./repo-registry.js";
 import { writeShellOutput } from "./shell-handoff.js";
 import {
 	buildWorktreePromptEntries,
+	promptForSingleWorktree,
+	resolveWorktreeQuery,
 	type WorktreePromptEntry,
 } from "./worktree-picker.js";
 
@@ -75,7 +77,7 @@ async function runWarpNavigate(options: WarpCommandOptions): Promise<number> {
 		return 0;
 	}
 
-	await appendHistory(target.path, target.branch);
+	await recordWorktreeUsage(target.path, target.branch);
 	await writeShellOutput(WARP_OUTPUT_FILE_ENV, target.path, options.stdout);
 	return 0;
 }
@@ -245,23 +247,21 @@ export async function resolveWarpTarget(options: {
 		return null;
 	}
 
-	const promptEntries = await buildWorktreePromptEntries(
-		allItems.map((item) => ({
-			repoName: item.repoName,
-			worktree: item.worktree,
-		})),
-		options.branch,
-	);
+	const promptSources = allItems.map((item) => ({
+		repoName: item.repoName,
+		worktree: item.worktree,
+	}));
 
 	if (options.branch) {
-		const match = promptEntries[0];
+		const match = resolveWorktreeQuery(promptSources, options.branch);
 		if (!match) {
 			emitError(`no worktree found matching: ${options.branch}`);
 			return null;
 		}
-		return { branch: match.branch, path: match.path };
+		return { branch: match.worktree.branch, path: match.worktree.path };
 	}
 
+	const promptEntries = await buildWorktreePromptEntries(promptSources);
 	const path = await promptForWarpTarget(promptEntries);
 	if (!path) {
 		options.stderr("Aborted\n");
@@ -274,17 +274,5 @@ export async function resolveWarpTarget(options: {
 async function promptForWarpTarget(
 	items: WorktreePromptEntry[],
 ): Promise<string | null> {
-	const choice = await select<string>({
-		message: "Warp to a worktree",
-		options: items.map((item) => {
-			return { hint: item.hint, label: item.label, value: item.path };
-		}),
-		maxItems: 12,
-	});
-
-	if (isCancel(choice)) {
-		return null;
-	}
-
-	return choice;
+	return promptForSingleWorktree("Warp to a worktree", items);
 }
