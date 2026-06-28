@@ -1,6 +1,6 @@
 import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
@@ -157,6 +157,25 @@ describe("gji go", () => {
 		});
 
 		// Then it reports no match instead of silently choosing a worktree.
+		expect(result.exitCode).toBe(1);
+		expect(stderr.join("")).toContain("No worktree found");
+	});
+
+	it("does not resolve an ambiguous repo-name query to the first worktree", async () => {
+		// Given a repository with multiple linked worktrees under the same repo name.
+		const repoRoot = await createRepository();
+		await addLinkedWorktree(repoRoot, "feature/go-repo-query-one");
+		await addLinkedWorktree(repoRoot, "feature/go-repo-query-two");
+		const stderr: string[] = [];
+
+		// When gji go runs with only the repo name as a direct query.
+		const result = await runCli(["go", "--print", basename(repoRoot)], {
+			cwd: repoRoot,
+			stderr: (chunk) => stderr.push(chunk),
+			stdout: () => undefined,
+		});
+
+		// Then it reports no match instead of silently choosing one worktree.
 		expect(result.exitCode).toBe(1);
 		expect(stderr.join("")).toContain("No worktree found");
 	});

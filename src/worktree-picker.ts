@@ -49,9 +49,44 @@ export function resolveWorktreeQuery(
 	sources: WorktreePromptSource[],
 	query: string,
 ): WorktreePromptSource | null {
-	if (normalizeQuery(query) === null) return null;
+	const normalizedQuery = normalizeQuery(query);
+	if (normalizedQuery === null) return null;
 
-	return filterWorktreePromptSources(sources, query)[0] ?? null;
+	const matches = findWorktreePromptSourceMatches(sources, normalizedQuery);
+	if (isAmbiguousRepoOnlyQuery(matches, normalizedQuery)) return null;
+
+	return matches[0]?.source ?? null;
+}
+
+function findWorktreePromptSourceMatches(
+	sources: WorktreePromptSource[],
+	normalizedQuery: string,
+): { matchScore: number; source: WorktreePromptSource }[] {
+	return sources
+		.flatMap((source) => {
+			const matchScore = scoreWorktreeMatch(
+				{
+					...source.worktree,
+					repoName: source.repoName,
+				},
+				normalizedQuery,
+			);
+
+			return matchScore === null ? [] : [{ matchScore, source }];
+		})
+		.sort(compareQueryMatches);
+}
+
+function isAmbiguousRepoOnlyQuery(
+	matches: { matchScore: number; source: WorktreePromptSource }[],
+	query: string,
+): boolean {
+	if (matches[0]?.matchScore === 1000) return false;
+
+	return (
+		matches.filter((match) => match.source.repoName.toLowerCase() === query)
+			.length > 1
+	);
 }
 
 export async function promptForSingleWorktree(
@@ -82,29 +117,6 @@ export async function promptForMultipleWorktrees(
 	});
 
 	return isCancel(choice) ? null : choice;
-}
-
-function filterWorktreePromptSources(
-	sources: WorktreePromptSource[],
-	query?: string,
-): WorktreePromptSource[] {
-	const normalizedQuery = normalizeQuery(query);
-	if (normalizedQuery === null) return sources;
-
-	return sources
-		.flatMap((source) => {
-			const matchScore = scoreWorktreeMatch(
-				{
-					...source.worktree,
-					repoName: source.repoName,
-				},
-				normalizedQuery,
-			);
-
-			return matchScore === null ? [] : [{ matchScore, source }];
-		})
-		.sort(compareQueryMatches)
-		.map((match) => match.source);
 }
 
 function compareQueryMatches(
@@ -331,7 +343,6 @@ function scoreWorktreeMatch(
 	const exactCandidates = [
 		branch,
 		entry.path,
-		entry.repoName,
 		`${entry.repoName}/${branch}`,
 	].map((candidate) => candidate.toLowerCase());
 
