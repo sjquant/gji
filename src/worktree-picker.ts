@@ -15,28 +15,23 @@ export interface WorktreePromptSource {
 
 export interface WorktreePromptEntry extends WorktreeEntry {
 	group: "recent" | "other";
-	hint: string;
 	label: string;
 	repoName: string;
 }
 
-interface ScoredWorktreePromptEntry extends WorktreePromptEntry {
+interface SortableWorktreePromptEntry extends WorktreePromptEntry {
 	lastActivityTimestamp: number | null;
-	matchScore: number;
-	searchText: string;
 }
 
 export async function buildWorktreePromptEntries(
 	sources: WorktreePromptSource[],
-	query?: string,
 ): Promise<WorktreePromptEntry[]> {
-	const candidateSources = filterWorktreePromptSources(sources, query);
 	const [history, infos] = await Promise.all([
 		loadHistory(),
-		readWorktreeInfos(candidateSources.map((source) => source.worktree)),
+		readWorktreeInfos(sources.map((source) => source.worktree)),
 	]);
 	const historyByPath = new Map(history.map((entry) => [entry.path, entry]));
-	const entries = candidateSources.map((source, index) =>
+	const entries = sources.map((source, index) =>
 		buildWorktreePromptEntry(
 			source,
 			infos[index],
@@ -45,13 +40,8 @@ export async function buildWorktreePromptEntries(
 		),
 	);
 
-	return sortAndFilterWorktreePromptEntries(entries, query).map(
-		({
-			lastActivityTimestamp: _lastActivityTimestamp,
-			matchScore: _matchScore,
-			searchText: _searchText,
-			...entry
-		}) => entry,
+	return sortWorktreePromptEntries(entries).map(
+		({ lastActivityTimestamp: _lastActivityTimestamp, ...entry }) => entry,
 	);
 }
 
@@ -105,7 +95,6 @@ function filterWorktreePromptSources(
 				{
 					...source.worktree,
 					repoName: source.repoName,
-					searchText: buildSearchText(source.repoName, source.worktree),
 				},
 				normalizedQuery,
 			);
@@ -138,18 +127,14 @@ function compareQueryMatches(
 
 function groupPromptEntries(
 	worktrees: WorktreePromptEntry[],
-): Record<string, { hint: string; label: string; value: string }[]> {
-	const groups: Record<
-		string,
-		{ hint: string; label: string; value: string }[]
-	> = {};
+): Record<string, { label: string; value: string }[]> {
+	const groups: Record<string, { label: string; value: string }[]> = {};
 
 	for (const worktree of worktrees) {
 		const group =
 			worktree.group === "recent" ? "Recent worktrees" : "Other worktrees";
 		groups[group] ??= [];
 		groups[group].push({
-			hint: worktree.hint,
 			label: worktree.label,
 			value: worktree.path,
 		});
@@ -163,7 +148,7 @@ function buildWorktreePromptEntry(
 	info: WorktreeInfo,
 	lastUsedTimestamp: number | null,
 	now: number,
-): ScoredWorktreePromptEntry {
+): SortableWorktreePromptEntry {
 	const lastWorkedTimestamp =
 		info.lastCommitTimestamp === null ? null : info.lastCommitTimestamp * 1000;
 	const lastActivityTimestamp = lastUsedTimestamp ?? lastWorkedTimestamp;
@@ -192,23 +177,12 @@ function buildWorktreePromptEntry(
 	]
 		.filter((part): part is string => part !== null && part.length > 0)
 		.join(" · ");
-	const hint = [
-		badges.length > 0 ? badges.map((badge) => `[${badge}]`).join(" ") : null,
-		recency,
-		path,
-	]
-		.filter((part): part is string => part !== null && part.length > 0)
-		.join(" · ");
-
 	return {
 		...source.worktree,
 		group: lastUsedTimestamp !== null ? "recent" : "other",
-		hint,
 		label,
 		lastActivityTimestamp,
-		matchScore: 0,
 		repoName: source.repoName,
-		searchText: buildSearchText(source.repoName, source.worktree),
 	};
 }
 
@@ -313,33 +287,16 @@ function normalizeQuery(query?: string): string | null {
 	return normalized && normalized.length > 0 ? normalized : null;
 }
 
-function sortAndFilterWorktreePromptEntries(
-	entries: ScoredWorktreePromptEntry[],
-	query?: string,
-): ScoredWorktreePromptEntry[] {
-	const normalizedQuery = normalizeQuery(query);
-	const scoredEntries = entries.flatMap((entry) => {
-		const matchScore = normalizedQuery
-			? scoreWorktreeMatch(entry, normalizedQuery)
-			: 0;
-
-		return matchScore === null ? [] : [{ ...entry, matchScore }];
-	});
-
-	return scoredEntries.sort((a, b) =>
-		comparePromptEntries(a, b, normalizedQuery !== null),
-	);
+function sortWorktreePromptEntries(
+	entries: SortableWorktreePromptEntry[],
+): SortableWorktreePromptEntry[] {
+	return entries.sort(comparePromptEntries);
 }
 
 function comparePromptEntries(
-	a: ScoredWorktreePromptEntry,
-	b: ScoredWorktreePromptEntry,
-	hasQuery: boolean,
+	a: SortableWorktreePromptEntry,
+	b: SortableWorktreePromptEntry,
 ): number {
-	if (hasQuery && a.matchScore !== b.matchScore) {
-		return b.matchScore - a.matchScore;
-	}
-
 	if (a.isCurrent && !b.isCurrent) return -1;
 	if (!a.isCurrent && b.isCurrent) return 1;
 
@@ -365,9 +322,7 @@ function groupRank(group: WorktreePromptEntry["group"]): number {
 }
 
 function scoreWorktreeMatch(
-	entry: Pick<WorktreePromptEntry, "branch" | "path" | "repoName"> & {
-		searchText?: string;
-	},
+	entry: Pick<WorktreePromptEntry, "branch" | "path" | "repoName">,
 	query: string,
 ): number | null {
 	const branch = entry.branch ?? "detached";
@@ -382,11 +337,7 @@ function scoreWorktreeMatch(
 		return 1000;
 	}
 
-	return (entry.searchText ?? buildSearchText(entry.repoName, entry)).includes(
-		query,
-	)
-		? 1
-		: null;
+	return buildSearchText(entry.repoName, entry).includes(query) ? 1 : null;
 }
 
 function middleEllipsize(value: string, maxLength: number): string {
