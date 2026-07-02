@@ -1,4 +1,7 @@
-import { groupMultiselect, isCancel, select } from "@clack/prompts";
+import { env, platform, stdin, stdout } from "node:process";
+import type { Readable, Writable } from "node:stream";
+
+import { isCancel, Prompt } from "@clack/core";
 
 import { loadHistory } from "./history.js";
 import type { WorktreeEntry } from "./repo.js";
@@ -16,7 +19,19 @@ export interface WorktreePromptSource {
 export interface WorktreePromptEntry extends WorktreeEntry {
 	group: "recent" | "other";
 	label: string;
+	metadata?: string | null;
 	repoName: string;
+}
+
+export interface WorktreePickerIO {
+	input?: Readable & {
+		isTTY?: boolean;
+		setRawMode?: (mode: boolean) => void;
+	};
+	output?: Writable & {
+		columns?: number;
+		rows?: number;
+	};
 }
 
 interface SortableWorktreePromptEntry extends WorktreePromptEntry {
@@ -94,31 +109,33 @@ function isAmbiguousRepoOnlyQuery(
 export async function promptForSingleWorktree(
 	message: string,
 	worktrees: WorktreePromptEntry[],
+	io: WorktreePickerIO = {},
 ): Promise<string | null> {
-	const choice = await select<string>({
+	const choice = await runSearchablePrompt({
+		entries: worktrees.map(buildSearchableWorktreeEntry),
+		input: io.input,
 		message,
-		options: worktrees.map((worktree) => ({
-			label: worktree.label,
-			value: worktree.path,
-		})),
-		maxItems: 12,
+		multiple: false,
+		output: io.output,
 	});
 
-	return isCancel(choice) ? null : choice;
+	return typeof choice === "string" ? choice : null;
 }
 
 export async function promptForMultipleWorktrees(
 	message: string,
 	worktrees: WorktreePromptEntry[],
+	io: WorktreePickerIO = {},
 ): Promise<string[] | null> {
-	const choice = await groupMultiselect<string>({
+	const choice = await runSearchablePrompt({
+		entries: buildGroupedSearchableEntries(worktrees),
+		input: io.input,
 		message,
-		options: groupPromptEntries(worktrees),
-		required: true,
-		selectableGroups: false,
+		multiple: true,
+		output: io.output,
 	});
 
-	return isCancel(choice) ? null : choice;
+	return Array.isArray(choice) ? choice : null;
 }
 
 function compareQueryMatches(
@@ -143,20 +160,936 @@ function compareQueryMatches(
 
 function groupPromptEntries(
 	worktrees: WorktreePromptEntry[],
-): Record<string, { label: string; value: string }[]> {
-	const groups: Record<string, { label: string; value: string }[]> = {};
+): Array<[string, WorktreePromptEntry[]]> {
+	const groups = new Map<string, WorktreePromptEntry[]>();
 
 	for (const worktree of worktrees) {
 		const group =
 			worktree.group === "recent" ? "Recent worktrees" : "Other worktrees";
-		groups[group] ??= [];
-		groups[group].push({
-			label: worktree.label,
-			value: worktree.path,
-		});
+		const groupWorktrees = groups.get(group);
+		if (groupWorktrees === undefined) {
+			groups.set(group, [worktree]);
+		} else {
+			groupWorktrees.push(worktree);
+		}
 	}
 
-	return groups;
+	return [...groups.entries()];
+}
+
+function buildGroupedSearchableEntries(
+	worktrees: WorktreePromptEntry[],
+): SearchablePromptEntry[] {
+	const entries: SearchablePromptEntry[] = [];
+
+	for (const [group, groupWorktrees] of groupPromptEntries(worktrees)) {
+		entries.push({
+			label: group,
+			searchText: group.toLowerCase(),
+			selectable: false,
+		});
+
+		for (const worktree of groupWorktrees) {
+			entries.push(buildSearchableWorktreeEntry(worktree));
+		}
+	}
+
+	return entries;
+}
+
+function buildSearchableWorktreeEntry(
+	worktree: WorktreePromptEntry,
+): SearchablePromptEntry {
+	const metadata = worktree.metadata ?? null;
+	const branch = worktree.branch ?? "(detached)";
+
+	return {
+		detail: [worktree.repoName, branch, metadata, worktree.path]
+			.filter((part): part is string => part !== null && part.length > 0)
+			.join(" · "),
+		label: worktree.label,
+		searchText: buildPromptSearchText(worktree),
+		value: worktree.path,
+		worktree: {
+			branch,
+			metadata,
+			path: worktree.path,
+			repoName: worktree.repoName,
+		},
+	};
+}
+
+interface SearchablePromptEntry {
+	detail?: string;
+	label: string;
+	searchText: string;
+	selectable?: boolean;
+	value?: string;
+	worktree?: {
+		branch: string;
+		metadata: string | null;
+		path: string;
+		repoName: string;
+	};
+}
+
+type SearchablePromptResult = string | string[] | null;
+type WorktreePromptAction =
+	| "up"
+	| "down"
+	| "space"
+	| "enter"
+	| "escape"
+	| "cancel";
+
+interface SearchablePromptOptions extends WorktreePickerIO {
+	entries: SearchablePromptEntry[];
+	message: string;
+	multiple: boolean;
+}
+
+interface PromptGlyphs {
+	active: string;
+	bar: string;
+	checked: string;
+	corner: string;
+	inactive: string;
+	pending: string;
+	submitted: string;
+	unchecked: string;
+	uncheckedActive: string;
+}
+
+interface PromptColors {
+	activeBar: (value: string) => string;
+	bar: (value: string) => string;
+	error: (value: string) => string;
+	errorBar: (value: string) => string;
+	hint: (value: string) => string;
+	key: (value: string) => string;
+	option: (value: string) => string;
+	search: (value: string) => string;
+	selected: (value: string) => string;
+	symbol: (value: string, state: string) => string;
+}
+
+interface PromptPiece {
+	ellipsize: (value: string, maxLength: number) => string;
+	max: number;
+	min: number;
+	value: string;
+}
+
+async function runSearchablePrompt(
+	options: SearchablePromptOptions,
+): Promise<SearchablePromptResult> {
+	const input = options.input ?? stdin;
+	const output = options.output ?? stdout;
+
+	if (!input.isTTY) {
+		return null;
+	}
+
+	const prompt = new SearchablePrompt(options, input, output);
+	const value = await prompt.run();
+
+	return isCancel(value) ? null : value;
+}
+
+class SearchablePrompt {
+	private cursor = 0;
+	private query = "";
+	private searchActive = false;
+	private selected = new Set<string>();
+	private readonly prompt: WorktreeCorePrompt;
+
+	constructor(
+		private readonly options: SearchablePromptOptions,
+		input: Readable & {
+			isTTY?: boolean;
+			setRawMode?: (mode: boolean) => void;
+		},
+		private readonly output: Writable & {
+			columns?: number;
+			rows?: number;
+		},
+	) {
+		this.cursor = this.firstSelectableIndex();
+		const owner = this;
+		this.prompt = new WorktreeCorePrompt(this, {
+			input,
+			output,
+			render: function renderWorktreePrompt() {
+				return owner.render(this.state, this.error);
+			},
+		});
+		this.syncValue();
+	}
+
+	run(): Promise<SearchablePromptResult | symbol> {
+		return this.prompt.prompt();
+	}
+
+	handleKeypress(
+		prompt: WorktreeCorePrompt,
+		character: string | undefined,
+		key?: { ctrl?: boolean; name?: string; sequence?: string },
+	): void {
+		if (prompt.state === "error") {
+			prompt.state = "active";
+			prompt.error = "";
+		}
+
+		const action = resolvePromptAction(character, key);
+		if (action === "cancel") {
+			this.cancel(prompt);
+			return;
+		}
+
+		if (action === "escape") {
+			this.handleEscapeKey(prompt);
+			return;
+		}
+
+		if (action === "enter") {
+			this.submit(prompt);
+			return;
+		}
+
+		if (this.searchActive && this.handleSearchKey(character, key?.name)) {
+			this.syncValue();
+			renderPrompt(prompt);
+			return;
+		}
+
+		if (character === "/" && !this.searchActive) {
+			this.searchActive = true;
+			this.query = "";
+			this.cursor = this.firstSelectableIndex();
+			this.syncValue();
+			renderPrompt(prompt);
+			return;
+		}
+
+		this.handleNavigationKey(character, action);
+		this.syncValue();
+		renderPrompt(prompt);
+	}
+
+	private handleEscapeKey(prompt: WorktreeCorePrompt): void {
+		if (this.searchActive) {
+			this.searchActive = false;
+			this.query = "";
+			this.cursor = this.firstSelectableIndex();
+			this.syncValue();
+			renderPrompt(prompt);
+			return;
+		}
+
+		this.cancel(prompt);
+	}
+
+	private cancel(prompt: WorktreeCorePrompt): void {
+		prompt.state = "cancel";
+		renderPrompt(prompt);
+		closePrompt(prompt);
+	}
+
+	private handleSearchKey(
+		character: string | undefined,
+		keyName?: string,
+	): boolean {
+		if (keyName === "space" || character === " ") {
+			return false;
+		}
+
+		if (keyName === "backspace" || keyName === "delete") {
+			this.query = this.query.slice(0, -1);
+			this.cursor = this.firstSelectableIndex();
+			return true;
+		}
+
+		if (isPrintableSearchCharacter(character)) {
+			this.query += character;
+			this.cursor = this.firstSelectableIndex();
+			return true;
+		}
+
+		return false;
+	}
+
+	private handleNavigationKey(
+		character: string | undefined,
+		action?: WorktreePromptAction,
+	): void {
+		switch (action) {
+			case "up":
+				this.moveCursor(-1);
+				return;
+			case "down":
+				this.moveCursor(1);
+				return;
+			case "space":
+				this.toggleSelection();
+				return;
+		}
+
+		switch (character) {
+			case "k":
+				this.moveCursor(-1);
+				return;
+			case "j":
+				this.moveCursor(1);
+				return;
+			case " ":
+				this.toggleSelection();
+				return;
+		}
+	}
+
+	private moveCursor(direction: -1 | 1): void {
+		const entries = this.visibleEntries();
+		if (entries.length === 0) return;
+
+		let nextCursor = this.cursor;
+		for (let index = 0; index < entries.length; index += 1) {
+			nextCursor = wrapIndex(nextCursor + direction, entries.length);
+			if (isSelectableEntry(entries[nextCursor])) {
+				this.cursor = nextCursor;
+				return;
+			}
+		}
+	}
+
+	private submit(prompt: WorktreeCorePrompt): void {
+		const entry = this.visibleEntries()[this.cursor];
+
+		if (!this.options.multiple) {
+			prompt.value = isSelectableEntry(entry) ? entry.value : null;
+			prompt.state = "submit";
+			renderPrompt(prompt);
+			closePrompt(prompt);
+			return;
+		}
+
+		if (this.selected.size === 0) {
+			prompt.error = "Please select at least one option.";
+			prompt.state = "error";
+			renderPrompt(prompt);
+			return;
+		}
+
+		prompt.value = [...this.selected];
+		prompt.state = "submit";
+		renderPrompt(prompt);
+		closePrompt(prompt);
+	}
+
+	private toggleSelection(): void {
+		if (!this.options.multiple) return;
+
+		const entry = this.visibleEntries()[this.cursor];
+		if (!isSelectableEntry(entry)) return;
+
+		if (this.selected.has(entry.value)) {
+			this.selected.delete(entry.value);
+			return;
+		}
+
+		this.selected.add(entry.value);
+	}
+
+	private render(state: string, error: string): string {
+		const entries = this.visibleEntries();
+		const visibleEntries = windowPromptEntries(
+			entries,
+			this.cursor,
+			this.maxItems(),
+		);
+		const glyphs = promptGlyphs();
+		const colors = promptColors();
+		const frame = promptFrameColor(state, colors);
+		const lines = [
+			colors.bar(glyphs.bar),
+			this.renderTitle(state, glyphs, colors),
+			`${frame(glyphs.bar)}  ${this.renderSearchHint(colors)}`,
+			frame(glyphs.bar),
+		];
+
+		if (state === "error" && error.length > 0) {
+			lines.push(`${colors.errorBar(glyphs.bar)}  ${colors.error(error)}`);
+			lines.push(frame(glyphs.bar));
+		}
+
+		lines.push(
+			...this.renderEntries(entries, visibleEntries, glyphs, colors, frame),
+		);
+		lines.push(frame(glyphs.bar));
+		const preview = this.activePreview(entries, colors);
+		if (preview !== null) {
+			lines.push(`${frame(glyphs.bar)}  ${preview}`);
+			lines.push(frame(glyphs.bar));
+		}
+		const visibleWorktreeCount = entries.filter(isSelectableEntry).length;
+		const footer = this.footerText(visibleWorktreeCount, colors);
+		if (footer.length > 0) {
+			lines.push(`${frame(glyphs.corner)}  ${footer}`);
+		}
+
+		return `${lines.join("\n")}\n`;
+	}
+
+	private renderTitle(
+		state: string,
+		glyphs: PromptGlyphs,
+		colors: PromptColors,
+	): string {
+		const symbol = colors.symbol(promptSymbol(state, glyphs), state);
+		const maxTitleLength = Math.max(8, this.columns() - 3);
+		if (!this.searchActive) {
+			return `${symbol}  ${middleEllipsize(this.options.message, maxTitleLength)}`;
+		}
+
+		const search = ` /${this.query}`;
+		const maxSearchLength = Math.min(
+			terminalWidth(search),
+			Math.floor(maxTitleLength / 2),
+		);
+		const message = middleEllipsize(
+			this.options.message,
+			Math.max(1, maxTitleLength - maxSearchLength),
+		);
+		const visibleSearch = middleEllipsize(
+			search,
+			Math.max(1, maxTitleLength - terminalWidth(message)),
+		);
+
+		return `${symbol}  ${message}${colors.search(visibleSearch)}`;
+	}
+
+	private renderSearchHint(colors: PromptColors): string {
+		if (this.searchActive) {
+			return `${colors.hint("type to filter")} ${colors.hint("·")} ${colors.key("esc")} ${colors.hint("clears")}`;
+		}
+
+		return `${colors.hint("press ")}${colors.key("/")}${colors.hint(" to search")}`;
+	}
+
+	private renderEntries(
+		entries: SearchablePromptEntry[],
+		visibleEntries: Array<SearchablePromptEntry | "ellipsis">,
+		glyphs: PromptGlyphs,
+		colors: PromptColors,
+		frame: (value: string) => string,
+	): string[] {
+		if (entries.length === 0) {
+			return [`${frame(glyphs.bar)}  ${colors.hint("No matching worktrees")}`];
+		}
+
+		return visibleEntries.map((entry) =>
+			entry === "ellipsis"
+				? `${frame(glyphs.bar)}  ${colors.hint("...")}`
+				: this.renderEntry(entries, entry, glyphs, colors, frame),
+		);
+	}
+
+	private renderEntry(
+		entries: SearchablePromptEntry[],
+		entry: SearchablePromptEntry,
+		glyphs: PromptGlyphs,
+		colors: PromptColors,
+		frame: (value: string) => string,
+	): string {
+		const active = entries[this.cursor] === entry;
+		const selected = isSelectableEntry(entry) && this.selected.has(entry.value);
+		const prefix = this.entryPrefix(entry, active, selected, glyphs);
+		const label = this.entryLabel(entry, prefix);
+		const line = isSelectableEntry(entry)
+			? active
+				? label
+				: colors.hint(label)
+			: colors.hint(label);
+		const marker = selected
+			? colors.selected(prefix)
+			: active
+				? this.options.multiple
+					? colors.option(prefix)
+					: colors.selected(prefix)
+				: colors.hint(prefix);
+
+		return `${frame(glyphs.bar)}  ${marker} ${line}`;
+	}
+
+	private activePreview(
+		entries: SearchablePromptEntry[],
+		colors: PromptColors,
+	): string | null {
+		const entry = entries[this.cursor];
+		if (!isSelectableEntry(entry) || entry.detail === undefined) return null;
+
+		const label = "current";
+		const separator = " ";
+		const width = this.previewWidth();
+		const prefixWidth = terminalWidth(label) + terminalWidth(separator);
+		if (width <= prefixWidth) return colors.key(middleEllipsize(label, width));
+
+		const detail = middleEllipsize(entry.detail, width - prefixWidth);
+		return `${colors.key(label)}${colors.hint(separator)}${colors.hint(detail)}`;
+	}
+
+	private entryLabel(entry: SearchablePromptEntry, prefix: string): string {
+		const width = this.labelWidth(prefix);
+		if (entry.worktree === undefined) {
+			return middleEllipsize(entry.label, width);
+		}
+
+		return fitPromptPieces(
+			[
+				{
+					ellipsize: middleEllipsize,
+					max: 18,
+					min: 6,
+					value: entry.worktree.repoName,
+				},
+				{
+					ellipsize: middleEllipsize,
+					max: 32,
+					min: 8,
+					value: entry.worktree.branch,
+				},
+				...(entry.worktree.metadata === null
+					? []
+					: [
+							{
+								ellipsize: middleEllipsize,
+								max: 30,
+								min: 10,
+								value: entry.worktree.metadata,
+							},
+						]),
+				{
+					ellipsize: startEllipsize,
+					max: 36,
+					min: 12,
+					value: entry.worktree.path,
+				},
+			],
+			width,
+		);
+	}
+
+	private labelWidth(prefix: string): number {
+		return Math.max(8, this.columns() - terminalWidth(prefix) - 4);
+	}
+
+	private previewWidth(): number {
+		return Math.max(8, this.columns() - 3);
+	}
+
+	private entryPrefix(
+		entry: SearchablePromptEntry,
+		active: boolean,
+		selected: boolean,
+		glyphs: PromptGlyphs,
+	): string {
+		if (!isSelectableEntry(entry)) {
+			return active ? glyphs.active : " ";
+		}
+
+		if (!this.options.multiple) {
+			return active ? glyphs.active : glyphs.inactive;
+		}
+
+		if (active && selected) return glyphs.checked;
+		if (active) return glyphs.uncheckedActive;
+		return selected ? glyphs.checked : glyphs.unchecked;
+	}
+
+	private footerText(visibleCount: number, colors: PromptColors): string {
+		if (!this.options.multiple) return "";
+
+		return [
+			`${colors.key("space")} ${colors.hint("select")}`,
+			`${colors.selected(String(this.selected.size))} ${colors.hint("selected")}`,
+			colors.hint(`${visibleCount} shown`),
+		].join(colors.hint(" · "));
+	}
+
+	private firstSelectableIndex(): number {
+		const index = this.visibleEntries().findIndex(isSelectableEntry);
+
+		return index === -1 ? 0 : index;
+	}
+
+	private visibleEntries(): SearchablePromptEntry[] {
+		const query = normalizeQuery(this.query);
+		if (query === null) {
+			return this.options.entries;
+		}
+
+		return filterSearchablePromptEntries(this.options.entries, query);
+	}
+
+	private maxItems(): number {
+		const rows = this.output.rows ?? 16;
+		return Math.max(5, Math.min(12, rows - 8));
+	}
+
+	private columns(): number {
+		return Math.max(20, this.output.columns ?? 80);
+	}
+
+	private syncValue(): void {
+		if (this.options.multiple) {
+			this.prompt.value = [...this.selected];
+			return;
+		}
+
+		const entry = this.visibleEntries()[this.cursor];
+		this.prompt.value = isSelectableEntry(entry) ? entry.value : null;
+	}
+}
+
+class WorktreeCorePrompt extends Prompt {
+	constructor(
+		readonly worktreePrompt: SearchablePrompt,
+		options: ConstructorParameters<typeof Prompt>[0],
+	) {
+		super(options, false);
+	}
+}
+
+/*
+ * @clack/core owns raw mode, frame clearing, and cursor restoration, but it
+ * does not expose a public pre-cancel keypress hook. Keep this private adapter
+ * small so slash-search can clear on Esc before Clack maps Esc to cancel.
+ */
+Object.defineProperty(WorktreeCorePrompt.prototype, "onKeypress", {
+	value: onWorktreeKeypress,
+	writable: true,
+});
+
+function renderPrompt(prompt: Prompt): void {
+	(prompt as unknown as { render: () => void }).render();
+}
+
+function closePrompt(prompt: Prompt): void {
+	(prompt as unknown as { close: () => void }).close();
+}
+
+function onWorktreeKeypress(
+	this: WorktreeCorePrompt,
+	character: string | undefined,
+	key?: { ctrl?: boolean; name?: string; sequence?: string },
+): void {
+	this.worktreePrompt.handleKeypress(this, character, key);
+}
+
+function resolvePromptAction(
+	character: string | undefined,
+	key?: { ctrl?: boolean; name?: string; sequence?: string },
+): WorktreePromptAction | undefined {
+	if ((key?.ctrl && key.name === "c") || character === "\u0003") {
+		return "cancel";
+	}
+
+	switch (key?.name) {
+		case "escape":
+			return "escape";
+		case "return":
+			return "enter";
+		case "space":
+			return "space";
+		case "up":
+		case "left":
+			return "up";
+		case "down":
+		case "right":
+			return "down";
+	}
+
+	switch (character) {
+		case " ":
+			return "space";
+		case "k":
+		case "h":
+			return "up";
+		case "j":
+		case "l":
+			return "down";
+	}
+
+	return undefined;
+}
+
+function promptGlyphs(): PromptGlyphs {
+	return supportsUnicode()
+		? {
+				active: "●",
+				bar: "│",
+				checked: "◼",
+				corner: "└",
+				inactive: "○",
+				pending: "◆",
+				submitted: "◇",
+				unchecked: "◻",
+				uncheckedActive: "◻",
+			}
+		: {
+				active: ">",
+				bar: "|",
+				checked: "[x]",
+				corner: "-",
+				inactive: " ",
+				pending: "*",
+				submitted: "o",
+				unchecked: "[ ]",
+				uncheckedActive: "[ ]",
+			};
+}
+
+function promptColors(): PromptColors {
+	return {
+		activeBar: cyan,
+		bar: gray,
+		error: yellow,
+		errorBar: yellow,
+		hint: dim,
+		key: cyan,
+		option: cyan,
+		search: cyan,
+		selected: green,
+		symbol: (value, state) => {
+			if (state === "submit") return green(value);
+			if (state === "error") return yellow(value);
+			if (state === "cancel") return red(value);
+			return cyan(value);
+		},
+	};
+}
+
+function promptFrameColor(
+	state: string,
+	colors: PromptColors,
+): (value: string) => string {
+	if (state === "error") return colors.errorBar;
+	if (state === "active" || state === "initial") return colors.activeBar;
+	return colors.bar;
+}
+
+function promptSymbol(state: string, glyphs: PromptGlyphs): string {
+	return state === "submit" ? glyphs.submitted : glyphs.pending;
+}
+
+function cyan(value: string): string {
+	return color("\u001b[36m", "\u001b[39m", value);
+}
+
+function dim(value: string): string {
+	return color("\u001b[2m", "\u001b[22m", value);
+}
+
+function gray(value: string): string {
+	return color("\u001b[90m", "\u001b[39m", value);
+}
+
+function green(value: string): string {
+	return color("\u001b[32m", "\u001b[39m", value);
+}
+
+function red(value: string): string {
+	return color("\u001b[31m", "\u001b[39m", value);
+}
+
+function yellow(value: string): string {
+	return color("\u001b[33m", "\u001b[39m", value);
+}
+
+function color(open: string, close: string, value: string): string {
+	if (env.NO_COLOR !== undefined) return value;
+	return `${open}${value}${close}`;
+}
+
+function supportsUnicode(): boolean {
+	if (platform !== "win32") {
+		return env.TERM !== "linux";
+	}
+
+	return Boolean(
+		env.CI ||
+			env.WT_SESSION ||
+			env.TERMINUS_SUBLIME ||
+			env.ConEmuTask === "{cmd::Cmder}" ||
+			env.TERM_PROGRAM === "Terminus-Sublime" ||
+			env.TERM_PROGRAM === "vscode" ||
+			env.TERM === "xterm-256color" ||
+			env.TERM === "alacritty" ||
+			env.TERMINAL_EMULATOR === "JetBrains-JediTerm",
+	);
+}
+
+function isPrintableSearchCharacter(
+	character: string | undefined,
+): character is string {
+	return (
+		typeof character === "string" &&
+		character.length === 1 &&
+		character >= " " &&
+		character !== "\u007f"
+	);
+}
+
+function wrapIndex(index: number, length: number): number {
+	return (index + length) % length;
+}
+
+function windowPromptEntries(
+	entries: SearchablePromptEntry[],
+	cursor: number,
+	maxItems: number,
+): Array<SearchablePromptEntry | "ellipsis"> {
+	if (entries.length <= maxItems) {
+		return entries;
+	}
+
+	const activeIndex = Math.min(Math.max(cursor, 0), entries.length - 1);
+	const start = Math.max(
+		0,
+		Math.min(activeIndex - 2, entries.length - maxItems),
+	);
+	const window = entries.slice(start, start + maxItems);
+
+	if (start > 0) {
+		window[0] = "ellipsis" as never;
+	}
+
+	if (start + maxItems < entries.length) {
+		window[window.length - 1] = "ellipsis" as never;
+	}
+
+	return window;
+}
+
+function fitPromptPieces(pieces: PromptPiece[], width: number): string {
+	const separator = " · ";
+	let visiblePieces = pieces.filter((piece) => piece.value.length > 0);
+	let available =
+		width - terminalWidth(separator) * Math.max(0, visiblePieces.length - 1);
+
+	while (
+		visiblePieces.length > 1 &&
+		available < minimumPieceLength(visiblePieces)
+	) {
+		const removableIndex =
+			visiblePieces.length === 4 ? 2 : visiblePieces.length - 2;
+		visiblePieces = visiblePieces.filter(
+			(_, index) => index !== removableIndex,
+		);
+		available =
+			width - terminalWidth(separator) * Math.max(0, visiblePieces.length - 1);
+	}
+
+	if (available <= 0 || available < minimumPieceLength(visiblePieces)) {
+		return middleEllipsize(
+			visiblePieces.map((piece) => piece.value).join(separator),
+			width,
+		);
+	}
+
+	const lengths = visiblePieces.map((piece) =>
+		Math.min(terminalWidth(piece.value), piece.max),
+	);
+	while (sum(lengths) > available) {
+		const index = largestShrinkablePieceIndex(visiblePieces, lengths);
+		if (index === -1) break;
+		lengths[index] -= 1;
+	}
+
+	return visiblePieces
+		.map((piece, index) => piece.ellipsize(piece.value, lengths[index]))
+		.join(separator);
+}
+
+function minimumPieceLength(pieces: PromptPiece[]): number {
+	return sum(
+		pieces.map((piece) => Math.min(terminalWidth(piece.value), piece.min)),
+	);
+}
+
+function largestShrinkablePieceIndex(
+	pieces: PromptPiece[],
+	lengths: number[],
+): number {
+	let candidate = -1;
+
+	for (let index = 0; index < pieces.length; index += 1) {
+		if (
+			lengths[index] <=
+			Math.min(terminalWidth(pieces[index].value), pieces[index].min)
+		) {
+			continue;
+		}
+
+		if (candidate === -1 || lengths[index] > lengths[candidate]) {
+			candidate = index;
+		}
+	}
+
+	return candidate;
+}
+
+function sum(values: number[]): number {
+	return values.reduce((total, value) => total + value, 0);
+}
+
+function filterSearchablePromptEntries(
+	entries: SearchablePromptEntry[],
+	query: string,
+): SearchablePromptEntry[] {
+	const filtered: SearchablePromptEntry[] = [];
+	let pendingGroup: SearchablePromptEntry | null = null;
+
+	for (const entry of entries) {
+		if (!isSelectableEntry(entry)) {
+			pendingGroup = entry;
+			continue;
+		}
+
+		if (!entry.searchText.includes(query)) {
+			continue;
+		}
+
+		if (pendingGroup !== null) {
+			filtered.push(pendingGroup);
+			pendingGroup = null;
+		}
+
+		filtered.push(entry);
+	}
+
+	return filtered;
+}
+
+function isSelectableEntry(
+	entry: SearchablePromptEntry | undefined,
+): entry is SearchablePromptEntry & { value: string } {
+	return (
+		entry !== undefined &&
+		entry.selectable !== false &&
+		typeof entry.value === "string"
+	);
+}
+
+function buildPromptSearchText(worktree: WorktreePromptEntry): string {
+	return [
+		worktree.repoName,
+		worktree.branch ?? "detached",
+		worktree.path,
+		worktree.label,
+		`${worktree.repoName}/${worktree.branch ?? "detached"}`,
+	]
+		.join(" ")
+		.toLowerCase();
 }
 
 function buildWorktreePromptEntry(
@@ -183,12 +1116,16 @@ function buildWorktreePromptEntry(
 	);
 	const status =
 		badges.length > 0 ? badges.map((badge) => `[${badge}]`).join(" ") : null;
+	const metadataParts = [status, recency].filter(
+		(part): part is string => part !== null && part.length > 0,
+	);
+	const metadata =
+		metadataParts.length === 0 ? null : metadataParts.join(" · ");
 	const path = middleEllipsize(source.worktree.path, 76);
 	const label = [
 		middleEllipsize(source.repoName, 22),
 		middleEllipsize(branch, 34),
-		status,
-		recency,
+		metadata,
 		path,
 	]
 		.filter((part): part is string => part !== null && part.length > 0)
@@ -198,6 +1135,7 @@ function buildWorktreePromptEntry(
 		group: lastUsedTimestamp !== null ? "recent" : "other",
 		label,
 		lastActivityTimestamp,
+		metadata,
 		repoName: source.repoName,
 	};
 }
@@ -350,7 +1288,7 @@ function scoreWorktreeMatch(
 }
 
 function middleEllipsize(value: string, maxLength: number): string {
-	if (value.length <= maxLength) {
+	if (terminalWidth(value) <= maxLength) {
 		return value;
 	}
 
@@ -359,8 +1297,87 @@ function middleEllipsize(value: string, maxLength: number): string {
 	}
 
 	const keep = maxLength - 1;
-	const start = Math.ceil(keep / 2);
-	const end = Math.floor(keep / 2);
+	const start = takeTerminalColumns(value, Math.ceil(keep / 2), "start");
+	const end = takeTerminalColumns(value, Math.floor(keep / 2), "end");
 
-	return `${value.slice(0, start)}…${value.slice(value.length - end)}`;
+	return `${start}…${end}`;
+}
+
+function startEllipsize(value: string, maxLength: number): string {
+	if (terminalWidth(value) <= maxLength) {
+		return value;
+	}
+
+	if (maxLength <= 1) {
+		return "…";
+	}
+
+	return `…${takeTerminalColumns(value, maxLength - 1, "end")}`;
+}
+
+function takeTerminalColumns(
+	value: string,
+	maxWidth: number,
+	direction: "start" | "end",
+): string {
+	const characters =
+		direction === "start" ? Array.from(value) : Array.from(value).reverse();
+	const kept: string[] = [];
+	let width = 0;
+
+	for (const character of characters) {
+		const characterWidth = terminalWidth(character);
+		if (width + characterWidth > maxWidth) break;
+
+		kept.push(character);
+		width += characterWidth;
+	}
+
+	return direction === "start" ? kept.join("") : kept.reverse().join("");
+}
+
+function terminalWidth(value: string): number {
+	let width = 0;
+
+	for (const character of Array.from(value)) {
+		width += characterTerminalWidth(character);
+	}
+
+	return width;
+}
+
+function characterTerminalWidth(character: string): number {
+	const codePoint = character.codePointAt(0);
+	if (codePoint === undefined) return 0;
+
+	if (isZeroWidthCodePoint(codePoint) || /\p{Mark}/u.test(character)) {
+		return 0;
+	}
+
+	return isWideCodePoint(codePoint) ? 2 : 1;
+}
+
+function isZeroWidthCodePoint(codePoint: number): boolean {
+	return (
+		codePoint === 0 ||
+		codePoint === 0x200d ||
+		(codePoint >= 0xfe00 && codePoint <= 0xfe0f)
+	);
+}
+
+function isWideCodePoint(codePoint: number): boolean {
+	return (
+		(codePoint >= 0x1100 && codePoint <= 0x115f) ||
+		codePoint === 0x2329 ||
+		codePoint === 0x232a ||
+		(codePoint >= 0x2e80 && codePoint <= 0xa4cf) ||
+		(codePoint >= 0xac00 && codePoint <= 0xd7a3) ||
+		(codePoint >= 0xf900 && codePoint <= 0xfaff) ||
+		(codePoint >= 0xfe10 && codePoint <= 0xfe19) ||
+		(codePoint >= 0xfe30 && codePoint <= 0xfe6f) ||
+		(codePoint >= 0xff00 && codePoint <= 0xff60) ||
+		(codePoint >= 0xffe0 && codePoint <= 0xffe6) ||
+		(codePoint >= 0x1f300 && codePoint <= 0x1faff) ||
+		(codePoint >= 0x20000 && codePoint <= 0x3fffd)
+	);
 }
