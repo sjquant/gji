@@ -18,7 +18,7 @@ import { isHeadless } from "./headless.js";
 import { recordWorktreeUsage } from "./history.js";
 import { detectRepository, listWorktrees, type WorktreeEntry } from "./repo.js";
 import {
-	buildWorktreePromptEntries,
+	buildConfiguredWorktreePromptEntries,
 	promptForSingleWorktree,
 	resolveWorktreeQuery,
 	type WorktreePromptEntry,
@@ -89,11 +89,13 @@ export function createOpenCommand(
 			targetWorktree = worktrees.find((w) => w.isCurrent);
 			targetPath = targetWorktree?.path ?? options.cwd;
 		} else {
-			const entries = await buildWorktreePromptEntries(
+			const entries = await buildConfiguredWorktreePromptEntries(
+				repository.repoRoot,
 				worktrees.map((worktree) => ({
 					repoName: repository.repoName,
 					worktree,
 				})),
+				options.stderr,
 			);
 			const chosen = await promptForWorktree(entries);
 			if (!chosen) {

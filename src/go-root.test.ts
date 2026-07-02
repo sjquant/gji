@@ -291,6 +291,67 @@ describe("gji go", () => {
 		}
 	});
 
+	it("uses recent-first config for the go picker order", async () => {
+		// Given a repository configured to sort worktree prompts by recent activity.
+		const originalConfigDir = process.env.GJI_CONFIG_DIR;
+		process.env.GJI_CONFIG_DIR = await mkdtemp(join(tmpdir(), "gji-config-"));
+		const repoRoot = await createRepository();
+		const currentBranch = "feature/go-recent-current";
+		const recentBranch = "feature/go-recent-used";
+		const currentPath = await addLinkedWorktree(repoRoot, currentBranch);
+		const recentPath = await addLinkedWorktree(repoRoot, recentBranch);
+		let capturedBranches: Array<string | null> = [];
+		const runGoCommand = createGoCommand({
+			promptForWorktree: async (worktrees) => {
+				capturedBranches = worktrees.map((worktree) => worktree.branch);
+				return recentPath;
+			},
+		});
+
+		try {
+			await writeFile(
+				join(repoRoot, ".gji.json"),
+				`${JSON.stringify({ worktreeSort: "recent-first" }, null, 2)}\n`,
+				"utf8",
+			);
+			await writeFile(
+				HISTORY_FILE_PATH(),
+				`${JSON.stringify(
+					[
+						{
+							branch: recentBranch,
+							path: recentPath,
+							timestamp: Date.now(),
+						},
+					],
+					null,
+					2,
+				)}\n`,
+				"utf8",
+			);
+
+			// When gji go shows its picker from the current worktree.
+			const result = await runGoCommand({
+				cwd: currentPath,
+				stderr: () => undefined,
+				stdout: () => undefined,
+			});
+
+			// Then the recently used worktree is ordered before the current worktree.
+			expect(result).toBe(0);
+			expect(capturedBranches.slice(0, 2)).toEqual([
+				recentBranch,
+				currentBranch,
+			]);
+		} finally {
+			if (originalConfigDir === undefined) {
+				delete process.env.GJI_CONFIG_DIR;
+			} else {
+				process.env.GJI_CONFIG_DIR = originalConfigDir;
+			}
+		}
+	});
+
 	it("prints the linked worktree path explicitly with --print", async () => {
 		// Given an existing linked worktree for a branch.
 		const repoRoot = await createRepository();

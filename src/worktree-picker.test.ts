@@ -49,6 +49,26 @@ describe("worktree picker search", () => {
 		await expect(choices).resolves.toEqual(["/repo/auth"]);
 		expect(output.text()).toContain("/auth");
 	});
+
+	it("starts grouped multi-select prompts on the first selectable worktree", async () => {
+		// Given a grouped multi-select worktree picker.
+		const { input, output } = createPromptIO();
+		const worktrees = [
+			worktreeEntry("feature/billing", "/repo/billing"),
+			worktreeEntry("feature/auth", "/repo/auth"),
+		];
+		const choices = promptForMultipleWorktrees("Choose worktrees", worktrees, {
+			input,
+			output,
+		});
+
+		// When the user toggles the initial row and submits without moving first.
+		input.write(" \r");
+
+		// Then the first selectable worktree is selected instead of the group header.
+		await expect(choices).resolves.toEqual(["/repo/billing"]);
+		expect(output.text()).toContain("feature/billing");
+	});
 });
 
 function createPromptIO(): Required<WorktreePickerIO> & {

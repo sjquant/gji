@@ -9,7 +9,7 @@ import { detectRepository, listWorktrees, type WorktreeEntry } from "./repo.js";
 import { loadRegistry, type RepoRegistryEntry } from "./repo-registry.js";
 import { writeShellOutput } from "./shell-handoff.js";
 import {
-	buildWorktreePromptEntries,
+	buildConfiguredWorktreePromptEntries,
 	promptForSingleWorktree,
 	resolveWorktreeQuery,
 	type WorktreePromptEntry,
@@ -209,9 +209,10 @@ export async function resolveWarpTarget(options: {
 	};
 
 	const registry = await loadRegistry();
-	const currentRoot = await detectRepository(options.cwd)
-		.then((repository) => repository.currentRoot)
-		.catch(() => null);
+	const currentRepository = await detectRepository(options.cwd).catch(
+		() => null,
+	);
+	const currentRoot = currentRepository?.currentRoot ?? null;
 	if (registry.length === 0) {
 		emitError(
 			"not in a git repository and no repos registered yet.",
@@ -261,7 +262,11 @@ export async function resolveWarpTarget(options: {
 		return { branch: match.worktree.branch, path: match.worktree.path };
 	}
 
-	const promptEntries = await buildWorktreePromptEntries(promptSources);
+	const promptEntries = await buildConfiguredWorktreePromptEntries(
+		currentRepository?.repoRoot ?? options.cwd,
+		promptSources,
+		options.stderr,
+	);
 	const path = await promptForWarpTarget(promptEntries);
 	if (!path) {
 		options.stderr("Aborted\n");

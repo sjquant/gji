@@ -2,6 +2,7 @@ import { stdin, stdout } from "node:process";
 import { emitKeypressEvents } from "node:readline";
 import type { Readable, Writable } from "node:stream";
 
+import { loadEffectiveConfig } from "./config.js";
 import { loadHistory } from "./history.js";
 import type { WorktreeEntry } from "./repo.js";
 import {
@@ -71,6 +72,18 @@ export async function buildWorktreePromptEntries(
 		);
 }
 
+export async function buildConfiguredWorktreePromptEntries(
+	repoRoot: string,
+	sources: WorktreePromptSource[],
+	stderr: (chunk: string) => void,
+): Promise<WorktreePromptEntry[]> {
+	const config = await loadEffectiveConfig(repoRoot, undefined, stderr);
+
+	return buildWorktreePromptEntries(sources, {
+		sort: resolveWorktreeSort(config.worktreeSort),
+	});
+}
+
 export function resolveWorktreeSort(value: unknown): WorktreeSort {
 	return value === "recent-first" || value === "current-first"
 		? value
@@ -136,7 +149,6 @@ export async function promptForSingleWorktree(
 		message,
 		multiple: false,
 		output: io.output,
-		required: true,
 	});
 
 	return typeof choice === "string" ? choice : null;
@@ -153,7 +165,6 @@ export async function promptForMultipleWorktrees(
 		message,
 		multiple: true,
 		output: io.output,
-		required: true,
 	});
 
 	return Array.isArray(choice) ? choice : null;
@@ -187,7 +198,12 @@ function groupPromptEntries(
 	for (const worktree of worktrees) {
 		const group =
 			worktree.group === "recent" ? "Recent worktrees" : "Other worktrees";
-		groups.set(group, [...(groups.get(group) ?? []), worktree]);
+		const groupWorktrees = groups.get(group);
+		if (groupWorktrees === undefined) {
+			groups.set(group, [worktree]);
+		} else {
+			groupWorktrees.push(worktree);
+		}
 	}
 
 	return [...groups.entries()];
@@ -208,7 +224,6 @@ function buildGroupedSearchableEntries(
 
 		for (const worktree of groupWorktrees) {
 			entries.push({
-				group,
 				label: worktree.label,
 				searchText: buildPromptSearchText(worktree),
 				selectable: true,
@@ -221,7 +236,6 @@ function buildGroupedSearchableEntries(
 }
 
 interface SearchablePromptEntry<Value> {
-	group?: string;
 	label: string;
 	searchText: string;
 	selectable?: boolean;
@@ -234,7 +248,6 @@ interface SearchablePromptOptions<Value> extends WorktreePickerIO {
 	entries: SearchablePromptEntry<Value>[];
 	message: string;
 	multiple: boolean;
-	required: boolean;
 }
 
 async function runSearchablePrompt<Value>(
@@ -280,6 +293,7 @@ class SearchablePrompt<Value> {
 	}
 
 	private start(): void {
+		this.cursor = this.firstSelectableIndex();
 		emitKeypressEvents(this.input);
 		this.input.setRawMode?.(true);
 		this.output.write("\x1b[?25l");
@@ -407,7 +421,7 @@ class SearchablePrompt<Value> {
 			return;
 		}
 
-		if (this.options.required && this.selected.size === 0) {
+		if (this.options.multiple && this.selected.size === 0) {
 			return;
 		}
 
@@ -450,7 +464,7 @@ class SearchablePrompt<Value> {
 			"|",
 			`?  ${this.options.message}${search}`,
 			"|",
-			...this.renderEntries(visibleEntries),
+			...this.renderEntries(entries, visibleEntries),
 			"|",
 			`-  ${this.footerText(entries.length)}`,
 		];
@@ -459,19 +473,22 @@ class SearchablePrompt<Value> {
 	}
 
 	private renderEntries(
-		entries: Array<SearchablePromptEntry<Value> | "ellipsis">,
+		entries: SearchablePromptEntry<Value>[],
+		visibleEntries: Array<SearchablePromptEntry<Value> | "ellipsis">,
 	): string[] {
-		if (this.visibleEntries().length === 0) {
+		if (entries.length === 0) {
 			return ["|  No matching worktrees"];
 		}
 
-		return entries.map((entry) =>
-			entry === "ellipsis" ? "|  ..." : this.renderEntry(entry),
+		return visibleEntries.map((entry) =>
+			entry === "ellipsis" ? "|  ..." : this.renderEntry(entries, entry),
 		);
 	}
 
-	private renderEntry(entry: SearchablePromptEntry<Value>): string {
-		const entries = this.visibleEntries();
+	private renderEntry(
+		entries: SearchablePromptEntry<Value>[],
+		entry: SearchablePromptEntry<Value>,
+	): string {
 		const active = entries[this.cursor] === entry;
 		const selected = this.selected.has(entry.value);
 		const prefix = this.entryPrefix(entry, active, selected);
