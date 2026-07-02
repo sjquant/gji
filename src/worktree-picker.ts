@@ -139,7 +139,7 @@ export async function promptForSingleWorktree(
 	worktrees: WorktreePromptEntry[],
 	io: WorktreePickerIO = {},
 ): Promise<string | null> {
-	const choice = await runSearchablePrompt<string>({
+	const choice = await runSearchablePrompt({
 		entries: worktrees.map((worktree) => ({
 			label: worktree.label,
 			searchText: buildPromptSearchText(worktree),
@@ -159,7 +159,7 @@ export async function promptForMultipleWorktrees(
 	worktrees: WorktreePromptEntry[],
 	io: WorktreePickerIO = {},
 ): Promise<string[] | null> {
-	const choice = await runSearchablePrompt<string>({
+	const choice = await runSearchablePrompt({
 		entries: buildGroupedSearchableEntries(worktrees),
 		input: io.input,
 		message,
@@ -211,22 +211,20 @@ function groupPromptEntries(
 
 function buildGroupedSearchableEntries(
 	worktrees: WorktreePromptEntry[],
-): SearchablePromptEntry<string>[] {
-	const entries: SearchablePromptEntry<string>[] = [];
+): SearchablePromptEntry[] {
+	const entries: SearchablePromptEntry[] = [];
 
 	for (const [group, groupWorktrees] of groupPromptEntries(worktrees)) {
 		entries.push({
 			label: group,
 			searchText: group.toLowerCase(),
 			selectable: false,
-			value: group,
 		});
 
 		for (const worktree of groupWorktrees) {
 			entries.push({
 				label: worktree.label,
 				searchText: buildPromptSearchText(worktree),
-				selectable: true,
 				value: worktree.path,
 			});
 		}
@@ -235,24 +233,24 @@ function buildGroupedSearchableEntries(
 	return entries;
 }
 
-interface SearchablePromptEntry<Value> {
+interface SearchablePromptEntry {
 	label: string;
 	searchText: string;
 	selectable?: boolean;
-	value: Value;
+	value?: string;
 }
 
-type SearchablePromptResult<Value> = Value | Value[] | null;
+type SearchablePromptResult = string | string[] | null;
 
-interface SearchablePromptOptions<Value> extends WorktreePickerIO {
-	entries: SearchablePromptEntry<Value>[];
+interface SearchablePromptOptions extends WorktreePickerIO {
+	entries: SearchablePromptEntry[];
 	message: string;
 	multiple: boolean;
 }
 
-async function runSearchablePrompt<Value>(
-	options: SearchablePromptOptions<Value>,
-): Promise<SearchablePromptResult<Value>> {
+async function runSearchablePrompt(
+	options: SearchablePromptOptions,
+): Promise<SearchablePromptResult> {
 	const input = options.input ?? stdin;
 	const output = options.output ?? stdout;
 
@@ -265,16 +263,16 @@ async function runSearchablePrompt<Value>(
 	return prompt.run();
 }
 
-class SearchablePrompt<Value> {
+class SearchablePrompt {
 	private cursor = 0;
 	private frameLines = 0;
 	private query = "";
-	private resolve: ((value: SearchablePromptResult<Value>) => void) | undefined;
+	private resolve: ((value: SearchablePromptResult) => void) | undefined;
 	private searchActive = false;
-	private selected = new Set<Value>();
+	private selected = new Set<string>();
 
 	constructor(
-		private readonly options: SearchablePromptOptions<Value>,
+		private readonly options: SearchablePromptOptions,
 		private readonly input: Readable & {
 			isTTY?: boolean;
 			setRawMode?: (mode: boolean) => void;
@@ -285,7 +283,7 @@ class SearchablePrompt<Value> {
 		},
 	) {}
 
-	run(): Promise<SearchablePromptResult<Value>> {
+	run(): Promise<SearchablePromptResult> {
 		return new Promise((resolve) => {
 			this.resolve = resolve;
 			this.start();
@@ -333,7 +331,7 @@ class SearchablePrompt<Value> {
 	};
 
 	private handleEscape(): void {
-		if (this.searchActive || this.query.length > 0) {
+		if (this.searchActive) {
 			this.searchActive = false;
 			this.query = "";
 			this.cursor = this.firstSelectableIndex();
@@ -421,7 +419,7 @@ class SearchablePrompt<Value> {
 			return;
 		}
 
-		if (this.options.multiple && this.selected.size === 0) {
+		if (this.selected.size === 0) {
 			return;
 		}
 
@@ -458,8 +456,7 @@ class SearchablePrompt<Value> {
 			this.cursor,
 			this.maxItems(),
 		);
-		const search =
-			this.searchActive || this.query.length > 0 ? ` /${this.query}` : "";
+		const search = this.searchActive ? ` /${this.query}` : "";
 		const lines = [
 			"|",
 			`?  ${this.options.message}${search}`,
@@ -473,8 +470,8 @@ class SearchablePrompt<Value> {
 	}
 
 	private renderEntries(
-		entries: SearchablePromptEntry<Value>[],
-		visibleEntries: Array<SearchablePromptEntry<Value> | "ellipsis">,
+		entries: SearchablePromptEntry[],
+		visibleEntries: Array<SearchablePromptEntry | "ellipsis">,
 	): string[] {
 		if (entries.length === 0) {
 			return ["|  No matching worktrees"];
@@ -486,18 +483,18 @@ class SearchablePrompt<Value> {
 	}
 
 	private renderEntry(
-		entries: SearchablePromptEntry<Value>[],
-		entry: SearchablePromptEntry<Value>,
+		entries: SearchablePromptEntry[],
+		entry: SearchablePromptEntry,
 	): string {
 		const active = entries[this.cursor] === entry;
-		const selected = this.selected.has(entry.value);
+		const selected = isSelectableEntry(entry) && this.selected.has(entry.value);
 		const prefix = this.entryPrefix(entry, active, selected);
 
 		return `|  ${prefix} ${entry.label}`;
 	}
 
 	private entryPrefix(
-		entry: SearchablePromptEntry<Value>,
+		entry: SearchablePromptEntry,
 		active: boolean,
 		selected: boolean,
 	): string {
@@ -526,7 +523,7 @@ class SearchablePrompt<Value> {
 		return `${searchHint}, space to toggle, ${selected}, ${visibleCount} shown`;
 	}
 
-	private finish(value: SearchablePromptResult<Value>): void {
+	private finish(value: SearchablePromptResult): void {
 		this.input.off("keypress", this.handleKeypress);
 		this.input.setRawMode?.(false);
 		this.output.write("\x1b[?25h");
@@ -540,7 +537,7 @@ class SearchablePrompt<Value> {
 		return index === -1 ? 0 : index;
 	}
 
-	private visibleEntries(): SearchablePromptEntry<Value>[] {
+	private visibleEntries(): SearchablePromptEntry[] {
 		const query = normalizeQuery(this.query);
 		if (query === null) {
 			return this.options.entries;
@@ -570,11 +567,11 @@ function wrapIndex(index: number, length: number): number {
 	return (index + length) % length;
 }
 
-function windowPromptEntries<Value>(
-	entries: SearchablePromptEntry<Value>[],
+function windowPromptEntries(
+	entries: SearchablePromptEntry[],
 	cursor: number,
 	maxItems: number,
-): Array<SearchablePromptEntry<Value> | "ellipsis"> {
+): Array<SearchablePromptEntry | "ellipsis"> {
 	if (entries.length <= maxItems) {
 		return entries;
 	}
@@ -597,12 +594,12 @@ function windowPromptEntries<Value>(
 	return window;
 }
 
-function filterSearchablePromptEntries<Value>(
-	entries: SearchablePromptEntry<Value>[],
+function filterSearchablePromptEntries(
+	entries: SearchablePromptEntry[],
 	query: string,
-): SearchablePromptEntry<Value>[] {
-	const filtered: SearchablePromptEntry<Value>[] = [];
-	let pendingGroup: SearchablePromptEntry<Value> | null = null;
+): SearchablePromptEntry[] {
+	const filtered: SearchablePromptEntry[] = [];
+	let pendingGroup: SearchablePromptEntry | null = null;
 
 	for (const entry of entries) {
 		if (!isSelectableEntry(entry)) {
@@ -625,10 +622,14 @@ function filterSearchablePromptEntries<Value>(
 	return filtered;
 }
 
-function isSelectableEntry<Value>(
-	entry: SearchablePromptEntry<Value> | undefined,
-): entry is SearchablePromptEntry<Value> {
-	return entry !== undefined && entry.selectable !== false;
+function isSelectableEntry(
+	entry: SearchablePromptEntry | undefined,
+): entry is SearchablePromptEntry & { value: string } {
+	return (
+		entry !== undefined &&
+		entry.selectable !== false &&
+		typeof entry.value === "string"
+	);
 }
 
 function buildPromptSearchText(worktree: WorktreePromptEntry): string {
