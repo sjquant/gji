@@ -19,6 +19,7 @@ export interface WorktreePromptSource {
 export interface WorktreePromptEntry extends WorktreeEntry {
 	group: "recent" | "other";
 	label: string;
+	metadata?: string | null;
 	repoName: string;
 }
 
@@ -199,7 +200,7 @@ function buildGroupedSearchableEntries(
 function buildSearchableWorktreeEntry(
 	worktree: WorktreePromptEntry,
 ): SearchablePromptEntry {
-	const metadata = parsePromptLabelMetadata(worktree.label);
+	const metadata = worktree.metadata ?? null;
 	const branch = worktree.branch ?? "(detached)";
 
 	return {
@@ -216,13 +217,6 @@ function buildSearchableWorktreeEntry(
 			repoName: worktree.repoName,
 		},
 	};
-}
-
-function parsePromptLabelMetadata(label: string): string | null {
-	const parts = label.split(" · ");
-	if (parts.length <= 3) return null;
-
-	return parts.slice(2, -1).join(" · ");
 }
 
 interface SearchablePromptEntry {
@@ -558,7 +552,7 @@ class SearchablePrompt {
 
 		const search = ` /${this.query}`;
 		const maxSearchLength = Math.min(
-			search.length,
+			terminalWidth(search),
 			Math.floor(maxTitleLength / 2),
 		);
 		const message = middleEllipsize(
@@ -567,7 +561,7 @@ class SearchablePrompt {
 		);
 		const visibleSearch = middleEllipsize(
 			search,
-			Math.max(1, maxTitleLength - message.length),
+			Math.max(1, maxTitleLength - terminalWidth(message)),
 		);
 
 		return `${symbol}  ${message}${colors.search(visibleSearch)}`;
@@ -679,7 +673,7 @@ class SearchablePrompt {
 	}
 
 	private labelWidth(prefix: string): number {
-		return Math.max(8, this.columns() - prefix.length - 4);
+		return Math.max(8, this.columns() - terminalWidth(prefix) - 4);
 	}
 
 	private previewWidth(): number {
@@ -759,16 +753,46 @@ class WorktreeCorePrompt extends Prompt {
 	}
 }
 
-Object.defineProperty(WorktreeCorePrompt.prototype, "onKeypress", {
-	value: function onWorktreeKeypress(
-		this: WorktreeCorePrompt,
-		character: string | undefined,
-		key?: { ctrl?: boolean; name?: string; sequence?: string },
-	): void {
-		this.worktreePrompt.handleKeypress(this, character, key);
-	},
-	writable: true,
-});
+installWorktreeKeypressHandler();
+
+function installWorktreeKeypressHandler(): void {
+	Object.defineProperty(WorktreeCorePrompt.prototype, "onKeypress", {
+		value: onWorktreeKeypress,
+		writable: true,
+	});
+}
+
+interface WorktreePromptPrivateMethods {
+	close: () => void;
+	render: () => void;
+}
+
+function worktreePromptPrivateMethods(
+	prompt: Prompt,
+): WorktreePromptPrivateMethods {
+	return prompt as unknown as WorktreePromptPrivateMethods;
+}
+
+function renderPrompt(prompt: Prompt): void {
+	worktreePromptPrivateMethods(prompt).render();
+}
+
+function closePrompt(prompt: Prompt): void {
+	worktreePromptPrivateMethods(prompt).close();
+}
+
+/*
+ * @clack/core owns raw mode, frame clearing, and cursor restoration, but it
+ * does not expose a public pre-cancel keypress hook. Keep this private adapter
+ * small so slash-search can clear on Esc before Clack maps Esc to cancel.
+ */
+function onWorktreeKeypress(
+	this: WorktreeCorePrompt,
+	character: string | undefined,
+	key?: { ctrl?: boolean; name?: string; sequence?: string },
+): void {
+	this.worktreePrompt.handleKeypress(this, character, key);
+}
 
 function resolvePromptAction(
 	character: string | undefined,
@@ -913,14 +937,6 @@ function supportsUnicode(): boolean {
 	);
 }
 
-function renderPrompt(prompt: Prompt): void {
-	(prompt as unknown as { render: () => void }).render();
-}
-
-function closePrompt(prompt: Prompt): void {
-	(prompt as unknown as { close: () => void }).close();
-}
-
 function isPrintableSearchCharacter(
 	character: string | undefined,
 ): character is string {
@@ -967,7 +983,7 @@ function fitPromptPieces(pieces: PromptPiece[], width: number): string {
 	const separator = " · ";
 	let visiblePieces = pieces.filter((piece) => piece.value.length > 0);
 	let available =
-		width - separator.length * Math.max(0, visiblePieces.length - 1);
+		width - terminalWidth(separator) * Math.max(0, visiblePieces.length - 1);
 
 	while (
 		visiblePieces.length > 1 &&
@@ -980,7 +996,7 @@ function fitPromptPieces(pieces: PromptPiece[], width: number): string {
 			(_, index) => index !== removableIndex,
 		);
 		available =
-			width - separator.length * Math.max(0, visiblePieces.length - 1);
+			width - terminalWidth(separator) * Math.max(0, visiblePieces.length - 1);
 	}
 
 	if (available <= 0 || available < minimumPieceLength(visiblePieces)) {
@@ -991,7 +1007,7 @@ function fitPromptPieces(pieces: PromptPiece[], width: number): string {
 	}
 
 	const lengths = visiblePieces.map((piece) =>
-		Math.min(piece.value.length, piece.max),
+		Math.min(terminalWidth(piece.value), piece.max),
 	);
 	while (sum(lengths) > available) {
 		const index = largestShrinkablePieceIndex(visiblePieces, lengths);
@@ -1005,7 +1021,9 @@ function fitPromptPieces(pieces: PromptPiece[], width: number): string {
 }
 
 function minimumPieceLength(pieces: PromptPiece[]): number {
-	return sum(pieces.map((piece) => Math.min(piece.value.length, piece.min)));
+	return sum(
+		pieces.map((piece) => Math.min(terminalWidth(piece.value), piece.min)),
+	);
 }
 
 function largestShrinkablePieceIndex(
@@ -1016,7 +1034,8 @@ function largestShrinkablePieceIndex(
 
 	for (let index = 0; index < pieces.length; index += 1) {
 		if (
-			lengths[index] <= Math.min(pieces[index].value.length, pieces[index].min)
+			lengths[index] <=
+			Math.min(terminalWidth(pieces[index].value), pieces[index].min)
 		) {
 			continue;
 		}
@@ -1107,12 +1126,14 @@ function buildWorktreePromptEntry(
 	);
 	const status =
 		badges.length > 0 ? badges.map((badge) => `[${badge}]`).join(" ") : null;
+	const metadata = [status, recency]
+		.filter((part): part is string => part !== null && part.length > 0)
+		.join(" · ");
 	const path = middleEllipsize(source.worktree.path, 76);
 	const label = [
 		middleEllipsize(source.repoName, 22),
 		middleEllipsize(branch, 34),
-		status,
-		recency,
+		metadata,
 		path,
 	]
 		.filter((part): part is string => part !== null && part.length > 0)
@@ -1122,6 +1143,7 @@ function buildWorktreePromptEntry(
 		group: lastUsedTimestamp !== null ? "recent" : "other",
 		label,
 		lastActivityTimestamp,
+		metadata,
 		repoName: source.repoName,
 	};
 }
@@ -1274,7 +1296,7 @@ function scoreWorktreeMatch(
 }
 
 function middleEllipsize(value: string, maxLength: number): string {
-	if (value.length <= maxLength) {
+	if (terminalWidth(value) <= maxLength) {
 		return value;
 	}
 
@@ -1283,14 +1305,14 @@ function middleEllipsize(value: string, maxLength: number): string {
 	}
 
 	const keep = maxLength - 1;
-	const start = Math.ceil(keep / 2);
-	const end = Math.floor(keep / 2);
+	const start = takeTerminalColumns(value, Math.ceil(keep / 2), "start");
+	const end = takeTerminalColumns(value, Math.floor(keep / 2), "end");
 
-	return `${value.slice(0, start)}…${value.slice(value.length - end)}`;
+	return `${start}…${end}`;
 }
 
 function startEllipsize(value: string, maxLength: number): string {
-	if (value.length <= maxLength) {
+	if (terminalWidth(value) <= maxLength) {
 		return value;
 	}
 
@@ -1298,5 +1320,72 @@ function startEllipsize(value: string, maxLength: number): string {
 		return "…";
 	}
 
-	return `…${value.slice(value.length - maxLength + 1)}`;
+	return `…${takeTerminalColumns(value, maxLength - 1, "end")}`;
+}
+
+function takeTerminalColumns(
+	value: string,
+	maxWidth: number,
+	direction: "start" | "end",
+): string {
+	const characters =
+		direction === "start" ? Array.from(value) : Array.from(value).reverse();
+	const kept: string[] = [];
+	let width = 0;
+
+	for (const character of characters) {
+		const characterWidth = terminalWidth(character);
+		if (width + characterWidth > maxWidth) break;
+
+		kept.push(character);
+		width += characterWidth;
+	}
+
+	return direction === "start" ? kept.join("") : kept.reverse().join("");
+}
+
+function terminalWidth(value: string): number {
+	let width = 0;
+
+	for (const character of Array.from(value)) {
+		width += characterTerminalWidth(character);
+	}
+
+	return width;
+}
+
+function characterTerminalWidth(character: string): number {
+	const codePoint = character.codePointAt(0);
+	if (codePoint === undefined) return 0;
+
+	if (isZeroWidthCodePoint(codePoint) || /\p{Mark}/u.test(character)) {
+		return 0;
+	}
+
+	return isWideCodePoint(codePoint) ? 2 : 1;
+}
+
+function isZeroWidthCodePoint(codePoint: number): boolean {
+	return (
+		codePoint === 0 ||
+		codePoint === 0x200d ||
+		(codePoint >= 0xfe00 && codePoint <= 0xfe0f)
+	);
+}
+
+function isWideCodePoint(codePoint: number): boolean {
+	return (
+		(codePoint >= 0x1100 && codePoint <= 0x115f) ||
+		codePoint === 0x2329 ||
+		codePoint === 0x232a ||
+		(codePoint >= 0x2e80 && codePoint <= 0xa4cf) ||
+		(codePoint >= 0xac00 && codePoint <= 0xd7a3) ||
+		(codePoint >= 0xf900 && codePoint <= 0xfaff) ||
+		(codePoint >= 0xfe10 && codePoint <= 0xfe19) ||
+		(codePoint >= 0xfe30 && codePoint <= 0xfe6f) ||
+		(codePoint >= 0xff00 && codePoint <= 0xff60) ||
+		(codePoint >= 0xffe0 && codePoint <= 0xffe6) ||
+		(codePoint >= 0x1f300 && codePoint <= 0x1faff) ||
+		(codePoint >= 0x20000 && codePoint <= 0x3fffd)
+	);
 }

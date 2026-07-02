@@ -93,6 +93,38 @@ describe("worktree picker search", () => {
 		expect(output.text()).toContain("Please select at least one option.");
 	});
 
+	it("cancels single-select prompts with escape", async () => {
+		// Given a single-select worktree picker.
+		const { input, output } = createPromptIO();
+		const choice = promptForSingleWorktree(
+			"Choose a worktree",
+			[worktreeEntry("feature/billing", "/repo/billing")],
+			{ input, output },
+		);
+
+		// When the user presses Escape outside search mode.
+		input.write("\u001b");
+
+		// Then the prompt resolves to null.
+		await expect(choice).resolves.toBeNull();
+	});
+
+	it("cancels multi-select prompts with ctrl-c", async () => {
+		// Given a multi-select worktree picker.
+		const { input, output } = createPromptIO();
+		const choices = promptForMultipleWorktrees(
+			"Choose worktrees",
+			[worktreeEntry("feature/billing", "/repo/billing")],
+			{ input, output },
+		);
+
+		// When the user presses Ctrl-C.
+		input.write("\u0003");
+
+		// Then the prompt resolves to null.
+		await expect(choices).resolves.toBeNull();
+	});
+
 	it("ellipsizes long labels before rendering worktree choices", async () => {
 		// Given a narrow worktree picker with a label that would otherwise soft-wrap.
 		const { input, output } = createPromptIO();
@@ -144,6 +176,29 @@ describe("worktree picker search", () => {
 		expect(rendered).toContain("selected-worktree");
 		expect(rendered).toContain("…");
 		expect(rendered).not.toContain(selectedPath);
+	});
+
+	it("ellipsizes wide glyph labels by terminal display width", async () => {
+		// Given a narrow picker with wide glyphs in branch and path text.
+		const { input, output } = createPromptIO();
+		output.columns = 36;
+		const wideBranch = `기능/${"긴브랜치".repeat(6)}`;
+		const widePath = `/repo/${"깊은/".repeat(8)}작업트리`;
+		const choice = promptForSingleWorktree(
+			"Choose a worktree",
+			[worktreeEntry(wideBranch, widePath)],
+			{ input, output },
+		);
+
+		// When the user submits the first worktree.
+		input.write("\r");
+
+		// Then the full wide label is not printed into a soft-wrapping row.
+		await expect(choice).resolves.toBe(widePath);
+		const rendered = stripVTControlCharacters(output.text());
+		expect(rendered).toContain("…");
+		expect(rendered).not.toContain(wideBranch);
+		expect(rendered).not.toContain(widePath);
 	});
 });
 
