@@ -753,39 +753,24 @@ class WorktreeCorePrompt extends Prompt {
 	}
 }
 
-installWorktreeKeypressHandler();
-
-function installWorktreeKeypressHandler(): void {
-	Object.defineProperty(WorktreeCorePrompt.prototype, "onKeypress", {
-		value: onWorktreeKeypress,
-		writable: true,
-	});
-}
-
-interface WorktreePromptPrivateMethods {
-	close: () => void;
-	render: () => void;
-}
-
-function worktreePromptPrivateMethods(
-	prompt: Prompt,
-): WorktreePromptPrivateMethods {
-	return prompt as unknown as WorktreePromptPrivateMethods;
-}
-
-function renderPrompt(prompt: Prompt): void {
-	worktreePromptPrivateMethods(prompt).render();
-}
-
-function closePrompt(prompt: Prompt): void {
-	worktreePromptPrivateMethods(prompt).close();
-}
-
 /*
  * @clack/core owns raw mode, frame clearing, and cursor restoration, but it
  * does not expose a public pre-cancel keypress hook. Keep this private adapter
  * small so slash-search can clear on Esc before Clack maps Esc to cancel.
  */
+Object.defineProperty(WorktreeCorePrompt.prototype, "onKeypress", {
+	value: onWorktreeKeypress,
+	writable: true,
+});
+
+function renderPrompt(prompt: Prompt): void {
+	(prompt as unknown as { render: () => void }).render();
+}
+
+function closePrompt(prompt: Prompt): void {
+	(prompt as unknown as { close: () => void }).close();
+}
+
 function onWorktreeKeypress(
 	this: WorktreeCorePrompt,
 	character: string | undefined,
@@ -989,9 +974,8 @@ function fitPromptPieces(pieces: PromptPiece[], width: number): string {
 		visiblePieces.length > 1 &&
 		available < minimumPieceLength(visiblePieces)
 	) {
-		const metadataIndex = visiblePieces.findIndex((piece) => piece.min === 10);
 		const removableIndex =
-			metadataIndex === -1 ? visiblePieces.length - 2 : metadataIndex;
+			visiblePieces.length === 4 ? 2 : visiblePieces.length - 2;
 		visiblePieces = visiblePieces.filter(
 			(_, index) => index !== removableIndex,
 		);
@@ -1126,9 +1110,11 @@ function buildWorktreePromptEntry(
 	);
 	const status =
 		badges.length > 0 ? badges.map((badge) => `[${badge}]`).join(" ") : null;
-	const metadata = [status, recency]
-		.filter((part): part is string => part !== null && part.length > 0)
-		.join(" · ");
+	const metadataParts = [status, recency].filter(
+		(part): part is string => part !== null && part.length > 0,
+	);
+	const metadata =
+		metadataParts.length === 0 ? null : metadataParts.join(" · ");
 	const path = middleEllipsize(source.worktree.path, 76);
 	const label = [
 		middleEllipsize(source.repoName, 22),
