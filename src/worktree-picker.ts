@@ -111,11 +111,7 @@ export async function promptForSingleWorktree(
 	io: WorktreePickerIO = {},
 ): Promise<string | null> {
 	const choice = await runSearchablePrompt({
-		entries: worktrees.map((worktree) => ({
-			label: worktree.label,
-			searchText: buildPromptSearchText(worktree),
-			value: worktree.path,
-		})),
+		entries: worktrees.map(buildSearchableWorktreeEntry),
 		input: io.input,
 		message,
 		multiple: false,
@@ -193,22 +189,54 @@ function buildGroupedSearchableEntries(
 		});
 
 		for (const worktree of groupWorktrees) {
-			entries.push({
-				label: worktree.label,
-				searchText: buildPromptSearchText(worktree),
-				value: worktree.path,
-			});
+			entries.push(buildSearchableWorktreeEntry(worktree));
 		}
 	}
 
 	return entries;
 }
 
+function buildSearchableWorktreeEntry(
+	worktree: WorktreePromptEntry,
+): SearchablePromptEntry {
+	const metadata = parsePromptLabelMetadata(worktree.label);
+	const branch = worktree.branch ?? "(detached)";
+
+	return {
+		detail: [worktree.repoName, branch, metadata, worktree.path]
+			.filter((part): part is string => part !== null && part.length > 0)
+			.join(" · "),
+		label: worktree.label,
+		searchText: buildPromptSearchText(worktree),
+		value: worktree.path,
+		worktree: {
+			branch,
+			metadata,
+			path: worktree.path,
+			repoName: worktree.repoName,
+		},
+	};
+}
+
+function parsePromptLabelMetadata(label: string): string | null {
+	const parts = label.split(" · ");
+	if (parts.length <= 3) return null;
+
+	return parts.slice(2, -1).join(" · ");
+}
+
 interface SearchablePromptEntry {
+	detail?: string;
 	label: string;
 	searchText: string;
 	selectable?: boolean;
 	value?: string;
+	worktree?: {
+		branch: string;
+		metadata: string | null;
+		path: string;
+		repoName: string;
+	};
 }
 
 type SearchablePromptResult = string | string[] | null;
@@ -249,6 +277,13 @@ interface PromptColors {
 	search: (value: string) => string;
 	selected: (value: string) => string;
 	symbol: (value: string, state: string) => string;
+}
+
+interface PromptPiece {
+	ellipsize: (value: string, maxLength: number) => string;
+	max: number;
+	min: number;
+	value: string;
 }
 
 async function runSearchablePrompt(
@@ -496,6 +531,11 @@ class SearchablePrompt {
 			...this.renderEntries(entries, visibleEntries, glyphs, colors, frame),
 		);
 		lines.push(frame(glyphs.bar));
+		const preview = this.activePreview(entries, colors);
+		if (preview !== null) {
+			lines.push(`${frame(glyphs.bar)}  ${preview}`);
+			lines.push(frame(glyphs.bar));
+		}
 		const visibleWorktreeCount = entries.filter(isSelectableEntry).length;
 		const footer = this.footerText(visibleWorktreeCount, colors);
 		if (footer.length > 0) {
@@ -569,7 +609,7 @@ class SearchablePrompt {
 		const active = entries[this.cursor] === entry;
 		const selected = isSelectableEntry(entry) && this.selected.has(entry.value);
 		const prefix = this.entryPrefix(entry, active, selected, glyphs);
-		const label = middleEllipsize(entry.label, this.labelWidth(prefix));
+		const label = this.entryLabel(entry, prefix);
 		const line = isSelectableEntry(entry)
 			? active
 				? label
@@ -586,8 +626,64 @@ class SearchablePrompt {
 		return `${frame(glyphs.bar)}  ${marker} ${line}`;
 	}
 
+	private activePreview(
+		entries: SearchablePromptEntry[],
+		colors: PromptColors,
+	): string | null {
+		const entry = entries[this.cursor];
+		if (!isSelectableEntry(entry) || entry.detail === undefined) return null;
+
+		const detail = middleEllipsize(entry.detail, this.previewWidth());
+		return colors.hint(detail);
+	}
+
+	private entryLabel(entry: SearchablePromptEntry, prefix: string): string {
+		const width = this.labelWidth(prefix);
+		if (entry.worktree === undefined) {
+			return middleEllipsize(entry.label, width);
+		}
+
+		return fitPromptPieces(
+			[
+				{
+					ellipsize: middleEllipsize,
+					max: 18,
+					min: 6,
+					value: entry.worktree.repoName,
+				},
+				{
+					ellipsize: middleEllipsize,
+					max: 32,
+					min: 8,
+					value: entry.worktree.branch,
+				},
+				...(entry.worktree.metadata === null
+					? []
+					: [
+							{
+								ellipsize: middleEllipsize,
+								max: 30,
+								min: 10,
+								value: entry.worktree.metadata,
+							},
+						]),
+				{
+					ellipsize: startEllipsize,
+					max: 36,
+					min: 12,
+					value: entry.worktree.path,
+				},
+			],
+			width,
+		);
+	}
+
 	private labelWidth(prefix: string): number {
 		return Math.max(8, this.columns() - prefix.length - 4);
+	}
+
+	private previewWidth(): number {
+		return Math.max(8, this.columns() - 3);
 	}
 
 	private entryPrefix(
@@ -636,7 +732,7 @@ class SearchablePrompt {
 
 	private maxItems(): number {
 		const rows = this.output.rows ?? 16;
-		return Math.max(5, Math.min(12, rows - 6));
+		return Math.max(5, Math.min(12, rows - 8));
 	}
 
 	private columns(): number {
@@ -865,6 +961,76 @@ function windowPromptEntries(
 	}
 
 	return window;
+}
+
+function fitPromptPieces(pieces: PromptPiece[], width: number): string {
+	const separator = " · ";
+	let visiblePieces = pieces.filter((piece) => piece.value.length > 0);
+	let available =
+		width - separator.length * Math.max(0, visiblePieces.length - 1);
+
+	while (
+		visiblePieces.length > 1 &&
+		available < minimumPieceLength(visiblePieces)
+	) {
+		const metadataIndex = visiblePieces.findIndex((piece) => piece.min === 10);
+		const removableIndex =
+			metadataIndex === -1 ? visiblePieces.length - 2 : metadataIndex;
+		visiblePieces = visiblePieces.filter(
+			(_, index) => index !== removableIndex,
+		);
+		available =
+			width - separator.length * Math.max(0, visiblePieces.length - 1);
+	}
+
+	if (available <= 0 || available < minimumPieceLength(visiblePieces)) {
+		return middleEllipsize(
+			visiblePieces.map((piece) => piece.value).join(separator),
+			width,
+		);
+	}
+
+	const lengths = visiblePieces.map((piece) =>
+		Math.min(piece.value.length, piece.max),
+	);
+	while (sum(lengths) > available) {
+		const index = largestShrinkablePieceIndex(visiblePieces, lengths);
+		if (index === -1) break;
+		lengths[index] -= 1;
+	}
+
+	return visiblePieces
+		.map((piece, index) => piece.ellipsize(piece.value, lengths[index]))
+		.join(separator);
+}
+
+function minimumPieceLength(pieces: PromptPiece[]): number {
+	return sum(pieces.map((piece) => Math.min(piece.value.length, piece.min)));
+}
+
+function largestShrinkablePieceIndex(
+	pieces: PromptPiece[],
+	lengths: number[],
+): number {
+	let candidate = -1;
+
+	for (let index = 0; index < pieces.length; index += 1) {
+		if (
+			lengths[index] <= Math.min(pieces[index].value.length, pieces[index].min)
+		) {
+			continue;
+		}
+
+		if (candidate === -1 || lengths[index] > lengths[candidate]) {
+			candidate = index;
+		}
+	}
+
+	return candidate;
+}
+
+function sum(values: number[]): number {
+	return values.reduce((total, value) => total + value, 0);
 }
 
 function filterSearchablePromptEntries(
@@ -1121,4 +1287,16 @@ function middleEllipsize(value: string, maxLength: number): string {
 	const end = Math.floor(keep / 2);
 
 	return `${value.slice(0, start)}…${value.slice(value.length - end)}`;
+}
+
+function startEllipsize(value: string, maxLength: number): string {
+	if (value.length <= maxLength) {
+		return value;
+	}
+
+	if (maxLength <= 1) {
+		return "…";
+	}
+
+	return `…${value.slice(value.length - maxLength + 1)}`;
 }

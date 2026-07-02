@@ -115,6 +115,36 @@ describe("worktree picker search", () => {
 		expect(rendered).not.toContain(longBranch);
 		expect(rendered).not.toContain(longPath);
 	});
+
+	it("keeps full long label text searchable while showing an active preview", async () => {
+		// Given a narrow searchable picker with long branch and path labels.
+		const { input, output } = createPromptIO();
+		output.columns = 56;
+		const selectedPath =
+			"/repo/deeply/nested/unique-visible-tail-selected-worktree";
+		const choice = promptForSingleWorktree(
+			"Choose a worktree",
+			[
+				worktreeEntry(
+					"feature/very-long-unrelated-branch-name",
+					"/repo/deeply/nested/unrelated-worktree",
+				),
+				worktreeEntry("feature/very-long-selected-branch-name", selectedPath),
+			],
+			{ input, output },
+		);
+
+		// When the user searches by text that is only present in the full path.
+		input.write("/unique-visible-tail\r");
+
+		// Then the full search text is preserved and the active item preview is shown.
+		await expect(choice).resolves.toBe(selectedPath);
+		const rendered = stripVTControlCharacters(output.text());
+		expect(rendered).toContain("unique-visible-tail");
+		expect(rendered).toContain("selected-worktree");
+		expect(rendered).toContain("…");
+		expect(rendered).not.toContain(selectedPath);
+	});
 });
 
 function createPromptIO(): Required<WorktreePickerIO> & {
