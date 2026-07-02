@@ -482,7 +482,7 @@ class SearchablePrompt {
 		const frame = promptFrameColor(state, colors);
 		const lines = [
 			colors.bar(glyphs.bar),
-			`${colors.symbol(promptSymbol(state, glyphs), state)}  ${this.options.message}${this.renderSearchQuery(colors)}`,
+			this.renderTitle(state, glyphs, colors),
 			`${frame(glyphs.bar)}  ${this.renderSearchHint(colors)}`,
 			frame(glyphs.bar),
 		];
@@ -505,8 +505,32 @@ class SearchablePrompt {
 		return `${lines.join("\n")}\n`;
 	}
 
-	private renderSearchQuery(colors: PromptColors): string {
-		return this.searchActive ? colors.search(` /${this.query}`) : "";
+	private renderTitle(
+		state: string,
+		glyphs: PromptGlyphs,
+		colors: PromptColors,
+	): string {
+		const symbol = colors.symbol(promptSymbol(state, glyphs), state);
+		const maxTitleLength = Math.max(8, this.columns() - 3);
+		if (!this.searchActive) {
+			return `${symbol}  ${middleEllipsize(this.options.message, maxTitleLength)}`;
+		}
+
+		const search = ` /${this.query}`;
+		const maxSearchLength = Math.min(
+			search.length,
+			Math.floor(maxTitleLength / 2),
+		);
+		const message = middleEllipsize(
+			this.options.message,
+			Math.max(1, maxTitleLength - maxSearchLength),
+		);
+		const visibleSearch = middleEllipsize(
+			search,
+			Math.max(1, maxTitleLength - message.length),
+		);
+
+		return `${symbol}  ${message}${colors.search(visibleSearch)}`;
 	}
 
 	private renderSearchHint(colors: PromptColors): string {
@@ -545,11 +569,12 @@ class SearchablePrompt {
 		const active = entries[this.cursor] === entry;
 		const selected = isSelectableEntry(entry) && this.selected.has(entry.value);
 		const prefix = this.entryPrefix(entry, active, selected, glyphs);
+		const label = middleEllipsize(entry.label, this.labelWidth(prefix));
 		const line = isSelectableEntry(entry)
 			? active
-				? entry.label
-				: colors.hint(entry.label)
-			: colors.hint(entry.label);
+				? label
+				: colors.hint(label)
+			: colors.hint(label);
 		const marker = selected
 			? colors.selected(prefix)
 			: active
@@ -559,6 +584,10 @@ class SearchablePrompt {
 				: colors.hint(prefix);
 
 		return `${frame(glyphs.bar)}  ${marker} ${line}`;
+	}
+
+	private labelWidth(prefix: string): number {
+		return Math.max(8, this.columns() - prefix.length - 4);
 	}
 
 	private entryPrefix(
@@ -608,6 +637,10 @@ class SearchablePrompt {
 	private maxItems(): number {
 		const rows = this.output.rows ?? 16;
 		return Math.max(5, Math.min(12, rows - 6));
+	}
+
+	private columns(): number {
+		return Math.max(20, this.output.columns ?? 80);
 	}
 
 	private syncValue(): void {

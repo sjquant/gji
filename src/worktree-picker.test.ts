@@ -1,4 +1,5 @@
 import { PassThrough, Writable } from "node:stream";
+import { stripVTControlCharacters } from "node:util";
 
 import { describe, expect, it } from "vitest";
 
@@ -90,6 +91,29 @@ describe("worktree picker search", () => {
 		// Then the prompt shows the validation error before returning the selection.
 		await expect(choices).resolves.toEqual(["/repo/billing"]);
 		expect(output.text()).toContain("Please select at least one option.");
+	});
+
+	it("ellipsizes long labels before rendering worktree choices", async () => {
+		// Given a narrow worktree picker with a label that would otherwise soft-wrap.
+		const { input, output } = createPromptIO();
+		output.columns = 48;
+		const longBranch = `feature/${"very-long-branch-name-".repeat(4)}`;
+		const longPath = `/repo/${"deeply/nested/".repeat(6)}worktree`;
+		const choice = promptForSingleWorktree(
+			"Choose a worktree",
+			[worktreeEntry(longBranch, longPath)],
+			{ input, output },
+		);
+
+		// When the user submits the first worktree.
+		input.write("\r");
+
+		// Then the rendered choice is shortened instead of printing the full row.
+		await expect(choice).resolves.toBe(longPath);
+		const rendered = stripVTControlCharacters(output.text());
+		expect(rendered).toContain("…");
+		expect(rendered).not.toContain(longBranch);
+		expect(rendered).not.toContain(longPath);
 	});
 });
 
