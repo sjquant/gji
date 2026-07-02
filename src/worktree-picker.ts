@@ -1,6 +1,7 @@
-import { stdin, stdout } from "node:process";
-import { emitKeypressEvents } from "node:readline";
+import { env, platform, stdin, stdout } from "node:process";
 import type { Readable, Writable } from "node:stream";
+
+import { isCancel, Prompt } from "@clack/core";
 
 import { loadHistory } from "./history.js";
 import type { WorktreeEntry } from "./repo.js";
@@ -211,11 +212,30 @@ interface SearchablePromptEntry {
 }
 
 type SearchablePromptResult = string | string[] | null;
+type WorktreePromptAction =
+	| "up"
+	| "down"
+	| "space"
+	| "enter"
+	| "escape"
+	| "cancel";
 
 interface SearchablePromptOptions extends WorktreePickerIO {
 	entries: SearchablePromptEntry[];
 	message: string;
 	multiple: boolean;
+}
+
+interface PromptGlyphs {
+	active: string;
+	bar: string;
+	checked: string;
+	corner: string;
+	inactive: string;
+	pending: string;
+	submitted: string;
+	unchecked: string;
+	uncheckedActive: string;
 }
 
 async function runSearchablePrompt(
@@ -229,21 +249,21 @@ async function runSearchablePrompt(
 	}
 
 	const prompt = new SearchablePrompt(options, input, output);
+	const value = await prompt.run();
 
-	return prompt.run();
+	return isCancel(value) ? null : value;
 }
 
 class SearchablePrompt {
 	private cursor = 0;
-	private frameLines = 0;
 	private query = "";
-	private resolve: ((value: SearchablePromptResult) => void) | undefined;
 	private searchActive = false;
 	private selected = new Set<string>();
+	private readonly prompt: WorktreeCorePrompt;
 
 	constructor(
 		private readonly options: SearchablePromptOptions,
-		private readonly input: Readable & {
+		input: Readable & {
 			isTTY?: boolean;
 			setRawMode?: (mode: boolean) => void;
 		},
@@ -251,40 +271,52 @@ class SearchablePrompt {
 			columns?: number;
 			rows?: number;
 		},
-	) {}
-
-	run(): Promise<SearchablePromptResult> {
-		return new Promise((resolve) => {
-			this.resolve = resolve;
-			this.start();
-		});
-	}
-
-	private start(): void {
+	) {
 		this.cursor = this.firstSelectableIndex();
-		emitKeypressEvents(this.input);
-		this.input.setRawMode?.(true);
-		this.output.write("\x1b[?25l");
-		this.input.on("keypress", this.handleKeypress);
-		this.render();
+		const owner = this;
+		this.prompt = new WorktreeCorePrompt(this, {
+			input,
+			output,
+			render: function renderWorktreePrompt() {
+				return owner.render(this.state, this.error);
+			},
+		});
+		this.syncValue();
 	}
 
-	private handleKeypress = (
+	run(): Promise<SearchablePromptResult | symbol> {
+		return this.prompt.prompt();
+	}
+
+	handleKeypress(
+		prompt: WorktreeCorePrompt,
 		character: string | undefined,
-		key?: { ctrl?: boolean; name?: string },
-	): void => {
-		if (key?.ctrl && key.name === "c") {
-			this.finish(null);
+		key?: { ctrl?: boolean; name?: string; sequence?: string },
+	): void {
+		if (prompt.state === "error") {
+			prompt.state = "active";
+			prompt.error = "";
+		}
+
+		const action = resolvePromptAction(character, key);
+		if (action === "cancel") {
+			this.cancel(prompt);
 			return;
 		}
 
-		if (key?.name === "escape") {
-			this.handleEscape();
+		if (action === "escape") {
+			this.handleEscapeKey(prompt);
+			return;
+		}
+
+		if (action === "enter") {
+			this.submit(prompt);
 			return;
 		}
 
 		if (this.searchActive && this.handleSearchKey(character, key?.name)) {
-			this.render();
+			this.syncValue();
+			renderPrompt(prompt);
 			return;
 		}
 
@@ -292,24 +324,33 @@ class SearchablePrompt {
 			this.searchActive = true;
 			this.query = "";
 			this.cursor = this.firstSelectableIndex();
-			this.render();
+			this.syncValue();
+			renderPrompt(prompt);
 			return;
 		}
 
-		this.handleNavigationKey(character, key?.name);
-		this.render();
-	};
+		this.handleNavigationKey(character, action);
+		this.syncValue();
+		renderPrompt(prompt);
+	}
 
-	private handleEscape(): void {
+	private handleEscapeKey(prompt: WorktreeCorePrompt): void {
 		if (this.searchActive) {
 			this.searchActive = false;
 			this.query = "";
 			this.cursor = this.firstSelectableIndex();
-			this.render();
+			this.syncValue();
+			renderPrompt(prompt);
 			return;
 		}
 
-		this.finish(null);
+		this.cancel(prompt);
+	}
+
+	private cancel(prompt: WorktreeCorePrompt): void {
+		prompt.state = "cancel";
+		renderPrompt(prompt);
+		closePrompt(prompt);
 	}
 
 	private handleSearchKey(
@@ -337,17 +378,14 @@ class SearchablePrompt {
 
 	private handleNavigationKey(
 		character: string | undefined,
-		keyName?: string,
+		action?: WorktreePromptAction,
 	): void {
-		switch (keyName) {
+		switch (action) {
 			case "up":
 				this.moveCursor(-1);
 				return;
 			case "down":
 				this.moveCursor(1);
-				return;
-			case "return":
-				this.submit();
 				return;
 			case "space":
 				this.toggleSelection();
@@ -381,19 +419,28 @@ class SearchablePrompt {
 		}
 	}
 
-	private submit(): void {
+	private submit(prompt: WorktreeCorePrompt): void {
 		const entry = this.visibleEntries()[this.cursor];
 
 		if (!this.options.multiple) {
-			this.finish(isSelectableEntry(entry) ? entry.value : null);
+			prompt.value = isSelectableEntry(entry) ? entry.value : null;
+			prompt.state = "submit";
+			renderPrompt(prompt);
+			closePrompt(prompt);
 			return;
 		}
 
 		if (this.selected.size === 0) {
+			prompt.error = "Please select at least one option.";
+			prompt.state = "error";
+			renderPrompt(prompt);
 			return;
 		}
 
-		this.finish([...this.selected]);
+		prompt.value = [...this.selected];
+		prompt.state = "submit";
+		renderPrompt(prompt);
+		closePrompt(prompt);
 	}
 
 	private toggleSelection(): void {
@@ -410,16 +457,7 @@ class SearchablePrompt {
 		this.selected.add(entry.value);
 	}
 
-	private render(): void {
-		const frame = this.buildFrame();
-		if (this.frameLines > 0) {
-			this.output.write(`\x1b[${this.frameLines}A\r\x1b[J`);
-		}
-		this.output.write(frame);
-		this.frameLines = frame.split("\n").length - 1;
-	}
-
-	private buildFrame(): string {
+	private render(state: string, error: string): string {
 		const entries = this.visibleEntries();
 		const visibleEntries = windowPromptEntries(
 			entries,
@@ -427,14 +465,21 @@ class SearchablePrompt {
 			this.maxItems(),
 		);
 		const search = this.searchActive ? ` /${this.query}` : "";
+		const glyphs = promptGlyphs();
 		const lines = [
-			"|",
-			`?  ${this.options.message}${search}`,
-			"|",
-			...this.renderEntries(entries, visibleEntries),
-			"|",
-			`-  ${this.footerText(entries.length)}`,
+			glyphs.bar,
+			`${promptSymbol(state, glyphs)}  ${this.options.message}${search}`,
+			glyphs.bar,
 		];
+
+		if (state === "error" && error.length > 0) {
+			lines.push(`${glyphs.bar}  ${error}`);
+			lines.push(glyphs.bar);
+		}
+
+		lines.push(...this.renderEntries(entries, visibleEntries, glyphs));
+		lines.push(glyphs.bar);
+		lines.push(`${glyphs.corner}  ${this.footerText(entries.length)}`);
 
 		return `${lines.join("\n")}\n`;
 	}
@@ -442,43 +487,48 @@ class SearchablePrompt {
 	private renderEntries(
 		entries: SearchablePromptEntry[],
 		visibleEntries: Array<SearchablePromptEntry | "ellipsis">,
+		glyphs: PromptGlyphs,
 	): string[] {
 		if (entries.length === 0) {
-			return ["|  No matching worktrees"];
+			return [`${glyphs.bar}  No matching worktrees`];
 		}
 
 		return visibleEntries.map((entry) =>
-			entry === "ellipsis" ? "|  ..." : this.renderEntry(entries, entry),
+			entry === "ellipsis"
+				? `${glyphs.bar}  ...`
+				: this.renderEntry(entries, entry, glyphs),
 		);
 	}
 
 	private renderEntry(
 		entries: SearchablePromptEntry[],
 		entry: SearchablePromptEntry,
+		glyphs: PromptGlyphs,
 	): string {
 		const active = entries[this.cursor] === entry;
 		const selected = isSelectableEntry(entry) && this.selected.has(entry.value);
-		const prefix = this.entryPrefix(entry, active, selected);
+		const prefix = this.entryPrefix(entry, active, selected, glyphs);
 
-		return `|  ${prefix} ${entry.label}`;
+		return `${glyphs.bar}  ${prefix} ${entry.label}`;
 	}
 
 	private entryPrefix(
 		entry: SearchablePromptEntry,
 		active: boolean,
 		selected: boolean,
+		glyphs: PromptGlyphs,
 	): string {
 		if (!isSelectableEntry(entry)) {
-			return active ? ">" : " ";
+			return active ? glyphs.active : " ";
 		}
 
 		if (!this.options.multiple) {
-			return active ? ">" : " ";
+			return active ? glyphs.active : glyphs.inactive;
 		}
 
-		if (active && selected) return "[x]";
-		if (active) return "[ ]";
-		return selected ? "[x]" : "[ ]";
+		if (active && selected) return glyphs.checked;
+		if (active) return glyphs.uncheckedActive;
+		return selected ? glyphs.checked : glyphs.unchecked;
 	}
 
 	private footerText(visibleCount: number): string {
@@ -491,14 +541,6 @@ class SearchablePrompt {
 
 		const selected = `${this.selected.size} selected`;
 		return `${searchHint}, space to toggle, ${selected}, ${visibleCount} shown`;
-	}
-
-	private finish(value: SearchablePromptResult): void {
-		this.input.off("keypress", this.handleKeypress);
-		this.input.setRawMode?.(false);
-		this.output.write("\x1b[?25h");
-		this.output.write("\n");
-		this.resolve?.(value);
 	}
 
 	private firstSelectableIndex(): number {
@@ -520,6 +562,129 @@ class SearchablePrompt {
 		const rows = this.output.rows ?? 16;
 		return Math.max(5, Math.min(12, rows - 6));
 	}
+
+	private syncValue(): void {
+		if (this.options.multiple) {
+			this.prompt.value = [...this.selected];
+			return;
+		}
+
+		const entry = this.visibleEntries()[this.cursor];
+		this.prompt.value = isSelectableEntry(entry) ? entry.value : null;
+	}
+}
+
+class WorktreeCorePrompt extends Prompt {
+	constructor(
+		readonly worktreePrompt: SearchablePrompt,
+		options: ConstructorParameters<typeof Prompt>[0],
+	) {
+		super(options, false);
+	}
+}
+
+Object.defineProperty(WorktreeCorePrompt.prototype, "onKeypress", {
+	value: function onWorktreeKeypress(
+		this: WorktreeCorePrompt,
+		character: string | undefined,
+		key?: { ctrl?: boolean; name?: string; sequence?: string },
+	): void {
+		this.worktreePrompt.handleKeypress(this, character, key);
+	},
+	writable: true,
+});
+
+function resolvePromptAction(
+	character: string | undefined,
+	key?: { ctrl?: boolean; name?: string; sequence?: string },
+): WorktreePromptAction | undefined {
+	if ((key?.ctrl && key.name === "c") || character === "\u0003") {
+		return "cancel";
+	}
+
+	switch (key?.name) {
+		case "escape":
+			return "escape";
+		case "return":
+			return "enter";
+		case "space":
+			return "space";
+		case "up":
+		case "left":
+			return "up";
+		case "down":
+		case "right":
+			return "down";
+	}
+
+	switch (character) {
+		case " ":
+			return "space";
+		case "k":
+		case "h":
+			return "up";
+		case "j":
+		case "l":
+			return "down";
+	}
+
+	return undefined;
+}
+
+function promptGlyphs(): PromptGlyphs {
+	return supportsUnicode()
+		? {
+				active: "●",
+				bar: "│",
+				checked: "◼",
+				corner: "└",
+				inactive: "○",
+				pending: "◆",
+				submitted: "◇",
+				unchecked: "◻",
+				uncheckedActive: "◻",
+			}
+		: {
+				active: ">",
+				bar: "|",
+				checked: "[x]",
+				corner: "-",
+				inactive: " ",
+				pending: "*",
+				submitted: "o",
+				unchecked: "[ ]",
+				uncheckedActive: "[ ]",
+			};
+}
+
+function promptSymbol(state: string, glyphs: PromptGlyphs): string {
+	return state === "submit" ? glyphs.submitted : glyphs.pending;
+}
+
+function supportsUnicode(): boolean {
+	if (platform !== "win32") {
+		return env.TERM !== "linux";
+	}
+
+	return Boolean(
+		env.CI ||
+			env.WT_SESSION ||
+			env.TERMINUS_SUBLIME ||
+			env.ConEmuTask === "{cmd::Cmder}" ||
+			env.TERM_PROGRAM === "Terminus-Sublime" ||
+			env.TERM_PROGRAM === "vscode" ||
+			env.TERM === "xterm-256color" ||
+			env.TERM === "alacritty" ||
+			env.TERMINAL_EMULATOR === "JetBrains-JediTerm",
+	);
+}
+
+function renderPrompt(prompt: Prompt): void {
+	(prompt as unknown as { render: () => void }).render();
+}
+
+function closePrompt(prompt: Prompt): void {
+	(prompt as unknown as { close: () => void }).close();
 }
 
 function isPrintableSearchCharacter(

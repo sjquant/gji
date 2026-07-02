@@ -69,6 +69,28 @@ describe("worktree picker search", () => {
 		await expect(choices).resolves.toEqual(["/repo/billing"]);
 		expect(output.text()).toContain("feature/billing");
 	});
+
+	it("shows validation when grouped multi-select submits no worktrees", async () => {
+		// Given a grouped multi-select worktree picker with no selected values.
+		const { input, output } = createPromptIO();
+		const worktrees = [
+			worktreeEntry("feature/billing", "/repo/billing"),
+			worktreeEntry("feature/auth", "/repo/auth"),
+		];
+		const choices = promptForMultipleWorktrees("Choose worktrees", worktrees, {
+			input,
+			output,
+		});
+
+		// When the user submits without selecting, then selects the initial row.
+		input.write("\r");
+		await nextTick();
+		input.write(" \r");
+
+		// Then the prompt shows the validation error before returning the selection.
+		await expect(choices).resolves.toEqual(["/repo/billing"]);
+		expect(output.text()).toContain("Please select at least one option.");
+	});
 });
 
 function createPromptIO(): Required<WorktreePickerIO> & {
@@ -118,4 +140,8 @@ function worktreeEntry(branch: string, path: string): WorktreePromptEntry {
 		path,
 		repoName: "repo",
 	};
+}
+
+function nextTick(): Promise<void> {
+	return new Promise((resolve) => setImmediate(resolve));
 }
