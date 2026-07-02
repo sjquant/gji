@@ -16,6 +16,7 @@ export const KNOWN_CONFIG_KEYS: ReadonlySet<string> = new Set([
 	"syncDefaultBranch",
 	"syncFiles",
 	"syncRemote",
+	"worktreeSort",
 	"worktreePath",
 ]);
 

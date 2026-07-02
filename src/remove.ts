@@ -19,6 +19,7 @@ import {
 import {
 	buildWorktreePromptEntries,
 	promptForSingleWorktree,
+	resolveWorktreeSort,
 	type WorktreePromptEntry,
 } from "./worktree-picker.js";
 import {
@@ -86,11 +87,11 @@ export function createRemoveCommand(
 		const selection =
 			options.branch ??
 			(await promptForWorktree(
-				await buildWorktreePromptEntries(
-					linkedWorktrees.map((worktree) => ({
-						repoName: repository.repoName,
-						worktree,
-					})),
+				await buildRemovePromptEntries(
+					repository.repoRoot,
+					repository.repoName,
+					linkedWorktrees,
+					options.stderr,
 				),
 			));
 
@@ -226,6 +227,23 @@ export function createRemoveCommand(
 }
 
 export const runRemoveCommand = createRemoveCommand();
+
+async function buildRemovePromptEntries(
+	repoRoot: string,
+	repoName: string,
+	worktrees: WorktreeEntry[],
+	stderr: (chunk: string) => void,
+): Promise<WorktreePromptEntry[]> {
+	const config = await loadEffectiveConfig(repoRoot, undefined, stderr);
+
+	return buildWorktreePromptEntries(
+		worktrees.map((worktree) => ({
+			repoName,
+			worktree,
+		})),
+		{ sort: resolveWorktreeSort(config.worktreeSort) },
+	);
+}
 
 async function defaultPromptForWorktree(
 	worktrees: WorktreePromptEntry[],

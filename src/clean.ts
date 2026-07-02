@@ -28,6 +28,7 @@ import {
 import {
 	buildWorktreePromptEntries,
 	promptForMultipleWorktrees,
+	resolveWorktreeSort,
 	type WorktreePromptEntry,
 } from "./worktree-picker.js";
 import {
@@ -115,11 +116,11 @@ export function createCleanCommand(
 		const selections = shouldSelectAll
 			? cleanupCandidates.map((w) => w.path)
 			: await promptForWorktrees(
-					await buildWorktreePromptEntries(
-						cleanupCandidates.map((worktree) => ({
-							repoName: repository.repoName,
-							worktree,
-						})),
+					await buildCleanPromptEntries(
+						repository.repoRoot,
+						repository.repoName,
+						cleanupCandidates,
+						options.stderr,
 					),
 				);
 
@@ -274,6 +275,23 @@ export function createCleanCommand(
 }
 
 export const runCleanCommand = createCleanCommand();
+
+async function buildCleanPromptEntries(
+	repoRoot: string,
+	repoName: string,
+	worktrees: WorktreeEntry[],
+	stderr: (chunk: string) => void,
+): Promise<WorktreePromptEntry[]> {
+	const config = await loadEffectiveConfig(repoRoot, undefined, stderr);
+
+	return buildWorktreePromptEntries(
+		worktrees.map((worktree) => ({
+			repoName,
+			worktree,
+		})),
+		{ sort: resolveWorktreeSort(config.worktreeSort) },
+	);
+}
 
 async function filterStaleCleanupCandidates(
 	repoRoot: string,

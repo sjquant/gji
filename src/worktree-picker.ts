@@ -8,6 +8,10 @@ import {
 	type WorktreeInfo,
 } from "./worktree-info.js";
 
+export const DEFAULT_WORKTREE_SORT: WorktreeSort = "current-first";
+
+export type WorktreeSort = "current-first" | "recent-first";
+
 export interface WorktreePromptSource {
 	repoName: string;
 	worktree: WorktreeEntry;
@@ -23,8 +27,13 @@ interface SortableWorktreePromptEntry extends WorktreePromptEntry {
 	lastActivityTimestamp: number | null;
 }
 
+export interface WorktreePromptEntryOptions {
+	sort?: WorktreeSort;
+}
+
 export async function buildWorktreePromptEntries(
 	sources: WorktreePromptSource[],
+	options: WorktreePromptEntryOptions = {},
 ): Promise<WorktreePromptEntry[]> {
 	const [history, infos] = await Promise.all([
 		loadHistory(),
@@ -41,10 +50,18 @@ export async function buildWorktreePromptEntries(
 	);
 
 	return entries
-		.sort(comparePromptEntries)
+		.sort((left, right) =>
+			comparePromptEntries(left, right, options.sort ?? DEFAULT_WORKTREE_SORT),
+		)
 		.map(
 			({ lastActivityTimestamp: _lastActivityTimestamp, ...entry }) => entry,
 		);
+}
+
+export function resolveWorktreeSort(value: unknown): WorktreeSort {
+	return value === "recent-first" || value === "current-first"
+		? value
+		: DEFAULT_WORKTREE_SORT;
 }
 
 export function resolveWorktreeQuery(
@@ -306,9 +323,12 @@ function normalizeQuery(query?: string): string | null {
 function comparePromptEntries(
 	a: SortableWorktreePromptEntry,
 	b: SortableWorktreePromptEntry,
+	sort: WorktreeSort,
 ): number {
-	if (a.isCurrent && !b.isCurrent) return -1;
-	if (!a.isCurrent && b.isCurrent) return 1;
+	if (sort === "current-first") {
+		if (a.isCurrent && !b.isCurrent) return -1;
+		if (!a.isCurrent && b.isCurrent) return 1;
+	}
 
 	if (a.group !== b.group) {
 		return groupRank(a.group) - groupRank(b.group);
@@ -318,6 +338,11 @@ function comparePromptEntries(
 	const bRecent = b.lastActivityTimestamp ?? 0;
 	if (aRecent !== bRecent) {
 		return bRecent - aRecent;
+	}
+
+	if (sort === "recent-first") {
+		if (a.isCurrent && !b.isCurrent) return -1;
+		if (!a.isCurrent && b.isCurrent) return 1;
 	}
 
 	return (
