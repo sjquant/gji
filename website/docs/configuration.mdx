@@ -25,7 +25,6 @@ Use the global file for defaults you want everywhere. Use `.gji.json` when one r
 | `syncFiles` | Files copied from the main worktree into new worktrees. Use global per-repo config for private files. |
 | `skipInstallPrompt` | Disable the automatic install prompt permanently. |
 | `installSaveTarget` | Persist install prompt choices locally or globally. |
-| `worktreeSort` | Worktree picker order. Use `current-first` (default) or `recent-first`. |
 | `hooks` | Lifecycle commands for create, enter, and remove events. String hooks run through a shell; array hooks run as argv without a shell. |
 | `repos` | Per-repository overrides inside the global config. |
 
@@ -36,7 +35,6 @@ Use the global file for defaults you want everywhere. Use `.gji.json` when one r
   "branchPrefix": "feature/",
   "syncRemote": "origin",
   "syncDefaultBranch": "main",
-  "worktreeSort": "current-first",
   "syncFiles": [".env.example", ".nvmrc"]
 }
 ```

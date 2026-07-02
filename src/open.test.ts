@@ -87,56 +87,6 @@ describe("gji open", () => {
 		expect(capturedFirst).toEqual({ branch: branchA, isCurrent: true });
 	});
 
-	it("uses recent-first config for the open picker order", async () => {
-		// Given a repository configured to sort worktree prompts by recent activity.
-		const repoRoot = await createRepository();
-		const currentBranch = "feature/open-recent-current";
-		const recentBranch = "feature/open-recent-used";
-		const currentPath = await addLinkedWorktree(repoRoot, currentBranch);
-		const recentPath = await addLinkedWorktree(repoRoot, recentBranch);
-		let capturedBranches: Array<string | null> = [];
-		const runOpenCommand = createOpenCommand({
-			promptForWorktree: async (worktrees) => {
-				capturedBranches = worktrees.map((worktree) => worktree.branch);
-				return recentPath;
-			},
-			spawnEditor: async () => undefined,
-		});
-
-		await writeFile(
-			join(repoRoot, ".gji.json"),
-			`${JSON.stringify({ worktreeSort: "recent-first" }, null, 2)}\n`,
-			"utf8",
-		);
-		await writeFile(
-			HISTORY_FILE_PATH(),
-			`${JSON.stringify(
-				[
-					{
-						branch: recentBranch,
-						path: recentPath,
-						timestamp: Date.now(),
-					},
-				],
-				null,
-				2,
-			)}\n`,
-			"utf8",
-		);
-
-		// When gji open shows its picker from the current worktree.
-		const result = await runOpenCommand({
-			cwd: currentPath,
-			editor: "code",
-			stderr: () => undefined,
-			stdout: () => undefined,
-		});
-
-		// Then the recently used worktree is ordered before the current worktree.
-		expect(result).toBe(0);
-		expect(capturedBranches.slice(0, 2)).toEqual([recentBranch, currentBranch]);
-	});
-
 	it("aborts when the worktree prompt is cancelled", async () => {
 		// Given a repository and a cancelled worktree prompt.
 		const repoRoot = await createRepository();

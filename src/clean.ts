@@ -26,7 +26,7 @@ import {
 	removeWorktree,
 } from "./worktree-management.js";
 import {
-	buildConfiguredWorktreePromptEntries,
+	buildWorktreePromptEntries,
 	promptForMultipleWorktrees,
 	type WorktreePromptEntry,
 } from "./worktree-picker.js";
@@ -115,13 +115,11 @@ export function createCleanCommand(
 		const selections = shouldSelectAll
 			? cleanupCandidates.map((w) => w.path)
 			: await promptForWorktrees(
-					await buildConfiguredWorktreePromptEntries(
-						repository.repoRoot,
+					await buildWorktreePromptEntries(
 						cleanupCandidates.map((worktree) => ({
 							repoName: repository.repoName,
 							worktree,
 						})),
-						options.stderr,
 					),
 				);
 

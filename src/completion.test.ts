@@ -65,7 +65,7 @@ describe("gji completion", () => {
 		expect(stdout.join("")).toContain('branch = ($1 == "*" ? $2 : $1)');
 		expect(stdout.join("")).toContain("_values 'config action' get set unset");
 		expect(stdout.join("")).toContain(
-			"_values 'config key' branchPrefix editor hooks installSaveTarget shellIntegration skipInstallPrompt syncDefaultBranch syncFiles syncRemote worktreeSort worktreePath repos",
+			"_values 'config key' branchPrefix editor hooks installSaveTarget shellIntegration skipInstallPrompt syncDefaultBranch syncFiles syncRemote worktreePath repos",
 		);
 		expect(stdout.join("")).toContain(`case "\${words[3]}" in`);
 		expect(stdout.join("")).toContain("get|unset)");
@@ -202,9 +202,6 @@ print -r -- "\${_comps[gji]-unset}"`,
 			"complete -c gji -n '__gji_should_complete_config_key' -a 'shellIntegration' -d 'config key'",
 		);
 		expect(stdout.join("")).toContain(
-			"complete -c gji -n '__gji_should_complete_config_key' -a 'worktreeSort' -d 'config key'",
-		);
-		expect(stdout.join("")).toContain(
 			"complete -c gji -n '__gji_should_complete_config_key' -a 'worktreePath' -d 'config key'",
 		);
 		expect(stdout.join("")).toContain(
@@ -239,7 +236,6 @@ print -r -- "\${_comps[gji]-unset}"`,
 		expect(stdout.join("")).toContain("open)");
 		expect(stdout.join("")).toContain("warp)");
 		expect(stdout.join("")).toContain("shellIntegration");
-		expect(stdout.join("")).toContain("worktreeSort");
 		expect(stdout.join("")).toContain("worktreePath");
 		expect(stdout.join("")).toContain("repos");
 		expect(stdout.join("")).toContain('if [ "$COMP_CWORD" -eq 2 ]; then');

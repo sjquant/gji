@@ -2,7 +2,6 @@ import { stdin, stdout } from "node:process";
 import { emitKeypressEvents } from "node:readline";
 import type { Readable, Writable } from "node:stream";
 
-import { loadEffectiveConfig } from "./config.js";
 import { loadHistory } from "./history.js";
 import type { WorktreeEntry } from "./repo.js";
 import {
@@ -10,10 +9,6 @@ import {
 	type UpstreamState,
 	type WorktreeInfo,
 } from "./worktree-info.js";
-
-export const DEFAULT_WORKTREE_SORT: WorktreeSort = "current-first";
-
-export type WorktreeSort = "current-first" | "recent-first";
 
 export interface WorktreePromptSource {
 	repoName: string;
@@ -41,13 +36,8 @@ interface SortableWorktreePromptEntry extends WorktreePromptEntry {
 	lastActivityTimestamp: number | null;
 }
 
-export interface WorktreePromptEntryOptions {
-	sort?: WorktreeSort;
-}
-
 export async function buildWorktreePromptEntries(
 	sources: WorktreePromptSource[],
-	options: WorktreePromptEntryOptions = {},
 ): Promise<WorktreePromptEntry[]> {
 	const [history, infos] = await Promise.all([
 		loadHistory(),
@@ -64,30 +54,10 @@ export async function buildWorktreePromptEntries(
 	);
 
 	return entries
-		.sort((left, right) =>
-			comparePromptEntries(left, right, options.sort ?? DEFAULT_WORKTREE_SORT),
-		)
+		.sort(comparePromptEntries)
 		.map(
 			({ lastActivityTimestamp: _lastActivityTimestamp, ...entry }) => entry,
 		);
-}
-
-export async function buildConfiguredWorktreePromptEntries(
-	repoRoot: string,
-	sources: WorktreePromptSource[],
-	stderr: (chunk: string) => void,
-): Promise<WorktreePromptEntry[]> {
-	const config = await loadEffectiveConfig(repoRoot, undefined, stderr);
-
-	return buildWorktreePromptEntries(sources, {
-		sort: resolveWorktreeSort(config.worktreeSort),
-	});
-}
-
-export function resolveWorktreeSort(value: unknown): WorktreeSort {
-	return value === "recent-first" || value === "current-first"
-		? value
-		: DEFAULT_WORKTREE_SORT;
 }
 
 export function resolveWorktreeQuery(
@@ -791,12 +761,9 @@ function normalizeQuery(query?: string): string | null {
 function comparePromptEntries(
 	a: SortableWorktreePromptEntry,
 	b: SortableWorktreePromptEntry,
-	sort: WorktreeSort,
 ): number {
-	if (sort === "current-first") {
-		if (a.isCurrent && !b.isCurrent) return -1;
-		if (!a.isCurrent && b.isCurrent) return 1;
-	}
+	if (a.isCurrent && !b.isCurrent) return -1;
+	if (!a.isCurrent && b.isCurrent) return 1;
 
 	if (a.group !== b.group) {
 		return groupRank(a.group) - groupRank(b.group);
@@ -806,11 +773,6 @@ function comparePromptEntries(
 	const bRecent = b.lastActivityTimestamp ?? 0;
 	if (aRecent !== bRecent) {
 		return bRecent - aRecent;
-	}
-
-	if (sort === "recent-first") {
-		if (a.isCurrent && !b.isCurrent) return -1;
-		if (!a.isCurrent && b.isCurrent) return 1;
 	}
 
 	return (

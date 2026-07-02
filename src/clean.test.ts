@@ -208,66 +208,6 @@ describe("gji clean", () => {
 		await expect(branchExists(repoRoot, otherBranch)).resolves.toBe(false);
 	});
 
-	it("uses recent-first config for the clean picker order", async () => {
-		// Given a repository configured to sort cleanup prompts by recent activity.
-		const originalConfigDir = process.env.GJI_CONFIG_DIR;
-		process.env.GJI_CONFIG_DIR = await mkdtemp(join(tmpdir(), "gji-config-"));
-		const repoRoot = await createRepository();
-		const olderBranch = "feature/clean-recent-older";
-		const recentBranch = "feature/clean-recent-used";
-		const olderWorktreePath = await addLinkedWorktree(repoRoot, olderBranch);
-		const recentWorktreePath = await addLinkedWorktree(repoRoot, recentBranch);
-		await writeFile(
-			join(repoRoot, ".gji.json"),
-			`${JSON.stringify({ worktreeSort: "recent-first" }, null, 2)}\n`,
-			"utf8",
-		);
-		await writeFile(
-			HISTORY_FILE_PATH(),
-			`${JSON.stringify(
-				[
-					{
-						branch: recentBranch,
-						path: recentWorktreePath,
-						timestamp: Date.now(),
-					},
-				],
-				null,
-				2,
-			)}\n`,
-			"utf8",
-		);
-		let capturedBranches: Array<string | null> = [];
-		const runCleanCommand = createCleanCommand({
-			confirmRemoval: async () => false,
-			promptForWorktrees: async (worktrees) => {
-				capturedBranches = worktrees.map((worktree) => worktree.branch);
-				return [recentWorktreePath];
-			},
-		});
-
-		try {
-			// When gji clean shows its picker.
-			const result = await runCleanCommand({
-				cwd: repoRoot,
-				stderr: () => undefined,
-				stdout: () => undefined,
-			});
-
-			// Then the recently used worktree appears before the older worktree.
-			expect(result).toBe(1);
-			expect(capturedBranches.slice(0, 2)).toEqual([recentBranch, olderBranch]);
-			await expect(pathExists(olderWorktreePath)).resolves.toBe(true);
-			await expect(pathExists(recentWorktreePath)).resolves.toBe(true);
-		} finally {
-			if (originalConfigDir === undefined) {
-				delete process.env.GJI_CONFIG_DIR;
-			} else {
-				process.env.GJI_CONFIG_DIR = originalConfigDir;
-			}
-		}
-	});
-
 	it("shows recency, path, and dirty state in the clean picker", async () => {
 		// Given a dirty linked worktree with last-used history metadata.
 		const originalConfigDir = process.env.GJI_CONFIG_DIR;

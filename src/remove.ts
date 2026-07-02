@@ -17,7 +17,7 @@ import {
 	removeWorktree,
 } from "./worktree-management.js";
 import {
-	buildConfiguredWorktreePromptEntries,
+	buildWorktreePromptEntries,
 	promptForSingleWorktree,
 	type WorktreePromptEntry,
 } from "./worktree-picker.js";
@@ -86,13 +86,11 @@ export function createRemoveCommand(
 		const selection =
 			options.branch ??
 			(await promptForWorktree(
-				await buildConfiguredWorktreePromptEntries(
-					repository.repoRoot,
+				await buildWorktreePromptEntries(
 					linkedWorktrees.map((worktree) => ({
 						repoName: repository.repoName,
 						worktree,
 					})),
-					options.stderr,
 				),
 			));
 

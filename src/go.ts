@@ -8,7 +8,7 @@ import { detectRepository, listWorktrees, type WorktreeEntry } from "./repo.js";
 import { writeShellOutput } from "./shell-handoff.js";
 import { resolveWarpTarget } from "./warp.js";
 import {
-	buildConfiguredWorktreePromptEntries,
+	buildWorktreePromptEntries,
 	promptForSingleWorktree,
 	resolveWorktreeQuery,
 	type WorktreePromptEntry,
@@ -77,11 +77,7 @@ export function createGoCommand(
 		}));
 		const promptEntries = options.branch
 			? []
-			: await buildConfiguredWorktreePromptEntries(
-					repository.repoRoot,
-					promptSources,
-					options.stderr,
-				);
+			: await buildWorktreePromptEntries(promptSources);
 		const queried = options.branch
 			? resolveWorktreeQuery(promptSources, options.branch)
 			: null;
