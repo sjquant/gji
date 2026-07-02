@@ -239,10 +239,14 @@ interface PromptGlyphs {
 }
 
 interface PromptColors {
+	activeBar: (value: string) => string;
 	bar: (value: string) => string;
 	error: (value: string) => string;
+	errorBar: (value: string) => string;
 	hint: (value: string) => string;
+	key: (value: string) => string;
 	option: (value: string) => string;
+	search: (value: string) => string;
 	selected: (value: string) => string;
 	symbol: (value: string, state: string) => string;
 }
@@ -473,29 +477,44 @@ class SearchablePrompt {
 			this.cursor,
 			this.maxItems(),
 		);
-		const search = this.searchActive ? ` /${this.query}` : "";
 		const glyphs = promptGlyphs();
 		const colors = promptColors();
+		const frame = promptFrameColor(state, colors);
 		const lines = [
 			colors.bar(glyphs.bar),
-			`${colors.symbol(promptSymbol(state, glyphs), state)}  ${this.options.message}${search}`,
-			`${colors.bar(glyphs.bar)}  ${colors.hint(this.searchHint())}`,
-			colors.bar(glyphs.bar),
+			`${colors.symbol(promptSymbol(state, glyphs), state)}  ${this.options.message}${this.renderSearchQuery(colors)}`,
+			`${frame(glyphs.bar)}  ${this.renderSearchHint(colors)}`,
+			frame(glyphs.bar),
 		];
 
 		if (state === "error" && error.length > 0) {
-			lines.push(`${colors.bar(glyphs.bar)}  ${colors.error(error)}`);
-			lines.push(colors.bar(glyphs.bar));
+			lines.push(`${colors.errorBar(glyphs.bar)}  ${colors.error(error)}`);
+			lines.push(frame(glyphs.bar));
 		}
 
-		lines.push(...this.renderEntries(entries, visibleEntries, glyphs, colors));
-		lines.push(colors.bar(glyphs.bar));
-		const footer = this.footerText(entries.length);
+		lines.push(
+			...this.renderEntries(entries, visibleEntries, glyphs, colors, frame),
+		);
+		lines.push(frame(glyphs.bar));
+		const visibleWorktreeCount = entries.filter(isSelectableEntry).length;
+		const footer = this.footerText(visibleWorktreeCount, colors);
 		if (footer.length > 0) {
-			lines.push(`${colors.bar(glyphs.corner)}  ${colors.hint(footer)}`);
+			lines.push(`${frame(glyphs.corner)}  ${footer}`);
 		}
 
 		return `${lines.join("\n")}\n`;
+	}
+
+	private renderSearchQuery(colors: PromptColors): string {
+		return this.searchActive ? colors.search(` /${this.query}`) : "";
+	}
+
+	private renderSearchHint(colors: PromptColors): string {
+		if (this.searchActive) {
+			return `${colors.hint("type to filter")} ${colors.hint("·")} ${colors.key("esc")} ${colors.hint("clears")}`;
+		}
+
+		return `${colors.hint("press ")}${colors.key("/")}${colors.hint(" to search")}`;
 	}
 
 	private renderEntries(
@@ -503,17 +522,16 @@ class SearchablePrompt {
 		visibleEntries: Array<SearchablePromptEntry | "ellipsis">,
 		glyphs: PromptGlyphs,
 		colors: PromptColors,
+		frame: (value: string) => string,
 	): string[] {
 		if (entries.length === 0) {
-			return [
-				`${colors.bar(glyphs.bar)}  ${colors.hint("No matching worktrees")}`,
-			];
+			return [`${frame(glyphs.bar)}  ${colors.hint("No matching worktrees")}`];
 		}
 
 		return visibleEntries.map((entry) =>
 			entry === "ellipsis"
-				? `${colors.bar(glyphs.bar)}  ${colors.hint("...")}`
-				: this.renderEntry(entries, entry, glyphs, colors),
+				? `${frame(glyphs.bar)}  ${colors.hint("...")}`
+				: this.renderEntry(entries, entry, glyphs, colors, frame),
 		);
 	}
 
@@ -522,24 +540,25 @@ class SearchablePrompt {
 		entry: SearchablePromptEntry,
 		glyphs: PromptGlyphs,
 		colors: PromptColors,
+		frame: (value: string) => string,
 	): string {
 		const active = entries[this.cursor] === entry;
 		const selected = isSelectableEntry(entry) && this.selected.has(entry.value);
 		const prefix = this.entryPrefix(entry, active, selected, glyphs);
 		const line = isSelectableEntry(entry)
-			? selected
-				? colors.selected(entry.label)
-				: active
-					? colors.option(entry.label)
-					: colors.hint(entry.label)
+			? active
+				? entry.label
+				: colors.hint(entry.label)
 			: colors.hint(entry.label);
 		const marker = selected
 			? colors.selected(prefix)
 			: active
-				? colors.option(prefix)
+				? this.options.multiple
+					? colors.option(prefix)
+					: colors.selected(prefix)
 				: colors.hint(prefix);
 
-		return `${colors.bar(glyphs.bar)}  ${marker} ${line}`;
+		return `${frame(glyphs.bar)}  ${marker} ${line}`;
 	}
 
 	private entryPrefix(
@@ -561,17 +580,14 @@ class SearchablePrompt {
 		return selected ? glyphs.checked : glyphs.unchecked;
 	}
 
-	private footerText(visibleCount: number): string {
+	private footerText(visibleCount: number, colors: PromptColors): string {
 		if (!this.options.multiple) return "";
 
-		const selected = `${this.selected.size} selected`;
-		return `space to toggle, ${selected}, ${visibleCount} shown`;
-	}
-
-	private searchHint(): string {
-		return this.searchActive
-			? "type to filter, esc to clear"
-			: "press / to search";
+		return [
+			`${colors.key("space")} ${colors.hint("select")}`,
+			`${colors.selected(String(this.selected.size))} ${colors.hint("selected")}`,
+			colors.hint(`${visibleCount} shown`),
+		].join(colors.hint(" · "));
 	}
 
 	private firstSelectableIndex(): number {
@@ -690,10 +706,14 @@ function promptGlyphs(): PromptGlyphs {
 
 function promptColors(): PromptColors {
 	return {
+		activeBar: cyan,
 		bar: gray,
 		error: yellow,
+		errorBar: yellow,
 		hint: dim,
+		key: cyan,
 		option: cyan,
+		search: cyan,
 		selected: green,
 		symbol: (value, state) => {
 			if (state === "submit") return green(value);
@@ -702,6 +722,15 @@ function promptColors(): PromptColors {
 			return cyan(value);
 		},
 	};
+}
+
+function promptFrameColor(
+	state: string,
+	colors: PromptColors,
+): (value: string) => string {
+	if (state === "error") return colors.errorBar;
+	if (state === "active" || state === "initial") return colors.activeBar;
+	return colors.bar;
 }
 
 function promptSymbol(state: string, glyphs: PromptGlyphs): string {
