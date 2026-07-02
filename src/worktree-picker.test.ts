@@ -172,6 +172,7 @@ describe("worktree picker search", () => {
 		// Then the full search text is preserved and the active item preview is shown.
 		await expect(choice).resolves.toBe(selectedPath);
 		const rendered = stripVTControlCharacters(output.text());
+		expect(rendered).toContain("current ");
 		expect(rendered).toContain("unique-visible-tail");
 		expect(rendered).toContain("selected-worktree");
 		expect(rendered).toContain("…");

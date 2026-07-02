@@ -627,8 +627,14 @@ class SearchablePrompt {
 		const entry = entries[this.cursor];
 		if (!isSelectableEntry(entry) || entry.detail === undefined) return null;
 
-		const detail = middleEllipsize(entry.detail, this.previewWidth());
-		return colors.hint(detail);
+		const label = "current";
+		const separator = " ";
+		const width = this.previewWidth();
+		const prefixWidth = terminalWidth(label) + terminalWidth(separator);
+		if (width <= prefixWidth) return colors.key(middleEllipsize(label, width));
+
+		const detail = middleEllipsize(entry.detail, width - prefixWidth);
+		return `${colors.key(label)}${colors.hint(separator)}${colors.hint(detail)}`;
 	}
 
 	private entryLabel(entry: SearchablePromptEntry, prefix: string): string {
