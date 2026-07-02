@@ -1,4 +1,6 @@
-import { groupMultiselect, isCancel, select } from "@clack/prompts";
+import { stdin, stdout } from "node:process";
+import { emitKeypressEvents } from "node:readline";
+import type { Readable, Writable } from "node:stream";
 
 import { loadHistory } from "./history.js";
 import type { WorktreeEntry } from "./repo.js";
@@ -21,6 +23,17 @@ export interface WorktreePromptEntry extends WorktreeEntry {
 	group: "recent" | "other";
 	label: string;
 	repoName: string;
+}
+
+export interface WorktreePickerIO {
+	input?: Readable & {
+		isTTY?: boolean;
+		setRawMode?: (mode: boolean) => void;
+	};
+	output?: Writable & {
+		columns?: number;
+		rows?: number;
+	};
 }
 
 interface SortableWorktreePromptEntry extends WorktreePromptEntry {
@@ -111,31 +124,39 @@ function isAmbiguousRepoOnlyQuery(
 export async function promptForSingleWorktree(
 	message: string,
 	worktrees: WorktreePromptEntry[],
+	io: WorktreePickerIO = {},
 ): Promise<string | null> {
-	const choice = await select<string>({
-		message,
-		options: worktrees.map((worktree) => ({
+	const choice = await runSearchablePrompt<string>({
+		entries: worktrees.map((worktree) => ({
 			label: worktree.label,
+			searchText: buildPromptSearchText(worktree),
 			value: worktree.path,
 		})),
-		maxItems: 12,
+		input: io.input,
+		message,
+		multiple: false,
+		output: io.output,
+		required: true,
 	});
 
-	return isCancel(choice) ? null : choice;
+	return typeof choice === "string" ? choice : null;
 }
 
 export async function promptForMultipleWorktrees(
 	message: string,
 	worktrees: WorktreePromptEntry[],
+	io: WorktreePickerIO = {},
 ): Promise<string[] | null> {
-	const choice = await groupMultiselect<string>({
+	const choice = await runSearchablePrompt<string>({
+		entries: buildGroupedSearchableEntries(worktrees),
+		input: io.input,
 		message,
-		options: groupPromptEntries(worktrees),
+		multiple: true,
+		output: io.output,
 		required: true,
-		selectableGroups: false,
 	});
 
-	return isCancel(choice) ? null : choice;
+	return Array.isArray(choice) ? choice : null;
 }
 
 function compareQueryMatches(
@@ -160,20 +181,449 @@ function compareQueryMatches(
 
 function groupPromptEntries(
 	worktrees: WorktreePromptEntry[],
-): Record<string, { label: string; value: string }[]> {
-	const groups: Record<string, { label: string; value: string }[]> = {};
+): Array<[string, WorktreePromptEntry[]]> {
+	const groups = new Map<string, WorktreePromptEntry[]>();
 
 	for (const worktree of worktrees) {
 		const group =
 			worktree.group === "recent" ? "Recent worktrees" : "Other worktrees";
-		groups[group] ??= [];
-		groups[group].push({
-			label: worktree.label,
-			value: worktree.path,
+		groups.set(group, [...(groups.get(group) ?? []), worktree]);
+	}
+
+	return [...groups.entries()];
+}
+
+function buildGroupedSearchableEntries(
+	worktrees: WorktreePromptEntry[],
+): SearchablePromptEntry<string>[] {
+	const entries: SearchablePromptEntry<string>[] = [];
+
+	for (const [group, groupWorktrees] of groupPromptEntries(worktrees)) {
+		entries.push({
+			label: group,
+			searchText: group.toLowerCase(),
+			selectable: false,
+			value: group,
+		});
+
+		for (const worktree of groupWorktrees) {
+			entries.push({
+				group,
+				label: worktree.label,
+				searchText: buildPromptSearchText(worktree),
+				selectable: true,
+				value: worktree.path,
+			});
+		}
+	}
+
+	return entries;
+}
+
+interface SearchablePromptEntry<Value> {
+	group?: string;
+	label: string;
+	searchText: string;
+	selectable?: boolean;
+	value: Value;
+}
+
+type SearchablePromptResult<Value> = Value | Value[] | null;
+
+interface SearchablePromptOptions<Value> extends WorktreePickerIO {
+	entries: SearchablePromptEntry<Value>[];
+	message: string;
+	multiple: boolean;
+	required: boolean;
+}
+
+async function runSearchablePrompt<Value>(
+	options: SearchablePromptOptions<Value>,
+): Promise<SearchablePromptResult<Value>> {
+	const input = options.input ?? stdin;
+	const output = options.output ?? stdout;
+
+	if (!input.isTTY) {
+		return null;
+	}
+
+	const prompt = new SearchablePrompt(options, input, output);
+
+	return prompt.run();
+}
+
+class SearchablePrompt<Value> {
+	private cursor = 0;
+	private frameLines = 0;
+	private query = "";
+	private resolve: ((value: SearchablePromptResult<Value>) => void) | undefined;
+	private searchActive = false;
+	private selected = new Set<Value>();
+
+	constructor(
+		private readonly options: SearchablePromptOptions<Value>,
+		private readonly input: Readable & {
+			isTTY?: boolean;
+			setRawMode?: (mode: boolean) => void;
+		},
+		private readonly output: Writable & {
+			columns?: number;
+			rows?: number;
+		},
+	) {}
+
+	run(): Promise<SearchablePromptResult<Value>> {
+		return new Promise((resolve) => {
+			this.resolve = resolve;
+			this.start();
 		});
 	}
 
-	return groups;
+	private start(): void {
+		emitKeypressEvents(this.input);
+		this.input.setRawMode?.(true);
+		this.output.write("\x1b[?25l");
+		this.input.on("keypress", this.handleKeypress);
+		this.render();
+	}
+
+	private handleKeypress = (
+		character: string | undefined,
+		key?: { ctrl?: boolean; name?: string },
+	): void => {
+		if (key?.ctrl && key.name === "c") {
+			this.finish(null);
+			return;
+		}
+
+		if (key?.name === "escape") {
+			this.handleEscape();
+			return;
+		}
+
+		if (this.searchActive && this.handleSearchKey(character, key?.name)) {
+			this.render();
+			return;
+		}
+
+		if (character === "/" && !this.searchActive) {
+			this.searchActive = true;
+			this.query = "";
+			this.cursor = this.firstSelectableIndex();
+			this.render();
+			return;
+		}
+
+		this.handleNavigationKey(character, key?.name);
+		this.render();
+	};
+
+	private handleEscape(): void {
+		if (this.searchActive || this.query.length > 0) {
+			this.searchActive = false;
+			this.query = "";
+			this.cursor = this.firstSelectableIndex();
+			this.render();
+			return;
+		}
+
+		this.finish(null);
+	}
+
+	private handleSearchKey(
+		character: string | undefined,
+		keyName?: string,
+	): boolean {
+		if (keyName === "space" || character === " ") {
+			return false;
+		}
+
+		if (keyName === "backspace" || keyName === "delete") {
+			this.query = this.query.slice(0, -1);
+			this.cursor = this.firstSelectableIndex();
+			return true;
+		}
+
+		if (isPrintableSearchCharacter(character)) {
+			this.query += character;
+			this.cursor = this.firstSelectableIndex();
+			return true;
+		}
+
+		return false;
+	}
+
+	private handleNavigationKey(
+		character: string | undefined,
+		keyName?: string,
+	): void {
+		switch (keyName) {
+			case "up":
+				this.moveCursor(-1);
+				return;
+			case "down":
+				this.moveCursor(1);
+				return;
+			case "return":
+				this.submit();
+				return;
+			case "space":
+				this.toggleSelection();
+				return;
+		}
+
+		switch (character) {
+			case "k":
+				this.moveCursor(-1);
+				return;
+			case "j":
+				this.moveCursor(1);
+				return;
+			case " ":
+				this.toggleSelection();
+				return;
+		}
+	}
+
+	private moveCursor(direction: -1 | 1): void {
+		const entries = this.visibleEntries();
+		if (entries.length === 0) return;
+
+		let nextCursor = this.cursor;
+		for (let index = 0; index < entries.length; index += 1) {
+			nextCursor = wrapIndex(nextCursor + direction, entries.length);
+			if (isSelectableEntry(entries[nextCursor])) {
+				this.cursor = nextCursor;
+				return;
+			}
+		}
+	}
+
+	private submit(): void {
+		const entry = this.visibleEntries()[this.cursor];
+
+		if (!this.options.multiple) {
+			this.finish(isSelectableEntry(entry) ? entry.value : null);
+			return;
+		}
+
+		if (this.options.required && this.selected.size === 0) {
+			return;
+		}
+
+		this.finish([...this.selected]);
+	}
+
+	private toggleSelection(): void {
+		if (!this.options.multiple) return;
+
+		const entry = this.visibleEntries()[this.cursor];
+		if (!isSelectableEntry(entry)) return;
+
+		if (this.selected.has(entry.value)) {
+			this.selected.delete(entry.value);
+			return;
+		}
+
+		this.selected.add(entry.value);
+	}
+
+	private render(): void {
+		const frame = this.buildFrame();
+		if (this.frameLines > 0) {
+			this.output.write(`\x1b[${this.frameLines}A\r\x1b[J`);
+		}
+		this.output.write(frame);
+		this.frameLines = frame.split("\n").length - 1;
+	}
+
+	private buildFrame(): string {
+		const entries = this.visibleEntries();
+		const visibleEntries = windowPromptEntries(
+			entries,
+			this.cursor,
+			this.maxItems(),
+		);
+		const search =
+			this.searchActive || this.query.length > 0 ? ` /${this.query}` : "";
+		const lines = [
+			"|",
+			`?  ${this.options.message}${search}`,
+			"|",
+			...this.renderEntries(visibleEntries),
+			"|",
+			`-  ${this.footerText(entries.length)}`,
+		];
+
+		return `${lines.join("\n")}\n`;
+	}
+
+	private renderEntries(
+		entries: Array<SearchablePromptEntry<Value> | "ellipsis">,
+	): string[] {
+		if (this.visibleEntries().length === 0) {
+			return ["|  No matching worktrees"];
+		}
+
+		return entries.map((entry) =>
+			entry === "ellipsis" ? "|  ..." : this.renderEntry(entry),
+		);
+	}
+
+	private renderEntry(entry: SearchablePromptEntry<Value>): string {
+		const entries = this.visibleEntries();
+		const active = entries[this.cursor] === entry;
+		const selected = this.selected.has(entry.value);
+		const prefix = this.entryPrefix(entry, active, selected);
+
+		return `|  ${prefix} ${entry.label}`;
+	}
+
+	private entryPrefix(
+		entry: SearchablePromptEntry<Value>,
+		active: boolean,
+		selected: boolean,
+	): string {
+		if (!isSelectableEntry(entry)) {
+			return active ? ">" : " ";
+		}
+
+		if (!this.options.multiple) {
+			return active ? ">" : " ";
+		}
+
+		if (active && selected) return "[x]";
+		if (active) return "[ ]";
+		return selected ? "[x]" : "[ ]";
+	}
+
+	private footerText(visibleCount: number): string {
+		if (this.searchActive) {
+			return "type to filter, esc to clear, enter to choose";
+		}
+
+		const searchHint = "press / to search";
+		if (!this.options.multiple) return searchHint;
+
+		const selected = `${this.selected.size} selected`;
+		return `${searchHint}, space to toggle, ${selected}, ${visibleCount} shown`;
+	}
+
+	private finish(value: SearchablePromptResult<Value>): void {
+		this.input.off("keypress", this.handleKeypress);
+		this.input.setRawMode?.(false);
+		this.output.write("\x1b[?25h");
+		this.output.write("\n");
+		this.resolve?.(value);
+	}
+
+	private firstSelectableIndex(): number {
+		const index = this.visibleEntries().findIndex(isSelectableEntry);
+
+		return index === -1 ? 0 : index;
+	}
+
+	private visibleEntries(): SearchablePromptEntry<Value>[] {
+		const query = normalizeQuery(this.query);
+		if (query === null) {
+			return this.options.entries;
+		}
+
+		return filterSearchablePromptEntries(this.options.entries, query);
+	}
+
+	private maxItems(): number {
+		const rows = this.output.rows ?? 16;
+		return Math.max(5, Math.min(12, rows - 6));
+	}
+}
+
+function isPrintableSearchCharacter(
+	character: string | undefined,
+): character is string {
+	return (
+		typeof character === "string" &&
+		character.length === 1 &&
+		character >= " " &&
+		character !== "\u007f"
+	);
+}
+
+function wrapIndex(index: number, length: number): number {
+	return (index + length) % length;
+}
+
+function windowPromptEntries<Value>(
+	entries: SearchablePromptEntry<Value>[],
+	cursor: number,
+	maxItems: number,
+): Array<SearchablePromptEntry<Value> | "ellipsis"> {
+	if (entries.length <= maxItems) {
+		return entries;
+	}
+
+	const activeIndex = Math.min(Math.max(cursor, 0), entries.length - 1);
+	const start = Math.max(
+		0,
+		Math.min(activeIndex - 2, entries.length - maxItems),
+	);
+	const window = entries.slice(start, start + maxItems);
+
+	if (start > 0) {
+		window[0] = "ellipsis" as never;
+	}
+
+	if (start + maxItems < entries.length) {
+		window[window.length - 1] = "ellipsis" as never;
+	}
+
+	return window;
+}
+
+function filterSearchablePromptEntries<Value>(
+	entries: SearchablePromptEntry<Value>[],
+	query: string,
+): SearchablePromptEntry<Value>[] {
+	const filtered: SearchablePromptEntry<Value>[] = [];
+	let pendingGroup: SearchablePromptEntry<Value> | null = null;
+
+	for (const entry of entries) {
+		if (!isSelectableEntry(entry)) {
+			pendingGroup = entry;
+			continue;
+		}
+
+		if (!entry.searchText.includes(query)) {
+			continue;
+		}
+
+		if (pendingGroup !== null) {
+			filtered.push(pendingGroup);
+			pendingGroup = null;
+		}
+
+		filtered.push(entry);
+	}
+
+	return filtered;
+}
+
+function isSelectableEntry<Value>(
+	entry: SearchablePromptEntry<Value> | undefined,
+): entry is SearchablePromptEntry<Value> {
+	return entry !== undefined && entry.selectable !== false;
+}
+
+function buildPromptSearchText(worktree: WorktreePromptEntry): string {
+	return [
+		worktree.repoName,
+		worktree.branch ?? "detached",
+		worktree.path,
+		worktree.label,
+		`${worktree.repoName}/${worktree.branch ?? "detached"}`,
+	]
+		.join(" ")
+		.toLowerCase();
 }
 
 function buildWorktreePromptEntry(
