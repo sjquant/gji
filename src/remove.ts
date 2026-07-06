@@ -12,7 +12,7 @@ import {
 	forceDeleteBranch,
 	forceRemoveWorktree,
 	isBranchUnmergedError,
-	isWorktreeDirtyError,
+	isWorktreeForceRemovalError,
 	loadLinkedWorktrees,
 	removeWorktree,
 } from "./worktree-management.js";
@@ -163,7 +163,7 @@ export function createRemoveCommand(
 		try {
 			await removeWorktree(repository.repoRoot, worktree.path);
 		} catch (error) {
-			if (!isWorktreeDirtyError(error)) {
+			if (!isWorktreeForceRemovalError(error)) {
 				throw error;
 			}
 

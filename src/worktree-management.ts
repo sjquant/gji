@@ -1,4 +1,5 @@
 import { execFile } from "node:child_process";
+import { rm } from "node:fs/promises";
 import { promisify } from "node:util";
 
 import {
@@ -46,10 +47,22 @@ export async function forceRemoveWorktree(
 	repoRoot: string,
 	worktreePath: string,
 ): Promise<void> {
-	await execFileAsync("git", ["worktree", "remove", "--force", worktreePath], {
-		cwd: repoRoot,
-		env: GIT_ENV,
-	});
+	try {
+		await execFileAsync(
+			"git",
+			["worktree", "remove", "--force", worktreePath],
+			{
+				cwd: repoRoot,
+				env: GIT_ENV,
+			},
+		);
+	} catch (error) {
+		if (await isRegisteredWorktree(repoRoot, worktreePath)) {
+			throw error;
+		}
+
+		await rm(worktreePath, { force: true, recursive: true });
+	}
 }
 
 export async function deleteBranch(
@@ -72,10 +85,14 @@ export async function forceDeleteBranch(
 	});
 }
 
-export function isWorktreeDirtyError(error: unknown): boolean {
+export function isWorktreeForceRemovalError(error: unknown): boolean {
+	if (!hasStderr(error)) {
+		return false;
+	}
+
 	return (
-		hasStderr(error) &&
-		error.stderr.includes("contains modified or untracked files")
+		error.stderr.includes("contains modified or untracked files") ||
+		error.stderr.includes("failed to delete")
 	);
 }
 
@@ -89,4 +106,13 @@ function hasStderr(error: unknown): error is { stderr: string } {
 		"stderr" in error &&
 		typeof (error as { stderr: unknown }).stderr === "string"
 	);
+}
+
+async function isRegisteredWorktree(
+	repoRoot: string,
+	worktreePath: string,
+): Promise<boolean> {
+	const worktrees = await listWorktrees(repoRoot);
+
+	return worktrees.some((worktree) => worktree.path === worktreePath);
 }
