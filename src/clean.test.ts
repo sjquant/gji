@@ -1,6 +1,6 @@
-import { mkdtemp, writeFile } from "node:fs/promises";
+import { chmod, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
@@ -435,7 +435,7 @@ describe("gji clean", () => {
 		expect(promptedForForce).toBe(true);
 	});
 
-	it("aborts when a dirty worktree force remove is declined", async () => {
+	it("reports a dirty worktree failure when force remove is declined", async () => {
 		// Given a repository with a linked worktree that has an untracked file and a declined force prompt.
 		const repoRoot = await createRepository();
 		const branch = "feature/clean-dirty-decline";
@@ -457,9 +457,10 @@ describe("gji clean", () => {
 			}),
 		).toBe(1);
 
-		// Then it leaves the worktree intact and reports the abort.
+		// Then it leaves the worktree intact and reports the failed cleanup.
 		await expect(pathExists(worktreePath)).resolves.toBe(true);
-		expect(stderr.join("")).toContain("Aborted");
+		expect(stderr.join("")).toContain("Failed to clean 1 worktree");
+		expect(stderr.join("")).toContain(worktreePath);
 	});
 
 	it("force-deletes an unmerged branch when the user confirms", async () => {
@@ -548,22 +549,28 @@ describe("gji clean", () => {
 		await expect(pathExists(worktreePath)).resolves.toBe(false);
 	});
 
-	it("reports already-removed worktrees when aborting mid-batch due to a declined force remove", async () => {
-		// Given a repository with two linked worktrees, the second having an untracked file.
+	it("continues cleaning after a declined force remove in a batch", async () => {
+		// Given a repository with three linked worktrees, the second having an untracked file.
 		const repoRoot = await createRepository();
 		const firstBranch = "feature/clean-batch-first";
 		const dirtyBranch = "feature/clean-batch-dirty";
+		const lastBranch = "feature/clean-batch-last";
 		const firstWorktreePath = await addLinkedWorktree(repoRoot, firstBranch);
 		const dirtyWorktreePath = await addLinkedWorktree(repoRoot, dirtyBranch);
+		const lastWorktreePath = await addLinkedWorktree(repoRoot, lastBranch);
 		await writeFile(join(dirtyWorktreePath, "untracked.txt"), "dirty");
 		const stderr: string[] = [];
 		const runCleanCommand = createCleanCommand({
 			confirmForceRemoveWorktree: async () => false,
 			confirmRemoval: async () => true,
-			promptForWorktrees: async () => [firstWorktreePath, dirtyWorktreePath],
+			promptForWorktrees: async () => [
+				firstWorktreePath,
+				dirtyWorktreePath,
+				lastWorktreePath,
+			],
 		});
 
-		// When gji clean runs and force remove is declined for the second (dirty) worktree.
+		// When gji clean runs and force remove is declined for the dirty worktree.
 		expect(
 			await runCleanCommand({
 				cwd: repoRoot,
@@ -572,12 +579,56 @@ describe("gji clean", () => {
 			}),
 		).toBe(1);
 
-		// Then the first was removed, the second is kept, and stderr reports what was already done.
+		// Then it removes the remaining clean worktrees and reports the dirty worktree failure.
 		await expect(pathExists(firstWorktreePath)).resolves.toBe(false);
 		await expect(pathExists(dirtyWorktreePath)).resolves.toBe(true);
+		await expect(pathExists(lastWorktreePath)).resolves.toBe(false);
+		await expect(branchExists(repoRoot, firstBranch)).resolves.toBe(false);
+		await expect(branchExists(repoRoot, dirtyBranch)).resolves.toBe(true);
+		await expect(branchExists(repoRoot, lastBranch)).resolves.toBe(false);
 		const stderrOutput = stderr.join("");
-		expect(stderrOutput).toContain(firstWorktreePath);
-		expect(stderrOutput).toContain("Aborted");
+		expect(stderrOutput).toContain("Failed to clean 1 worktree");
+		expect(stderrOutput).toContain(dirtyWorktreePath);
+		expect(stderrOutput).not.toContain("Aborted");
+	});
+
+	it("continues cleaning after a filesystem deletion failure without deleting that branch", async () => {
+		// Given a selected worktree whose parent directory cannot be modified and another clean worktree.
+		const repoRoot = await createRepository();
+		const failedBranch = "blocked/clean-delete-fails";
+		const removedBranch = "other/clean-delete-succeeds";
+		const failedWorktreePath = await addLinkedWorktree(repoRoot, failedBranch);
+		const removedWorktreePath = await addLinkedWorktree(
+			repoRoot,
+			removedBranch,
+		);
+		const failedParent = dirname(failedWorktreePath);
+		const stderr: string[] = [];
+
+		await chmod(failedParent, 0o500);
+
+		try {
+			// When gji clean runs with force and Git cannot delete one worktree directory.
+			expect(
+				await createCleanCommand()({
+					cwd: repoRoot,
+					force: true,
+					stderr: (chunk) => stderr.push(chunk),
+					stdout: () => undefined,
+				}),
+			).toBe(1);
+		} finally {
+			await chmod(failedParent, 0o700);
+		}
+
+		// Then it keeps the failed worktree branch, removes the other branch, and reports the failure.
+		await expect(pathExists(failedWorktreePath)).resolves.toBe(true);
+		await expect(pathExists(removedWorktreePath)).resolves.toBe(false);
+		await expect(branchExists(repoRoot, failedBranch)).resolves.toBe(true);
+		await expect(branchExists(repoRoot, removedBranch)).resolves.toBe(false);
+		const stderrOutput = stderr.join("");
+		expect(stderrOutput).toContain("Failed to clean 1 worktree");
+		expect(stderrOutput).toContain(failedWorktreePath);
 	});
 
 	it("skips force prompts when force option is set", async () => {
