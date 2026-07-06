@@ -21,7 +21,8 @@ import {
 	forceDeleteBranch,
 	forceRemoveWorktree,
 	isBranchUnmergedError,
-	isWorktreeDirtyError,
+	isWorktreeDeletionError,
+	isWorktreeForceRemovalError,
 	loadLinkedWorktrees,
 	removeWorktree,
 } from "./worktree-management.js";
@@ -52,6 +53,12 @@ export interface CleanCommandDependencies {
 	promptForWorktrees: (
 		worktrees: WorktreePromptEntry[],
 	) => Promise<string[] | null>;
+}
+
+interface CleanFailure {
+	branch: string | null;
+	message: string;
+	path: string;
 }
 
 export function createCleanCommand(
@@ -170,8 +177,8 @@ export function createCleanCommand(
 			return 0;
 		}
 
-		const removedPaths: string[] = [];
 		const removedWorktrees: WorktreeEntry[] = [];
+		const failures: CleanFailure[] = [];
 
 		for (const worktree of selectedWorktrees) {
 			if (
@@ -191,11 +198,16 @@ export function createCleanCommand(
 			try {
 				await removeWorktree(repository.repoRoot, worktree.path);
 			} catch (error) {
-				if (!isWorktreeDirtyError(error)) {
-					throw error;
+				if (!isWorktreeForceRemovalError(error)) {
+					failures.push({
+						branch: worktree.branch,
+						message: toMessage(error),
+						path: worktree.path,
+					});
+					continue;
 				}
 
-				if (options.stale) {
+				if (options.stale && !isWorktreeDeletionError(error)) {
 					options.stderr(
 						`Skipped ${worktree.path}: no longer a safe stale cleanup candidate\n`,
 					);
@@ -206,26 +218,26 @@ export function createCleanCommand(
 					!options.force &&
 					!(await confirmForceRemoveWorktree(worktree.path))
 				) {
-					reportRemovedPaths(removedPaths, options.stderr);
-					options.stderr("Aborted\n");
-					return 1;
+					failures.push({
+						branch: worktree.branch,
+						message: "force removal declined",
+						path: worktree.path,
+					});
+					continue;
 				}
 
 				try {
 					await forceRemoveWorktree(repository.repoRoot, worktree.path);
 				} catch (forceError) {
-					if (!options.json) {
-						reportRemovedPaths(removedPaths, options.stderr);
-					}
-					emitError(
-						options,
-						`Failed to remove worktree at ${worktree.path}: ${toMessage(forceError)}`,
-					);
-					return 1;
+					failures.push({
+						branch: worktree.branch,
+						message: toMessage(forceError),
+						path: worktree.path,
+					});
+					continue;
 				}
 			}
 
-			removedPaths.push(worktree.path);
 			removedWorktrees.push(worktree);
 
 			if (worktree.branch) {
@@ -264,12 +276,16 @@ export function createCleanCommand(
 					? { branch: worktree.branch, path: worktree.path }
 					: serializeWorktreeInfo(info);
 			});
-			options.stdout(`${JSON.stringify({ removed }, null, 2)}\n`);
+			const payload =
+				failures.length === 0 ? { removed } : { removed, failed: failures };
+			options.stdout(`${JSON.stringify(payload, null, 2)}\n`);
+		} else if (failures.length > 0) {
+			reportCleanFailures(failures, options.stderr);
 		} else {
 			options.stdout(`${repository.repoRoot}\n`);
 		}
 
-		return 0;
+		return failures.length === 0 ? 0 : 1;
 	};
 }
 
@@ -388,12 +404,16 @@ function resolveSelectedWorktrees(
 	return selectedWorktrees;
 }
 
-function reportRemovedPaths(
-	paths: string[],
+function reportCleanFailures(
+	failures: CleanFailure[],
 	stderr: (chunk: string) => void,
 ): void {
-	if (paths.length > 0) {
-		stderr(`Already removed: ${paths.join(", ")}\n`);
+	const noun = failures.length === 1 ? "worktree" : "worktrees";
+
+	stderr(`Failed to clean ${failures.length} ${noun}:\n`);
+	for (const failure of failures) {
+		const branch = failure.branch === null ? "detached" : failure.branch;
+		stderr(`- ${failure.path} (${branch}): ${failure.message}\n`);
 	}
 }
 

@@ -1,6 +1,6 @@
-import { mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { chmod, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
@@ -287,6 +287,40 @@ describe("gji remove", () => {
 		// Then it force-removes the worktree after prompting.
 		await expect(pathExists(worktreePath)).resolves.toBe(false);
 		expect(promptedForForce).toBe(true);
+	});
+
+	it("fails fast without deleting the branch when a worktree directory cannot be deleted", async () => {
+		// Given a linked worktree whose parent directory cannot be modified.
+		const repoRoot = await createRepository();
+		const branch = "blocked/remove-delete-fails";
+		const worktreePath = await addLinkedWorktree(repoRoot, branch);
+		const worktreeParent = dirname(worktreePath);
+		const stdout: string[] = [];
+		const stderr: string[] = [];
+
+		await chmod(worktreeParent, 0o500);
+
+		try {
+			// When gji remove --force runs and Git cannot delete the worktree directory.
+			expect(
+				await createRemoveCommand()({
+					branch,
+					cwd: repoRoot,
+					force: true,
+					stderr: (chunk) => stderr.push(chunk),
+					stdout: (chunk) => stdout.push(chunk),
+				}),
+			).toBe(1);
+		} finally {
+			await chmod(worktreeParent, 0o700);
+		}
+
+		// Then it reports the failed removal, preserves the branch, and does not emit success output.
+		await expect(pathExists(worktreePath)).resolves.toBe(true);
+		await expect(branchExists(repoRoot, branch)).resolves.toBe(true);
+		expect(stdout).toEqual([]);
+		expect(stderr.join("")).toContain("Failed to remove worktree");
+		expect(stderr.join("")).toContain(worktreePath);
 	});
 
 	it("aborts when a worktree has untracked files and force remove is declined", async () => {
