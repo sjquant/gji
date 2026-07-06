@@ -379,6 +379,54 @@ describe("gji clean", () => {
 		);
 	});
 
+	it("reports stale cleanup filesystem deletion failures without deleting that branch", async () => {
+		// Given stale cleanup candidates where one worktree directory cannot be deleted.
+		const { repoRoot } = await createRepositoryWithOrigin();
+		const failedBranch = "blocked/clean-stale-delete-fails";
+		const removedBranch = "other/clean-stale-delete-succeeds";
+		const failedWorktreePath = await addRemoteTrackedWorktree(
+			repoRoot,
+			failedBranch,
+		);
+		const removedWorktreePath = await addRemoteTrackedWorktree(
+			repoRoot,
+			removedBranch,
+		);
+		const failedParent = dirname(failedWorktreePath);
+		const stderr: string[] = [];
+		await deleteRemoteBranch(repoRoot, failedBranch);
+		await deleteRemoteBranch(repoRoot, removedBranch);
+
+		await chmod(failedParent, 0o500);
+
+		try {
+			// When gji clean --stale --force runs and Git cannot delete one selected worktree.
+			expect(
+				await createCleanCommand()({
+					cwd: repoRoot,
+					force: true,
+					stale: true,
+					stderr: (chunk) => stderr.push(chunk),
+					stdout: () => undefined,
+				}),
+			).toBe(1);
+		} finally {
+			await chmod(failedParent, 0o700);
+		}
+
+		// Then it reports the failure, preserves that branch, and continues with other stale worktrees.
+		await expect(pathExists(failedWorktreePath)).resolves.toBe(true);
+		await expect(pathExists(removedWorktreePath)).resolves.toBe(false);
+		await expect(branchExists(repoRoot, failedBranch)).resolves.toBe(true);
+		await expect(branchExists(repoRoot, removedBranch)).resolves.toBe(false);
+		const stderrOutput = stderr.join("");
+		expect(stderrOutput).toContain("Failed to clean 1 worktree");
+		expect(stderrOutput).toContain(failedWorktreePath);
+		expect(stderrOutput).not.toContain(
+			"no longer a safe stale cleanup candidate",
+		);
+	});
+
 	it("reports an empty no-op when --stale --json finds no stale worktrees", async () => {
 		// Given a repository with an active linked worktree and no stale candidates.
 		const { repoRoot } = await createRepositoryWithOrigin();
@@ -710,6 +758,65 @@ describe("gji clean", () => {
 					upstream: { kind: "no-upstream" },
 				}),
 			);
+		});
+
+		it("emits removed and failed worktrees when a JSON clean partially fails", async () => {
+			// Given two linked worktrees where one worktree directory cannot be deleted.
+			const repoRoot = await createRepository();
+			const failedBranch = "blocked/json-clean-delete-fails";
+			const removedBranch = "other/json-clean-delete-succeeds";
+			const failedWorktreePath = await addLinkedWorktree(
+				repoRoot,
+				failedBranch,
+			);
+			const removedWorktreePath = await addLinkedWorktree(
+				repoRoot,
+				removedBranch,
+			);
+			const failedParent = dirname(failedWorktreePath);
+			const stdout: string[] = [];
+			const stderr: string[] = [];
+
+			await chmod(failedParent, 0o500);
+
+			try {
+				// When gji clean --json --force runs and one selected worktree fails to delete.
+				expect(
+					await createCleanCommand()({
+						cwd: repoRoot,
+						force: true,
+						json: true,
+						stderr: (chunk) => stderr.push(chunk),
+						stdout: (chunk) => stdout.push(chunk),
+					}),
+				).toBe(1);
+			} finally {
+				await chmod(failedParent, 0o700);
+			}
+
+			// Then stdout contains the public partial-failure contract and stderr stays empty.
+			expect(stderr).toEqual([]);
+			await expect(pathExists(failedWorktreePath)).resolves.toBe(true);
+			await expect(pathExists(removedWorktreePath)).resolves.toBe(false);
+			await expect(branchExists(repoRoot, failedBranch)).resolves.toBe(true);
+			await expect(branchExists(repoRoot, removedBranch)).resolves.toBe(false);
+			expect(JSON.parse(stdout.join(""))).toEqual({
+				removed: [
+					expect.objectContaining({
+						branch: removedBranch,
+						path: removedWorktreePath,
+						status: "clean",
+						upstream: { kind: "no-upstream" },
+					}),
+				],
+				failed: [
+					expect.objectContaining({
+						branch: failedBranch,
+						path: failedWorktreePath,
+						message: expect.any(String),
+					}),
+				],
+			});
 		});
 
 		it("emits { error } to stderr and exits 1 when --force is not set", async () => {

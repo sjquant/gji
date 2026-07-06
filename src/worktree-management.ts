@@ -57,7 +57,10 @@ export async function forceRemoveWorktree(
 			},
 		);
 	} catch (error) {
-		if (await isRegisteredWorktree(repoRoot, worktreePath)) {
+		const worktreeIsStillRegistered = (await listWorktrees(repoRoot)).some(
+			(worktree) => worktree.path === worktreePath,
+		);
+		if (worktreeIsStillRegistered) {
 			throw error;
 		}
 
@@ -92,8 +95,12 @@ export function isWorktreeForceRemovalError(error: unknown): boolean {
 
 	return (
 		error.stderr.includes("contains modified or untracked files") ||
-		error.stderr.includes("failed to delete")
+		isWorktreeDeletionError(error)
 	);
+}
+
+export function isWorktreeDeletionError(error: unknown): boolean {
+	return hasStderr(error) && error.stderr.includes("failed to delete");
 }
 
 export function isBranchUnmergedError(error: unknown): boolean {
@@ -106,13 +113,4 @@ function hasStderr(error: unknown): error is { stderr: string } {
 		"stderr" in error &&
 		typeof (error as { stderr: unknown }).stderr === "string"
 	);
-}
-
-async function isRegisteredWorktree(
-	repoRoot: string,
-	worktreePath: string,
-): Promise<boolean> {
-	const worktrees = await listWorktrees(repoRoot);
-
-	return worktrees.some((worktree) => worktree.path === worktreePath);
 }
