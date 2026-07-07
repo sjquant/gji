@@ -1,4 +1,4 @@
 User-agent: *
 Allow: /
 
-Sitemap: https://sjquant.github.io/gji/sitemap.xml
+Sitemap: https://gji.solaqua.dev/sitemap.xml
