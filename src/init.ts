@@ -34,8 +34,6 @@ const START_MARKER = "# >>> gji init >>>";
 const END_MARKER = "# <<< gji init <<<";
 const ONBOARDING_START_MARKER = "# >>> gji shell integration >>>";
 const ONBOARDING_END_MARKER = "# <<< gji shell integration <<<";
-const ZSH_COMPLETION_PATH_START_MARKER = "# >>> gji zsh completion path >>>";
-const ZSH_COMPLETION_PATH_END_MARKER = "# <<< gji zsh completion path <<<";
 const ZSH_COMPLETION_PATH_LINE = "fpath=(~/.zsh/completions $fpath)";
 
 interface ShellWrappedCommand {
@@ -464,10 +462,7 @@ async function ensureZshCompletionPath(rcPath: string): Promise<void> {
 function upsertZshCompletionPath(existingConfig: string): string {
 	const configWithoutCompletionPath = existingConfig
 		.replace(
-			new RegExp(
-				`${escapeForRegExp(ZSH_COMPLETION_PATH_START_MARKER)}[\\s\\S]*?${escapeForRegExp(ZSH_COMPLETION_PATH_END_MARKER)}\\n?`,
-				"m",
-			),
+			/# >>> gji zsh completion path >>>[\s\S]*?# <<< gji zsh completion path <<<\n?/m,
 			"",
 		)
 		.replace(
@@ -477,17 +472,21 @@ function upsertZshCompletionPath(existingConfig: string): string {
 			),
 			"",
 		);
-	const insertionIndex = findZshCompletionPathInsertionIndex(
-		configWithoutCompletionPath,
-	);
-	const completionPathBlock = renderZshCompletionPath();
+	const insertionIndex =
+		/^(?![ \t]*#)[^\n]*\bcompinit\b[^\n]*(?:\n|$)/m.exec(
+			configWithoutCompletionPath,
+		)?.index ??
+		new RegExp(
+			`^${escapeForRegExp(ONBOARDING_START_MARKER)}|^${escapeForRegExp(START_MARKER)}`,
+			"m",
+		).exec(configWithoutCompletionPath)?.index;
 
 	if (insertionIndex === undefined) {
 		const prefix = configWithoutCompletionPath.trimEnd();
 		return ensureTrailingNewline(
 			prefix.length === 0
-				? completionPathBlock
-				: `${prefix}\n\n${completionPathBlock}`,
+				? ZSH_COMPLETION_PATH_LINE
+				: `${prefix}\n\n${ZSH_COMPLETION_PATH_LINE}`,
 		);
 	}
 
@@ -495,29 +494,9 @@ function upsertZshCompletionPath(existingConfig: string): string {
 	const suffix = configWithoutCompletionPath.slice(insertionIndex);
 	const before = prefix.length === 0 ? "" : `${prefix}\n\n`;
 
-	return ensureTrailingNewline(`${before}${completionPathBlock}\n\n${suffix}`);
-}
-
-function findZshCompletionPathInsertionIndex(
-	config: string,
-): number | undefined {
-	const compinitMatch = /^(?![ \t]*#)[^\n]*\bcompinit\b[^\n]*(?:\n|$)/m.exec(
-		config,
+	return ensureTrailingNewline(
+		`${before}${ZSH_COMPLETION_PATH_LINE}\n\n${suffix}`,
 	);
-	if (compinitMatch?.index !== undefined) return compinitMatch.index;
-
-	const integrationMatch = new RegExp(
-		`^${escapeForRegExp(ONBOARDING_START_MARKER)}|^${escapeForRegExp(START_MARKER)}`,
-		"m",
-	).exec(config);
-
-	return integrationMatch?.index;
-}
-
-function renderZshCompletionPath(): string {
-	return `${ZSH_COMPLETION_PATH_START_MARKER}
-${ZSH_COMPLETION_PATH_LINE}
-${ZSH_COMPLETION_PATH_END_MARKER}`;
 }
 
 async function fileExists(path: string): Promise<boolean> {

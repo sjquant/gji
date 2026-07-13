@@ -246,12 +246,13 @@ describe("gji init onboarding wizard", () => {
 			}),
 		).toBe(0);
 
-		// Then the rc file has one managed block, completion is written, and editor config is saved.
+		// Then the rc file has one shell block and completion path, and editor config is saved.
 		const rcFile = await readFile(join(home, ".zshrc"), "utf8");
 		expect(rcFile.match(/# >>> gji shell integration >>>/g)).toHaveLength(1);
-		expect(rcFile.match(/# >>> gji zsh completion path >>>/g)).toHaveLength(1);
+		expect(
+			rcFile.match(/fpath=\(~\/\.zsh\/completions \$fpath\)/g),
+		).toHaveLength(1);
 		expect(rcFile).toContain('eval "$(gji init zsh)"');
-		expect(rcFile).toContain("fpath=(~/.zsh/completions $fpath)");
 		await expect(
 			readFile(join(home, ".zsh", "completions", "_gji"), "utf8"),
 		).resolves.toContain("#compdef gji");
