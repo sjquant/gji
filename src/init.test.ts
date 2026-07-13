@@ -10,6 +10,7 @@ import { runInitCommand } from "./init.js";
 
 const originalHome = process.env.HOME;
 const originalShell = process.env.SHELL;
+const originalConfigDir = process.env.GJI_CONFIG_DIR;
 
 afterEach(() => {
 	if (originalHome === undefined) {
@@ -22,6 +23,12 @@ afterEach(() => {
 		delete process.env.SHELL;
 	} else {
 		process.env.SHELL = originalShell;
+	}
+
+	if (originalConfigDir === undefined) {
+		delete process.env.GJI_CONFIG_DIR;
+	} else {
+		process.env.GJI_CONFIG_DIR = originalConfigDir;
 	}
 });
 
@@ -58,35 +65,43 @@ describe("gji init", () => {
 		expect(stdout.join("")).toBe(expectedFishIntegration());
 	});
 
-	it("auto-detects the shell from SHELL when no shell is provided", async () => {
-		// Given a zsh SHELL environment and a command output collector.
+	it("requires an interactive terminal when no shell is provided", async () => {
+		// Given a zsh SHELL environment and non-interactive output collectors.
 		const stdout: string[] = [];
+		const stderr: string[] = [];
 		process.env.SHELL = "/bin/zsh";
 
 		// When gji init runs without an explicit shell argument.
 		const result = await runCli(["init"], {
+			stderr: (chunk) => stderr.push(chunk),
 			stdout: (chunk) => stdout.push(chunk),
 		});
 
-		// Then it prints the detected shell integration wrapper without bundled completions.
-		expect(result.exitCode).toBe(0);
-		expect(stdout.join("")).toContain("gji() {");
-		expect(stdout.join("")).not.toContain("compdef _gji_completion gji");
+		// Then it explains how to use the legacy non-interactive install path.
+		expect(result.exitCode).toBe(1);
+		expect(stdout).toEqual([]);
+		expect(stderr.join("")).toBe(
+			"run `gji init <shell> --write` in non-interactive mode\n",
+		);
 	});
 
-	it("auto-detects fish from SHELL when no shell is provided", async () => {
-		// Given a fish SHELL environment and a command output collector.
+	it("emits a JSON error for no-argument init in JSON mode", async () => {
+		// Given a command output collector in JSON mode.
 		const stdout: string[] = [];
-		process.env.SHELL = "/opt/homebrew/bin/fish";
+		const stderr: string[] = [];
 
-		// When gji init runs without an explicit shell argument.
-		const result = await runCli(["init"], {
+		// When gji init requests machine-readable output without a shell argument.
+		const result = await runCli(["init", "--json"], {
+			stderr: (chunk) => stderr.push(chunk),
 			stdout: (chunk) => stdout.push(chunk),
 		});
 
-		// Then it prints the detected shell integration wrapper.
-		expect(result.exitCode).toBe(0);
-		expect(stdout.join("")).toBe(expectedFishIntegration());
+		// Then it returns the documented machine-readable error without stdout noise.
+		expect(result.exitCode).toBe(1);
+		expect(stdout).toEqual([]);
+		expect(JSON.parse(stderr.join(""))).toEqual({
+			error: "run `gji init <shell> --write` in non-interactive mode",
+		});
 	});
 
 	it("writes zsh integration to the shell rc file with --write", async () => {
@@ -172,6 +187,81 @@ describe("gji init", () => {
 		expect(stdout.join("")).not.toContain(
 			"complete -c gji -n '__fish_use_subcommand' -a 'new'",
 		);
+	});
+});
+
+describe("gji init onboarding wizard", () => {
+	it("installs zsh integration, completion, and the selected editor idempotently", async () => {
+		// Given isolated home and config directories with an approved zsh onboarding plan.
+		const home = await mkdtemp(join(tmpdir(), "gji-home-"));
+		const configDir = await mkdtemp(join(tmpdir(), "gji-config-"));
+		const cwd = await mkdtemp(join(tmpdir(), "gji-cwd-"));
+		process.env.GJI_CONFIG_DIR = configDir;
+		const plan = {
+			editor: "code",
+			installCompletion: true,
+			installShellIntegration: true,
+			shell: "zsh" as const,
+		};
+
+		// When the no-argument onboarding flow runs twice with the same plan.
+		expect(
+			await runInitCommand({
+				cwd,
+				home,
+				interactive: true,
+				promptForOnboarding: async () => plan,
+				stdout: () => undefined,
+			}),
+		).toBe(0);
+		expect(
+			await runInitCommand({
+				cwd,
+				home,
+				interactive: true,
+				promptForOnboarding: async () => plan,
+				stdout: () => undefined,
+			}),
+		).toBe(0);
+
+		// Then the rc file has one managed block, completion is written, and editor config is saved.
+		const rcFile = await readFile(join(home, ".zshrc"), "utf8");
+		expect(rcFile.match(/# >>> gji shell integration >>>/g)).toHaveLength(1);
+		expect(rcFile).toContain('eval "$(gji init zsh)"');
+		expect(rcFile).toContain("fpath=(~/.zsh/completions $fpath)");
+		await expect(
+			readFile(join(home, ".zsh", "completions", "_gji"), "utf8"),
+		).resolves.toContain("#compdef gji");
+		expect(
+			JSON.parse(await readFile(GLOBAL_CONFIG_FILE_PATH(home), "utf8")),
+		).toEqual(
+			expect.objectContaining({ editor: "code", shellIntegration: true }),
+		);
+	});
+
+	it("keeps completed steps absent when onboarding is cancelled before a plan is returned", async () => {
+		// Given an isolated home and an onboarding prompt that is cancelled immediately.
+		const home = await mkdtemp(join(tmpdir(), "gji-home-"));
+		const cwd = await mkdtemp(join(tmpdir(), "gji-cwd-"));
+		const stderr: string[] = [];
+
+		// When the no-argument onboarding flow receives a cancellation.
+		const result = await runInitCommand({
+			cwd,
+			home,
+			interactive: true,
+			promptForOnboarding: async () => null,
+			stderr: (chunk) => stderr.push(chunk),
+			stdout: () => undefined,
+		});
+
+		// Then it exits non-zero without creating shell integration or global config files.
+		expect(result).toBe(1);
+		expect(stderr.join("")).toBe("Aborted.\n");
+		await expect(readFile(join(home, ".zshrc"), "utf8")).rejects.toThrow();
+		await expect(
+			readFile(GLOBAL_CONFIG_FILE_PATH(home), "utf8"),
+		).rejects.toThrow();
 	});
 });
 

@@ -36,6 +36,9 @@ describe("gji completion", () => {
 			"'completion:print shell completion definitions'",
 		);
 		expect(stdout.join("")).toContain(
+			"'doctor:check gji installation and configuration health'",
+		);
+		expect(stdout.join("")).toContain(
 			"'back:navigate to the previously visited worktree'",
 		);
 		expect(stdout.join("")).toContain("'history:show navigation history'");
@@ -48,6 +51,9 @@ describe("gji completion", () => {
 			"'warp:jump to any worktree across all known repos'",
 		);
 		expect(stdout.join("")).toContain("'2:shell:(bash fish zsh)'");
+		expect(stdout.join("")).toContain(
+			"'--json[emit diagnostic checks as JSON]'",
+		);
 		expect(stdout.join("")).toContain(
 			"'--force[remove and recreate the worktree if the target path already exists]'",
 		);
@@ -213,6 +219,12 @@ print -r -- "\${_comps[gji]-unset}"`,
 		expect(stdout.join("")).toContain(
 			"complete -c gji -n '__fish_use_subcommand' -a 'new'",
 		);
+		expect(stdout.join("")).toContain(
+			"complete -c gji -n '__fish_use_subcommand' -a 'doctor'",
+		);
+		expect(stdout.join("")).toContain(
+			"complete -c gji -n '__fish_seen_subcommand_from doctor' -l json",
+		);
 	});
 
 	it("prints bash config completions with a separate free-form value slot", async () => {
@@ -229,12 +241,14 @@ print -r -- "\${_comps[gji]-unset}"`,
 		expect(stdout.join("")).toContain("command gji ls --compact");
 		expect(stdout.join("")).toContain('branch = ($1 == "*" ? $2 : $1)');
 		expect(stdout.join("")).toContain("back history open go jump");
+		expect(stdout.join("")).toContain("doctor");
 		expect(stdout.join("")).toContain("sync-files");
 		expect(stdout.join("")).toContain("list add remove rm --json --help");
 		expect(stdout.join("")).toContain("--force --open --editor");
 		expect(stdout.join("")).toContain("go|jump)");
 		expect(stdout.join("")).toContain("open)");
 		expect(stdout.join("")).toContain("warp)");
+		expect(stdout.join("")).toContain("doctor)");
 		expect(stdout.join("")).toContain("shellIntegration");
 		expect(stdout.join("")).toContain("worktreePath");
 		expect(stdout.join("")).toContain("repos");

@@ -6,6 +6,7 @@ import { runBackCommand } from "./back.js";
 import { runCleanCommand } from "./clean.js";
 import { runCompletionCommand } from "./completion.js";
 import { runConfigCommand } from "./config-command.js";
+import { runDoctorCommand } from "./doctor.js";
 import { runGoCommand } from "./go.js";
 import { isHeadless } from "./headless.js";
 import { runHistoryCommand } from "./history-command.js";
@@ -184,9 +185,18 @@ function registerCommands(program: Command): void {
 
 	program
 		.command("init [shell]")
-		.description("print or install shell integration")
+		.description(
+			"set up shell integration interactively or print a shell wrapper",
+		)
 		.option("--write", "write the integration to the shell config file")
+		.option("--json", "emit a JSON error in non-interactive mode")
 		.action(notImplemented("init"));
+
+	program
+		.command("doctor")
+		.description("check gji installation and configuration health")
+		.option("--json", "emit diagnostic checks as JSON")
+		.action(notImplemented("doctor"));
 
 	program
 		.command("completion [shell]")
@@ -415,10 +425,11 @@ function attachCommandActions(
 		?.action(
 			async (
 				shell: string | undefined,
-				commandOptions: { write?: boolean },
+				commandOptions: { json?: boolean; write?: boolean },
 			) => {
 				const exitCode = await runInitCommand({
 					cwd: options.cwd,
+					json: commandOptions.json,
 					shell,
 					stderr: options.stderr,
 					stdout: options.stdout,
@@ -430,6 +441,21 @@ function attachCommandActions(
 				}
 			},
 		);
+
+	program.commands
+		.find((command) => command.name() === "doctor")
+		?.action(async (commandOptions: { json?: boolean }) => {
+			const exitCode = await runDoctorCommand({
+				cwd: options.cwd,
+				json: commandOptions.json,
+				stderr: options.stderr,
+				stdout: options.stdout,
+			});
+
+			if (exitCode !== 0) {
+				throw commanderExit(exitCode);
+			}
+		});
 
 	program.commands
 		.find((command) => command.name() === "completion")

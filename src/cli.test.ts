@@ -48,6 +48,7 @@ describe("runCli", () => {
 		expect(output).toContain("Usage: gji");
 		expect(output).toContain("new");
 		expect(output).toContain("init");
+		expect(output).toContain("doctor");
 		expect(output).toContain("completion");
 		expect(output).toContain("pr");
 		expect(output).toContain("go");

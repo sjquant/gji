@@ -9,7 +9,7 @@ async function main(): Promise<void> {
 		const argv = process.argv.slice(2);
 
 		// Warn once (until fixed) when shell integration hasn't been set up.
-		// Only shown in interactive terminals — suppressed in pipes and after gji init --write.
+		// Only shown in interactive terminals — suppressed in pipes and after gji init.
 		const isMetaArg =
 			argv[0] === "init" ||
 			argv[0] === "--version" ||
@@ -39,13 +39,8 @@ async function warnIfMissingShellIntegration(): Promise<void> {
 	try {
 		const { config } = await loadGlobalConfig(homedir());
 		if (!config.shellIntegration) {
-			const shellBin = (process.env.SHELL ?? "").split("/").at(-1);
-			const shellArg =
-				shellBin && ["bash", "zsh", "fish"].includes(shellBin)
-					? ` ${shellBin}`
-					: "";
 			process.stderr.write(
-				`gji: shell integration not set up — run \`gji init${shellArg} --write\` to enable automatic cd.\n`,
+				"gji: shell integration not set up — run `gji init` to enable automatic cd.\n",
 			);
 		}
 	} catch {
