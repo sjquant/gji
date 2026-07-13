@@ -25,15 +25,16 @@ import { isHeadless } from "./headless.js";
 import { resolveSupportedShell, type SupportedShell } from "./shell.js";
 import { renderShellCompletion } from "./shell-completion.js";
 import {
+	SHELL_INTEGRATION_END_MARKER as END_MARKER,
 	executableExists,
+	hasShellIntegration,
+	ONBOARDING_SHELL_INTEGRATION_END_MARKER as ONBOARDING_END_MARKER,
+	ONBOARDING_SHELL_INTEGRATION_START_MARKER as ONBOARDING_START_MARKER,
 	resolveCompletionPath,
 	resolveShellConfigPath,
+	SHELL_INTEGRATION_START_MARKER as START_MARKER,
 } from "./shell-setup.js";
 
-const START_MARKER = "# >>> gji init >>>";
-const END_MARKER = "# <<< gji init <<<";
-const ONBOARDING_START_MARKER = "# >>> gji shell integration >>>";
-const ONBOARDING_END_MARKER = "# <<< gji shell integration <<<";
 const ZSH_COMPLETION_PATH_LINE = "fpath=(~/.zsh/completions $fpath)";
 
 interface ShellWrappedCommand {
@@ -293,25 +294,6 @@ async function promptForShellIntegration(
 	return confirmed ? "install" : "skip";
 }
 
-function hasShellIntegration(config: string, shell: SupportedShell): boolean {
-	if (
-		(config.includes(START_MARKER) && config.includes(END_MARKER)) ||
-		(config.includes(ONBOARDING_START_MARKER) &&
-			config.includes(ONBOARDING_END_MARKER))
-	) {
-		return true;
-	}
-
-	if (shell === "fish") return false;
-
-	const manualIntegrationPattern = new RegExp(
-		`^[\\t ]*eval\\s+["']?\\$\\(\\s*gji\\s+init\\s+${shell}\\s*\\)["']?\\s*(?:#.*)?$`,
-		"m",
-	);
-
-	return manualIntegrationPattern.test(config);
-}
-
 async function promptForCompletion(
 	shell: SupportedShell,
 	completionPath: string,
@@ -472,30 +454,15 @@ function upsertZshCompletionPath(existingConfig: string): string {
 			),
 			"",
 		);
-	const insertionIndex =
-		/^(?![ \t]*#)[^\n]*\bcompinit\b[^\n]*(?:\n|$)/m.exec(
-			configWithoutCompletionPath,
-		)?.index ??
-		new RegExp(
-			`^${escapeForRegExp(ONBOARDING_START_MARKER)}|^${escapeForRegExp(START_MARKER)}`,
-			"m",
-		).exec(configWithoutCompletionPath)?.index;
+	const suffix = configWithoutCompletionPath
+		.replace(/^(?:\r?\n)+/, "")
+		.trimEnd();
 
-	if (insertionIndex === undefined) {
-		const prefix = configWithoutCompletionPath.trimEnd();
-		return ensureTrailingNewline(
-			prefix.length === 0
-				? ZSH_COMPLETION_PATH_LINE
-				: `${prefix}\n\n${ZSH_COMPLETION_PATH_LINE}`,
-		);
-	}
-
-	const prefix = configWithoutCompletionPath.slice(0, insertionIndex).trimEnd();
-	const suffix = configWithoutCompletionPath.slice(insertionIndex);
-	const before = prefix.length === 0 ? "" : `${prefix}\n\n`;
-
+	// Frameworks can invoke compinit from a sourced file, so this must come first.
 	return ensureTrailingNewline(
-		`${before}${ZSH_COMPLETION_PATH_LINE}\n\n${suffix}`,
+		suffix.length === 0
+			? ZSH_COMPLETION_PATH_LINE
+			: `${ZSH_COMPLETION_PATH_LINE}\n\n${suffix}`,
 	);
 }
 
@@ -542,7 +509,8 @@ async function runLegacyInitCommand(
 	const alreadyConfigured =
 		"shellIntegration" in globalConfig || "installSaveTarget" in globalConfig;
 	const hasCustomPrompt = options.promptForSetup !== undefined;
-	const canPrompt = hasCustomPrompt || process.stdout.isTTY === true;
+	const canPrompt =
+		!isHeadless() && (hasCustomPrompt || process.stdout.isTTY === true);
 
 	if (!alreadyConfigured && canPrompt) {
 		const prompt = options.promptForSetup ?? defaultPromptForSetup;

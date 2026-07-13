@@ -18,6 +18,7 @@ import { loadRegistry, REGISTRY_FILE_PATH } from "./repo-registry.js";
 import { resolveSupportedShell, type SupportedShell } from "./shell.js";
 import {
 	executableExists,
+	hasShellIntegration,
 	resolveCompletionPath,
 	resolveShellConfigPath,
 } from "./shell-setup.js";
@@ -287,7 +288,7 @@ async function checkShellIntegration(
 	const rcPath = resolveShellConfigPath(shell, home);
 	try {
 		const contents = await readFile(rcPath, "utf8");
-		if (contents.includes("gji init")) {
+		if (hasShellIntegration(contents, shell)) {
 			return okCheck(
 				"shell-integration",
 				`${shell} integration found in ${rcPath}`,

@@ -125,6 +125,36 @@ describe("gji doctor", () => {
 		);
 	});
 
+	it("does not treat a commented shell integration command as active", async () => {
+		// Given an isolated home whose zsh rc file only contains a disabled integration command.
+		const home = await mkdtemp(join(tmpdir(), "gji-home-"));
+		process.env.GJI_CONFIG_DIR = await mkdtemp(join(tmpdir(), "gji-config-"));
+		process.env.HOME = home;
+		process.env.SHELL = "/bin/zsh";
+		await writeFile(join(home, ".zshrc"), '# eval "$(gji init zsh)"\n', "utf8");
+		const stdout: string[] = [];
+
+		// When gji doctor checks the shell setup.
+		const result = await runCli(["doctor", "--json"], {
+			cwd: await mkdtemp(join(tmpdir(), "gji-outside-repo-")),
+			stdout: (chunk) => stdout.push(chunk),
+		});
+
+		// Then it reports the disabled integration as missing and returns failure.
+		expect(result.exitCode).toBe(1);
+		expect(JSON.parse(stdout.join(""))).toEqual(
+			expect.objectContaining({
+				checks: expect.arrayContaining([
+					expect.objectContaining({
+						id: "shell-integration",
+						status: "fail",
+					}),
+				]),
+				problems: 1,
+			}),
+		);
+	});
+
 	it("fails with a malformed global config in JSON mode", async () => {
 		// Given an isolated config directory containing malformed global JSON.
 		const configDir = await mkdtemp(join(tmpdir(), "gji-config-"));

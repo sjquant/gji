@@ -185,6 +185,59 @@ print -r -- "\${_comps[gji]-unset}"`,
 		},
 	);
 
+	it.skipIf(zshExecutable === undefined)(
+		"registers onboarding completions when a sourced zsh framework runs compinit",
+		async () => {
+			// Given a manual integration after a sourced framework that initializes compinit.
+			const home = await mkdtemp(join(tmpdir(), "gji-home-"));
+			const cwd = await mkdtemp(join(tmpdir(), "gji-cwd-"));
+			const frameworkPath = join(home, "framework.zsh");
+			const rcPath = join(home, ".zshrc");
+			const registrationScript = join(home, "check-framework-registration.zsh");
+			await writeFile(
+				frameworkPath,
+				"autoload -Uz compinit && compinit -C\n",
+				"utf8",
+			);
+			await writeFile(
+				rcPath,
+				`source "${frameworkPath}"\neval "$(gji init zsh)"\n`,
+				"utf8",
+			);
+
+			// When onboarding adds completion to the detected existing integration.
+			const result = await runInitCommand({
+				cwd,
+				home,
+				interactive: true,
+				promptForOnboarding: async () => ({
+					installCompletion: true,
+					shellIntegration: "existing",
+					shell: "zsh",
+				}),
+				stdout: () => undefined,
+			});
+			await writeFile(
+				registrationScript,
+				`gji() { :; }
+source "${rcPath}"
+print -r -- "\${_comps[gji]-unset}"`,
+				"utf8",
+			);
+			const environment = { ...process.env };
+			delete environment.FPATH;
+
+			// Then zsh maps gji to the installed completion function.
+			const registrationResult = await execFile(
+				zshExecutable as string,
+				["-f", registrationScript],
+				{ env: { ...environment, HOME: home } },
+			);
+			expect(result).toBe(0);
+			expect(registrationResult.stdout.trim()).toBe("_gji");
+		},
+	);
+
 	it("auto-detects the shell from SHELL when no shell is provided", async () => {
 		// Given a fish SHELL environment and a command output collector.
 		const stdout: string[] = [];

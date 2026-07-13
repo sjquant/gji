@@ -23,6 +23,7 @@ import { runInitCommand } from "./init.js";
 const originalHome = process.env.HOME;
 const originalShell = process.env.SHELL;
 const originalConfigDir = process.env.GJI_CONFIG_DIR;
+const originalHeadless = process.env.GJI_NO_TUI;
 
 afterEach(() => {
 	if (originalHome === undefined) {
@@ -41,6 +42,12 @@ afterEach(() => {
 		delete process.env.GJI_CONFIG_DIR;
 	} else {
 		process.env.GJI_CONFIG_DIR = originalConfigDir;
+	}
+
+	if (originalHeadless === undefined) {
+		delete process.env.GJI_NO_TUI;
+	} else {
+		process.env.GJI_NO_TUI = originalHeadless;
 	}
 
 	promptMocks.confirm.mockReset();
@@ -354,6 +361,33 @@ describe("gji init onboarding wizard", () => {
 });
 
 describe("gji init --write setup wizard", () => {
+	it("does not prompt for legacy setup in headless mode", async () => {
+		// Given an explicit setup command with headless mode enabled.
+		const home = await mkdtemp(join(tmpdir(), "gji-home-"));
+		const cwd = await mkdtemp(join(tmpdir(), "gji-cwd-"));
+		process.env.GJI_NO_TUI = "1";
+		const promptForSetup = vi.fn(async () => ({
+			installSaveTarget: "global" as const,
+		}));
+
+		// When the legacy write command runs.
+		const result = await runInitCommand({
+			cwd,
+			home,
+			promptForSetup,
+			shell: "zsh",
+			stdout: () => undefined,
+			write: true,
+		});
+
+		// Then it writes the wrapper without invoking the interactive setup prompt.
+		expect(result).toBe(0);
+		expect(promptForSetup).not.toHaveBeenCalled();
+		await expect(readFile(join(home, ".zshrc"), "utf8")).resolves.toContain(
+			"# >>> gji init >>>",
+		);
+	});
+
 	it("saves installSaveTarget and config values to global config", async () => {
 		// Given an isolated home with no existing global config.
 		const home = await mkdtemp(join(tmpdir(), "gji-home-"));
