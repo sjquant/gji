@@ -1,8 +1,20 @@
-import { mkdtemp, readFile } from "node:fs/promises";
+import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+const promptMocks = vi.hoisted(() => ({
+	confirm: vi.fn(),
+	intro: vi.fn(),
+	isCancel: vi.fn(() => false),
+	log: { info: vi.fn(), success: vi.fn() },
+	outro: vi.fn(),
+	select: vi.fn(),
+	text: vi.fn(),
+}));
+
+vi.mock("@clack/prompts", () => promptMocks);
 
 import { runCli } from "./cli.js";
 import { GLOBAL_CONFIG_FILE_PATH } from "./config.js";
@@ -30,6 +42,16 @@ afterEach(() => {
 	} else {
 		process.env.GJI_CONFIG_DIR = originalConfigDir;
 	}
+
+	promptMocks.confirm.mockReset();
+	promptMocks.intro.mockReset();
+	promptMocks.isCancel.mockReset();
+	promptMocks.isCancel.mockReturnValue(false);
+	promptMocks.log.info.mockReset();
+	promptMocks.log.success.mockReset();
+	promptMocks.outro.mockReset();
+	promptMocks.select.mockReset();
+	promptMocks.text.mockReset();
 });
 
 describe("gji init", () => {
@@ -200,7 +222,7 @@ describe("gji init onboarding wizard", () => {
 		const plan = {
 			editor: "code",
 			installCompletion: true,
-			installShellIntegration: true,
+			shellIntegration: "install" as const,
 			shell: "zsh" as const,
 		};
 
@@ -227,6 +249,7 @@ describe("gji init onboarding wizard", () => {
 		// Then the rc file has one managed block, completion is written, and editor config is saved.
 		const rcFile = await readFile(join(home, ".zshrc"), "utf8");
 		expect(rcFile.match(/# >>> gji shell integration >>>/g)).toHaveLength(1);
+		expect(rcFile.match(/# >>> gji zsh completion path >>>/g)).toHaveLength(1);
 		expect(rcFile).toContain('eval "$(gji init zsh)"');
 		expect(rcFile).toContain("fpath=(~/.zsh/completions $fpath)");
 		await expect(
@@ -236,6 +259,70 @@ describe("gji init onboarding wizard", () => {
 			JSON.parse(await readFile(GLOBAL_CONFIG_FILE_PATH(home), "utf8")),
 		).toEqual(
 			expect.objectContaining({ editor: "code", shellIntegration: true }),
+		);
+	});
+
+	it("completes zsh onboarding for an existing manual integration", async () => {
+		// Given an existing manual wrapper and an rc file that initializes compinit.
+		const home = await mkdtemp(join(tmpdir(), "gji-home-"));
+		const configDir = await mkdtemp(join(tmpdir(), "gji-config-"));
+		const cwd = await mkdtemp(join(tmpdir(), "gji-cwd-"));
+		process.env.GJI_CONFIG_DIR = configDir;
+		await writeFile(
+			join(home, ".zshrc"),
+			'autoload -Uz compinit && compinit -C\neval "$(gji init zsh)"\n',
+			"utf8",
+		);
+		promptMocks.confirm.mockResolvedValueOnce(true);
+		promptMocks.select
+			.mockResolvedValueOnce("zsh")
+			.mockResolvedValueOnce("__gji_skip_editor__");
+
+		// When the default onboarding flow accepts completion setup.
+		const result = await runInitCommand({
+			cwd,
+			home,
+			interactive: true,
+			stdout: () => undefined,
+		});
+
+		// Then it records integration and places the completion path before compinit.
+		expect(result).toBe(0);
+		const rcFile = await readFile(join(home, ".zshrc"), "utf8");
+		expect(rcFile.indexOf("fpath=(~/.zsh/completions $fpath)")).toBeLessThan(
+			rcFile.indexOf("compinit"),
+		);
+		expect(
+			JSON.parse(await readFile(GLOBAL_CONFIG_FILE_PATH(home), "utf8")),
+		).toEqual(expect.objectContaining({ shellIntegration: true }));
+	});
+
+	it("installs shell integration when a zsh comment mentions gji init", async () => {
+		// Given a zsh rc file that only documents a disabled integration command.
+		const home = await mkdtemp(join(tmpdir(), "gji-home-"));
+		const configDir = await mkdtemp(join(tmpdir(), "gji-config-"));
+		const cwd = await mkdtemp(join(tmpdir(), "gji-cwd-"));
+		process.env.GJI_CONFIG_DIR = configDir;
+		await writeFile(join(home, ".zshrc"), '# eval "$(gji init zsh)"\n', "utf8");
+		promptMocks.confirm
+			.mockResolvedValueOnce(true)
+			.mockResolvedValueOnce(false);
+		promptMocks.select
+			.mockResolvedValueOnce("zsh")
+			.mockResolvedValueOnce("__gji_skip_editor__");
+
+		// When the default onboarding flow approves integration and declines completion.
+		const result = await runInitCommand({
+			cwd,
+			home,
+			interactive: true,
+			stdout: () => undefined,
+		});
+
+		// Then it installs a managed wrapper instead of treating the comment as active setup.
+		expect(result).toBe(0);
+		await expect(readFile(join(home, ".zshrc"), "utf8")).resolves.toContain(
+			"# >>> gji shell integration >>>",
 		);
 	});
 

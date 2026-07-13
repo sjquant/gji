@@ -3,6 +3,7 @@
 import { homedir } from "node:os";
 import { runCli } from "./cli.js";
 import { loadGlobalConfig } from "./config.js";
+import { isHeadless } from "./headless.js";
 
 async function main(): Promise<void> {
 	try {
@@ -39,13 +40,24 @@ async function warnIfMissingShellIntegration(): Promise<void> {
 	try {
 		const { config } = await loadGlobalConfig(homedir());
 		if (!config.shellIntegration) {
+			const setupCommand = isHeadless()
+				? legacyShellSetupCommand()
+				: "gji init";
 			process.stderr.write(
-				"gji: shell integration not set up — run `gji init` to enable automatic cd.\n",
+				`gji: shell integration not set up — run \`${setupCommand}\` to enable automatic cd.\n`,
 			);
 		}
 	} catch {
 		// best-effort; never block the command
 	}
+}
+
+function legacyShellSetupCommand(): string {
+	const shell = (process.env.SHELL ?? "").split("/").at(-1);
+
+	return shell && ["bash", "fish", "zsh"].includes(shell)
+		? `gji init ${shell} --write`
+		: "gji init <shell> --write";
 }
 
 void main();

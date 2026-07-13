@@ -6,6 +6,7 @@ import { promisify } from "node:util";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { runCli } from "./cli.js";
+import { runInitCommand } from "./init.js";
 
 const originalShell = process.env.SHELL;
 const execFile = promisify(execFileCallback);
@@ -130,6 +131,56 @@ print -r -- "\${_comps[gji]-unset}"`,
 
 			// Then gji is mapped to the installed _gji completion.
 			expect(result.exitCode).toBe(0);
+			expect(registrationResult.stdout.trim()).toBe("_gji");
+		},
+	);
+
+	it.skipIf(zshExecutable === undefined)(
+		"registers onboarding completions for a manual zsh integration after compinit",
+		async () => {
+			// Given a manual integration after an rc file's existing compinit setup.
+			const home = await mkdtemp(join(tmpdir(), "gji-home-"));
+			const cwd = await mkdtemp(join(tmpdir(), "gji-cwd-"));
+			const rcPath = join(home, ".zshrc");
+			const registrationScript = join(
+				home,
+				"check-onboarding-registration.zsh",
+			);
+			await writeFile(
+				rcPath,
+				'autoload -Uz compinit && compinit -C\neval "$(gji init zsh)"\n',
+				"utf8",
+			);
+
+			// When onboarding adds completion to the detected existing integration.
+			const result = await runInitCommand({
+				cwd,
+				home,
+				interactive: true,
+				promptForOnboarding: async () => ({
+					installCompletion: true,
+					shellIntegration: "existing",
+					shell: "zsh",
+				}),
+				stdout: () => undefined,
+			});
+			await writeFile(
+				registrationScript,
+				`gji() { :; }
+source "${rcPath}"
+print -r -- "\${_comps[gji]-unset}"`,
+				"utf8",
+			);
+			const environment = { ...process.env };
+			delete environment.FPATH;
+
+			// Then zsh maps gji to the installed completion function.
+			const registrationResult = await execFile(
+				zshExecutable as string,
+				["-f", registrationScript],
+				{ env: { ...environment, HOME: home } },
+			);
+			expect(result).toBe(0);
 			expect(registrationResult.stdout.trim()).toBe("_gji");
 		},
 	);

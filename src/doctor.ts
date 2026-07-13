@@ -2,7 +2,7 @@ import { execFile } from "node:child_process";
 import { constants } from "node:fs";
 import { access, readFile } from "node:fs/promises";
 import { homedir } from "node:os";
-import { basename, delimiter, dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { promisify } from "node:util";
 
 import {
@@ -16,6 +16,11 @@ import { EDITORS } from "./editor.js";
 import { detectRepository, type RepositoryContext } from "./repo.js";
 import { loadRegistry, REGISTRY_FILE_PATH } from "./repo-registry.js";
 import { resolveSupportedShell, type SupportedShell } from "./shell.js";
+import {
+	executableExists,
+	resolveCompletionPath,
+	resolveShellConfigPath,
+} from "./shell-setup.js";
 
 const execFileAsync = promisify(execFile);
 const MINIMUM_GIT_VERSION = { major: 2, minor: 17 };
@@ -311,17 +316,6 @@ async function checkShellIntegration(
 	);
 }
 
-function resolveShellConfigPath(shell: SupportedShell, home: string): string {
-	switch (shell) {
-		case "bash":
-			return join(home, ".bashrc");
-		case "fish":
-			return join(home, ".config", "fish", "config.fish");
-		case "zsh":
-			return join(home, ".zshrc");
-	}
-}
-
 async function checkCompletion(
 	shell: SupportedShell | null,
 	home: string,
@@ -343,24 +337,6 @@ async function checkCompletion(
 		`${shell} completion not installed (optional)`,
 		`run: gji completion ${shell} > ${path}`,
 	);
-}
-
-function resolveCompletionPath(shell: SupportedShell, home: string): string {
-	switch (shell) {
-		case "bash":
-			return join(
-				home,
-				".local",
-				"share",
-				"bash-completion",
-				"completions",
-				"gji",
-			);
-		case "fish":
-			return join(home, ".config", "fish", "completions", "gji.fish");
-		case "zsh":
-			return join(home, ".zsh", "completions", "_gji");
-	}
 }
 
 async function checkWorktreeBase(
@@ -479,26 +455,6 @@ async function checkEditor(config: GjiConfig): Promise<DoctorCheck> {
 			? `install ${editor} or choose another editor with: gji open --save`
 			: "choose another editor with: gji open --save",
 	);
-}
-
-async function executableExists(command: string): Promise<boolean> {
-	const candidates = command.includes("/")
-		? [command]
-		: (process.env.PATH ?? "")
-				.split(delimiter)
-				.filter(Boolean)
-				.map((directory) => join(directory, command));
-
-	for (const path of candidates) {
-		try {
-			await access(path, constants.X_OK);
-			return true;
-		} catch {
-			// Continue until a matching executable is found.
-		}
-	}
-
-	return false;
 }
 
 function okCheck(id: string, message: string): DoctorCheck {

@@ -259,7 +259,7 @@ No setup required. Optional config lives in:
 | `syncDefaultBranch` | branch to rebase onto (default: remote `HEAD`) |
 | `syncFiles` | files to copy from main worktree into each new worktree; use global per-repo config for private files |
 | `skipInstallPrompt` | `true` to disable the auto-install prompt permanently |
-| `installSaveTarget` | `"local"` or `"global"` — where **Always**/**Never** choices are persisted (default: `"local"`); set once during `gji init` |
+| `installSaveTarget` | `"local"` or `"global"` — where **Always**/**Never** choices are persisted (default: `"local"`); set during `gji init <shell> --write` |
 | `hooks` | lifecycle scripts (see [Hooks](#hooks)) |
 | `repos` | per-repo overrides inside the global config (see below) |
 
