@@ -5,6 +5,8 @@ import { homedir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { promisify } from "node:util";
 
+import { confirm, isCancel } from "@clack/prompts";
+
 import {
 	CONFIG_FILE_NAME,
 	type GjiConfig,
@@ -13,8 +15,13 @@ import {
 	KNOWN_GLOBAL_CONFIG_KEYS,
 } from "./config.js";
 import { EDITORS } from "./editor.js";
+import { isHeadless } from "./headless.js";
 import { detectRepository, type RepositoryContext } from "./repo.js";
-import { loadRegistry, REGISTRY_FILE_PATH } from "./repo-registry.js";
+import {
+	loadRegistry,
+	REGISTRY_FILE_PATH,
+	removeRegistryEntries,
+} from "./repo-registry.js";
 import { resolveSupportedShell, type SupportedShell } from "./shell.js";
 import {
 	executableExists,
@@ -35,11 +42,25 @@ export interface DoctorCheck {
 	status: DoctorCheckStatus;
 }
 
+export type DoctorFixStatus = "applied" | "declined" | "failed" | "pending";
+
+export interface DoctorFix {
+	hint?: string;
+	id: string;
+	message: string;
+	paths?: string[];
+	status: DoctorFixStatus;
+}
+
 export interface DoctorCommandOptions {
 	cwd: string;
 	home?: string;
+	fix?: boolean;
 	json?: boolean;
+	interactive?: boolean;
+	confirmFixes?: (fixes: DoctorFix[]) => Promise<boolean>;
 	shell?: string;
+	yes?: boolean;
 	stderr?: (chunk: string) => void;
 	stdout: (chunk: string) => void;
 }
@@ -49,15 +70,77 @@ interface ConfigInspection {
 	config: GjiConfig;
 }
 
+interface DoctorInspection {
+	checks: DoctorCheck[];
+	missingRegistryPaths: string[];
+}
+
 export async function runDoctorCommand(
 	options: DoctorCommandOptions,
 ): Promise<number> {
+	if (options.yes && !options.fix) {
+		const message = "--yes requires --fix";
+		if (options.json) {
+			options.stdout(`${JSON.stringify({ error: message })}\n`);
+		} else {
+			(options.stderr ?? options.stdout)(`gji doctor: ${message}\n`);
+		}
+		return 1;
+	}
+
 	const home = options.home ?? homedir();
 	const shell = resolveSupportedShell(
 		undefined,
 		options.shell ?? process.env.SHELL,
 	);
-	const repository = await detectRepositoryOrSkip(options.cwd);
+	let inspection = await collectDoctorInspection(options.cwd, home, shell);
+	let fixes: DoctorFix[] = [];
+
+	if (options.fix) {
+		fixes = buildDoctorFixes(inspection.missingRegistryPaths);
+		if (fixes.length > 0) {
+			const approval = await requestFixApproval(fixes, options);
+			if (approval === "apply") {
+				fixes = await applyDoctorFixes(fixes, home);
+			} else {
+				fixes = fixes.map((fix) => ({
+					...fix,
+					status: approval,
+					hint:
+						approval === "pending"
+							? "re-run with --yes to apply this fix without a prompt"
+							: "run gji doctor --fix again to review this fix",
+				}));
+			}
+		}
+		inspection = await collectDoctorInspection(options.cwd, home, shell);
+	}
+
+	const problems = inspection.checks.filter(
+		(check) => check.status === "fail",
+	).length;
+
+	if (options.json) {
+		const output = options.fix
+			? { checks: inspection.checks, problems, fixes }
+			: { checks: inspection.checks, problems };
+		options.stdout(`${JSON.stringify(output)}\n`);
+	} else {
+		options.stdout(renderDoctorChecks(inspection.checks, problems));
+		if (options.fix) {
+			options.stdout(renderDoctorFixes(fixes));
+		}
+	}
+
+	return problems > 0 ? 1 : 0;
+}
+
+async function collectDoctorInspection(
+	cwd: string,
+	home: string,
+	shell: SupportedShell | null,
+): Promise<DoctorInspection> {
+	const repository = await detectRepositoryOrSkip(cwd);
 	const globalConfig = await inspectConfig(
 		GLOBAL_CONFIG_FILE_PATH(home),
 		"global",
@@ -76,29 +159,89 @@ export async function runDoctorCommand(
 		repository?.repoRoot,
 		home,
 	);
-	const checks = [
-		await checkGitVersion(),
-		await checkShellIntegration(shell, home),
-		await checkCompletion(shell, home),
-		globalConfig.check,
-		localConfig?.check ??
-			skippedCheck(
-				"local-config",
-				"local config not checked outside a Git repository",
-			),
-		await checkWorktreeBase(repository, effectiveConfig, home),
-		await checkRegistry(home),
-		await checkEditor(effectiveConfig),
+	const registry = await inspectRegistry(home);
+
+	return {
+		checks: [
+			await checkGitVersion(),
+			await checkShellIntegration(shell, home),
+			await checkCompletion(shell, home),
+			globalConfig.check,
+			localConfig?.check ??
+				skippedCheck(
+					"local-config",
+					"local config not checked outside a Git repository",
+				),
+			await checkWorktreeBase(repository, effectiveConfig, home),
+			registry.check,
+			await checkEditor(effectiveConfig),
+		],
+		missingRegistryPaths: registry.missingPaths,
+	};
+}
+
+function buildDoctorFixes(missingRegistryPaths: string[]): DoctorFix[] {
+	if (missingRegistryPaths.length === 0) return [];
+
+	const count = missingRegistryPaths.length;
+	return [
+		{
+			id: "repo-registry",
+			message: `remove ${count} stale ${count === 1 ? "repository entry" : "repository entries"} from the registry`,
+			paths: missingRegistryPaths,
+			status: "pending",
+		},
 	];
-	const problems = checks.filter((check) => check.status === "fail").length;
+}
 
-	if (options.json) {
-		options.stdout(`${JSON.stringify({ checks, problems })}\n`);
-	} else {
-		options.stdout(renderDoctorChecks(checks, problems));
-	}
+async function requestFixApproval(
+	fixes: DoctorFix[],
+	options: DoctorCommandOptions,
+): Promise<"apply" | "declined" | "pending"> {
+	if (options.yes) return "apply";
+	if (!isDoctorInteractive(options)) return "pending";
 
-	return problems > 0 ? 1 : 0;
+	const confirmed = options.confirmFixes
+		? await options.confirmFixes(fixes)
+		: await confirm({
+				initialValue: true,
+				message: `Apply ${fixes.length} automatic ${fixes.length === 1 ? "fix" : "fixes"} (${fixes.flatMap((fix) => fix.paths ?? []).join(", ")})?`,
+			});
+	if (isCancel(confirmed) || !confirmed) return "declined";
+	return "apply";
+}
+
+function isDoctorInteractive(options: DoctorCommandOptions): boolean {
+	if (options.json || isHeadless()) return false;
+	if (options.interactive !== undefined) return options.interactive;
+	return process.stdin.isTTY === true && process.stdout.isTTY === true;
+}
+
+async function applyDoctorFixes(
+	fixes: DoctorFix[],
+	home: string,
+): Promise<DoctorFix[]> {
+	return Promise.all(
+		fixes.map(async (fix) => {
+			try {
+				const removed = await removeRegistryEntries(
+					new Set(fix.paths ?? []),
+					home,
+				);
+				return {
+					...fix,
+					message: `removed ${removed.length} stale ${removed.length === 1 ? "repository entry" : "repository entries"} from the registry`,
+					status: "applied" as const,
+				};
+			} catch (error) {
+				return {
+					...fix,
+					status: "failed" as const,
+					hint: error instanceof Error ? error.message : String(error),
+				};
+			}
+		}),
+	);
 }
 
 async function detectRepositoryOrSkip(
@@ -405,7 +548,10 @@ async function findNearestExistingPath(path: string): Promise<string | null> {
 	}
 }
 
-async function checkRegistry(home: string): Promise<DoctorCheck> {
+async function inspectRegistry(home: string): Promise<{
+	check: DoctorCheck;
+	missingPaths: string[];
+}> {
 	const entries = await loadRegistry(home);
 	const missingEntries = await Promise.all(
 		entries.map(async (entry) => ({
@@ -414,19 +560,28 @@ async function checkRegistry(home: string): Promise<DoctorCheck> {
 		})),
 	);
 	const missingCount = missingEntries.filter(({ exists }) => !exists).length;
+	const missingPaths = missingEntries
+		.filter(({ exists }) => !exists)
+		.map(({ entry }) => entry.path);
 
 	if (missingCount === 0) {
-		return okCheck(
-			"repo-registry",
-			`${entries.length} repos registered, all reachable`,
-		);
+		return {
+			check: okCheck(
+				"repo-registry",
+				`${entries.length} repos registered, all reachable`,
+			),
+			missingPaths,
+		};
 	}
 
-	return failedCheck(
-		"repo-registry",
-		`${entries.length} repos registered, ${missingCount} ${missingCount === 1 ? "path is" : "paths are"} missing`,
-		`remove stale entries from ${REGISTRY_FILE_PATH(home)}`,
-	);
+	return {
+		check: failedCheck(
+			"repo-registry",
+			`${entries.length} repos registered, ${missingCount} ${missingCount === 1 ? "path is" : "paths are"} missing`,
+			`remove stale entries from ${REGISTRY_FILE_PATH(home)}`,
+		),
+		missingPaths,
+	};
 }
 
 async function pathExists(path: string): Promise<boolean> {
@@ -484,6 +639,36 @@ function renderDoctorChecks(checks: DoctorCheck[], problems: number): string {
 	);
 
 	return `${lines.join("\n")}\n`;
+}
+
+function renderDoctorFixes(fixes: DoctorFix[]): string {
+	const lines = ["", "Automatic fixes:"];
+	if (fixes.length === 0) {
+		lines.push(" No automatic fixes available.");
+	} else {
+		for (const fix of fixes) {
+			lines.push(` ${fixStatusSymbol(fix.status)} ${fix.message}`);
+			if (fix.paths && fix.paths.length > 0) {
+				for (const path of fix.paths) lines.push(`     ${path}`);
+			}
+			if (fix.hint) lines.push(`     ${fix.hint}`);
+		}
+	}
+
+	return `${lines.join("\n")}\n`;
+}
+
+function fixStatusSymbol(status: DoctorFixStatus): string {
+	switch (status) {
+		case "applied":
+			return "✓";
+		case "declined":
+			return "-";
+		case "failed":
+			return "✗";
+		case "pending":
+			return "!";
+	}
 }
 
 function statusSymbol(status: DoctorCheckStatus): string {

@@ -195,6 +195,8 @@ function registerCommands(program: Command): void {
 	program
 		.command("doctor")
 		.description("check gji installation and configuration health")
+		.option("--fix", "apply safe automatic fixes after showing the plan")
+		.option("--yes", "apply --fix without prompting")
 		.option("--json", "emit diagnostic checks as JSON")
 		.action(notImplemented("doctor"));
 
@@ -444,18 +446,26 @@ function attachCommandActions(
 
 	program.commands
 		.find((command) => command.name() === "doctor")
-		?.action(async (commandOptions: { json?: boolean }) => {
-			const exitCode = await runDoctorCommand({
-				cwd: options.cwd,
-				json: commandOptions.json,
-				stderr: options.stderr,
-				stdout: options.stdout,
-			});
+		?.action(
+			async (commandOptions: {
+				fix?: boolean;
+				json?: boolean;
+				yes?: boolean;
+			}) => {
+				const exitCode = await runDoctorCommand({
+					cwd: options.cwd,
+					fix: commandOptions.fix,
+					json: commandOptions.json,
+					stderr: options.stderr,
+					stdout: options.stdout,
+					yes: commandOptions.yes,
+				});
 
-			if (exitCode !== 0) {
-				throw commanderExit(exitCode);
-			}
-		});
+				if (exitCode !== 0) {
+					throw commanderExit(exitCode);
+				}
+			},
+		);
 
 	program.commands
 		.find((command) => command.name() === "completion")

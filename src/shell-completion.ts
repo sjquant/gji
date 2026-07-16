@@ -90,7 +90,7 @@ _gji_completion() {
       COMPREPLY=( $(compgen -W "${shells} --write --json --help" -- "$cur") )
       ;;
     doctor)
-      COMPREPLY=( $(compgen -W "--json --help" -- "$cur") )
+      COMPREPLY=( $(compgen -W "--fix --yes --json --help" -- "$cur") )
       ;;
     completion)
       COMPREPLY=( $(compgen -W "${shells} --help" -- "$cur") )
@@ -222,6 +222,8 @@ complete -c gji -n '__fish_seen_subcommand_from init' -l write -d 'write the int
 complete -c gji -n '__fish_seen_subcommand_from init' -l json -d 'emit a JSON error in non-interactive mode'
 ${shellLines}
 
+complete -c gji -n '__fish_seen_subcommand_from doctor' -l fix -d 'apply safe automatic fixes after showing the plan'
+complete -c gji -n '__fish_seen_subcommand_from doctor' -l yes -d 'apply --fix without prompting'
 complete -c gji -n '__fish_seen_subcommand_from doctor' -l json -d 'emit diagnostic checks as JSON'
 
 complete -c gji -n '__fish_seen_subcommand_from completion' -a 'bash' -d 'shell'
@@ -314,7 +316,7 @@ case "\${words[2]}" in
     _arguments '--write[write the integration to the shell config file]' '--json[emit a JSON error in non-interactive mode]' '2:shell:(${shells})'
     ;;
   doctor)
-    _arguments '--json[emit diagnostic checks as JSON]'
+    _arguments '--fix[apply safe automatic fixes after showing the plan]' '--yes[apply --fix without prompting]' '--json[emit diagnostic checks as JSON]'
     ;;
   completion)
     _arguments '2:shell:(${shells})'

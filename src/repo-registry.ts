@@ -1,4 +1,11 @@
-import { mkdir, readFile, realpath, writeFile } from "node:fs/promises";
+import {
+	mkdir,
+	readFile,
+	realpath,
+	rename,
+	rm,
+	writeFile,
+} from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 
@@ -63,8 +70,48 @@ export async function registerRepo(
 	const filtered = existing.filter((e) => e.path !== canonicalRepoPath);
 	const next = [entry, ...filtered].slice(0, MAX_REGISTRY_ENTRIES);
 
+	await writeRegistry(next, registryPath);
+}
+
+export async function removeRegistryEntries(
+	paths: ReadonlySet<string>,
+	home: string = homedir(),
+): Promise<string[]> {
+	if (paths.size === 0) return [];
+
+	const registryPath = REGISTRY_FILE_PATH(home);
+	const entries = await loadRegistry(home);
+	const removedPaths = entries
+		.filter((entry) => paths.has(entry.path))
+		.map((entry) => entry.path);
+
+	if (removedPaths.length === 0) return [];
+
+	await writeRegistry(
+		entries.filter((entry) => !paths.has(entry.path)),
+		registryPath,
+	);
+	return removedPaths;
+}
+
+async function writeRegistry(
+	entries: RepoRegistryEntry[],
+	registryPath: string,
+): Promise<void> {
 	await mkdir(dirname(registryPath), { recursive: true });
-	await writeFile(registryPath, `${JSON.stringify(next, null, 2)}\n`, "utf8");
+	const temporaryPath = `${registryPath}.tmp-${process.pid}-${Date.now()}`;
+
+	try {
+		await writeFile(
+			temporaryPath,
+			`${JSON.stringify(entries, null, 2)}\n`,
+			"utf8",
+		);
+		await rename(temporaryPath, registryPath);
+	} catch (error) {
+		await rm(temporaryPath, { force: true }).catch(() => undefined);
+		throw error;
+	}
 }
 
 async function normalizeRegistryForWrite(

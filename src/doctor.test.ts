@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
@@ -6,11 +6,14 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { runCli } from "./cli.js";
 import { GLOBAL_CONFIG_FILE_PATH } from "./config.js";
+import { runDoctorCommand } from "./doctor.js";
 import { createRepository } from "./repo.test-helpers.js";
+import { REGISTRY_FILE_PATH } from "./repo-registry.js";
 
 const originalConfigDir = process.env.GJI_CONFIG_DIR;
 const originalHome = process.env.HOME;
 const originalShell = process.env.SHELL;
+const originalHeadless = process.env.GJI_NO_TUI;
 
 afterEach(() => {
 	if (originalConfigDir === undefined) {
@@ -29,6 +32,12 @@ afterEach(() => {
 		delete process.env.SHELL;
 	} else {
 		process.env.SHELL = originalShell;
+	}
+
+	if (originalHeadless === undefined) {
+		delete process.env.GJI_NO_TUI;
+	} else {
+		process.env.GJI_NO_TUI = originalHeadless;
 	}
 });
 
@@ -93,6 +102,25 @@ describe("gji doctor", () => {
 			"- zsh completion not installed (optional)",
 		);
 		expect(stdout.join("")).toContain("0 problems found.");
+	});
+
+	it("reports when no automatic fixes are available", async () => {
+		// Given an isolated environment with no stale registry entries.
+		const home = await mkdtemp(join(tmpdir(), "gji-home-"));
+		process.env.GJI_CONFIG_DIR = await mkdtemp(join(tmpdir(), "gji-config-"));
+		process.env.HOME = home;
+		delete process.env.SHELL;
+		const stdout: string[] = [];
+
+		// When doctor runs with the fix mode enabled.
+		const result = await runCli(["doctor", "--fix"], {
+			cwd: await mkdtemp(join(tmpdir(), "gji-outside-repo-")),
+			stdout: (chunk) => stdout.push(chunk),
+		});
+
+		// Then it succeeds and explains that there is nothing safe to change.
+		expect(result.exitCode).toBe(0);
+		expect(stdout.join("")).toContain("No automatic fixes available.");
 	});
 
 	it("explains how to create a missing shell rc file", async () => {
@@ -208,5 +236,122 @@ describe("gji doctor", () => {
 				problems: 0,
 			}),
 		);
+	});
+
+	it("removes stale registry entries and preserves reachable entries with --yes", async () => {
+		// Given a registry containing one reachable path and one missing path.
+		const home = await mkdtemp(join(tmpdir(), "gji-home-"));
+		const configDir = await mkdtemp(join(tmpdir(), "gji-config-"));
+		const reachablePath = await mkdtemp(join(tmpdir(), "gji-reachable-"));
+		const missingPath = join(tmpdir(), `gji-missing-${Date.now()}`);
+		process.env.GJI_CONFIG_DIR = configDir;
+		process.env.HOME = home;
+		delete process.env.SHELL;
+		const entries = [
+			{ lastUsed: 2, name: "reachable", path: reachablePath },
+			{ lastUsed: 1, name: "missing", path: missingPath },
+		];
+		await writeFile(
+			REGISTRY_FILE_PATH(home),
+			`${JSON.stringify(entries)}\n`,
+			"utf8",
+		);
+		const stdout: string[] = [];
+
+		// When doctor applies the requested automatic fix without prompting.
+		const result = await runCli(["doctor", "--json", "--fix", "--yes"], {
+			cwd: await mkdtemp(join(tmpdir(), "gji-outside-repo-")),
+			stdout: (chunk) => stdout.push(chunk),
+		});
+
+		// Then it re-checks successfully and writes only the reachable entry.
+		const output = JSON.parse(stdout.join(""));
+		expect(result.exitCode).toBe(0);
+		expect(output.problems).toBe(0);
+		expect(output.fixes).toEqual([
+			expect.objectContaining({ id: "repo-registry", status: "applied" }),
+		]);
+		expect(output.checks).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({ id: "repo-registry", status: "ok" }),
+			]),
+		);
+		expect(
+			JSON.parse(await readFile(REGISTRY_FILE_PATH(home), "utf8")),
+		).toEqual([entries[0]]);
+	});
+
+	it("does not mutate a stale registry in headless mode without --yes", async () => {
+		// Given a headless process and a registry containing a missing path.
+		const home = await mkdtemp(join(tmpdir(), "gji-home-"));
+		const configDir = await mkdtemp(join(tmpdir(), "gji-config-"));
+		const missingPath = join(tmpdir(), `gji-missing-${Date.now()}`);
+		process.env.GJI_CONFIG_DIR = configDir;
+		process.env.HOME = home;
+		process.env.GJI_NO_TUI = "1";
+		delete process.env.SHELL;
+		const entry = { lastUsed: 1, name: "missing", path: missingPath };
+		await writeFile(
+			REGISTRY_FILE_PATH(home),
+			`${JSON.stringify([entry])}\n`,
+			"utf8",
+		);
+		const stdout: string[] = [];
+
+		// When doctor is asked to fix without the non-interactive approval flag.
+		const result = await runCli(["doctor", "--json", "--fix"], {
+			cwd: await mkdtemp(join(tmpdir(), "gji-outside-repo-")),
+			stdout: (chunk) => stdout.push(chunk),
+		});
+
+		// Then it reports a pending fix, fails, and leaves the registry untouched.
+		const output = JSON.parse(stdout.join(""));
+		expect(result.exitCode).toBe(1);
+		expect(output.problems).toBe(1);
+		expect(output.fixes).toEqual([
+			expect.objectContaining({ status: "pending" }),
+		]);
+		expect(
+			JSON.parse(await readFile(REGISTRY_FILE_PATH(home), "utf8")),
+		).toEqual([entry]);
+	});
+
+	it("asks for confirmation before applying fixes in an interactive terminal", async () => {
+		// Given an interactive doctor invocation and a registry with one stale path.
+		const home = await mkdtemp(join(tmpdir(), "gji-home-"));
+		const configDir = await mkdtemp(join(tmpdir(), "gji-config-"));
+		const missingPath = join(tmpdir(), `gji-missing-${Date.now()}`);
+		process.env.GJI_CONFIG_DIR = configDir;
+		process.env.HOME = home;
+		delete process.env.SHELL;
+		const entry = { lastUsed: 1, name: "missing", path: missingPath };
+		await writeFile(
+			REGISTRY_FILE_PATH(home),
+			`${JSON.stringify([entry])}\n`,
+			"utf8",
+		);
+		const stdout: string[] = [];
+		let promptedFixes = 0;
+
+		// When the interactive command receives an affirmative injected confirmation.
+		const result = await runDoctorCommand({
+			confirmFixes: async (fixes) => {
+				promptedFixes = fixes.length;
+				return true;
+			},
+			cwd: await mkdtemp(join(tmpdir(), "gji-outside-repo-")),
+			fix: true,
+			home,
+			interactive: true,
+			stdout: (chunk) => stdout.push(chunk),
+		});
+
+		// Then it confirms one fix, applies it, and reports no remaining problems.
+		expect(result).toBe(0);
+		expect(promptedFixes).toBe(1);
+		expect(
+			JSON.parse(await readFile(REGISTRY_FILE_PATH(home), "utf8")),
+		).toEqual([]);
+		expect(stdout.join("\n")).toContain("✓ removed 1 stale repository entry");
 	});
 });

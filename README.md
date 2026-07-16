@@ -238,7 +238,7 @@ path=$(gji root --print)
 | `gji trigger-hook <hook>` | run a hook in the current worktree |
 | `gji config [get\|set\|unset] [key] [value]` | manage global defaults |
 | `gji init [shell]` | interactively set up onboarding, or print/install a shell wrapper |
-| `gji doctor [--json]` | check installation and configuration health |
+| `gji doctor [--json] [--fix] [--yes]` | check installation and configuration health; optionally remove stale repository entries |
 | `gji completion [shell]` | print shell completion definitions |
 
 ## Configuration
@@ -461,7 +461,7 @@ GJI_NO_TUI=1 gji remove --force feature/ci-branch
 GJI_NO_TUI=1 gji clean --force
 ```
 
-`GJI_NO_TUI=1` disables all prompts. Commands that need confirmation require `--force`. `--json` implies the same behaviour.
+`GJI_NO_TUI=1` disables all prompts. Commands that need confirmation require their non-interactive approval flag (`--force` for cleanup commands, `--yes` for `doctor --fix`). `--json` implies the same behaviour.
 
 Update notifications are also suppressed automatically in non-interactive and `--json` runs. Users can opt out explicitly with `NO_UPDATE_NOTIFIER=1` or `--no-update-notifier`.
 
