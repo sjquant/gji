@@ -81,7 +81,9 @@ export async function runCli(
 	options: RunCliOptions = {},
 ): Promise<RunCliResult> {
 	await maybeNotifyForUpdates(argv);
-	maybeRegisterCurrentRepo(options.cwd ?? process.cwd());
+	if (argv[0] !== "doctor") {
+		maybeRegisterCurrentRepo(options.cwd ?? process.cwd());
+	}
 
 	const program = createProgram();
 	const cwd = options.cwd ?? process.cwd();

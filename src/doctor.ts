@@ -20,7 +20,7 @@ import { detectRepository, type RepositoryContext } from "./repo.js";
 import {
 	loadRegistry,
 	REGISTRY_FILE_PATH,
-	removeRegistryEntries,
+	removeMissingRegistryEntries,
 } from "./repo-registry.js";
 import { resolveSupportedShell, type SupportedShell } from "./shell.js";
 import {
@@ -42,7 +42,12 @@ export interface DoctorCheck {
 	status: DoctorCheckStatus;
 }
 
-export type DoctorFixStatus = "applied" | "declined" | "failed" | "pending";
+export type DoctorFixStatus =
+	| "applied"
+	| "declined"
+	| "failed"
+	| "pending"
+	| "skipped";
 
 export interface DoctorFix {
 	hint?: string;
@@ -81,7 +86,9 @@ export async function runDoctorCommand(
 	if (options.yes && !options.fix) {
 		const message = "--yes requires --fix";
 		if (options.json) {
-			options.stdout(`${JSON.stringify({ error: message })}\n`);
+			(options.stderr ?? options.stdout)(
+				`${JSON.stringify({ error: message })}\n`,
+			);
 		} else {
 			(options.stderr ?? options.stdout)(`gji doctor: ${message}\n`);
 		}
@@ -224,14 +231,24 @@ async function applyDoctorFixes(
 	return Promise.all(
 		fixes.map(async (fix) => {
 			try {
-				const removed = await removeRegistryEntries(
+				const result = await removeMissingRegistryEntries(
 					new Set(fix.paths ?? []),
 					home,
 				);
+				const removedCount = result.removedPaths.length;
+				const skippedCount = result.skippedPaths.length;
 				return {
 					...fix,
-					message: `removed ${removed.length} stale ${removed.length === 1 ? "repository entry" : "repository entries"} from the registry`,
-					status: "applied" as const,
+					message:
+						removedCount === 0
+							? "no stale repository entries were removed"
+							: `removed ${removedCount} stale ${removedCount === 1 ? "repository entry" : "repository entries"} from the registry`,
+					status:
+						removedCount === 0 ? ("skipped" as const) : ("applied" as const),
+					hint:
+						skippedCount > 0
+							? `${skippedCount} path(s) were no longer confirmed missing`
+							: undefined,
 				};
 			} catch (error) {
 				return {
@@ -556,15 +573,20 @@ async function inspectRegistry(home: string): Promise<{
 	const missingEntries = await Promise.all(
 		entries.map(async (entry) => ({
 			entry,
-			exists: await pathExists(entry.path),
+			status: await inspectRegistryPath(entry.path),
 		})),
 	);
-	const missingCount = missingEntries.filter(({ exists }) => !exists).length;
+	const missingCount = missingEntries.filter(
+		({ status }) => status === "missing",
+	).length;
+	const unreadableCount = missingEntries.filter(
+		({ status }) => status === "unreadable",
+	).length;
 	const missingPaths = missingEntries
-		.filter(({ exists }) => !exists)
+		.filter(({ status }) => status === "missing")
 		.map(({ entry }) => entry.path);
 
-	if (missingCount === 0) {
+	if (missingCount === 0 && unreadableCount === 0) {
 		return {
 			check: okCheck(
 				"repo-registry",
@@ -574,14 +596,47 @@ async function inspectRegistry(home: string): Promise<{
 		};
 	}
 
+	const messageParts: string[] = [];
+	if (missingCount > 0) {
+		messageParts.push(
+			`${missingCount} ${missingCount === 1 ? "path is" : "paths are"} missing`,
+		);
+	}
+	if (unreadableCount > 0) {
+		messageParts.push(
+			`${unreadableCount} ${unreadableCount === 1 ? "path is" : "paths are"} not accessible`,
+		);
+	}
+
 	return {
 		check: failedCheck(
 			"repo-registry",
-			`${entries.length} repos registered, ${missingCount} ${missingCount === 1 ? "path is" : "paths are"} missing`,
-			`remove stale entries from ${REGISTRY_FILE_PATH(home)}`,
+			`${entries.length} repos registered, ${messageParts.join(", ")}`,
+			missingCount > 0
+				? `remove confirmed stale entries from ${REGISTRY_FILE_PATH(home)}; check permissions for inaccessible paths`
+				: "check permissions for inaccessible paths before removing registry entries",
 		),
 		missingPaths,
 	};
+}
+
+async function inspectRegistryPath(
+	path: string,
+): Promise<"exists" | "missing" | "unreadable"> {
+	try {
+		await access(path, constants.F_OK);
+		return "exists";
+	} catch (error) {
+		if (isMissingPathError(error)) return "missing";
+		return "unreadable";
+	}
+}
+
+function isMissingPathError(error: unknown): boolean {
+	if (!(error instanceof Error) || !("code" in error)) return false;
+
+	const code = (error as NodeJS.ErrnoException).code;
+	return code === "ENOENT" || code === "ENOTDIR";
 }
 
 async function pathExists(path: string): Promise<boolean> {
@@ -668,6 +723,8 @@ function fixStatusSymbol(status: DoctorFixStatus): string {
 			return "✗";
 		case "pending":
 			return "!";
+		case "skipped":
+			return "-";
 	}
 }
 

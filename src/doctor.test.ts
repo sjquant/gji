@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
@@ -8,7 +8,7 @@ import { runCli } from "./cli.js";
 import { GLOBAL_CONFIG_FILE_PATH } from "./config.js";
 import { runDoctorCommand } from "./doctor.js";
 import { createRepository } from "./repo.test-helpers.js";
-import { REGISTRY_FILE_PATH } from "./repo-registry.js";
+import { loadRegistry, REGISTRY_FILE_PATH } from "./repo-registry.js";
 
 const originalConfigDir = process.env.GJI_CONFIG_DIR;
 const originalHome = process.env.HOME;
@@ -121,6 +121,25 @@ describe("gji doctor", () => {
 		// Then it succeeds and explains that there is nothing safe to change.
 		expect(result.exitCode).toBe(0);
 		expect(stdout.join("")).toContain("No automatic fixes available.");
+	});
+
+	it("keeps doctor read-only by not registering the current repository", async () => {
+		// Given a repository and an isolated registry directory.
+		const repoRoot = await createRepository();
+		const home = await mkdtemp(join(tmpdir(), "gji-home-"));
+		process.env.GJI_CONFIG_DIR = await mkdtemp(join(tmpdir(), "gji-config-"));
+		process.env.HOME = home;
+		delete process.env.SHELL;
+
+		// When doctor runs from that repository.
+		const result = await runCli(["doctor", "--json"], {
+			cwd: repoRoot,
+			stdout: () => undefined,
+		});
+
+		// Then the diagnostic command does not add a registry entry as a side effect.
+		expect(result.exitCode).toBe(0);
+		expect(await loadRegistry(home)).toEqual([]);
 	});
 
 	it("explains how to create a missing shell rc file", async () => {
@@ -353,5 +372,93 @@ describe("gji doctor", () => {
 			JSON.parse(await readFile(REGISTRY_FILE_PATH(home), "utf8")),
 		).toEqual([]);
 		expect(stdout.join("\n")).toContain("✓ removed 1 stale repository entry");
+	});
+
+	it("rechecks a registry path after confirmation before removing it", async () => {
+		// Given a stale registry path that will be restored during confirmation.
+		const home = await mkdtemp(join(tmpdir(), "gji-home-"));
+		const configDir = await mkdtemp(join(tmpdir(), "gji-config-"));
+		const restoredPath = join(tmpdir(), `gji-restored-${Date.now()}`);
+		process.env.GJI_CONFIG_DIR = configDir;
+		process.env.HOME = home;
+		delete process.env.SHELL;
+		const entry = { lastUsed: 1, name: "restored", path: restoredPath };
+		await writeFile(
+			REGISTRY_FILE_PATH(home),
+			`${JSON.stringify([entry])}\n`,
+			"utf8",
+		);
+
+		// When confirmation restores the path before the safe removal transaction runs.
+		const result = await runDoctorCommand({
+			confirmFixes: async () => {
+				await mkdir(restoredPath);
+				return true;
+			},
+			cwd: await mkdtemp(join(tmpdir(), "gji-outside-repo-")),
+			fix: true,
+			home,
+			interactive: true,
+			stdout: () => undefined,
+		});
+
+		// Then the restored reachable entry remains registered and the command succeeds.
+		expect(result).toBe(0);
+		expect(await loadRegistry(home)).toEqual([entry]);
+	});
+
+	it("does not offer inaccessible registry paths as automatic fixes", async () => {
+		// Given a registry entry whose path cannot be inspected rather than missing.
+		const home = await mkdtemp(join(tmpdir(), "gji-home-"));
+		const configDir = await mkdtemp(join(tmpdir(), "gji-config-"));
+		const inaccessibleParent = await mkdtemp(
+			join(tmpdir(), "gji-inaccessible-"),
+		);
+		const inaccessiblePath = join(inaccessibleParent, "loop");
+		await symlink(inaccessiblePath, inaccessiblePath);
+		process.env.GJI_CONFIG_DIR = configDir;
+		process.env.HOME = home;
+		delete process.env.SHELL;
+		await writeFile(
+			REGISTRY_FILE_PATH(home),
+			`${JSON.stringify([
+				{ lastUsed: 1, name: "inaccessible", path: inaccessiblePath },
+			])}\n`,
+			"utf8",
+		);
+		const stdout: string[] = [];
+
+		// When doctor checks the registry and encounters the symlink loop.
+		const result = await runDoctorCommand({
+			cwd: await mkdtemp(join(tmpdir(), "gji-outside-repo-")),
+			fix: true,
+			home,
+			interactive: false,
+			stdout: (chunk) => stdout.push(chunk),
+		});
+
+		// Then no automatic fix is offered and the registry entry is preserved.
+		expect(result).toBe(1);
+		expect(stdout.join("")).toContain("No automatic fixes available.");
+		expect(await loadRegistry(home)).toHaveLength(1);
+	});
+
+	it("writes invalid --yes JSON usage errors to stderr", async () => {
+		// Given separate JSON stdout and stderr collectors.
+		const stdout: string[] = [];
+		const stderr: string[] = [];
+
+		// When --yes is passed without --fix.
+		const result = await runCli(["doctor", "--json", "--yes"], {
+			stderr: (chunk) => stderr.push(chunk),
+			stdout: (chunk) => stdout.push(chunk),
+		});
+
+		// Then stdout stays clean and stderr contains the machine-readable error.
+		expect(result.exitCode).toBe(1);
+		expect(stdout).toEqual([]);
+		expect(JSON.parse(stderr.join(""))).toEqual({
+			error: "--yes requires --fix",
+		});
 	});
 });
