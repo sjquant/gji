@@ -20,6 +20,7 @@ export interface PrOpenCommandOptions {
 	cwd: string;
 	stderr: (chunk: string) => void;
 	stdout: (chunk: string) => void;
+	select?: boolean;
 	target?: string;
 }
 
@@ -61,9 +62,14 @@ export function createPrOpenCommand(
 	return async function runPrOpenCommand(
 		options: PrOpenCommandOptions,
 	): Promise<number> {
-		if (options.target === undefined && isHeadless()) {
+		if (options.select && options.target !== undefined) {
+			options.stderr("gji pr open: --select cannot be used with a target\n");
+			return 1;
+		}
+
+		if (options.select && isHeadless()) {
 			options.stderr(
-				"gji pr open: target is required in non-interactive mode (GJI_NO_TUI=1)\n",
+				"gji pr open --select: selector is unavailable in non-interactive mode (GJI_NO_TUI=1)\n",
 			);
 			return 1;
 		}
@@ -77,6 +83,16 @@ export function createPrOpenCommand(
 		if (repository === null) return 1;
 
 		if (options.target === undefined) {
+			if (!options.select) {
+				return openCurrentWorktree(
+					repository.repoRoot,
+					options,
+					queryPullRequests,
+					promptForPullRequest,
+					openInBrowser,
+				);
+			}
+
 			return openFromWorktreeSelector(
 				repository.repoRoot,
 				repository.repoName,
@@ -135,6 +151,59 @@ export function createPrOpenCommand(
 }
 
 export const runPrOpenCommand = createPrOpenCommand();
+
+async function openCurrentWorktree(
+	repoRoot: string,
+	options: PrOpenCommandOptions,
+	queryPullRequests: QueryWorktreePullRequests,
+	promptForPullRequest: PrOpenCommandDependencies["promptForPullRequest"],
+	openInBrowser: (url: string) => Promise<void>,
+): Promise<number> {
+	const worktrees = await listWorktrees(options.cwd).catch((error) => {
+		options.stderr(
+			`gji pr open: unable to list worktrees: ${formatError(error)}\n`,
+		);
+		return null;
+	});
+	if (worktrees === null) return 1;
+
+	const currentWorktree = worktrees.find((worktree) => worktree.isCurrent);
+	if (currentWorktree === undefined) {
+		options.stderr("gji pr open: unable to identify the current worktree\n");
+		return 1;
+	}
+
+	if (currentWorktree.branch === null) {
+		options.stderr(
+			"gji pr open: current worktree is detached and has no PR branch\n",
+		);
+		return 1;
+	}
+
+	let pullRequests: PullRequestInfo[];
+	try {
+		pullRequests = await queryPullRequests(repoRoot, currentWorktree.branch);
+	} catch (error) {
+		options.stderr(
+			`gji pr open: failed to look up PRs for current branch ${currentWorktree.branch}: ${formatError(error)}\n`,
+		);
+		return 1;
+	}
+
+	if (pullRequests.length === 0) {
+		options.stderr(
+			"gji pr open: no open PR found for the current worktree; use gji pr open --select to choose another\n",
+		);
+		return 1;
+	}
+
+	return openPullRequests(
+		pullRequests,
+		options,
+		promptForPullRequest,
+		openInBrowser,
+	);
+}
 
 async function openFromWorktreeSelector(
 	repoRoot: string,

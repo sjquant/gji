@@ -213,6 +213,7 @@ function registerCommands(program: Command): void {
 	prCommand
 		.command("open [target]")
 		.description("open an existing pull request in the default browser")
+		.option("--select", "choose a pull request from any linked worktree")
 		.action(notImplemented("pr open"));
 
 	program
@@ -478,18 +479,24 @@ function attachCommandActions(
 		.find((command) => command.name() === "pr")
 		?.commands.find((command) => command.name() === "open");
 
-	prOpenCommand?.action(async (target: string | undefined) => {
-		const exitCode = await runPrOpenCommand({
-			cwd: options.cwd,
-			stderr: options.stderr,
-			stdout: options.stdout,
-			target,
-		});
+	prOpenCommand?.action(
+		async (
+			target: string | undefined,
+			commandOptions: { select?: boolean },
+		) => {
+			const exitCode = await runPrOpenCommand({
+				cwd: options.cwd,
+				stderr: options.stderr,
+				stdout: options.stdout,
+				select: commandOptions.select,
+				target,
+			});
 
-		if (exitCode !== 0) {
-			throw commanderExit(exitCode);
-		}
-	});
+			if (exitCode !== 0) {
+				throw commanderExit(exitCode);
+			}
+		},
+	);
 
 	program.commands
 		.find((command) => command.name() === "back")

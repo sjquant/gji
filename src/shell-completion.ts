@@ -104,7 +104,7 @@ _gji_completion() {
       if [ "$COMP_CWORD" -eq 2 ]; then
         COMPREPLY=( $(compgen -W "open --dry-run --json --help" -- "$cur") )
       elif [ "\${COMP_WORDS[2]}" = "open" ]; then
-        COMPREPLY=( $(compgen -W "$(__gji_pr_targets) --help" -- "$cur") )
+        COMPREPLY=( $(compgen -W "$(__gji_pr_targets) --select --help" -- "$cur") )
       else
         COMPREPLY=( $(compgen -W "--dry-run --json --help" -- "$cur") )
       fi
@@ -258,6 +258,7 @@ complete -c gji -n '__fish_seen_subcommand_from completion' -a 'zsh' -d 'shell'
 complete -c gji -n '__fish_seen_subcommand_from pr' -l dry-run -d 'show what would be created without executing any git commands or writing files'
 complete -c gji -n '__fish_seen_subcommand_from pr' -l json -d 'emit JSON on success or error instead of human-readable output'
 complete -c gji -n '__fish_seen_subcommand_from pr' -a 'open' -d 'open a pull request in the default browser'
+complete -c gji -n '__fish_seen_subcommand_from pr; and test (commandline -opc)[3] = open' -l select -d 'choose a pull request from any linked worktree'
 complete -c gji -n '__fish_seen_subcommand_from pr; and test (commandline -opc)[3] = open' -a '(__gji_pr_targets)' -d 'branch or PR number (#N)'
 
 complete -c gji -n '__fish_seen_subcommand_from back' -l print -d 'print the resolved worktree path explicitly'
@@ -363,7 +364,7 @@ case "\${words[2]}" in
     ;;
   pr)
     if [[ "\${words[3]}" == "open" ]]; then
-      _arguments '4:branch or PR number:->pr_targets'
+      _arguments '--select[choose a pull request from any linked worktree]' '4:branch or PR number:->pr_targets'
     else
       _arguments '--dry-run[show what would be created without executing any git commands or writing files]' '--json[emit JSON on success or error instead of human-readable output]' '2:ref:(open)'
     fi

@@ -96,22 +96,25 @@ describe("runCli", () => {
 
 		// Then the new target syntax is documented by Commander.
 		expect(help).toContain("open [options] [target]");
+		expect(help).toContain("--select");
 	});
 
-	it("dispatches targetless pr open through the CLI action", async () => {
+	it("dispatches the pr open selector flag through the CLI action", async () => {
 		// Given headless mode and output collectors.
 		process.env.GJI_NO_TUI = "1";
 		const stderr: string[] = [];
 
-		// When the nested command is invoked through runCli.
-		const result = await runCli(["pr", "open"], {
+		// When the nested selector command is invoked through runCli.
+		const result = await runCli(["pr", "open", "--select"], {
 			cwd: "/not-a-repository",
 			stderr: (chunk) => stderr.push(chunk),
 		});
 
-		// Then the nested action forwards the missing-target error and exit code.
+		// Then the nested action forwards the selector-mode error and exit code.
 		expect(result.exitCode).toBe(1);
-		expect(stderr.join("")).toContain("gji pr open: target is required");
+		expect(stderr.join("")).toContain(
+			"gji pr open --select: selector is unavailable",
+		);
 	});
 
 	it("passes the clean stale filter through command parsing", async () => {

@@ -18,7 +18,7 @@ image: /img/social-card.png
 | --- | --- |
 | `gji new [branch] [--detached] [--open] [--editor <cli>] [--json]` | Create a branch and worktree, then enter it. |
 | `gji pr <ref> [--json]` | Fetch a pull request ref and open it in a dedicated worktree. |
-| `gji pr open [branch|#N]` | Open an open pull request in the default browser, optionally by local branch or PR number. |
+| `gji pr open [branch|#N] [--select]` | Open the current worktree PR, or choose a linked worktree with `--select`. |
 | `gji go [branch] [--print]` | Jump to a worktree or print its path for scripting. |
 | `gji warp [branch] [--new [branch]] [--print] [--json]` | Jump to any known repo worktree, or create a new one from the same entry point. |
 | `gji open [branch] [--editor <cli>] [--save] [--workspace]` | Open a worktree in an editor. |
@@ -99,6 +99,7 @@ gji pr 1234
 
 # Open the web page for an existing open PR
 gji pr open
+gji pr open --select
 gji pr open feature/auth-refactor
 gji pr open '#1234'
 ```

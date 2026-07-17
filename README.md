@@ -9,7 +9,7 @@ That matters even more in AI-assisted workflows, where one repository often has 
 ```sh
 gji new feature/payment-refactor   # new branch + worktree, cd in
 gji pr 1234                        # review PR in isolation, cd in
-gji pr open                         # open a PR linked to a local worktree
+gji pr open                         # open the PR for the current worktree
 gji go main                        # jump back, shell changes directory
 gji remove feature/payment-refactor
 ```
@@ -113,7 +113,8 @@ gji new feature/dark-mode --open --editor cursor
 
 # review a pull request
 gji pr 1234
-gji pr open                         # choose a linked worktree PR and open it
+gji pr open                         # open the PR for the current worktree
+gji pr open --select                # choose a PR from any linked worktree
 gji pr open feature/auth-refactor   # open the PR for a branch
 gji pr open '#1234'                 # open an open PR directly
 
@@ -247,7 +248,7 @@ path=$(gji root --print)
 |---|---|
 | `gji new [branch] [--detached] [--open] [--editor <cli>] [--json]` | create branch + worktree, cd in (validates branch name against Git rules) |
 | `gji pr <ref> [--json]` | fetch PR ref, create worktree, cd in |
-| `gji pr open [branch|#N]` | open an open PR in the default browser; with no argument, choose a linked worktree |
+| `gji pr open [branch|#N] [--select]` | open the current worktree PR, or choose a linked worktree with `--select` |
 | `gji open [branch] [--editor <cli>] [--save] [--workspace]` | open a worktree in an editor |
 | `gji go [branch] [--print]` | jump to a worktree |
 | `gji root [--print]` | jump to the main repo root |
@@ -483,6 +484,8 @@ GJI_NO_TUI=1 gji clean --force
 ```
 
 `GJI_NO_TUI=1` disables all prompts. Commands that need confirmation require `--force`. `--json` implies the same behaviour.
+
+`gji pr open --select` requires an interactive terminal; plain `gji pr open` opens the PR for the current worktree without prompting.
 
 Update notifications are also suppressed automatically in non-interactive and `--json` runs. Users can opt out explicitly with `NO_UPDATE_NOTIFIER=1` or `--no-update-notifier`.
 

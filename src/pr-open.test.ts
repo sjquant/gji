@@ -9,7 +9,43 @@ afterEach(() => {
 });
 
 describe("gji pr open", () => {
-	it("shows only worktrees with open PRs in the no-argument selector", async () => {
+	it("opens the current worktree PR without showing a selector", async () => {
+		// Given a current linked worktree with one open PR.
+		const repoRoot = await createRepository();
+		const branch = "feature/current-pr";
+		const currentPath = await addLinkedWorktree(repoRoot, branch);
+		const queriedBranches: string[] = [];
+		const opened: string[] = [];
+		const runPrOpen = createPrOpenCommand({
+			openBrowser: async (url) => {
+				opened.push(url);
+			},
+			queryPullRequests: async (_root, sourceBranch) => {
+				queriedBranches.push(sourceBranch);
+				return [
+					{
+						number: 7,
+						sourceBranch,
+						url: "https://github.com/example/repo/pull/7",
+					},
+				];
+			},
+		});
+
+		// When pr open runs without a target from the current worktree.
+		const result = await runPrOpen({
+			cwd: currentPath,
+			stderr: () => undefined,
+			stdout: () => undefined,
+		});
+
+		// Then the current branch is queried and its only PR opens immediately.
+		expect(result).toBe(0);
+		expect(queriedBranches).toEqual([branch]);
+		expect(opened).toEqual(["https://github.com/example/repo/pull/7"]);
+	});
+
+	it("shows only worktrees with open PRs in the explicit selector", async () => {
 		// Given a repository with one PR-connected worktree and one unrelated worktree.
 		const repoRoot = await createRepository();
 		const connectedBranch = "feature/connected";
@@ -37,10 +73,11 @@ describe("gji pr open", () => {
 					: [],
 		});
 
-		// When pr open runs without a target.
+		// When pr open runs with the explicit selector flag.
 		const result = await runPrOpen({
 			cwd: repoRoot,
 			stderr: () => undefined,
+			select: true,
 			stdout: () => undefined,
 		});
 
@@ -149,10 +186,11 @@ describe("gji pr open", () => {
 			],
 		});
 
-		// When pr open runs through the worktree selector.
+		// When pr open runs through the explicit worktree selector.
 		const result = await runPrOpen({
 			cwd: repoRoot,
 			stderr: () => undefined,
+			select: true,
 			stdout: () => undefined,
 		});
 
@@ -193,21 +231,22 @@ describe("gji pr open", () => {
 		expect(errors.join("")).toContain("browser unavailable");
 	});
 
-	it("requires a target in headless mode", async () => {
-		// Given headless mode and no pr open target.
+	it("rejects the selector flag in headless mode", async () => {
+		// Given headless mode and an explicit selector request.
 		process.env.GJI_NO_TUI = "1";
 		const errors: string[] = [];
 		const runPrOpen = createPrOpenCommand();
 
-		// When pr open is invoked without an argument.
+		// When pr open is invoked with --select.
 		const result = await runPrOpen({
 			cwd: "/not-a-repository",
 			stderr: (chunk) => errors.push(chunk),
+			select: true,
 			stdout: () => undefined,
 		});
 
-		// Then it rejects the interactive-only invocation before repository lookup.
+		// Then it rejects the interactive-only selector before repository lookup.
 		expect(result).toBe(1);
-		expect(errors.join("")).toContain("target is required");
+		expect(errors.join("")).toContain("selector is unavailable");
 	});
 });

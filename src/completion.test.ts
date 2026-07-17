@@ -63,6 +63,9 @@ describe("gji completion", () => {
 		expect(stdout.join("")).toContain("'2:branch:->worktrees'");
 		expect(stdout.join("")).toContain("command gji ls --compact");
 		expect(stdout.join("")).toContain("branch or PR number:->pr_targets");
+		expect(stdout.join("")).toContain(
+			"'--select[choose a pull request from any linked worktree]'",
+		);
 		expect(stdout.join("")).toContain("'2:ref:(open)'");
 		expect(stdout.join("")).toContain("__gji_pr_targets");
 		expect(stdout.join("")).toContain('branch = ($1 == "*" ? $2 : $1)');
@@ -147,6 +150,9 @@ print -r -- "\${_comps[gji]-unset}"`,
 		expect(stdout.join("")).toContain("command gji ls --compact");
 		expect(stdout.join("")).toContain(
 			"complete -c gji -n '__fish_seen_subcommand_from pr' -a 'open'",
+		);
+		expect(stdout.join("")).toContain(
+			"complete -c gji -n '__fish_seen_subcommand_from pr; and test (commandline -opc)[3] = open' -l select",
 		);
 		expect(stdout.join("")).toContain("__gji_pr_targets");
 		expect(stdout.join("")).toContain('branch = ($1 == "*" ? $2 : $1)');
@@ -241,6 +247,7 @@ print -r -- "\${_comps[gji]-unset}"`,
 		expect(stdout.join("")).toContain("--force --open --editor");
 		expect(stdout.join("")).toContain("go|jump)");
 		expect(stdout.join("")).toContain("open --dry-run --json --help");
+		expect(stdout.join("")).toContain("$(__gji_pr_targets) --select --help");
 		expect(stdout.join("")).toContain("__gji_pr_targets");
 		expect(stdout.join("")).toContain("open)");
 		expect(stdout.join("")).toContain("warp)");
