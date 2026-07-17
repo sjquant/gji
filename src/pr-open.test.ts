@@ -249,4 +249,42 @@ describe("gji pr open", () => {
 		expect(result).toBe(1);
 		expect(errors.join("")).toContain("selector is unavailable");
 	});
+
+	it("rejects PR selection in headless mode when the current branch has multiple PRs", async () => {
+		// Given headless mode and multiple open PRs for the current worktree.
+		process.env.GJI_NO_TUI = "1";
+		const repoRoot = await createRepository();
+		const errors: string[] = [];
+		let prompted = false;
+		const runPrOpen = createPrOpenCommand({
+			promptForPullRequest: async () => {
+				prompted = true;
+				return null;
+			},
+			queryPullRequests: async (_root, sourceBranch) => [
+				{
+					number: 12,
+					sourceBranch,
+					url: "https://github.com/example/repo/pull/12",
+				},
+				{
+					number: 34,
+					sourceBranch,
+					url: "https://github.com/example/repo/pull/34",
+				},
+			],
+		});
+
+		// When pr open runs without a target in the current worktree.
+		const result = await runPrOpen({
+			cwd: repoRoot,
+			stderr: (chunk) => errors.push(chunk),
+			stdout: () => undefined,
+		});
+
+		// Then it fails without entering an interactive prompt.
+		expect(result).toBe(1);
+		expect(prompted).toBe(false);
+		expect(errors.join("")).toContain("multiple open PRs found");
+	});
 });

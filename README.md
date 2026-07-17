@@ -486,6 +486,7 @@ GJI_NO_TUI=1 gji clean --force
 `GJI_NO_TUI=1` disables all prompts. Commands that need confirmation require `--force`. `--json` implies the same behaviour.
 
 `gji pr open --select` requires an interactive terminal; plain `gji pr open` opens the PR for the current worktree without prompting.
+If the current worktree has multiple open PRs in headless mode, pass `gji pr open '#N'` explicitly.
 
 Update notifications are also suppressed automatically in non-interactive and `--json` runs. Users can opt out explicitly with `NO_UPDATE_NOTIFIER=1` or `--no-update-notifier`.
 

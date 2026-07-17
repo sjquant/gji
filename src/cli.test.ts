@@ -117,6 +117,36 @@ describe("runCli", () => {
 		);
 	});
 
+	it("runs the current-worktree pr open flow through the CLI boundary", async () => {
+		// Given a current repository and injected PR/browser boundaries.
+		const repoRoot = await createRepository();
+		const opened: string[] = [];
+		const stdout: string[] = [];
+
+		// When the executable command path runs without a target.
+		const result = await runCli(["pr", "open"], {
+			cwd: repoRoot,
+			prOpenDependencies: {
+				openBrowser: async (url) => {
+					opened.push(url);
+				},
+				queryPullRequests: async (_root, sourceBranch) => [
+					{
+						number: 27,
+						sourceBranch,
+						url: "https://github.com/example/repo/pull/27",
+					},
+				],
+			},
+			stdout: (chunk) => stdout.push(chunk),
+		});
+
+		// Then Commander dispatches to the current-worktree opener and reports success.
+		expect(result.exitCode).toBe(0);
+		expect(opened).toEqual(["https://github.com/example/repo/pull/27"]);
+		expect(stdout.join("")).toContain("Opened PR #27");
+	});
+
 	it("passes the clean stale filter through command parsing", async () => {
 		// Given a repository without stale linked worktrees and output collectors.
 		const repoRoot = await createRepository();

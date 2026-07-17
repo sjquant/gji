@@ -62,20 +62,35 @@ function renderBashCompletion(): string {
   command gji ls --compact 2>/dev/null | awk 'NR > 1 { branch = ($1 == "*" ? $2 : $1); if (branch != "(detached)") print branch }'
 }
 
+__gji_pr_targets_cache=""
+__gji_pr_targets_cache_at=0
+__gji_pr_targets_cache_loaded=0
+
 __gji_pr_targets() {
   __gji_worktree_branches
-  if command -v gh >/dev/null 2>&1; then
-    GH_PROMPT_DISABLED=1 command gh pr list --state open --json number --limit 100 2>/dev/null |
-      tr '{},' '\\n' | sed -n 's/.*"number":[[:space:]]*\\([0-9][0-9]*\\).*/#\\1/p'
-  elif command -v glab >/dev/null 2>&1; then
-    GLAB_NON_INTERACTIVE=1 command glab mr list --state opened --output json --per-page 100 2>/dev/null |
-      tr '{},' '\\n' | sed -n 's/.*"iid":[[:space:]]*\\([0-9][0-9]*\\).*/#\\1/p'
-  elif command -v bb >/dev/null 2>&1; then
-    command bb pr list --state OPEN --format json 2>/dev/null |
-      tr '{},' '\\n' | sed -n 's/.*"id":[[:space:]]*\\([0-9][0-9]*\\).*/#\\1/p'
-  else
-    printf '#\\n'
+  local now targets
+  now=$(date +%s)
+  if [ "$__gji_pr_targets_cache_loaded" -eq 1 ] && [ "$((now - __gji_pr_targets_cache_at))" -lt 30 ]; then
+    printf '%s\n' "$__gji_pr_targets_cache"
+    return
   fi
+
+  targets=""
+  if command -v gh >/dev/null 2>&1; then
+    targets=$(GH_PROMPT_DISABLED=1 command gh pr list --state open --json number --limit 100 2>/dev/null |
+      tr '{},' '\\n' | sed -n 's/.*"number":[[:space:]]*\\([0-9][0-9]*\\).*/\\1/p')
+  elif command -v glab >/dev/null 2>&1; then
+    targets=$(GLAB_NON_INTERACTIVE=1 command glab mr list --state opened --output json --per-page 100 2>/dev/null |
+      tr '{},' '\\n' | sed -n 's/.*"iid":[[:space:]]*\\([0-9][0-9]*\\).*/\\1/p')
+  elif command -v bb >/dev/null 2>&1; then
+    targets=$(command bb pr list --state OPEN --format json 2>/dev/null |
+      tr '{},' '\\n' | sed -n 's/.*"id":[[:space:]]*\\([0-9][0-9]*\\).*/\\1/p')
+  fi
+
+  __gji_pr_targets_cache="$targets"
+  __gji_pr_targets_cache_at="$now"
+  __gji_pr_targets_cache_loaded=1
+  printf '%s\n' "$targets"
 }
 
 _gji_completion() {
@@ -104,7 +119,15 @@ _gji_completion() {
       if [ "$COMP_CWORD" -eq 2 ]; then
         COMPREPLY=( $(compgen -W "open --dry-run --json --help" -- "$cur") )
       elif [ "\${COMP_WORDS[2]}" = "open" ]; then
-        COMPREPLY=( $(compgen -W "$(__gji_pr_targets) --select --help" -- "$cur") )
+        local has_select=0 word
+        for word in "\${COMP_WORDS[@]:3:$((COMP_CWORD - 3))}"; do
+          if [ "$word" = "--select" ]; then has_select=1; fi
+        done
+        if [[ "$cur" == -* || "$has_select" -eq 1 ]]; then
+          COMPREPLY=( $(compgen -W "--select --help" -- "$cur") )
+        else
+          COMPREPLY=( $(compgen -W "$(__gji_pr_targets) --select --help" -- "$cur") )
+        fi
       else
         COMPREPLY=( $(compgen -W "--dry-run --json --help" -- "$cur") )
       fi
@@ -201,23 +224,53 @@ function renderFishCompletion(): string {
     command gji ls --compact 2>/dev/null | awk 'NR > 1 { branch = ($1 == "*" ? $2 : $1); if (branch != "(detached)") print branch }'
 end
 
+set -g __gji_pr_targets_cache
+set -g __gji_pr_targets_cache_at 0
+set -g __gji_pr_targets_cache_loaded 0
+
 function __gji_pr_targets
     __gji_worktree_branches
-    if command -q gh
-        env GH_PROMPT_DISABLED=1 command gh pr list --state open --json number --limit 100 2>/dev/null |
-            string replace -a -r '[{},]' '\\n' |
-            string match -r '"number"[[:space:]]*:[[:space:]]*[0-9]+' | string replace -r '.*:[[:space:]]*' '#'
-    else if command -q glab
-        env GLAB_NON_INTERACTIVE=1 command glab mr list --state opened --output json --per-page 100 2>/dev/null |
-            string replace -a -r '[{},]' '\\n' |
-            string match -r '"iid"[[:space:]]*:[[:space:]]*[0-9]+' | string replace -r '.*:[[:space:]]*' '#'
-    else if command -q bb
-        command bb pr list --state OPEN --format json 2>/dev/null |
-            string replace -a -r '[{},]' '\\n' |
-            string match -r '"id"[[:space:]]*:[[:space:]]*[0-9]+' | string replace -r '.*:[[:space:]]*' '#'
-    else
-        echo '#'
+    set -l now (date +%s)
+    if test $__gji_pr_targets_cache_loaded -eq 1; and test (math $now - $__gji_pr_targets_cache_at) -lt 30
+        printf '%s\n' $__gji_pr_targets_cache
+        return
     end
+
+    set -l targets
+    if command -q gh
+        set targets (env GH_PROMPT_DISABLED=1 command gh pr list --state open --json number --limit 100 2>/dev/null |
+            string replace -a -r '[{},]' '\\n' |
+            string match -r '"number"[[:space:]]*:[[:space:]]*[0-9]+' | string replace -r '.*:[[:space:]]*' '')
+    else if command -q glab
+        set targets (env GLAB_NON_INTERACTIVE=1 command glab mr list --state opened --output json --per-page 100 2>/dev/null |
+            string replace -a -r '[{},]' '\\n' |
+            string match -r '"iid"[[:space:]]*:[[:space:]]*[0-9]+' | string replace -r '.*:[[:space:]]*' '')
+    else if command -q bb
+        set targets (command bb pr list --state OPEN --format json 2>/dev/null |
+            string replace -a -r '[{},]' '\\n' |
+            string match -r '"id"[[:space:]]*:[[:space:]]*[0-9]+' | string replace -r '.*:[[:space:]]*' '')
+    end
+
+    set -g __gji_pr_targets_cache $targets
+    set -g __gji_pr_targets_cache_at $now
+    set -g __gji_pr_targets_cache_loaded 1
+    printf '%s\n' $targets
+end
+
+function __gji_should_complete_pr_target
+    set -l tokens (commandline -opc)
+    if test (count $tokens) -lt 3; or test $tokens[2] != pr; or test $tokens[3] != open
+        return 1
+    end
+    if string match -q -- '-*' (commandline -ct)
+        return 1
+    end
+    for token in $tokens[4..-1]
+        if test $token = --select
+            return 1
+        end
+    end
+    return 0
 end
 
 function __gji_should_complete_config_action
@@ -259,7 +312,7 @@ complete -c gji -n '__fish_seen_subcommand_from pr' -l dry-run -d 'show what wou
 complete -c gji -n '__fish_seen_subcommand_from pr' -l json -d 'emit JSON on success or error instead of human-readable output'
 complete -c gji -n '__fish_seen_subcommand_from pr' -a 'open' -d 'open a pull request in the default browser'
 complete -c gji -n '__fish_seen_subcommand_from pr; and test (commandline -opc)[3] = open' -l select -d 'choose a pull request from any linked worktree'
-complete -c gji -n '__fish_seen_subcommand_from pr; and test (commandline -opc)[3] = open' -a '(__gji_pr_targets)' -d 'branch or PR number (#N)'
+complete -c gji -n '__gji_should_complete_pr_target' -a '(__gji_pr_targets)' -d 'branch or PR number'
 
 complete -c gji -n '__fish_seen_subcommand_from back' -l print -d 'print the resolved worktree path explicitly'
 
@@ -324,20 +377,36 @@ __gji_worktree_branches() {
   command gji ls --compact 2>/dev/null | awk 'NR > 1 { branch = ($1 == "*" ? $2 : $1); if (branch != "(detached)") print branch }'
 }
 
+typeset -g __gji_pr_targets_cache=()
+typeset -g __gji_pr_targets_cache_at=0
+typeset -g __gji_pr_targets_cache_loaded=0
+
 __gji_pr_targets() {
   __gji_worktree_branches
-  if (( $+commands[gh] )); then
-    GH_PROMPT_DISABLED=1 command gh pr list --state open --json number --limit 100 2>/dev/null |
-      tr '{},' '\\n' | sed -n 's/.*"number":[[:space:]]*\\([0-9][0-9]*\\).*/#\\1/p'
-  elif (( $+commands[glab] )); then
-    GLAB_NON_INTERACTIVE=1 command glab mr list --state opened --output json --per-page 100 2>/dev/null |
-      tr '{},' '\\n' | sed -n 's/.*"iid":[[:space:]]*\\([0-9][0-9]*\\).*/#\\1/p'
-  elif (( $+commands[bb] )); then
-    command bb pr list --state OPEN --format json 2>/dev/null |
-      tr '{},' '\\n' | sed -n 's/.*"id":[[:space:]]*\\([0-9][0-9]*\\).*/#\\1/p'
-  else
-    printf '#\\n'
+  local now
+  local -a targets
+  now=$(date +%s)
+  if (( __gji_pr_targets_cache_loaded == 1 && now - __gji_pr_targets_cache_at < 30 )); then
+    print -rl -- "\${__gji_pr_targets_cache[@]}"
+    return
   fi
+
+  targets=()
+  if (( $+commands[gh] )); then
+    targets=("\${(@f)$(GH_PROMPT_DISABLED=1 command gh pr list --state open --json number --limit 100 2>/dev/null |
+      tr '{},' '\\n' | sed -n 's/.*"number":[[:space:]]*\\([0-9][0-9]*\\).*/\\1/p')}")
+  elif (( $+commands[glab] )); then
+    targets=("\${(@f)$(GLAB_NON_INTERACTIVE=1 command glab mr list --state opened --output json --per-page 100 2>/dev/null |
+      tr '{},' '\\n' | sed -n 's/.*"iid":[[:space:]]*\\([0-9][0-9]*\\).*/\\1/p')}")
+  elif (( $+commands[bb] )); then
+    targets=("\${(@f)$(command bb pr list --state OPEN --format json 2>/dev/null |
+      tr '{},' '\\n' | sed -n 's/.*"id":[[:space:]]*\\([0-9][0-9]*\\).*/\\1/p')}")
+  fi
+
+  __gji_pr_targets_cache=("\${targets[@]}")
+  __gji_pr_targets_cache_at="$now"
+  __gji_pr_targets_cache_loaded=1
+  print -rl -- "\${targets[@]}"
 }
 
 local context state line

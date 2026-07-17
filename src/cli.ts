@@ -14,7 +14,10 @@ import { runLsCommand } from "./ls.js";
 import { runNewCommand } from "./new.js";
 import { runOpenCommand } from "./open.js";
 import { runPrCommand } from "./pr.js";
-import { runPrOpenCommand } from "./pr-open.js";
+import {
+	createPrOpenCommand,
+	type PrOpenCommandDependencies,
+} from "./pr-open.js";
 import { runRemoveCommand } from "./remove.js";
 import { detectRepository } from "./repo.js";
 import { registerRepo } from "./repo-registry.js";
@@ -32,6 +35,7 @@ interface PackageMetadata {
 
 export interface RunCliOptions {
 	cwd?: string;
+	prOpenDependencies?: Partial<PrOpenCommandDependencies>;
 	stderr?: (chunk: string) => void;
 	stdout?: (chunk: string) => void;
 }
@@ -42,6 +46,7 @@ export interface RunCliResult {
 
 interface CommandActionOptions {
 	cwd: string;
+	prOpenDependencies?: Partial<PrOpenCommandDependencies>;
 	stderr: (chunk: string) => void;
 	stdout: (chunk: string) => void;
 }
@@ -101,7 +106,12 @@ export async function runCli(
 	}
 
 	try {
-		attachCommandActions(program, { cwd, stderr, stdout });
+		attachCommandActions(program, {
+			cwd,
+			prOpenDependencies: options.prOpenDependencies,
+			stderr,
+			stdout,
+		});
 		await program.parseAsync(["node", "gji", ...argv], { from: "node" });
 
 		return { exitCode: 0 };
@@ -478,6 +488,7 @@ function attachCommandActions(
 	const prOpenCommand = program.commands
 		.find((command) => command.name() === "pr")
 		?.commands.find((command) => command.name() === "open");
+	const runPrOpenCommand = createPrOpenCommand(options.prOpenDependencies);
 
 	prOpenCommand?.action(
 		async (

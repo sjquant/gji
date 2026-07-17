@@ -381,6 +381,12 @@ async function openPullRequests(
 		options.stderr("gji pr open: no open PR found for the selected branch\n");
 		return 1;
 	}
+	if (pullRequests.length > 1 && isHeadless()) {
+		options.stderr(
+			"gji pr open: multiple open PRs found; pass an explicit PR number in non-interactive mode (GJI_NO_TUI=1)\n",
+		);
+		return 1;
+	}
 
 	const selected =
 		pullRequests.length === 1

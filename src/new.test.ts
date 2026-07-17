@@ -733,7 +733,7 @@ describe("gji new", () => {
 			let promptCalled = false;
 			await writeFile(
 				join(repoRoot, ".gji.json"),
-				JSON.stringify({ hooks: { afterCreate: "pnpm install" } }),
+				JSON.stringify({ hooks: { afterCreate: "true" } }),
 				"utf8",
 			);
 			const runNewCommand = createNewCommand({
