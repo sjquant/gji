@@ -45,6 +45,28 @@ describe("gji pr open", () => {
 		expect(opened).toEqual(["https://github.com/example/repo/pull/7"]);
 	});
 
+	it("gives headless users an explicit target when the current worktree has no PR", async () => {
+		// Given headless mode and no open PR for the current worktree.
+		process.env.GJI_NO_TUI = "1";
+		const repoRoot = await createRepository();
+		const errors: string[] = [];
+		const runPrOpen = createPrOpenCommand({
+			queryPullRequests: async () => [],
+		});
+
+		// When pr open runs without a target.
+		const result = await runPrOpen({
+			cwd: repoRoot,
+			stderr: (chunk) => errors.push(chunk),
+			stdout: () => undefined,
+		});
+
+		// Then the error points to an explicit branch or PR number instead of a selector.
+		expect(result).toBe(1);
+		expect(errors.join("")).toContain("explicit branch or PR number");
+		expect(errors.join("")).not.toContain("--select");
+	});
+
 	it("shows only worktrees with open PRs in the explicit selector", async () => {
 		// Given a repository with one PR-connected worktree and one unrelated worktree.
 		const repoRoot = await createRepository();
@@ -85,6 +107,47 @@ describe("gji pr open", () => {
 		expect(result).toBe(0);
 		expect(selectedEntries).toEqual([connectedBranch]);
 		expect(opened).toEqual(["https://github.com/example/repo/pull/12"]);
+	});
+
+	it("hydrates worktree health only after repository PR filtering", async () => {
+		// Given one PR-connected worktree and one unrelated worktree.
+		const repoRoot = await createRepository();
+		const connectedBranch = "feature/connected-first";
+		const connectedPath = await addLinkedWorktree(repoRoot, connectedBranch);
+		await addLinkedWorktree(repoRoot, "feature/unrelated-second");
+		const promptedBranches: string[] = [];
+		let branchQueryCount = 0;
+		const runPrOpen = createPrOpenCommand({
+			openBrowser: async () => undefined,
+			promptForWorktree: async (entries) => {
+				promptedBranches.push(...entries.map((entry) => entry.branch ?? ""));
+				return connectedPath;
+			},
+			queryPullRequests: async () => {
+				branchQueryCount += 1;
+				return [];
+			},
+			queryRepositoryPullRequests: async (_root) => [
+				{
+					number: 21,
+					sourceBranch: connectedBranch,
+					url: "https://github.com/example/repo/pull/21",
+				},
+			],
+		});
+
+		// When the explicit PR worktree selector opens.
+		const result = await runPrOpen({
+			cwd: repoRoot,
+			select: true,
+			stderr: () => undefined,
+			stdout: () => undefined,
+		});
+
+		// Then only the connected entry is hydrated and no branch lookup is repeated.
+		expect(result).toBe(0);
+		expect(promptedBranches).toEqual([connectedBranch]);
+		expect(branchQueryCount).toBe(0);
 	});
 
 	it("uses the existing exact and partial branch matching rules", async () => {

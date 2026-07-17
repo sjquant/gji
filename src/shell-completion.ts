@@ -65,32 +65,62 @@ function renderBashCompletion(): string {
 __gji_pr_targets_cache=""
 __gji_pr_targets_cache_at=0
 __gji_pr_targets_cache_loaded=0
+__gji_pr_targets_cache_repo=""
+
+__gji_run_bounded() {
+  local output_file pid status attempt
+  output_file=$(mktemp "\${TMPDIR:-/tmp}/gji-completion.XXXXXX") || return 124
+  "$@" >"$output_file" 2>/dev/null &
+  pid=$!
+  for ((attempt = 0; attempt < 20; attempt++)); do
+    if ! kill -0 "$pid" 2>/dev/null; then
+      wait "$pid"
+      status=$?
+      cat "$output_file"
+      rm -f "$output_file"
+      return "$status"
+    fi
+    sleep 0.1
+  done
+  kill "$pid" 2>/dev/null
+  wait "$pid" 2>/dev/null
+  rm -f "$output_file"
+  return 124
+}
 
 __gji_pr_targets() {
-  __gji_worktree_branches
-  local now targets
+  local now repo_key branches targets
   now=$(date +%s)
-  if [ "$__gji_pr_targets_cache_loaded" -eq 1 ] && [ "$((now - __gji_pr_targets_cache_at))" -lt 30 ]; then
+  repo_key=$(command git rev-parse --show-toplevel 2>/dev/null)
+  if [ "$__gji_pr_targets_cache_loaded" -eq 1 ] && [ "$repo_key" = "$__gji_pr_targets_cache_repo" ] && [ "$((now - __gji_pr_targets_cache_at))" -lt 30 ]; then
     printf '%s\n' "$__gji_pr_targets_cache"
     return
   fi
 
+  branches="$(__gji_worktree_branches)"
   targets=""
-  if command -v gh >/dev/null 2>&1; then
-    targets=$(GH_PROMPT_DISABLED=1 command gh pr list --state open --json number --limit 100 2>/dev/null |
+  if [ -n "$repo_key" ] && command -v gh >/dev/null 2>&1; then
+    targets=$(__gji_run_bounded env GH_PROMPT_DISABLED=1 gh pr list --state open --json number --limit 100 |
       tr '{},' '\\n' | sed -n 's/.*"number":[[:space:]]*\\([0-9][0-9]*\\).*/\\1/p')
-  elif command -v glab >/dev/null 2>&1; then
-    targets=$(GLAB_NON_INTERACTIVE=1 command glab mr list --state opened --output json --per-page 100 2>/dev/null |
+  elif [ -n "$repo_key" ] && command -v glab >/dev/null 2>&1; then
+    targets=$(__gji_run_bounded env GLAB_NON_INTERACTIVE=1 glab mr list --state opened --output json --per-page 100 |
       tr '{},' '\\n' | sed -n 's/.*"iid":[[:space:]]*\\([0-9][0-9]*\\).*/\\1/p')
-  elif command -v bb >/dev/null 2>&1; then
-    targets=$(command bb pr list --state OPEN --format json 2>/dev/null |
+  elif [ -n "$repo_key" ] && command -v bb >/dev/null 2>&1; then
+    targets=$(__gji_run_bounded bb pr list --state OPEN --format json |
       tr '{},' '\\n' | sed -n 's/.*"id":[[:space:]]*\\([0-9][0-9]*\\).*/\\1/p')
   fi
 
-  __gji_pr_targets_cache="$targets"
+  __gji_pr_targets_cache="$branches"
+  if [ -n "$targets" ]; then
+    if [ -n "$__gji_pr_targets_cache" ]; then
+      __gji_pr_targets_cache+=$'\n'
+    fi
+    __gji_pr_targets_cache+="$targets"
+  fi
   __gji_pr_targets_cache_at="$now"
   __gji_pr_targets_cache_loaded=1
-  printf '%s\n' "$targets"
+  __gji_pr_targets_cache_repo="$repo_key"
+  printf '%s\n' "$__gji_pr_targets_cache"
 }
 
 _gji_completion() {
@@ -119,12 +149,19 @@ _gji_completion() {
       if [ "$COMP_CWORD" -eq 2 ]; then
         COMPREPLY=( $(compgen -W "open --dry-run --json --help" -- "$cur") )
       elif [ "\${COMP_WORDS[2]}" = "open" ]; then
-        local has_select=0 word
+        local has_select=0 has_target=0 word
         for word in "\${COMP_WORDS[@]:3:$((COMP_CWORD - 3))}"; do
           if [ "$word" = "--select" ]; then has_select=1; fi
+          if [[ "$word" != -* && "$word" != "" ]]; then has_target=1; fi
         done
-        if [[ "$cur" == -* || "$has_select" -eq 1 ]]; then
-          COMPREPLY=( $(compgen -W "--select --help" -- "$cur") )
+        if [[ "$cur" == -* ]]; then
+          if [[ "$has_select" -eq 1 || "$has_target" -eq 1 ]]; then
+            COMPREPLY=( $(compgen -W "--help" -- "$cur") )
+          else
+            COMPREPLY=( $(compgen -W "--select --help" -- "$cur") )
+          fi
+        elif [[ "$has_select" -eq 1 || "$has_target" -eq 1 ]]; then
+          COMPREPLY=()
         else
           COMPREPLY=( $(compgen -W "$(__gji_pr_targets) --select --help" -- "$cur") )
         fi
@@ -227,34 +264,77 @@ end
 set -g __gji_pr_targets_cache
 set -g __gji_pr_targets_cache_at 0
 set -g __gji_pr_targets_cache_loaded 0
+set -g __gji_pr_targets_cache_repo
+
+function __gji_run_bounded
+    set -l output_file (mktemp "$TMPDIR/gji-completion.XXXXXX" 2>/dev/null)
+    if test -z "$output_file"
+        set output_file (mktemp "/tmp/gji-completion.XXXXXX" 2>/dev/null)
+    end
+    if test -z "$output_file"
+        return 124
+    end
+
+    command $argv >$output_file 2>/dev/null &
+    set -l pid $last_pid
+    for attempt in (seq 1 20)
+        if not kill -0 $pid 2>/dev/null
+            wait $pid
+            set -l exit_status $status
+            command cat $output_file
+            command rm -f $output_file
+            return $exit_status
+        end
+        sleep 0.1
+    end
+    kill $pid 2>/dev/null
+    wait $pid 2>/dev/null
+    command rm -f $output_file
+    return 124
+end
 
 function __gji_pr_targets
-    __gji_worktree_branches
     set -l now (date +%s)
-    if test $__gji_pr_targets_cache_loaded -eq 1; and test (math $now - $__gji_pr_targets_cache_at) -lt 30
+    set -l repo_key (command git rev-parse --show-toplevel 2>/dev/null)
+    if test $__gji_pr_targets_cache_loaded -eq 1; and test "$repo_key" = "$__gji_pr_targets_cache_repo"; and test (math $now - $__gji_pr_targets_cache_at) -lt 30
         printf '%s\n' $__gji_pr_targets_cache
         return
     end
 
+    set -l branches (__gji_worktree_branches)
     set -l targets
-    if command -q gh
-        set targets (env GH_PROMPT_DISABLED=1 command gh pr list --state open --json number --limit 100 2>/dev/null |
+    if test -n "$repo_key"; and command -q gh
+        set targets (__gji_run_bounded env GH_PROMPT_DISABLED=1 gh pr list --state open --json number --limit 100 |
             string replace -a -r '[{},]' '\\n' |
             string match -r '"number"[[:space:]]*:[[:space:]]*[0-9]+' | string replace -r '.*:[[:space:]]*' '')
-    else if command -q glab
-        set targets (env GLAB_NON_INTERACTIVE=1 command glab mr list --state opened --output json --per-page 100 2>/dev/null |
+    else if test -n "$repo_key"; and command -q glab
+        set targets (__gji_run_bounded env GLAB_NON_INTERACTIVE=1 glab mr list --state opened --output json --per-page 100 |
             string replace -a -r '[{},]' '\\n' |
             string match -r '"iid"[[:space:]]*:[[:space:]]*[0-9]+' | string replace -r '.*:[[:space:]]*' '')
-    else if command -q bb
-        set targets (command bb pr list --state OPEN --format json 2>/dev/null |
+    else if test -n "$repo_key"; and command -q bb
+        set targets (__gji_run_bounded bb pr list --state OPEN --format json |
             string replace -a -r '[{},]' '\\n' |
             string match -r '"id"[[:space:]]*:[[:space:]]*[0-9]+' | string replace -r '.*:[[:space:]]*' '')
     end
 
-    set -g __gji_pr_targets_cache $targets
+    set -g __gji_pr_targets_cache $branches $targets
     set -g __gji_pr_targets_cache_at $now
     set -g __gji_pr_targets_cache_loaded 1
-    printf '%s\n' $targets
+    set -g __gji_pr_targets_cache_repo $repo_key
+    printf '%s\n' $__gji_pr_targets_cache
+end
+
+function __gji_should_complete_pr_select
+    set -l tokens (commandline -opc)
+    if test (count $tokens) -lt 3; or test $tokens[2] != pr; or test $tokens[3] != open
+        return 1
+    end
+    for token in $tokens[4..-1]
+        if test $token = --select; or not string match -q -- '-*' $token
+            return 1
+        end
+    end
+    return 0
 end
 
 function __gji_should_complete_pr_target
@@ -267,6 +347,9 @@ function __gji_should_complete_pr_target
     end
     for token in $tokens[4..-1]
         if test $token = --select
+            return 1
+        end
+        if not string match -q -- '-*' $token
             return 1
         end
     end
@@ -308,10 +391,10 @@ complete -c gji -n '__fish_seen_subcommand_from completion' -a 'bash' -d 'shell'
 complete -c gji -n '__fish_seen_subcommand_from completion' -a 'fish' -d 'shell'
 complete -c gji -n '__fish_seen_subcommand_from completion' -a 'zsh' -d 'shell'
 
-complete -c gji -n '__fish_seen_subcommand_from pr' -l dry-run -d 'show what would be created without executing any git commands or writing files'
-complete -c gji -n '__fish_seen_subcommand_from pr' -l json -d 'emit JSON on success or error instead of human-readable output'
+complete -c gji -n '__fish_seen_subcommand_from pr; and test (commandline -opc)[3] != open' -l dry-run -d 'show what would be created without executing any git commands or writing files'
+complete -c gji -n '__fish_seen_subcommand_from pr; and test (commandline -opc)[3] != open' -l json -d 'emit JSON on success or error instead of human-readable output'
 complete -c gji -n '__fish_seen_subcommand_from pr' -a 'open' -d 'open a pull request in the default browser'
-complete -c gji -n '__fish_seen_subcommand_from pr; and test (commandline -opc)[3] = open' -l select -d 'choose a pull request from any linked worktree'
+complete -c gji -n '__gji_should_complete_pr_select' -l select -d 'choose a pull request from any linked worktree'
 complete -c gji -n '__gji_should_complete_pr_target' -a '(__gji_pr_targets)' -d 'branch or PR number'
 
 complete -c gji -n '__fish_seen_subcommand_from back' -l print -d 'print the resolved worktree path explicitly'
@@ -380,44 +463,68 @@ __gji_worktree_branches() {
 typeset -g __gji_pr_targets_cache=()
 typeset -g __gji_pr_targets_cache_at=0
 typeset -g __gji_pr_targets_cache_loaded=0
+typeset -g __gji_pr_targets_cache_repo=""
+
+__gji_run_bounded() {
+  local output_file pid status attempt
+  output_file=$(mktemp "\${TMPDIR:-/tmp}/gji-completion.XXXXXX") || return 124
+  "$@" >"$output_file" 2>/dev/null &
+  pid=$!
+  for ((attempt = 0; attempt < 20; attempt++)); do
+    if ! kill -0 "$pid" 2>/dev/null; then
+      wait "$pid"
+      status=$?
+      cat "$output_file"
+      rm -f "$output_file"
+      return "$status"
+    fi
+    sleep 0.1
+  done
+  kill "$pid" 2>/dev/null
+  wait "$pid" 2>/dev/null
+  rm -f "$output_file"
+  return 124
+}
 
 __gji_pr_targets() {
-  __gji_worktree_branches
-  local now
-  local -a targets
+  local now repo_key
+  local -a branches targets
   now=$(date +%s)
-  if (( __gji_pr_targets_cache_loaded == 1 && now - __gji_pr_targets_cache_at < 30 )); then
+  repo_key=$(command git rev-parse --show-toplevel 2>/dev/null)
+  if (( __gji_pr_targets_cache_loaded == 1 && "\${repo_key}" == "\${__gji_pr_targets_cache_repo}" && now - __gji_pr_targets_cache_at < 30 )); then
     print -rl -- "\${__gji_pr_targets_cache[@]}"
     return
   fi
 
+  branches=("\${(@f)$(__gji_worktree_branches)}")
   targets=()
-  if (( $+commands[gh] )); then
-    targets=("\${(@f)$(GH_PROMPT_DISABLED=1 command gh pr list --state open --json number --limit 100 2>/dev/null |
+  if [[ -n "\${repo_key}" && $+commands[gh] -eq 1 ]]; then
+    targets=("\${(@f)$(__gji_run_bounded env GH_PROMPT_DISABLED=1 gh pr list --state open --json number --limit 100 |
       tr '{},' '\\n' | sed -n 's/.*"number":[[:space:]]*\\([0-9][0-9]*\\).*/\\1/p')}")
-  elif (( $+commands[glab] )); then
-    targets=("\${(@f)$(GLAB_NON_INTERACTIVE=1 command glab mr list --state opened --output json --per-page 100 2>/dev/null |
+  elif [[ -n "\${repo_key}" && $+commands[glab] -eq 1 ]]; then
+    targets=("\${(@f)$(__gji_run_bounded env GLAB_NON_INTERACTIVE=1 glab mr list --state opened --output json --per-page 100 |
       tr '{},' '\\n' | sed -n 's/.*"iid":[[:space:]]*\\([0-9][0-9]*\\).*/\\1/p')}")
-  elif (( $+commands[bb] )); then
-    targets=("\${(@f)$(command bb pr list --state OPEN --format json 2>/dev/null |
+  elif [[ -n "\${repo_key}" && $+commands[bb] -eq 1 ]]; then
+    targets=("\${(@f)$(__gji_run_bounded bb pr list --state OPEN --format json |
       tr '{},' '\\n' | sed -n 's/.*"id":[[:space:]]*\\([0-9][0-9]*\\).*/\\1/p')}")
   fi
 
-  __gji_pr_targets_cache=("\${targets[@]}")
+  __gji_pr_targets_cache=("\${branches[@]}" "\${targets[@]}")
   __gji_pr_targets_cache_at="$now"
   __gji_pr_targets_cache_loaded=1
-  print -rl -- "\${targets[@]}"
+  __gji_pr_targets_cache_repo="$repo_key"
+  print -rl -- "\${__gji_pr_targets_cache[@]}"
 }
 
 local context state line
-local -a commands worktree_branches
+local -a command_entries worktree_branches
 
-commands=(
+command_entries=(
   ${commandLines}
 )
 
 if (( CURRENT == 2 )); then
-  _describe 'command' commands
+  _describe 'command' command_entries
   return
 fi
 
@@ -433,7 +540,13 @@ case "\${words[2]}" in
     ;;
   pr)
     if [[ "\${words[3]}" == "open" ]]; then
-      _arguments '--select[choose a pull request from any linked worktree]' '4:branch or PR number:->pr_targets'
+      if (( \${words[(I)--select]} )); then
+        _arguments
+      elif [[ -n "\${words[4]}" && "\${words[4]}" != -* ]]; then
+        _arguments
+      else
+        _arguments '--select[choose a pull request from any linked worktree]' '4:branch or PR number:->pr_targets'
+      fi
     else
       _arguments '--dry-run[show what would be created without executing any git commands or writing files]' '--json[emit JSON on success or error instead of human-readable output]' '2:ref:(open)'
     fi

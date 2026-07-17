@@ -6,7 +6,7 @@ import {
 	createPullRequestQuery,
 	type PullRequestInfo,
 } from "./pull-requests.js";
-import { detectRepository, listWorktrees } from "./repo.js";
+import { detectRepository, listWorktrees, type WorktreeEntry } from "./repo.js";
 import {
 	buildWorktreePromptEntries,
 	promptForSingleWorktree,
@@ -14,6 +14,7 @@ import {
 	type QueryWorktreePullRequests,
 	resolveWorktreeQuery,
 	type WorktreePromptEntry,
+	type WorktreePromptSource,
 } from "./worktree-picker.js";
 
 export interface PrOpenCommandOptions {
@@ -192,7 +193,9 @@ async function openCurrentWorktree(
 
 	if (pullRequests.length === 0) {
 		options.stderr(
-			"gji pr open: no open PR found for the current worktree; use gji pr open --select to choose another\n",
+			isHeadless()
+				? "gji pr open: no open PR found for the current worktree; pass an explicit branch or PR number (for example, gji pr open '#123')\n"
+				: "gji pr open: no open PR found for the current worktree; use gji pr open --select to choose another\n",
 		);
 		return 1;
 	}
@@ -243,18 +246,25 @@ async function openFromWorktreeSelector(
 						throw error;
 					}
 				};
-	const entries = await buildWorktreePromptEntries(
-		worktrees.map((worktree) => ({
+	let connectedWorktrees: Awaited<
+		ReturnType<typeof readConnectedWorktreeSources>
+	>;
+	try {
+		connectedWorktrees = await readConnectedWorktreeSources(
 			repoRoot,
 			repoName,
-			worktree,
-		})),
-		{
-			queryPullRequests:
-				queryRepositoryForSelector === undefined ? queryForSelector : undefined,
-			queryRepositoryPullRequests: queryRepositoryForSelector,
-		},
-	);
+			worktrees,
+			queryForSelector,
+			queryRepositoryForSelector,
+		);
+	} catch {
+		connectedWorktrees = { pullRequestsByBranch: new Map(), sources: [] };
+	}
+	const { pullRequestsByBranch, sources } = connectedWorktrees;
+	const entries = await buildWorktreePromptEntries(sources, {
+		queryPullRequests: async (_root, branch) =>
+			pullRequestsByBranch.get(branch) ?? [],
+	});
 	const connectedEntries = entries.filter(
 		(entry) => (entry.pullRequestNumbers?.length ?? 0) > 0,
 	);
@@ -289,6 +299,68 @@ async function openFromWorktreeSelector(
 		promptForPullRequest,
 		openInBrowser,
 	);
+}
+
+async function readConnectedWorktreeSources(
+	repoRoot: string,
+	repoName: string,
+	worktrees: WorktreeEntry[],
+	queryPullRequests: QueryWorktreePullRequests,
+	queryRepositoryPullRequests: QueryRepositoryPullRequests | undefined,
+): Promise<{
+	pullRequestsByBranch: Map<string, PullRequestInfo[]>;
+	sources: WorktreePromptSource[];
+}> {
+	const pullRequestsByBranch = new Map<string, PullRequestInfo[]>();
+
+	if (queryRepositoryPullRequests !== undefined) {
+		const pullRequests = await queryRepositoryPullRequests(repoRoot);
+		for (const worktree of worktrees) {
+			if (worktree.branch === null) continue;
+			const branchPullRequests = pullRequests.filter(
+				(pullRequest) => pullRequest.sourceBranch === worktree.branch,
+			);
+			if (branchPullRequests.length > 0) {
+				pullRequestsByBranch.set(worktree.branch, branchPullRequests);
+			}
+		}
+	} else {
+		const branchResults = await Promise.all(
+			worktrees.map(async (worktree) => {
+				if (worktree.branch === null) {
+					return { pullRequests: [], worktree };
+				}
+
+				try {
+					return {
+						pullRequests: await queryPullRequests(repoRoot, worktree.branch),
+						worktree,
+					};
+				} catch {
+					return { pullRequests: [], worktree };
+				}
+			}),
+		);
+
+		for (const { pullRequests, worktree } of branchResults) {
+			if (worktree.branch !== null && pullRequests.length > 0) {
+				pullRequestsByBranch.set(worktree.branch, pullRequests);
+			}
+		}
+	}
+
+	const sources = worktrees.flatMap((worktree) => {
+		if (
+			worktree.branch === null ||
+			!pullRequestsByBranch.has(worktree.branch)
+		) {
+			return [];
+		}
+
+		return [{ repoRoot, repoName, worktree }];
+	});
+
+	return { pullRequestsByBranch, sources };
 }
 
 async function openByNumber(
