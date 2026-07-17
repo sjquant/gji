@@ -22,18 +22,19 @@ Without integration, `gji` still works, but it prints paths rather than changing
 
 ## Install once
 
-### zsh
+```bash
+gji init
+gji doctor
+```
+
+The interactive wizard detects your shell, installs the wrapper and completion, and lets you save an available editor CLI.
+
+For dotfiles or non-interactive setup, the explicit commands remain available:
 
 ```bash
 echo 'eval "$(gji init zsh)"' >> ~/.zshrc
-source ~/.zshrc
-```
-
-### bash
-
-```bash
 echo 'eval "$(gji init bash)"' >> ~/.bashrc
-source ~/.bashrc
+gji init fish --write
 ```
 
 ## Inspect before enabling

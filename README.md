@@ -69,36 +69,18 @@ That makes Git worktrees more important, because a single shared checkout become
 npm install -g @solaqua/gji
 ```
 
-Then add shell integration so `gji go`, `gji new`, and `gji remove` can change your directory:
+Then run the guided setup in an interactive terminal:
 
 ```sh
-# zsh
-echo 'eval "$(gji init zsh)"' >> ~/.zshrc
-
-# bash
-echo 'eval "$(gji init bash)"' >> ~/.bashrc
-
-# fish
-gji init fish --write
-source ~/.config/fish/config.fish
+gji init
+# restart your shell, or source the rc file shown by the wizard
+gji doctor
 ```
 
-Install completions as separate files:
+The wizard installs shell integration, completions, and an available editor. In a non-interactive environment, use the existing explicit shell command instead:
 
 ```sh
-# zsh
-mkdir -p ~/.zsh/completions
-gji completion zsh > ~/.zsh/completions/_gji
-# add this before running compinit in ~/.zshrc
-fpath=(~/.zsh/completions $fpath)
-
-# bash
-mkdir -p ~/.local/share/bash-completion/completions
-gji completion bash > ~/.local/share/bash-completion/completions/gji
-
-# fish
-mkdir -p ~/.config/fish/completions
-gji completion fish > ~/.config/fish/completions/gji.fish
+gji init zsh --write
 ```
 
 ## Quick start
@@ -178,13 +160,14 @@ See the full comparison in [website/docs/comparison.mdx](./website/docs/comparis
 
 ## Shell setup
 
-Without shell integration `gji` prints paths and exits — which is fine for scripts but means it cannot `cd` you into a new worktree. Install the integration once:
+Without shell integration `gji` prints paths and exits — which is fine for scripts but means it cannot `cd` you into a new worktree. Install the integration, completions, and an editor once with:
 
 ```sh
-gji init zsh   # prints the shell function, review it if you like
+gji init
+gji doctor
 ```
 
-Install the wrapper once:
+`gji init` is interactive. For dotfiles or CI, the explicit shell commands remain available and preserve their existing output:
 
 ```sh
 # zsh
@@ -254,7 +237,8 @@ path=$(gji root --print)
 | `gji remove [branch] [--force] [--json]` | remove a worktree and its branch |
 | `gji trigger-hook <hook>` | run a hook in the current worktree |
 | `gji config [get\|set\|unset] [key] [value]` | manage global defaults |
-| `gji init [shell]` | print or install shell integration |
+| `gji init [shell]` | interactively set up onboarding, or print/install a shell wrapper |
+| `gji doctor [--json] [--fix] [--yes]` | check installation and configuration health; optionally remove stale repository entries |
 | `gji completion [shell]` | print shell completion definitions |
 
 ## Configuration
@@ -275,7 +259,7 @@ No setup required. Optional config lives in:
 | `syncDefaultBranch` | branch to rebase onto (default: remote `HEAD`) |
 | `syncFiles` | files to copy from main worktree into each new worktree; use global per-repo config for private files |
 | `skipInstallPrompt` | `true` to disable the auto-install prompt permanently |
-| `installSaveTarget` | `"local"` or `"global"` — where **Always**/**Never** choices are persisted (default: `"local"`); set once during `gji init --write` |
+| `installSaveTarget` | `"local"` or `"global"` — where **Always**/**Never** choices are persisted (default: `"local"`); set during `gji init <shell> --write` |
 | `hooks` | lifecycle scripts (see [Hooks](#hooks)) |
 | `repos` | per-repo overrides inside the global config (see below) |
 
@@ -477,7 +461,7 @@ GJI_NO_TUI=1 gji remove --force feature/ci-branch
 GJI_NO_TUI=1 gji clean --force
 ```
 
-`GJI_NO_TUI=1` disables all prompts. Commands that need confirmation require `--force`. `--json` implies the same behaviour.
+`GJI_NO_TUI=1` disables all prompts. Commands that need confirmation require their non-interactive approval flag (`--force` for cleanup commands, `--yes` for `doctor --fix`). `--json` implies the same behaviour.
 
 Update notifications are also suppressed automatically in non-interactive and `--json` runs. Users can opt out explicitly with `NO_UPDATE_NOTIFIER=1` or `--no-update-notifier`.
 

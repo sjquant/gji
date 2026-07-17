@@ -26,29 +26,27 @@ After the package is installed:
 - path-printing modes like `gji root --print` work immediately
 - direct directory handoff still requires shell integration
 
-## Enable shell integration
+## Run guided setup
 
-`gji` can print paths for scripts without shell integration, but interactive navigation is much better once the shell hook is installed.
-
-### zsh
+`gji` can print paths for scripts without shell integration, but interactive navigation is much better once the shell hook is installed. Run the guided setup in a terminal to install shell integration, completions, and an available editor:
 
 ```bash
-echo 'eval "$(gji init zsh)"' >> ~/.zshrc
-source ~/.zshrc
+gji init
+# restart your shell, or source the rc file shown by the wizard
+gji doctor
 ```
 
-### bash
+For dotfiles or CI, use the explicit shell command instead:
 
 ```bash
-echo 'eval "$(gji init bash)"' >> ~/.bashrc
-source ~/.bashrc
+gji init zsh --write
 ```
 
 ## Verify the setup
 
 ```bash
 gji status
-gji init zsh
+gji doctor
 ```
 
 If shell integration is active, commands like `gji new feature/foo` and `gji go main` can hand your shell to the target path directly.

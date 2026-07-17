@@ -5,7 +5,15 @@ const TOP_LEVEL_COMMANDS = [
 		name: "new",
 		description: "create a new branch or detached linked worktree",
 	},
-	{ name: "init", description: "print or install shell integration" },
+	{
+		name: "init",
+		description:
+			"set up shell integration interactively or print a shell wrapper",
+	},
+	{
+		name: "doctor",
+		description: "check gji installation and configuration health",
+	},
 	{ name: "completion", description: "print shell completion definitions" },
 	{ name: "pr", description: "fetch a pull request into a linked worktree" },
 	{ name: "back", description: "navigate to the previously visited worktree" },
@@ -79,7 +87,10 @@ _gji_completion() {
       COMPREPLY=( $(compgen -W "--detached --force --open --editor --dry-run --json --help" -- "$cur") )
       ;;
     init)
-      COMPREPLY=( $(compgen -W "${shells} --write --help" -- "$cur") )
+      COMPREPLY=( $(compgen -W "${shells} --write --json --help" -- "$cur") )
+      ;;
+    doctor)
+      COMPREPLY=( $(compgen -W "--fix --yes --json --help" -- "$cur") )
       ;;
     completion)
       COMPREPLY=( $(compgen -W "${shells} --help" -- "$cur") )
@@ -208,7 +219,12 @@ complete -c gji -n '__fish_seen_subcommand_from new' -l dry-run -d 'show what wo
 complete -c gji -n '__fish_seen_subcommand_from new' -l json -d 'emit JSON on success or error instead of human-readable output'
 
 complete -c gji -n '__fish_seen_subcommand_from init' -l write -d 'write the integration to the shell config file'
+complete -c gji -n '__fish_seen_subcommand_from init' -l json -d 'emit a JSON error in non-interactive mode'
 ${shellLines}
+
+complete -c gji -n '__fish_seen_subcommand_from doctor' -l fix -d 'apply safe automatic fixes after showing the plan'
+complete -c gji -n '__fish_seen_subcommand_from doctor' -l yes -d 'apply --fix without prompting'
+complete -c gji -n '__fish_seen_subcommand_from doctor' -l json -d 'emit diagnostic checks as JSON'
 
 complete -c gji -n '__fish_seen_subcommand_from completion' -a 'bash' -d 'shell'
 complete -c gji -n '__fish_seen_subcommand_from completion' -a 'fish' -d 'shell'
@@ -297,7 +313,10 @@ case "\${words[2]}" in
     _arguments '--detached[create a detached worktree without a branch]' '--force[remove and recreate the worktree if the target path already exists]' '--open[open the new worktree in an editor after creation]' '--editor[editor CLI to use with --open (code, cursor, zed, …)]:editor:' '--dry-run[show what would be created without executing any git commands or writing files]' '--json[emit JSON on success or error instead of human-readable output]' '2:branch: '
     ;;
   init)
-    _arguments '--write[write the integration to the shell config file]' '2:shell:(${shells})'
+    _arguments '--write[write the integration to the shell config file]' '--json[emit a JSON error in non-interactive mode]' '2:shell:(${shells})'
+    ;;
+  doctor)
+    _arguments '--fix[apply safe automatic fixes after showing the plan]' '--yes[apply --fix without prompting]' '--json[emit diagnostic checks as JSON]'
     ;;
   completion)
     _arguments '2:shell:(${shells})'

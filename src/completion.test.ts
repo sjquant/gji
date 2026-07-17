@@ -6,6 +6,7 @@ import { promisify } from "node:util";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { runCli } from "./cli.js";
+import { runInitCommand } from "./init.js";
 
 const originalShell = process.env.SHELL;
 const execFile = promisify(execFileCallback);
@@ -36,6 +37,9 @@ describe("gji completion", () => {
 			"'completion:print shell completion definitions'",
 		);
 		expect(stdout.join("")).toContain(
+			"'doctor:check gji installation and configuration health'",
+		);
+		expect(stdout.join("")).toContain(
 			"'back:navigate to the previously visited worktree'",
 		);
 		expect(stdout.join("")).toContain("'history:show navigation history'");
@@ -48,6 +52,9 @@ describe("gji completion", () => {
 			"'warp:jump to any worktree across all known repos'",
 		);
 		expect(stdout.join("")).toContain("'2:shell:(bash fish zsh)'");
+		expect(stdout.join("")).toContain(
+			"'--json[emit diagnostic checks as JSON]'",
+		);
 		expect(stdout.join("")).toContain(
 			"'--force[remove and recreate the worktree if the target path already exists]'",
 		);
@@ -124,6 +131,109 @@ print -r -- "\${_comps[gji]-unset}"`,
 
 			// Then gji is mapped to the installed _gji completion.
 			expect(result.exitCode).toBe(0);
+			expect(registrationResult.stdout.trim()).toBe("_gji");
+		},
+	);
+
+	it.skipIf(zshExecutable === undefined)(
+		"registers onboarding completions for a manual zsh integration after compinit",
+		async () => {
+			// Given a manual integration after an rc file's existing compinit setup.
+			const home = await mkdtemp(join(tmpdir(), "gji-home-"));
+			const cwd = await mkdtemp(join(tmpdir(), "gji-cwd-"));
+			const rcPath = join(home, ".zshrc");
+			const registrationScript = join(
+				home,
+				"check-onboarding-registration.zsh",
+			);
+			await writeFile(
+				rcPath,
+				'autoload -Uz compinit && compinit -C\neval "$(gji init zsh)"\n',
+				"utf8",
+			);
+
+			// When onboarding adds completion to the detected existing integration.
+			const result = await runInitCommand({
+				cwd,
+				home,
+				interactive: true,
+				promptForOnboarding: async () => ({
+					installCompletion: true,
+					shellIntegration: "existing",
+					shell: "zsh",
+				}),
+				stdout: () => undefined,
+			});
+			await writeFile(
+				registrationScript,
+				`gji() { :; }
+source "${rcPath}"
+print -r -- "\${_comps[gji]-unset}"`,
+				"utf8",
+			);
+			const environment = { ...process.env };
+			delete environment.FPATH;
+
+			// Then zsh maps gji to the installed completion function.
+			const registrationResult = await execFile(
+				zshExecutable as string,
+				["-f", registrationScript],
+				{ env: { ...environment, HOME: home } },
+			);
+			expect(result).toBe(0);
+			expect(registrationResult.stdout.trim()).toBe("_gji");
+		},
+	);
+
+	it.skipIf(zshExecutable === undefined)(
+		"registers onboarding completions when a sourced zsh framework runs compinit",
+		async () => {
+			// Given a manual integration after a sourced framework that initializes compinit.
+			const home = await mkdtemp(join(tmpdir(), "gji-home-"));
+			const cwd = await mkdtemp(join(tmpdir(), "gji-cwd-"));
+			const frameworkPath = join(home, "framework.zsh");
+			const rcPath = join(home, ".zshrc");
+			const registrationScript = join(home, "check-framework-registration.zsh");
+			await writeFile(
+				frameworkPath,
+				"autoload -Uz compinit && compinit -C\n",
+				"utf8",
+			);
+			await writeFile(
+				rcPath,
+				`source "${frameworkPath}"\neval "$(gji init zsh)"\n`,
+				"utf8",
+			);
+
+			// When onboarding adds completion to the detected existing integration.
+			const result = await runInitCommand({
+				cwd,
+				home,
+				interactive: true,
+				promptForOnboarding: async () => ({
+					installCompletion: true,
+					shellIntegration: "existing",
+					shell: "zsh",
+				}),
+				stdout: () => undefined,
+			});
+			await writeFile(
+				registrationScript,
+				`gji() { :; }
+source "${rcPath}"
+print -r -- "\${_comps[gji]-unset}"`,
+				"utf8",
+			);
+			const environment = { ...process.env };
+			delete environment.FPATH;
+
+			// Then zsh maps gji to the installed completion function.
+			const registrationResult = await execFile(
+				zshExecutable as string,
+				["-f", registrationScript],
+				{ env: { ...environment, HOME: home } },
+			);
+			expect(result).toBe(0);
 			expect(registrationResult.stdout.trim()).toBe("_gji");
 		},
 	);
@@ -213,6 +323,12 @@ print -r -- "\${_comps[gji]-unset}"`,
 		expect(stdout.join("")).toContain(
 			"complete -c gji -n '__fish_use_subcommand' -a 'new'",
 		);
+		expect(stdout.join("")).toContain(
+			"complete -c gji -n '__fish_use_subcommand' -a 'doctor'",
+		);
+		expect(stdout.join("")).toContain(
+			"complete -c gji -n '__fish_seen_subcommand_from doctor' -l json",
+		);
 	});
 
 	it("prints bash config completions with a separate free-form value slot", async () => {
@@ -229,12 +345,14 @@ print -r -- "\${_comps[gji]-unset}"`,
 		expect(stdout.join("")).toContain("command gji ls --compact");
 		expect(stdout.join("")).toContain('branch = ($1 == "*" ? $2 : $1)');
 		expect(stdout.join("")).toContain("back history open go jump");
+		expect(stdout.join("")).toContain("doctor");
 		expect(stdout.join("")).toContain("sync-files");
 		expect(stdout.join("")).toContain("list add remove rm --json --help");
 		expect(stdout.join("")).toContain("--force --open --editor");
 		expect(stdout.join("")).toContain("go|jump)");
 		expect(stdout.join("")).toContain("open)");
 		expect(stdout.join("")).toContain("warp)");
+		expect(stdout.join("")).toContain("doctor)");
 		expect(stdout.join("")).toContain("shellIntegration");
 		expect(stdout.join("")).toContain("worktreePath");
 		expect(stdout.join("")).toContain("repos");

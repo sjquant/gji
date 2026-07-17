@@ -8,6 +8,7 @@ import {
 	loadRegistry,
 	REGISTRY_FILE_PATH,
 	registerRepo,
+	removeMissingRegistryEntries,
 } from "./repo-registry.js";
 
 const originalConfigDir = process.env.GJI_CONFIG_DIR;
@@ -116,6 +117,32 @@ describe("loadRegistry", () => {
 });
 
 describe("registerRepo", () => {
+	it("serializes registration and stale-entry removal", async () => {
+		// Given a registry with one stale entry and a real repository to register.
+		const dir = await makeConfigDir();
+		process.env.GJI_CONFIG_DIR = dir;
+		const home = await mkdtemp(join(tmpdir(), "gji-home-"));
+		const repoRoot = await mkdtemp(join(tmpdir(), "gji-repo-"));
+		const stalePath = join(tmpdir(), `gji-stale-${Date.now()}`);
+		await writeFile(
+			join(dir, "repos.json"),
+			JSON.stringify([{ lastUsed: 1, name: "stale", path: stalePath }]),
+			"utf8",
+		);
+
+		// When both registry mutations run concurrently.
+		const [removal] = await Promise.all([
+			removeMissingRegistryEntries(new Set([stalePath]), home),
+			registerRepo(repoRoot, home),
+		]);
+
+		// Then the stale entry is removed and the current repository is retained.
+		expect(removal.removedPaths).toEqual([stalePath]);
+		expect((await loadRegistry()).map((entry) => entry.path)).toEqual([
+			await realpath(repoRoot),
+		]);
+	});
+
 	it("creates an entry for a new repo", async () => {
 		// Given an empty registry.
 		const dir = await makeConfigDir();

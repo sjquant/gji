@@ -3,13 +3,14 @@
 import { homedir } from "node:os";
 import { runCli } from "./cli.js";
 import { loadGlobalConfig } from "./config.js";
+import { isHeadless } from "./headless.js";
 
 async function main(): Promise<void> {
 	try {
 		const argv = process.argv.slice(2);
 
 		// Warn once (until fixed) when shell integration hasn't been set up.
-		// Only shown in interactive terminals — suppressed in pipes and after gji init --write.
+		// Only shown in interactive terminals — suppressed in pipes and after gji init.
 		const isMetaArg =
 			argv[0] === "init" ||
 			argv[0] === "--version" ||
@@ -39,18 +40,24 @@ async function warnIfMissingShellIntegration(): Promise<void> {
 	try {
 		const { config } = await loadGlobalConfig(homedir());
 		if (!config.shellIntegration) {
-			const shellBin = (process.env.SHELL ?? "").split("/").at(-1);
-			const shellArg =
-				shellBin && ["bash", "zsh", "fish"].includes(shellBin)
-					? ` ${shellBin}`
-					: "";
+			const setupCommand = isHeadless()
+				? legacyShellSetupCommand()
+				: "gji init";
 			process.stderr.write(
-				`gji: shell integration not set up — run \`gji init${shellArg} --write\` to enable automatic cd.\n`,
+				`gji: shell integration not set up — run \`${setupCommand}\` to enable automatic cd.\n`,
 			);
 		}
 	} catch {
 		// best-effort; never block the command
 	}
+}
+
+function legacyShellSetupCommand(): string {
+	const shell = (process.env.SHELL ?? "").split("/").at(-1);
+
+	return shell && ["bash", "fish", "zsh"].includes(shell)
+		? `gji init ${shell} --write`
+		: "gji init <shell> --write";
 }
 
 void main();

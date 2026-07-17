@@ -1,8 +1,17 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { constants } from "node:fs";
+import { access, mkdir, readFile, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname } from "node:path";
 
-import { intro, isCancel, outro, select, text } from "@clack/prompts";
+import {
+	confirm,
+	intro,
+	isCancel,
+	log,
+	outro,
+	select,
+	text,
+} from "@clack/prompts";
 
 import {
 	loadConfig,
@@ -11,10 +20,22 @@ import {
 	saveLocalConfig,
 	updateGlobalConfigKey,
 } from "./config.js";
+import { EDITORS } from "./editor.js";
+import { isHeadless } from "./headless.js";
 import { resolveSupportedShell, type SupportedShell } from "./shell.js";
+import { renderShellCompletion } from "./shell-completion.js";
+import {
+	SHELL_INTEGRATION_END_MARKER as END_MARKER,
+	executableExists,
+	hasShellIntegration,
+	ONBOARDING_SHELL_INTEGRATION_END_MARKER as ONBOARDING_END_MARKER,
+	ONBOARDING_SHELL_INTEGRATION_START_MARKER as ONBOARDING_START_MARKER,
+	resolveCompletionPath,
+	resolveShellConfigPath,
+	SHELL_INTEGRATION_START_MARKER as START_MARKER,
+} from "./shell-setup.js";
 
-const START_MARKER = "# >>> gji init >>>";
-const END_MARKER = "# <<< gji init <<<";
+const ZSH_COMPLETION_PATH_LINE = "fpath=(~/.zsh/completions $fpath)";
 
 interface ShellWrappedCommand {
 	bypassOptions: string[];
@@ -77,6 +98,7 @@ const SHELL_WRAPPED_COMMANDS: ShellWrappedCommand[] = [
 ];
 
 export type InstallSaveTarget = "local" | "global";
+export type ShellIntegrationChoice = "existing" | "install" | "skip";
 
 export interface SetupWizardResult {
 	branchPrefix?: string;
@@ -89,9 +111,26 @@ export interface SetupWizardResult {
 	worktreePath?: string;
 }
 
+export interface InitOnboardingResult {
+	editor?: string;
+	installCompletion: boolean;
+	shellIntegration: ShellIntegrationChoice;
+	shell: SupportedShell;
+}
+
+interface InitOnboardingContext {
+	detectedShell: SupportedShell | null;
+	home: string;
+}
+
 export interface InitCommandOptions {
 	cwd: string;
 	home?: string;
+	interactive?: boolean;
+	json?: boolean;
+	promptForOnboarding?: (
+		context: InitOnboardingContext,
+	) => Promise<InitOnboardingResult | null>;
 	promptForSetup?: () => Promise<SetupWizardResult | null>;
 	shell?: string;
 	stderr?: (chunk: string) => void;
@@ -100,6 +139,343 @@ export interface InitCommandOptions {
 }
 
 export async function runInitCommand(
+	options: InitCommandOptions,
+): Promise<number> {
+	if (options.shell === undefined) {
+		return runOnboardingInitCommand(options);
+	}
+
+	return runLegacyInitCommand(options);
+}
+
+async function runOnboardingInitCommand(
+	options: InitCommandOptions,
+): Promise<number> {
+	if (options.json || isHeadless() || !canRunOnboarding(options)) {
+		return writeNonInteractiveInitError(options);
+	}
+
+	const home = options.home ?? homedir();
+	const context: InitOnboardingContext = {
+		detectedShell: resolveSupportedShell(undefined, process.env.SHELL),
+		home,
+	};
+
+	if (options.promptForOnboarding === undefined) {
+		return runDefaultOnboarding(context);
+	}
+
+	const result = await options.promptForOnboarding(context);
+
+	if (!result) {
+		options.stderr?.("Aborted.\n");
+		return 1;
+	}
+
+	await applyOnboardingResult(result, home);
+
+	return 0;
+}
+
+function canRunOnboarding(options: InitCommandOptions): boolean {
+	return (
+		options.interactive ??
+		(options.promptForOnboarding !== undefined ||
+			(process.stdin.isTTY === true && process.stdout.isTTY === true))
+	);
+}
+
+function writeNonInteractiveInitError(options: InitCommandOptions): number {
+	const error = "run `gji init <shell> --write` in non-interactive mode";
+
+	options.stderr?.(
+		options.json ? `${JSON.stringify({ error })}\n` : `${error}\n`,
+	);
+
+	return 1;
+}
+
+async function runDefaultOnboarding(
+	context: InitOnboardingContext,
+): Promise<number> {
+	intro("gji init");
+
+	const shell = await select<SupportedShell>({
+		message: "Which shell should gji configure?",
+		initialValue: context.detectedShell ?? "zsh",
+		options: [
+			{ value: "zsh", label: "zsh" },
+			{ value: "bash", label: "bash" },
+			{ value: "fish", label: "fish" },
+		],
+	});
+	if (isCancel(shell)) return abortDefaultOnboarding();
+
+	const rcPath = resolveShellConfigPath(shell, context.home);
+	const currentConfig = await readExistingConfig(rcPath);
+	const shellIntegration = await promptForShellIntegration(
+		currentConfig,
+		rcPath,
+		shell,
+	);
+	if (shellIntegration === null) return abortDefaultOnboarding();
+
+	const completionPath = resolveCompletionPath(shell, context.home);
+	const completionAlreadyInstalled = await fileExists(completionPath);
+	await applyShellIntegration(shell, shellIntegration, context.home);
+
+	const installCompletion = await promptForCompletion(shell, completionPath);
+	if (installCompletion === null) return abortDefaultOnboarding();
+	if (installCompletion) {
+		await mkdir(dirname(completionPath), { recursive: true });
+		await writeFile(completionPath, renderShellCompletion(shell), "utf8");
+	}
+	if (shell === "zsh" && (completionAlreadyInstalled || installCompletion)) {
+		await ensureZshCompletionPath(rcPath);
+	}
+
+	const editor = await promptForEditor();
+	if (editor === null) return abortDefaultOnboarding();
+	if (editor) {
+		await updateGlobalConfigKey("editor", editor, context.home);
+	}
+
+	outro(
+		`Setup complete. Restart your shell or run: source ${rcPath}\nVerify with: gji doctor`,
+	);
+
+	return 0;
+}
+
+async function applyShellIntegration(
+	shell: SupportedShell,
+	choice: ShellIntegrationChoice,
+	home: string,
+): Promise<void> {
+	if (choice === "install") {
+		await installOnboardingShellIntegration(shell, home);
+	}
+
+	if (choice !== "skip") {
+		await updateGlobalConfigKey("shellIntegration", true, home);
+	}
+}
+
+function abortDefaultOnboarding(): number {
+	outro("Aborted.");
+
+	return 1;
+}
+
+async function promptForShellIntegration(
+	currentConfig: string,
+	rcPath: string,
+	shell: SupportedShell,
+): Promise<ShellIntegrationChoice | null> {
+	if (
+		currentConfig.includes(ONBOARDING_START_MARKER) &&
+		currentConfig.includes(ONBOARDING_END_MARKER)
+	) {
+		log.success(`Shell integration marker found in ${rcPath}; refreshing it.`);
+		return "install";
+	}
+
+	if (hasShellIntegration(currentConfig, shell)) {
+		log.success(`Shell integration already installed in ${rcPath} ✓`);
+		return "existing";
+	}
+
+	const confirmed = await confirm({
+		message: `Install shell integration in ${rcPath}?`,
+		initialValue: true,
+	});
+	if (isCancel(confirmed)) return null;
+
+	return confirmed ? "install" : "skip";
+}
+
+async function promptForCompletion(
+	shell: SupportedShell,
+	completionPath: string,
+): Promise<boolean | null> {
+	if (await fileExists(completionPath)) {
+		log.success(`${shell} completion already installed at ${completionPath} ✓`);
+		return false;
+	}
+
+	const confirmed = await confirm({
+		message: `Install ${shell} completion at ${completionPath}?`,
+		initialValue: true,
+	});
+	if (isCancel(confirmed)) return null;
+
+	return confirmed;
+}
+
+async function promptForEditor(): Promise<string | null | undefined> {
+	const availableEditors = await findAvailableEditors();
+	if (availableEditors.length === 0) {
+		log.info("No supported editor CLIs found on PATH; skipping editor setup.");
+		return undefined;
+	}
+
+	const skipValue = "__gji_skip_editor__";
+	const selected = await select<string>({
+		message: "Which editor should gji use?",
+		options: [
+			...availableEditors.map(({ cli, name }) => ({
+				value: cli,
+				label: name,
+				hint: cli,
+			})),
+			{ value: skipValue, label: "Skip" },
+		],
+	});
+	if (isCancel(selected)) return null;
+
+	return selected === skipValue ? undefined : selected;
+}
+
+async function findAvailableEditors(): Promise<typeof EDITORS> {
+	const availableEditors = [] as typeof EDITORS;
+
+	for (const editor of EDITORS) {
+		if (await executableExists(editor.cli)) {
+			availableEditors.push(editor);
+		}
+	}
+
+	return availableEditors;
+}
+
+async function applyOnboardingResult(
+	result: InitOnboardingResult,
+	home: string,
+): Promise<void> {
+	const rcPath = resolveShellConfigPath(result.shell, home);
+	const completionPath = resolveCompletionPath(result.shell, home);
+	const completionAlreadyInstalled = await fileExists(completionPath);
+
+	await applyShellIntegration(result.shell, result.shellIntegration, home);
+
+	if (result.installCompletion) {
+		await mkdir(dirname(completionPath), { recursive: true });
+		await writeFile(
+			completionPath,
+			renderShellCompletion(result.shell),
+			"utf8",
+		);
+	}
+
+	if (
+		result.shell === "zsh" &&
+		(completionAlreadyInstalled || result.installCompletion)
+	) {
+		await ensureZshCompletionPath(rcPath);
+	}
+
+	if (result.editor) {
+		await updateGlobalConfigKey("editor", result.editor, home);
+	}
+}
+
+async function installOnboardingShellIntegration(
+	shell: SupportedShell,
+	home: string,
+): Promise<void> {
+	const rcPath = resolveShellConfigPath(shell, home);
+	await mkdir(dirname(rcPath), { recursive: true });
+	const current = await readExistingConfig(rcPath);
+
+	if (shell === "fish") {
+		await writeFile(
+			rcPath,
+			upsertShellIntegration(current, renderShellIntegration(shell)),
+			"utf8",
+		);
+		return;
+	}
+
+	await writeFile(
+		rcPath,
+		upsertOnboardingShellIntegration(current, shell),
+		"utf8",
+	);
+}
+
+function upsertOnboardingShellIntegration(
+	existingConfig: string,
+	shell: "bash" | "zsh",
+): string {
+	const script = renderOnboardingShellIntegration(shell).trimEnd();
+	const blockPattern = new RegExp(
+		`${escapeForRegExp(ONBOARDING_START_MARKER)}[\\s\\S]*?${escapeForRegExp(ONBOARDING_END_MARKER)}\\n?`,
+		"m",
+	);
+
+	if (blockPattern.test(existingConfig)) {
+		return ensureTrailingNewline(
+			existingConfig.replace(blockPattern, `${script}\n`),
+		);
+	}
+
+	const prefix = existingConfig.trimEnd();
+	if (prefix.length === 0) return ensureTrailingNewline(script);
+
+	return ensureTrailingNewline(`${prefix}\n\n${script}`);
+}
+
+function renderOnboardingShellIntegration(shell: "bash" | "zsh"): string {
+	return `${ONBOARDING_START_MARKER}
+eval "$(gji init ${shell})"
+${ONBOARDING_END_MARKER}
+`;
+}
+
+async function ensureZshCompletionPath(rcPath: string): Promise<void> {
+	const current = await readExistingConfig(rcPath);
+	const next = upsertZshCompletionPath(current);
+
+	if (next !== current) {
+		await writeFile(rcPath, next, "utf8");
+	}
+}
+
+function upsertZshCompletionPath(existingConfig: string): string {
+	const configWithoutCompletionPath = existingConfig
+		.replace(
+			/# >>> gji zsh completion path >>>[\s\S]*?# <<< gji zsh completion path <<<\n?/m,
+			"",
+		)
+		.replace(
+			new RegExp(
+				`^[\\t ]*${escapeForRegExp(ZSH_COMPLETION_PATH_LINE)}[\\t ]*\\n?`,
+				"gm",
+			),
+			"",
+		);
+	const suffix = configWithoutCompletionPath
+		.replace(/^(?:\r?\n)+/, "")
+		.trimEnd();
+
+	// Frameworks can invoke compinit from a sourced file, so this must come first.
+	return ensureTrailingNewline(
+		suffix.length === 0
+			? ZSH_COMPLETION_PATH_LINE
+			: `${ZSH_COMPLETION_PATH_LINE}\n\n${suffix}`,
+	);
+}
+
+async function fileExists(path: string): Promise<boolean> {
+	try {
+		await access(path, constants.F_OK);
+		return true;
+	} catch {
+		return false;
+	}
+}
+
+async function runLegacyInitCommand(
 	options: InitCommandOptions,
 ): Promise<number> {
 	const shell = resolveSupportedShell(options.shell, process.env.SHELL);
@@ -133,7 +509,8 @@ export async function runInitCommand(
 	const alreadyConfigured =
 		"shellIntegration" in globalConfig || "installSaveTarget" in globalConfig;
 	const hasCustomPrompt = options.promptForSetup !== undefined;
-	const canPrompt = hasCustomPrompt || process.stdout.isTTY === true;
+	const canPrompt =
+		!isHeadless() && (hasCustomPrompt || process.stdout.isTTY === true);
 
 	if (!alreadyConfigured && canPrompt) {
 		const prompt = options.promptForSetup ?? defaultPromptForSetup;
@@ -236,17 +613,6 @@ async function saveWizardConfig(
 		await saveGlobalConfig({ ...existing, ...values }, home);
 	}
 }
-function resolveShellConfigPath(shell: SupportedShell, home: string): string {
-	switch (shell) {
-		case "bash":
-			return join(home, ".bashrc");
-		case "fish":
-			return join(home, ".config", "fish", "config.fish");
-		case "zsh":
-			return join(home, ".zshrc");
-	}
-}
-
 async function readExistingConfig(path: string): Promise<string> {
 	try {
 		return await readFile(path, "utf8");

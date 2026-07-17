@@ -5,6 +5,29 @@ description: Common setup, shell handoff, install prompt, and Git worktree troub
 
 # Troubleshooting
 
+Start with a diagnostic report whenever setup or configuration is unclear:
+
+```bash
+gji doctor
+```
+
+If the report says that registered repository paths are missing, review and remove
+those stale entries with:
+
+```bash
+gji doctor --fix
+```
+
+Interactive terminals ask for confirmation. Use `--yes` when running headlessly or
+when the fix has already been reviewed:
+
+```bash
+gji doctor --fix --yes
+```
+
+Only missing repository registry entries are fixed automatically. Git, shell,
+configuration, and editor problems still include a manual hint.
+
 ## `gji go` prints a path instead of changing directories
 
 Shell integration is not installed or not loaded in the current shell session.
