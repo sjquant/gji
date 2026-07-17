@@ -23,6 +23,50 @@ afterEach(() => {
 });
 
 describe("gji open", () => {
+	it("refreshes PR metadata before rendering the worktree selector", async () => {
+		// Given a linked worktree and a PR lookup boundary returning two PRs.
+		const repoRoot = await createRepository();
+		const branch = "feature/open-pr-badge";
+		const worktreePath = await addLinkedWorktree(repoRoot, branch);
+		let capturedLabel = "";
+		const runOpenCommand = createOpenCommand({
+			promptForWorktree: async (worktrees) => {
+				capturedLabel =
+					worktrees.find((worktree) => worktree.path === worktreePath)?.label ??
+					"";
+				return worktreePath;
+			},
+			queryPullRequests: async (_root, sourceBranch) =>
+				sourceBranch === branch
+					? [
+							{
+								number: 34,
+								sourceBranch,
+								url: "https://example.com/pull/34",
+							},
+							{
+								number: 12,
+								sourceBranch,
+								url: "https://example.com/pull/12",
+							},
+						]
+					: [],
+			spawnEditor: async () => undefined,
+		});
+
+		// When gji open enters the interactive worktree selector.
+		const result = await runOpenCommand({
+			cwd: repoRoot,
+			editor: "code",
+			stderr: () => undefined,
+			stdout: () => undefined,
+		});
+
+		// Then the selector label shows sorted PR badges for the branch.
+		expect(result).toBe(0);
+		expect(capturedLabel).toContain("feature/open-pr-badge (#12, #34)");
+	});
+
 	it("prompts for a worktree when no branch is given and opens the selection", async () => {
 		// Given a repository with a linked worktree.
 		const repoRoot = await createRepository();

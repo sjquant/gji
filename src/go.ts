@@ -10,6 +10,7 @@ import { resolveWarpTarget } from "./warp.js";
 import {
 	buildWorktreePromptEntries,
 	promptForSingleWorktree,
+	type QueryWorktreePullRequests,
 	resolveWorktreeQuery,
 	type WorktreePromptEntry,
 } from "./worktree-picker.js";
@@ -26,6 +27,7 @@ export interface GoCommandDependencies {
 	promptForWorktree: (
 		worktrees: WorktreePromptEntry[],
 	) => Promise<string | null>;
+	queryPullRequests: QueryWorktreePullRequests;
 }
 
 const GO_OUTPUT_FILE_ENV = "GJI_GO_OUTPUT_FILE";
@@ -72,12 +74,15 @@ export function createGoCommand(
 		}
 
 		const promptSources = worktrees.map((worktree) => ({
+			repoRoot: repository.repoRoot,
 			repoName: repository.repoName,
 			worktree,
 		}));
 		const promptEntries = options.branch
 			? []
-			: await buildWorktreePromptEntries(promptSources);
+			: await buildWorktreePromptEntries(promptSources, {
+					queryPullRequests: dependencies.queryPullRequests,
+				});
 		const queried = options.branch
 			? resolveWorktreeQuery(promptSources, options.branch)
 			: null;

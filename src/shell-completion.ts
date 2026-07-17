@@ -62,6 +62,22 @@ function renderBashCompletion(): string {
   command gji ls --compact 2>/dev/null | awk 'NR > 1 { branch = ($1 == "*" ? $2 : $1); if (branch != "(detached)") print branch }'
 }
 
+__gji_pr_targets() {
+  __gji_worktree_branches
+  if command -v gh >/dev/null 2>&1; then
+    GH_PROMPT_DISABLED=1 command gh pr list --state open --json number --limit 100 2>/dev/null |
+      tr '{},' '\\n' | sed -n 's/.*"number":[[:space:]]*\\([0-9][0-9]*\\).*/#\\1/p'
+  elif command -v glab >/dev/null 2>&1; then
+    GLAB_NON_INTERACTIVE=1 command glab mr list --state opened --output json --per-page 100 2>/dev/null |
+      tr '{},' '\\n' | sed -n 's/.*"iid":[[:space:]]*\\([0-9][0-9]*\\).*/#\\1/p'
+  elif command -v bb >/dev/null 2>&1; then
+    command bb pr list --state OPEN --format json 2>/dev/null |
+      tr '{},' '\\n' | sed -n 's/.*"id":[[:space:]]*\\([0-9][0-9]*\\).*/#\\1/p'
+  else
+    printf '#\\n'
+  fi
+}
+
 _gji_completion() {
   local cur command_name
   COMPREPLY=()
@@ -85,7 +101,13 @@ _gji_completion() {
       COMPREPLY=( $(compgen -W "${shells} --help" -- "$cur") )
       ;;
     pr)
-      COMPREPLY=( $(compgen -W "--dry-run --json --help" -- "$cur") )
+      if [ "$COMP_CWORD" -eq 2 ]; then
+        COMPREPLY=( $(compgen -W "open --dry-run --json --help" -- "$cur") )
+      elif [ "\${COMP_WORDS[2]}" = "open" ]; then
+        COMPREPLY=( $(compgen -W "$(__gji_pr_targets) --help" -- "$cur") )
+      else
+        COMPREPLY=( $(compgen -W "--dry-run --json --help" -- "$cur") )
+      fi
       ;;
     back)
       COMPREPLY=( $(compgen -W "--print --help" -- "$cur") )
@@ -179,6 +201,25 @@ function renderFishCompletion(): string {
     command gji ls --compact 2>/dev/null | awk 'NR > 1 { branch = ($1 == "*" ? $2 : $1); if (branch != "(detached)") print branch }'
 end
 
+function __gji_pr_targets
+    __gji_worktree_branches
+    if command -q gh
+        env GH_PROMPT_DISABLED=1 command gh pr list --state open --json number --limit 100 2>/dev/null |
+            string replace -a -r '[{},]' '\\n' |
+            string match -r '"number"[[:space:]]*:[[:space:]]*[0-9]+' | string replace -r '.*:[[:space:]]*' '#'
+    else if command -q glab
+        env GLAB_NON_INTERACTIVE=1 command glab mr list --state opened --output json --per-page 100 2>/dev/null |
+            string replace -a -r '[{},]' '\\n' |
+            string match -r '"iid"[[:space:]]*:[[:space:]]*[0-9]+' | string replace -r '.*:[[:space:]]*' '#'
+    else if command -q bb
+        command bb pr list --state OPEN --format json 2>/dev/null |
+            string replace -a -r '[{},]' '\\n' |
+            string match -r '"id"[[:space:]]*:[[:space:]]*[0-9]+' | string replace -r '.*:[[:space:]]*' '#'
+    else
+        echo '#'
+    end
+end
+
 function __gji_should_complete_config_action
     set -l tokens (commandline -opc)
     test (count $tokens) -eq 2
@@ -216,6 +257,8 @@ complete -c gji -n '__fish_seen_subcommand_from completion' -a 'zsh' -d 'shell'
 
 complete -c gji -n '__fish_seen_subcommand_from pr' -l dry-run -d 'show what would be created without executing any git commands or writing files'
 complete -c gji -n '__fish_seen_subcommand_from pr' -l json -d 'emit JSON on success or error instead of human-readable output'
+complete -c gji -n '__fish_seen_subcommand_from pr' -a 'open' -d 'open a pull request in the default browser'
+complete -c gji -n '__fish_seen_subcommand_from pr; and test (commandline -opc)[3] = open' -a '(__gji_pr_targets)' -d 'branch or PR number (#N)'
 
 complete -c gji -n '__fish_seen_subcommand_from back' -l print -d 'print the resolved worktree path explicitly'
 
@@ -280,6 +323,22 @@ __gji_worktree_branches() {
   command gji ls --compact 2>/dev/null | awk 'NR > 1 { branch = ($1 == "*" ? $2 : $1); if (branch != "(detached)") print branch }'
 }
 
+__gji_pr_targets() {
+  __gji_worktree_branches
+  if (( $+commands[gh] )); then
+    GH_PROMPT_DISABLED=1 command gh pr list --state open --json number --limit 100 2>/dev/null |
+      tr '{},' '\\n' | sed -n 's/.*"number":[[:space:]]*\\([0-9][0-9]*\\).*/#\\1/p'
+  elif (( $+commands[glab] )); then
+    GLAB_NON_INTERACTIVE=1 command glab mr list --state opened --output json --per-page 100 2>/dev/null |
+      tr '{},' '\\n' | sed -n 's/.*"iid":[[:space:]]*\\([0-9][0-9]*\\).*/#\\1/p'
+  elif (( $+commands[bb] )); then
+    command bb pr list --state OPEN --format json 2>/dev/null |
+      tr '{},' '\\n' | sed -n 's/.*"id":[[:space:]]*\\([0-9][0-9]*\\).*/#\\1/p'
+  else
+    printf '#\\n'
+  fi
+}
+
 local context state line
 local -a commands worktree_branches
 
@@ -303,7 +362,11 @@ case "\${words[2]}" in
     _arguments '2:shell:(${shells})'
     ;;
   pr)
-    _arguments '--dry-run[show what would be created without executing any git commands or writing files]' '--json[emit JSON on success or error instead of human-readable output]' '2:ref: '
+    if [[ "\${words[3]}" == "open" ]]; then
+      _arguments '4:branch or PR number:->pr_targets'
+    else
+      _arguments '--dry-run[show what would be created without executing any git commands or writing files]' '--json[emit JSON on success or error instead of human-readable output]' '2:ref:(open)'
+    fi
     ;;
   back)
     _arguments '--print[print the resolved worktree path explicitly]' '2:steps: '
@@ -365,6 +428,10 @@ case "$state" in
   worktrees)
     worktree_branches=(\${(@f)$(__gji_worktree_branches)})
     _describe 'worktree branch' worktree_branches
+    ;;
+  pr_targets)
+    worktree_branches=(\${(@f)$(__gji_pr_targets)})
+    _describe 'branch or PR number' worktree_branches
     ;;
   config_keys)
     _values 'config key' ${configKeys}

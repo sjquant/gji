@@ -16,7 +16,7 @@ vi.mock("update-notifier", () => ({
 }));
 
 import packageJson from "../package.json" with { type: "json" };
-import { runCli } from "./cli.js";
+import { createProgram, runCli } from "./cli.js";
 import { createRepository } from "./repo.test-helpers.js";
 import { loadRegistry } from "./repo-registry.js";
 
@@ -80,6 +80,22 @@ describe("runCli", () => {
 		expect(output).toContain("number");
 		expect(output).toContain("#number");
 		expect(output).toContain("URL");
+	});
+
+	it("registers pr open as a nested command", () => {
+		// Given the Commander program definition.
+		const program = createProgram();
+		const prCommand = program.commands.find(
+			(command) => command.name() === "pr",
+		);
+
+		// When the nested help information is rendered.
+		const help = prCommand?.commands
+			.find((command) => command.name() === "open")
+			?.helpInformation();
+
+		// Then the new target syntax is documented by Commander.
+		expect(help).toContain("open [options] [target]");
 	});
 
 	it("passes the clean stale filter through command parsing", async () => {

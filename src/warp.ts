@@ -11,6 +11,7 @@ import { writeShellOutput } from "./shell-handoff.js";
 import {
 	buildWorktreePromptEntries,
 	promptForSingleWorktree,
+	type QueryWorktreePullRequests,
 	resolveWorktreeQuery,
 	type WorktreePromptEntry,
 } from "./worktree-picker.js";
@@ -22,11 +23,13 @@ export interface WarpCommandOptions {
 	cwd: string;
 	json?: boolean;
 	newWorktree?: boolean;
+	queryPullRequests?: QueryWorktreePullRequests;
 	stderr: (chunk: string) => void;
 	stdout: (chunk: string) => void;
 }
 
 interface WarpItem {
+	repoRoot: string;
 	repoName: string;
 	worktree: WorktreeEntry;
 }
@@ -66,6 +69,7 @@ async function runWarpNavigate(options: WarpCommandOptions): Promise<number> {
 		...options,
 		commandName: "gji warp",
 		json: options.json,
+		queryPullRequests: options.queryPullRequests,
 	});
 	if (!target) return 1;
 
@@ -195,6 +199,7 @@ export async function resolveWarpTarget(options: {
 	commandName?: string;
 	cwd: string;
 	json?: boolean;
+	queryPullRequests?: QueryWorktreePullRequests;
 	stderr: (chunk: string) => void;
 }): Promise<WarpTarget | null> {
 	const cmd = options.commandName ?? "gji";
@@ -223,16 +228,17 @@ export async function resolveWarpTarget(options: {
 	const results = await Promise.allSettled(
 		registry.map(async (entry) => {
 			const worktrees = await listWorktrees(entry.path);
-			return { repoName: entry.name, worktrees };
+			return { repoName: entry.name, repoRoot: entry.path, worktrees };
 		}),
 	);
 
 	const allItems: WarpItem[] = [];
 	for (const result of results) {
 		if (result.status === "rejected") continue;
-		const { repoName, worktrees } = result.value;
+		const { repoName, repoRoot, worktrees } = result.value;
 		for (const worktree of worktrees) {
 			allItems.push({
+				repoRoot,
 				repoName,
 				worktree: {
 					...worktree,
@@ -248,6 +254,7 @@ export async function resolveWarpTarget(options: {
 	}
 
 	const promptSources = allItems.map((item) => ({
+		repoRoot: item.repoRoot,
 		repoName: item.repoName,
 		worktree: item.worktree,
 	}));
@@ -261,7 +268,9 @@ export async function resolveWarpTarget(options: {
 		return { branch: match.worktree.branch, path: match.worktree.path };
 	}
 
-	const promptEntries = await buildWorktreePromptEntries(promptSources);
+	const promptEntries = await buildWorktreePromptEntries(promptSources, {
+		queryPullRequests: options.queryPullRequests,
+	});
 	const path = await promptForWarpTarget(promptEntries);
 	if (!path) {
 		options.stderr("Aborted\n");

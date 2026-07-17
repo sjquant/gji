@@ -14,6 +14,7 @@ import { runLsCommand } from "./ls.js";
 import { runNewCommand } from "./new.js";
 import { runOpenCommand } from "./open.js";
 import { runPrCommand } from "./pr.js";
+import { runPrOpenCommand } from "./pr-open.js";
 import { runRemoveCommand } from "./remove.js";
 import { detectRepository } from "./repo.js";
 import { registerRepo } from "./repo-registry.js";
@@ -193,8 +194,9 @@ function registerCommands(program: Command): void {
 		.description("print shell completion definitions")
 		.action(notImplemented("completion"));
 
-	program
+	const prCommand = program
 		.command("pr <ref>")
+		.usage("[options] <ref>")
 		.description(
 			"fetch a pull request by number, #number, or URL into a linked worktree",
 		)
@@ -207,6 +209,11 @@ function registerCommands(program: Command): void {
 			"emit JSON on success or error instead of human-readable output",
 		)
 		.action(notImplemented("pr"));
+
+	prCommand
+		.command("open [target]")
+		.description("open an existing pull request in the default browser")
+		.action(notImplemented("pr open"));
 
 	program
 		.command("back [n]")
@@ -466,6 +473,23 @@ function attachCommandActions(
 				}
 			},
 		);
+
+	const prOpenCommand = program.commands
+		.find((command) => command.name() === "pr")
+		?.commands.find((command) => command.name() === "open");
+
+	prOpenCommand?.action(async (target: string | undefined) => {
+		const exitCode = await runPrOpenCommand({
+			cwd: options.cwd,
+			stderr: options.stderr,
+			stdout: options.stdout,
+			target,
+		});
+
+		if (exitCode !== 0) {
+			throw commanderExit(exitCode);
+		}
+	});
 
 	program.commands
 		.find((command) => command.name() === "back")

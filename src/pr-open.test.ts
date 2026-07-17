@@ -1,0 +1,213 @@
+import { afterEach, describe, expect, it } from "vitest";
+
+import { createPrOpenCommand } from "./pr-open.js";
+import type { PullRequestInfo } from "./pull-requests.js";
+import { addLinkedWorktree, createRepository } from "./repo.test-helpers.js";
+
+afterEach(() => {
+	delete process.env.GJI_NO_TUI;
+});
+
+describe("gji pr open", () => {
+	it("shows only worktrees with open PRs in the no-argument selector", async () => {
+		// Given a repository with one PR-connected worktree and one unrelated worktree.
+		const repoRoot = await createRepository();
+		const connectedBranch = "feature/connected";
+		const connectedPath = await addLinkedWorktree(repoRoot, connectedBranch);
+		await addLinkedWorktree(repoRoot, "feature/unrelated");
+		const selectedEntries: string[] = [];
+		const opened: string[] = [];
+		const runPrOpen = createPrOpenCommand({
+			openBrowser: async (url) => {
+				opened.push(url);
+			},
+			promptForWorktree: async (entries) => {
+				selectedEntries.push(...entries.map((entry) => entry.branch ?? ""));
+				return connectedPath;
+			},
+			queryPullRequests: async (_root, branch) =>
+				branch === connectedBranch
+					? [
+							{
+								number: 12,
+								sourceBranch: branch,
+								url: "https://github.com/example/repo/pull/12",
+							},
+						]
+					: [],
+		});
+
+		// When pr open runs without a target.
+		const result = await runPrOpen({
+			cwd: repoRoot,
+			stderr: () => undefined,
+			stdout: () => undefined,
+		});
+
+		// Then only the connected branch is offered and its URL is opened.
+		expect(result).toBe(0);
+		expect(selectedEntries).toEqual([connectedBranch]);
+		expect(opened).toEqual(["https://github.com/example/repo/pull/12"]);
+	});
+
+	it("uses the existing exact and partial branch matching rules", async () => {
+		// Given a linked worktree whose branch contains the requested fragment.
+		const repoRoot = await createRepository();
+		const branch = "feature/branch-search";
+		await addLinkedWorktree(repoRoot, branch);
+		const queriedBranches: string[] = [];
+		const opened: string[] = [];
+		const runPrOpen = createPrOpenCommand({
+			openBrowser: async (url) => {
+				opened.push(url);
+			},
+			queryPullRequests: async (_root, sourceBranch) => {
+				queriedBranches.push(sourceBranch);
+				return [
+					{
+						number: 18,
+						sourceBranch,
+						url: "https://gitlab.com/example/repo/-/merge_requests/18",
+					},
+				];
+			},
+		});
+
+		// When pr open receives a partial branch query.
+		const result = await runPrOpen({
+			cwd: repoRoot,
+			target: "branch-search",
+			stderr: () => undefined,
+			stdout: () => undefined,
+		});
+
+		// Then the matching worktree branch is queried and opened.
+		expect(result).toBe(0);
+		expect(queriedBranches).toContain(branch);
+		expect(opened).toEqual([
+			"https://gitlab.com/example/repo/-/merge_requests/18",
+		]);
+	});
+
+	it("opens a PR by number even when no local worktree exists", async () => {
+		// Given a direct open-PR lookup that returns a hosted URL.
+		const repoRoot = await createRepository();
+		const opened: string[] = [];
+		const runPrOpen = createPrOpenCommand({
+			findOpenPullRequest: async (_root, number) => ({
+				number,
+				sourceBranch: "feature/remote-only",
+				url: `https://bitbucket.org/example/repo/pull-requests/${number}`,
+			}),
+			openBrowser: async (url) => {
+				opened.push(url);
+			},
+		});
+
+		// When pr open receives a numeric target.
+		const result = await runPrOpen({
+			cwd: repoRoot,
+			target: "#41",
+			stderr: () => undefined,
+			stdout: () => undefined,
+		});
+
+		// Then it opens the hosted PR without requiring a local branch.
+		expect(result).toBe(0);
+		expect(opened).toEqual([
+			"https://bitbucket.org/example/repo/pull-requests/41",
+		]);
+	});
+
+	it("prompts for a second selection when a worktree has multiple PRs", async () => {
+		// Given one worktree with two open PRs on the same source branch.
+		const repoRoot = await createRepository();
+		const branch = "feature/multiple-prs";
+		const worktreePath = await addLinkedWorktree(repoRoot, branch);
+		let promptedPullRequests: PullRequestInfo[] = [];
+		const opened: string[] = [];
+		const runPrOpen = createPrOpenCommand({
+			openBrowser: async (url) => {
+				opened.push(url);
+			},
+			promptForPullRequest: async (pullRequests) => {
+				promptedPullRequests = pullRequests;
+				return pullRequests[1];
+			},
+			promptForWorktree: async () => worktreePath,
+			queryPullRequests: async (_root, sourceBranch) => [
+				{
+					number: 34,
+					sourceBranch,
+					url: "https://github.com/example/repo/pull/34",
+				},
+				{
+					number: 12,
+					sourceBranch,
+					url: "https://github.com/example/repo/pull/12",
+				},
+			],
+		});
+
+		// When pr open runs through the worktree selector.
+		const result = await runPrOpen({
+			cwd: repoRoot,
+			stderr: () => undefined,
+			stdout: () => undefined,
+		});
+
+		// Then PRs are presented in numeric order and the second choice is opened.
+		expect(result).toBe(0);
+		expect(
+			promptedPullRequests.map((pullRequest) => pullRequest.number),
+		).toEqual([12, 34]);
+		expect(opened).toEqual(["https://github.com/example/repo/pull/34"]);
+	});
+
+	it("returns a clear error when browser launch fails", async () => {
+		// Given a PR URL and a browser boundary that rejects.
+		const repoRoot = await createRepository();
+		const errors: string[] = [];
+		const runPrOpen = createPrOpenCommand({
+			findOpenPullRequest: async () => ({
+				number: 9,
+				sourceBranch: "feature/browser",
+				url: "https://github.com/example/repo/pull/9",
+			}),
+			openBrowser: async () => {
+				throw new Error("browser unavailable");
+			},
+		});
+
+		// When pr open attempts to launch the browser.
+		const result = await runPrOpen({
+			cwd: repoRoot,
+			target: "9",
+			stderr: (chunk) => errors.push(chunk),
+			stdout: () => undefined,
+		});
+
+		// Then it exits 1 and explains the external boundary failure.
+		expect(result).toBe(1);
+		expect(errors.join("")).toContain("failed to open PR #9");
+		expect(errors.join("")).toContain("browser unavailable");
+	});
+
+	it("requires a target in headless mode", async () => {
+		// Given headless mode and no pr open target.
+		process.env.GJI_NO_TUI = "1";
+		const errors: string[] = [];
+		const runPrOpen = createPrOpenCommand();
+
+		// When pr open is invoked without an argument.
+		const result = await runPrOpen({
+			cwd: "/not-a-repository",
+			stderr: (chunk) => errors.push(chunk),
+			stdout: () => undefined,
+		});
+
+		// Then it rejects the interactive-only invocation before repository lookup.
+		expect(result).toBe(1);
+		expect(errors.join("")).toContain("target is required");
+	});
+});

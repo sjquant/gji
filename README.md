@@ -9,6 +9,7 @@ That matters even more in AI-assisted workflows, where one repository often has 
 ```sh
 gji new feature/payment-refactor   # new branch + worktree, cd in
 gji pr 1234                        # review PR in isolation, cd in
+gji pr open                         # open a PR linked to a local worktree
 gji go main                        # jump back, shell changes directory
 gji remove feature/payment-refactor
 ```
@@ -112,6 +113,9 @@ gji new feature/dark-mode --open --editor cursor
 
 # review a pull request
 gji pr 1234
+gji pr open                         # choose a linked worktree PR and open it
+gji pr open feature/auth-refactor   # open the PR for a branch
+gji pr open #1234                   # open an open PR directly
 
 # see what's open
 gji status
@@ -243,6 +247,7 @@ path=$(gji root --print)
 |---|---|
 | `gji new [branch] [--detached] [--open] [--editor <cli>] [--json]` | create branch + worktree, cd in (validates branch name against Git rules) |
 | `gji pr <ref> [--json]` | fetch PR ref, create worktree, cd in |
+| `gji pr open [branch|#N]` | open an open PR in the default browser; with no argument, choose a linked worktree |
 | `gji open [branch] [--editor <cli>] [--save] [--workspace]` | open a worktree in an editor |
 | `gji go [branch] [--print]` | jump to a worktree |
 | `gji root [--print]` | jump to the main repo root |
@@ -486,6 +491,7 @@ Update notifications are also suppressed automatically in non-interactive and `-
 - Works from either the main repo root or inside any linked worktree
 - The current worktree is never offered as a `gji clean` candidate
 - `gji pr` fetches from `origin` using the first matching forge ref namespace: GitHub `refs/pull/<number>/head`, GitLab `refs/merge-requests/<number>/head`, then Bitbucket `refs/pull-requests/<number>/from`
+- `gji pr open` reads open PRs from the `origin` forge (GitHub, GitLab, or Bitbucket), preferring an installed authenticated provider CLI and falling back to its public API
 
 ## License
 

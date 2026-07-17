@@ -4,6 +4,10 @@ import type { Readable, Writable } from "node:stream";
 import { isCancel, Prompt } from "@clack/core";
 
 import { loadHistory } from "./history.js";
+import {
+	createPullRequestQuery,
+	type PullRequestInfo,
+} from "./pull-requests.js";
 import type { WorktreeEntry } from "./repo.js";
 import {
 	readWorktreeInfos,
@@ -12,6 +16,7 @@ import {
 } from "./worktree-info.js";
 
 export interface WorktreePromptSource {
+	repoRoot?: string;
 	repoName: string;
 	worktree: WorktreeEntry;
 }
@@ -20,7 +25,18 @@ export interface WorktreePromptEntry extends WorktreeEntry {
 	group: "recent" | "other";
 	label: string;
 	metadata?: string | null;
+	pullRequestNumbers?: number[];
+	pullRequestUrls?: string[];
 	repoName: string;
+}
+
+export type QueryWorktreePullRequests = (
+	repoRoot: string,
+	sourceBranch: string,
+) => Promise<PullRequestInfo[]>;
+
+export interface BuildWorktreePromptEntriesDependencies {
+	queryPullRequests?: QueryWorktreePullRequests;
 }
 
 export interface WorktreePickerIO {
@@ -40,16 +56,26 @@ interface SortableWorktreePromptEntry extends WorktreePromptEntry {
 
 export async function buildWorktreePromptEntries(
 	sources: WorktreePromptSource[],
+	dependencies: BuildWorktreePromptEntriesDependencies = {},
 ): Promise<WorktreePromptEntry[]> {
-	const [history, infos] = await Promise.all([
+	const queryPullRequests =
+		dependencies.queryPullRequests ??
+		createPullRequestQuery().listOpenPullRequests;
+	const [history, infos, pullRequests] = await Promise.all([
 		loadHistory(),
 		readWorktreeInfos(sources.map((source) => source.worktree)),
+		Promise.all(
+			sources.map((source) =>
+				readSourcePullRequests(source, queryPullRequests),
+			),
+		),
 	]);
 	const historyByPath = new Map(history.map((entry) => [entry.path, entry]));
 	const entries = sources.map((source, index) =>
 		buildWorktreePromptEntry(
 			source,
 			infos[index],
+			pullRequests[index],
 			historyByPath.get(source.worktree.path)?.timestamp ?? null,
 			Date.now(),
 		),
@@ -211,7 +237,10 @@ function buildSearchableWorktreeEntry(
 		searchText: buildPromptSearchText(worktree),
 		value: worktree.path,
 		worktree: {
-			branch,
+			branch: formatWorktreeBranchLabel(
+				worktree.branch,
+				worktree.pullRequestNumbers,
+			),
 			metadata,
 			path: worktree.path,
 			repoName: worktree.repoName,
@@ -1087,6 +1116,8 @@ function buildPromptSearchText(worktree: WorktreePromptEntry): string {
 		worktree.path,
 		worktree.label,
 		`${worktree.repoName}/${worktree.branch ?? "detached"}`,
+		...(worktree.pullRequestNumbers ?? []).map((number) => `#${number}`),
+		...(worktree.pullRequestUrls ?? []),
 	]
 		.join(" ")
 		.toLowerCase();
@@ -1095,6 +1126,7 @@ function buildPromptSearchText(worktree: WorktreePromptEntry): string {
 function buildWorktreePromptEntry(
 	source: WorktreePromptSource,
 	info: WorktreeInfo,
+	pullRequests: PullRequestInfo[],
 	lastUsedTimestamp: number | null,
 	now: number,
 ): SortableWorktreePromptEntry {
@@ -1107,7 +1139,10 @@ function buildWorktreePromptEntry(
 			: lastWorkedTimestamp !== null
 				? "worked"
 				: null;
-	const branch = source.worktree.branch ?? "(detached)";
+	const branch = formatWorktreeBranchLabel(
+		source.worktree.branch,
+		pullRequests.map((pullRequest) => pullRequest.number),
+	);
 	const badges = buildStatusBadges(info);
 	const recency = formatPromptRecency(
 		lastActivityTimestamp,
@@ -1136,8 +1171,40 @@ function buildWorktreePromptEntry(
 		label,
 		lastActivityTimestamp,
 		metadata,
+		pullRequestNumbers: pullRequests.map((pullRequest) => pullRequest.number),
+		pullRequestUrls: pullRequests.map((pullRequest) => pullRequest.url),
 		repoName: source.repoName,
 	};
+}
+
+async function readSourcePullRequests(
+	source: WorktreePromptSource,
+	queryPullRequests: QueryWorktreePullRequests,
+): Promise<PullRequestInfo[]> {
+	if (source.repoRoot === undefined || source.worktree.branch === null) {
+		return [];
+	}
+
+	try {
+		const pullRequests = await queryPullRequests(
+			source.repoRoot,
+			source.worktree.branch,
+		);
+		return [...pullRequests].sort((a, b) => a.number - b.number);
+	} catch {
+		// PR metadata is optional selector decoration; preserve the worktree entry on lookup failures.
+		return [];
+	}
+}
+
+export function formatWorktreeBranchLabel(
+	branch: string | null,
+	pullRequestNumbers: number[] = [],
+): string {
+	const branchLabel = branch ?? "(detached)";
+	if (pullRequestNumbers.length === 0) return branchLabel;
+
+	return `${branchLabel} (${pullRequestNumbers.map((number) => `#${number}`).join(", ")})`;
 }
 
 function buildStatusBadges(info: WorktreeInfo): string[] {
