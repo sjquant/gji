@@ -21,6 +21,7 @@ export function createBrowserOpener(
 	const runCommand = dependencies.runCommand ?? defaultRunCommand;
 
 	return async function openBrowser(url: string): Promise<void> {
+		validateBrowserUrl(url);
 		const command = browserCommand(currentPlatform, url);
 		await runCommand(command.command, command.args);
 	};
@@ -34,10 +35,23 @@ function browserCommand(
 ): { args: string[]; command: string } {
 	if (currentPlatform === "darwin") return { args: [url], command: "open" };
 	if (currentPlatform === "win32") {
-		return { args: ["/c", "start", "", url], command: "cmd.exe" };
+		return { args: [url], command: "explorer.exe" };
 	}
 
 	return { args: [url], command: "xdg-open" };
+}
+
+function validateBrowserUrl(url: string): void {
+	let parsed: URL;
+	try {
+		parsed = new URL(url);
+	} catch {
+		throw new Error("browser URL is invalid");
+	}
+
+	if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+		throw new Error("browser URL must use http or https");
+	}
 }
 
 async function defaultRunCommand(

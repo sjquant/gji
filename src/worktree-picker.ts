@@ -15,6 +15,8 @@ import {
 	type WorktreeInfo,
 } from "./worktree-info.js";
 
+const MAX_PULL_REQUEST_REPOSITORY_QUERY_CONCURRENCY = 4;
+
 export interface WorktreePromptSource {
 	repoRoot?: string;
 	repoName: string;
@@ -35,8 +37,13 @@ export type QueryWorktreePullRequests = (
 	sourceBranch: string,
 ) => Promise<PullRequestInfo[]>;
 
+export type QueryRepositoryPullRequests = (
+	repoRoot: string,
+) => Promise<PullRequestInfo[]>;
+
 export interface BuildWorktreePromptEntriesDependencies {
 	queryPullRequests?: QueryWorktreePullRequests;
+	queryRepositoryPullRequests?: QueryRepositoryPullRequests;
 }
 
 export interface WorktreePickerIO {
@@ -58,18 +65,32 @@ export async function buildWorktreePromptEntries(
 	sources: WorktreePromptSource[],
 	dependencies: BuildWorktreePromptEntriesDependencies = {},
 ): Promise<WorktreePromptEntry[]> {
+	const pullRequestQuery = createPullRequestQuery();
 	const queryPullRequests =
-		dependencies.queryPullRequests ??
-		createPullRequestQuery().listOpenPullRequests;
-	const [history, infos, pullRequests] = await Promise.all([
+		dependencies.queryPullRequests ?? pullRequestQuery.listOpenPullRequests;
+	const queryRepositoryPullRequests =
+		dependencies.queryRepositoryPullRequests ??
+		(dependencies.queryPullRequests === undefined
+			? pullRequestQuery.listOpenPullRequestsForRepository
+			: undefined);
+	const repositoryPullRequests =
+		queryRepositoryPullRequests === undefined
+			? Promise.resolve(null)
+			: readRepositoryPullRequests(sources, queryRepositoryPullRequests);
+	const [history, infos, pullRequestsByRepository] = await Promise.all([
 		loadHistory(),
 		readWorktreeInfos(sources.map((source) => source.worktree)),
-		Promise.all(
-			sources.map((source) =>
-				readSourcePullRequests(source, queryPullRequests),
+		repositoryPullRequests,
+	]);
+	const pullRequests = await Promise.all(
+		sources.map((source) =>
+			readSourcePullRequests(
+				source,
+				queryPullRequests,
+				pullRequestsByRepository,
 			),
 		),
-	]);
+	);
 	const historyByPath = new Map(history.map((entry) => [entry.path, entry]));
 	const entries = sources.map((source, index) =>
 		buildWorktreePromptEntry(
@@ -1180,9 +1201,20 @@ function buildWorktreePromptEntry(
 async function readSourcePullRequests(
 	source: WorktreePromptSource,
 	queryPullRequests: QueryWorktreePullRequests,
+	pullRequestsByRepository: Map<string, PullRequestInfo[]> | null,
 ): Promise<PullRequestInfo[]> {
 	if (source.repoRoot === undefined || source.worktree.branch === null) {
 		return [];
+	}
+
+	if (pullRequestsByRepository !== null) {
+		return sortSourcePullRequests(
+			pullRequestsByRepository
+				.get(source.repoRoot)
+				?.filter(
+					(pullRequest) => pullRequest.sourceBranch === source.worktree.branch,
+				),
+		);
 	}
 
 	try {
@@ -1190,11 +1222,71 @@ async function readSourcePullRequests(
 			source.repoRoot,
 			source.worktree.branch,
 		);
-		return [...pullRequests].sort((a, b) => a.number - b.number);
+		return sortSourcePullRequests(pullRequests);
 	} catch {
 		// PR metadata is optional selector decoration; preserve the worktree entry on lookup failures.
 		return [];
 	}
+}
+
+async function readRepositoryPullRequests(
+	sources: WorktreePromptSource[],
+	queryPullRequests: QueryRepositoryPullRequests,
+): Promise<Map<string, PullRequestInfo[]>> {
+	const repoRoots = [
+		...new Set(
+			sources.flatMap((source) =>
+				source.repoRoot === undefined || source.worktree.branch === null
+					? []
+					: [source.repoRoot],
+			),
+		),
+	];
+	const results = await mapWithConcurrency(
+		repoRoots,
+		MAX_PULL_REQUEST_REPOSITORY_QUERY_CONCURRENCY,
+		async (repoRoot): Promise<[string, PullRequestInfo[]]> => {
+			try {
+				return [
+					repoRoot,
+					sortSourcePullRequests(await queryPullRequests(repoRoot)),
+				];
+			} catch {
+				return [repoRoot, []];
+			}
+		},
+	);
+
+	return new Map(results);
+}
+
+async function mapWithConcurrency<Input, Output>(
+	items: Input[],
+	limit: number,
+	mapper: (item: Input) => Promise<Output>,
+): Promise<Output[]> {
+	const results: Output[] = new Array(items.length);
+	let nextIndex = 0;
+
+	async function readNext(): Promise<void> {
+		for (;;) {
+			const index = nextIndex;
+			nextIndex += 1;
+			if (index >= items.length) return;
+			results[index] = await mapper(items[index]);
+		}
+	}
+
+	await Promise.all(
+		Array.from({ length: Math.min(limit, items.length) }, () => readNext()),
+	);
+	return results;
+}
+
+function sortSourcePullRequests(
+	pullRequests: PullRequestInfo[] | undefined,
+): PullRequestInfo[] {
+	return [...(pullRequests ?? [])].sort((a, b) => a.number - b.number);
 }
 
 export function formatWorktreeBranchLabel(

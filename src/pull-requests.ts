@@ -49,6 +49,9 @@ export interface PullRequestQuery {
 		repoRoot: string,
 		sourceBranch: string,
 	) => Promise<PullRequestInfo[]>;
+	listOpenPullRequestsForRepository: (
+		repoRoot: string,
+	) => Promise<PullRequestInfo[]>;
 }
 
 export function parsePullRequestRemote(
@@ -59,6 +62,7 @@ export function parsePullRequestRemote(
 
 	const forge = detectForge(parsed.host);
 	if (forge === null) return null;
+	if (forge === "bitbucket" && parsed.host !== "bitbucket.org") return null;
 
 	const path = parsed.path
 		.replace(/^\/+/, "")
@@ -104,10 +108,10 @@ export function createPullRequestQuery(
 			findOpenPullRequest(repoRoot, number, runCommand, fetcher),
 		listOpenPullRequests: (repoRoot, sourceBranch) =>
 			listOpenPullRequests(repoRoot, sourceBranch, runCommand, fetcher),
+		listOpenPullRequestsForRepository: (repoRoot) =>
+			listOpenPullRequestsForRepository(repoRoot, runCommand, fetcher),
 	};
 }
-
-export const runPullRequestQuery = createPullRequestQuery();
 
 async function listOpenPullRequests(
 	repoRoot: string,
@@ -127,6 +131,28 @@ async function listOpenPullRequests(
 	const apiResult = await queryPublicApi(
 		remote,
 		{ kind: "branch", sourceBranch },
+		fetcher,
+	);
+	return sortPullRequests(apiResult);
+}
+
+async function listOpenPullRequestsForRepository(
+	repoRoot: string,
+	runCommand: PullRequestCommandRunner,
+	fetcher: typeof fetch,
+): Promise<PullRequestInfo[]> {
+	const remote = await readPullRequestRemote(repoRoot, runCommand);
+	const cliResult = await queryProviderCli(
+		remote,
+		{ kind: "repository" },
+		repoRoot,
+		runCommand,
+	);
+	if (cliResult !== null) return sortPullRequests(cliResult);
+
+	const apiResult = await queryPublicApi(
+		remote,
+		{ kind: "repository" },
 		fetcher,
 	);
 	return sortPullRequests(apiResult);
@@ -250,7 +276,7 @@ function detectForge(host: string): PullRequestForge | null {
 }
 
 interface PullRequestQueryInput {
-	kind: "branch" | "number";
+	kind: "branch" | "number" | "repository";
 	number?: number;
 	sourceBranch?: string;
 }
@@ -258,109 +284,118 @@ interface PullRequestQueryInput {
 interface ProviderCliCommand {
 	args: string[];
 	command: string;
-	cwd?: string;
 }
 
 function providerCliCommand(
 	remote: PullRequestRemote,
 	query: PullRequestQueryInput,
 ): ProviderCliCommand {
-	const coordinate = `${remote.namespace}/${remote.repository}`;
+	const coordinate = providerRepositoryCoordinate(remote);
 	const sourceBranch = query.sourceBranch ?? "";
 
 	switch (remote.forge) {
-		case "github":
-			return query.kind === "branch"
-				? {
-						args: [
-							"pr",
-							"list",
-							"--state",
-							"open",
-							"--head",
-							sourceBranch,
-							"--json",
-							"number,url,headRefName,state",
-							"--limit",
-							"100",
-							"--repo",
-							coordinate,
-						],
-						command: "gh",
-					}
-				: {
-						args: [
-							"pr",
-							"view",
-							String(query.number),
-							"--json",
-							"number,url,headRefName,state",
-							"--repo",
-							coordinate,
-						],
-						command: "gh",
-					};
-		case "gitlab":
-			return query.kind === "branch"
-				? {
-						args: [
-							"mr",
-							"list",
-							"--state",
-							"opened",
-							"--source-branch",
-							sourceBranch,
-							"--output",
-							"json",
-							"--per-page",
-							"100",
-							"--repo",
-							coordinate,
-						],
-						command: "glab",
-					}
-				: {
-						args: [
-							"mr",
-							"view",
-							String(query.number),
-							"--output",
-							"json",
-							"--repo",
-							coordinate,
-						],
-						command: "glab",
-					};
-		case "bitbucket":
-			return query.kind === "branch"
-				? {
-						args: [
-							"pr",
-							"list",
-							"--state",
-							"OPEN",
-							"--source",
-							sourceBranch,
-							"--format",
-							"json",
-							"--repo",
-							coordinate,
-						],
-						command: "bb",
-					}
-				: {
-						args: [
-							"pr",
-							"view",
-							String(query.number),
-							"--format",
-							"json",
-							"--repo",
-							coordinate,
-						],
-						command: "bb",
-					};
+		case "github": {
+			if (query.kind === "number") {
+				return {
+					args: [
+						"pr",
+						"view",
+						String(query.number),
+						"--json",
+						"number,url,headRefName,state",
+						"--repo",
+						coordinate,
+					],
+					command: "gh",
+				};
+			}
+			return {
+				args: [
+					"pr",
+					"list",
+					"--state",
+					"open",
+					...(query.kind === "branch" ? ["--head", sourceBranch] : []),
+					"--json",
+					"number,url,headRefName,state",
+					"--limit",
+					"100",
+					"--repo",
+					coordinate,
+				],
+				command: "gh",
+			};
+		}
+		case "gitlab": {
+			if (query.kind === "number") {
+				return {
+					args: [
+						"mr",
+						"view",
+						String(query.number),
+						"--output",
+						"json",
+						"--repo",
+						coordinate,
+					],
+					command: "glab",
+				};
+			}
+			return {
+				args: [
+					"mr",
+					"list",
+					"--state",
+					"opened",
+					...(query.kind === "branch" ? ["--source-branch", sourceBranch] : []),
+					"--output",
+					"json",
+					"--per-page",
+					"100",
+					"--repo",
+					coordinate,
+				],
+				command: "glab",
+			};
+		}
+		case "bitbucket": {
+			if (query.kind === "number") {
+				return {
+					args: [
+						"pr",
+						"view",
+						String(query.number),
+						"--format",
+						"json",
+						"--repo",
+						coordinate,
+					],
+					command: "bb",
+				};
+			}
+			return {
+				args: [
+					"pr",
+					"list",
+					"--state",
+					"OPEN",
+					...(query.kind === "branch" ? ["--source", sourceBranch] : []),
+					"--format",
+					"json",
+					"--repo",
+					coordinate,
+				],
+				command: "bb",
+			};
+		}
 	}
+}
+
+function providerRepositoryCoordinate(remote: PullRequestRemote): string {
+	const coordinate = `${remote.namespace}/${remote.repository}`;
+	return remote.host === "github.com" || remote.host === "bitbucket.org"
+		? coordinate
+		: `${remote.host}/${coordinate}`;
 }
 
 function parseProviderOutput(
@@ -383,7 +418,9 @@ function parseProviderOutput(
 		.filter((value) =>
 			query.kind === "branch"
 				? value.sourceBranch === query.sourceBranch
-				: value.number === query.number,
+				: query.kind === "number"
+					? value.number === query.number
+					: true,
 		);
 }
 
@@ -409,7 +446,9 @@ function parseApiOutput(
 		.filter((value) =>
 			query.kind === "branch"
 				? value.sourceBranch === query.sourceBranch
-				: value.number === query.number,
+				: query.kind === "number"
+					? value.number === query.number
+					: true,
 		);
 }
 
@@ -420,30 +459,33 @@ function normalizePullRequest(
 	if (!isRecord(value)) return null;
 
 	const number = numberValue(value.number ?? value.iid ?? value.id);
+	const head = isRecord(value.head) ? value.head : null;
 	const source = isRecord(value.source) ? value.source : null;
 	const sourceBranch = stringValue(
 		value.headRefName ??
+			(head !== null ? head.ref : undefined) ??
 			value.source_branch ??
 			(source !== null && isRecord(source.branch)
 				? source.branch.name
 				: undefined),
 	);
 	const url = stringValue(
-		value.url ??
-			value.html_url ??
+		value.html_url ??
 			value.web_url ??
+			value.url ??
 			(isRecord(value.links) && isRecord(value.links.html)
 				? value.links.html.href
 				: undefined),
 	);
 	const state = stringValue(value.state)?.toLowerCase();
 	if (number === null || url === null) return null;
+	if (query.kind !== "number" && sourceBranch === null) return null;
 	if (query.kind === "number" && number !== query.number) return null;
 	if (state !== undefined && !["open", "opened"].includes(state)) return null;
 
 	return {
 		number,
-		sourceBranch: sourceBranch ?? query.sourceBranch ?? "",
+		sourceBranch: sourceBranch ?? "",
 		url,
 	};
 }
@@ -458,23 +500,34 @@ function publicApiUrl(
 	switch (remote.forge) {
 		case "github": {
 			const coordinate = `${encodeURIComponent(remote.namespace)}/${encodeURIComponent(remote.repository)}`;
-			return query.kind === "branch"
-				? `https://api.github.com/repos/${coordinate}/pulls?state=open&head=${encodeURIComponent(`${remote.namespace}:${query.sourceBranch}`)}&per_page=100`
-				: `https://api.github.com/repos/${coordinate}/pulls/${number}`;
+			const apiBase =
+				remote.host === "github.com"
+					? "https://api.github.com"
+					: `https://${remote.host}/api/v3`;
+			if (query.kind === "number") {
+				return `${apiBase}/repos/${coordinate}/pulls/${number}`;
+			}
+			return `${apiBase}/repos/${coordinate}/pulls?state=open&per_page=100`;
 		}
 		case "gitlab": {
 			const project = encodeURIComponent(
 				`${remote.namespace}/${remote.repository}`,
 			);
+			if (query.kind === "number") {
+				return `${remote.webBaseUrl}/api/v4/projects/${project}/merge_requests/${number}`;
+			}
 			return query.kind === "branch"
 				? `${remote.webBaseUrl}/api/v4/projects/${project}/merge_requests?state=opened&source_branch=${branch}&per_page=100`
-				: `${remote.webBaseUrl}/api/v4/projects/${project}/merge_requests/${number}`;
+				: `${remote.webBaseUrl}/api/v4/projects/${project}/merge_requests?state=opened&per_page=100`;
 		}
 		case "bitbucket": {
 			const coordinate = `${encodeURIComponent(remote.namespace)}/${encodeURIComponent(remote.repository)}`;
+			if (query.kind === "number") {
+				return `https://api.bitbucket.org/2.0/repositories/${coordinate}/pullrequests/${number}`;
+			}
 			return query.kind === "branch"
 				? `https://api.bitbucket.org/2.0/repositories/${coordinate}/pullrequests?state=OPEN&source.branch.name=${branch}&pagelen=100`
-				: `https://api.bitbucket.org/2.0/repositories/${coordinate}/pullrequests/${number}`;
+				: `https://api.bitbucket.org/2.0/repositories/${coordinate}/pullrequests?state=OPEN&pagelen=100`;
 		}
 	}
 }

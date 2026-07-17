@@ -115,7 +115,7 @@ gji new feature/dark-mode --open --editor cursor
 gji pr 1234
 gji pr open                         # choose a linked worktree PR and open it
 gji pr open feature/auth-refactor   # open the PR for a branch
-gji pr open #1234                   # open an open PR directly
+gji pr open '#1234'                 # open an open PR directly
 
 # see what's open
 gji status

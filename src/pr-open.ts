@@ -10,6 +10,7 @@ import { detectRepository, listWorktrees } from "./repo.js";
 import {
 	buildWorktreePromptEntries,
 	promptForSingleWorktree,
+	type QueryRepositoryPullRequests,
 	type QueryWorktreePullRequests,
 	resolveWorktreeQuery,
 	type WorktreePromptEntry,
@@ -35,6 +36,7 @@ export interface PrOpenCommandDependencies {
 		worktrees: WorktreePromptEntry[],
 	) => Promise<string | null>;
 	queryPullRequests: QueryWorktreePullRequests;
+	queryRepositoryPullRequests?: QueryRepositoryPullRequests;
 }
 
 export function createPrOpenCommand(
@@ -50,6 +52,11 @@ export function createPrOpenCommand(
 		dependencies.promptForWorktree ?? defaultPromptForWorktree;
 	const queryPullRequests =
 		dependencies.queryPullRequests ?? query.listOpenPullRequests;
+	const queryRepositoryPullRequests =
+		dependencies.queryRepositoryPullRequests ??
+		(dependencies.queryPullRequests === undefined
+			? query.listOpenPullRequestsForRepository
+			: undefined);
 
 	return async function runPrOpenCommand(
 		options: PrOpenCommandOptions,
@@ -77,6 +84,7 @@ export function createPrOpenCommand(
 				promptForWorktree,
 				promptForPullRequest,
 				queryPullRequests,
+				queryRepositoryPullRequests,
 				openInBrowser,
 			);
 		}
@@ -135,6 +143,7 @@ async function openFromWorktreeSelector(
 	promptForWorktree: PrOpenCommandDependencies["promptForWorktree"],
 	promptForPullRequest: PrOpenCommandDependencies["promptForPullRequest"],
 	queryPullRequests: QueryWorktreePullRequests,
+	queryRepositoryPullRequests: QueryRepositoryPullRequests | undefined,
 	openInBrowser: (url: string) => Promise<void>,
 ): Promise<number> {
 	const worktrees = await listWorktrees(options.cwd).catch((error) => {
@@ -154,13 +163,28 @@ async function openFromWorktreeSelector(
 			throw error;
 		}
 	};
+	const queryRepositoryForSelector: QueryRepositoryPullRequests | undefined =
+		queryRepositoryPullRequests === undefined
+			? undefined
+			: async (root) => {
+					try {
+						return await queryRepositoryPullRequests(root);
+					} catch (error) {
+						lookupError ??= error;
+						throw error;
+					}
+				};
 	const entries = await buildWorktreePromptEntries(
 		worktrees.map((worktree) => ({
 			repoRoot,
 			repoName,
 			worktree,
 		})),
-		{ queryPullRequests: queryForSelector },
+		{
+			queryPullRequests:
+				queryRepositoryForSelector === undefined ? queryForSelector : undefined,
+			queryRepositoryPullRequests: queryRepositoryForSelector,
+		},
 	);
 	const connectedEntries = entries.filter(
 		(entry) => (entry.pullRequestNumbers?.length ?? 0) > 0,

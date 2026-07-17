@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { createBrowserOpener } from "./browser.js";
 
@@ -6,7 +6,7 @@ describe("browser opener", () => {
 	it.each([
 		["darwin", "open", ["https://example.com/pr/1"]],
 		["linux", "xdg-open", ["https://example.com/pr/1"]],
-		["win32", "cmd.exe", ["/c", "start", "", "https://example.com/pr/1"]],
+		["win32", "explorer.exe", ["https://example.com/pr/1"]],
 	] as const)("uses the default opener on %s", async (os, command, args) => {
 		// Given an OS-specific browser opener with a command boundary spy.
 		const calls: { args: string[]; command: string }[] = [];
@@ -38,5 +38,18 @@ describe("browser opener", () => {
 		await expect(open("https://example.com/pr/1")).rejects.toThrow(
 			"xdg-open unavailable",
 		);
+	});
+
+	it("rejects non-web URLs before invoking the browser boundary", async () => {
+		// Given a browser opener with a command boundary spy.
+		const runCommand = vi.fn(async () => undefined);
+		const open = createBrowserOpener({ runCommand });
+
+		// When a non-HTTP URL is opened.
+		// Then validation fails without executing an OS command.
+		await expect(open("javascript:alert(1)")).rejects.toThrow(
+			"browser URL must use http or https",
+		);
+		expect(runCommand).not.toHaveBeenCalled();
 	});
 });

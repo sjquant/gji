@@ -2,7 +2,7 @@ import { PassThrough, Writable } from "node:stream";
 import { stripVTControlCharacters } from "node:util";
 
 import { describe, expect, it } from "vitest";
-import { createRepository } from "./repo.test-helpers.js";
+import { addLinkedWorktree, createRepository } from "./repo.test-helpers.js";
 import {
 	buildWorktreePromptEntries,
 	promptForMultipleWorktrees,
@@ -59,6 +59,53 @@ describe("worktree picker search", () => {
 			"https://example.com/pull/34",
 		]);
 		expect(output.text()).toContain("feature/review (#12, #34)");
+	});
+
+	it("queries each repository once and joins PRs by source branch", async () => {
+		// Given two worktrees from one repository and repository-scoped PR metadata.
+		const repoRoot = await createRepository();
+		const branchA = "feature/repository-a";
+		const branchB = "feature/repository-b";
+		const pathA = await addLinkedWorktree(repoRoot, branchA);
+		const pathB = await addLinkedWorktree(repoRoot, branchB);
+		const queriedRoots: string[] = [];
+
+		// When the shared picker builds its entries.
+		const entries = await buildWorktreePromptEntries(
+			[
+				{
+					repoRoot,
+					repoName: "repo",
+					worktree: { branch: branchA, isCurrent: true, path: pathA },
+				},
+				{
+					repoRoot,
+					repoName: "repo",
+					worktree: { branch: branchB, isCurrent: false, path: pathB },
+				},
+			],
+			{
+				queryRepositoryPullRequests: async (root) => {
+					queriedRoots.push(root);
+					return [
+						{
+							number: 12,
+							sourceBranch: branchB,
+							url: "https://example.com/pull/12",
+						},
+					];
+				},
+			},
+		);
+
+		// Then one repository lookup decorates only the matching branch.
+		expect(queriedRoots).toEqual([repoRoot]);
+		expect(
+			entries.find((entry) => entry.path === pathA)?.pullRequestNumbers,
+		).toEqual([]);
+		expect(
+			entries.find((entry) => entry.path === pathB)?.pullRequestNumbers,
+		).toEqual([12]);
 	});
 
 	it("filters single-select choices after slash search", async () => {
