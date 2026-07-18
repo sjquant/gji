@@ -183,7 +183,7 @@ function registerCommands(program: Command): void {
 		.option("--detached", "create a detached worktree without a branch")
 		.option(
 			"--from-current",
-			"base the new branch on the current worktree instead of the main worktree",
+			"base the new branch on the current worktree instead of the main worktree (cannot be combined with --detached)",
 		)
 		.option("--open", "open the new worktree in an editor after creation")
 		.option(

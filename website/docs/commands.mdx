@@ -84,13 +84,13 @@ Use these to shape default behavior and shell handoff.
 gji new feature/auth-refactor --open --editor cursor
 ```
 
-By default, `gji new` starts the branch from the main worktree. Use `--from-current` when the new branch should include the current worktree's `HEAD` instead:
+By default, `gji new` starts the branch from the main worktree. Use `--from-current` when the new branch should include the current worktree's `HEAD` instead. It cannot be combined with `--detached`:
 
 ```bash
 gji new feature/auth-tests --from-current
 ```
 
-Or open an existing worktree interactively from anywhere:
+Open the current worktree directly, choose another interactively, or target a branch:
 
 ```bash
 gji open                    # open the current worktree in an editor

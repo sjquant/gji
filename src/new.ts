@@ -66,6 +66,16 @@ export function createNewCommand(
 	return async function runNewCommand(
 		options: NewCommandOptions,
 	): Promise<number> {
+		if (options.detached && options.fromCurrent) {
+			const message = "--from-current cannot be used with --detached";
+			if (options.json) {
+				options.stderr(`${JSON.stringify({ error: message }, null, 2)}\n`);
+			} else {
+				options.stderr(`gji new: ${message}\n`);
+			}
+			return 1;
+		}
+
 		const repository = await detectRepository(options.cwd);
 		const config = await loadEffectiveConfig(
 			repository.repoRoot,

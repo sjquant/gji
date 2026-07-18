@@ -105,6 +105,23 @@ describe("gji new", () => {
 		await expect(currentBranch(newWorktreePath)).resolves.toBe(newBranch);
 	});
 
+	it("rejects --from-current when creating a detached worktree", async () => {
+		// Given a detached-worktree request with the branch-base option.
+		const stderr: string[] = [];
+
+		// When gji new receives incompatible options.
+		const result = await runCli(["new", "--detached", "--from-current"], {
+			cwd: "/not-a-repository",
+			stderr: (chunk) => stderr.push(chunk),
+		});
+
+		// Then it reports the conflict without trying to create a worktree.
+		expect(result.exitCode).toBe(1);
+		expect(stderr.join("")).toBe(
+			"gji new: --from-current cannot be used with --detached\n",
+		);
+	});
+
 	it("creates the branch from the current worktree when requested", async () => {
 		// Given a linked worktree with a commit that is not in the main worktree.
 		const repoRoot = await createRepository();

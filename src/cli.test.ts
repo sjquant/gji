@@ -132,6 +132,24 @@ describe("runCli", () => {
 		);
 	});
 
+	it("rejects a branch target combined with the gji open selector flag", async () => {
+		// Given headless mode and both a branch target and selector flag.
+		process.env.GJI_NO_TUI = "1";
+		const stderr: string[] = [];
+
+		// When the conflicting command is invoked through runCli.
+		const result = await runCli(["open", "feature/target", "--select"], {
+			cwd: "/not-a-repository",
+			stderr: (chunk) => stderr.push(chunk),
+		});
+
+		// Then it exits before selector or editor work starts.
+		expect(result.exitCode).toBe(1);
+		expect(stderr.join("")).toBe(
+			"gji open: --select cannot be used with a branch\n",
+		);
+	});
+
 	it("dispatches the pr open selector flag through the CLI action", async () => {
 		// Given headless mode and output collectors.
 		process.env.GJI_NO_TUI = "1";
