@@ -28,7 +28,7 @@ export interface WarpCommandOptions {
 	stdout: (chunk: string) => void;
 }
 
-interface WarpItem {
+export interface WarpWorktreeSource {
 	repoRoot: string;
 	repoName: string;
 	worktree: WorktreeEntry;
@@ -194,10 +194,44 @@ export interface WarpTarget {
 	path: string;
 }
 
+export async function listRegisteredWorktreeSources(
+	cwd: string,
+): Promise<WarpWorktreeSource[]> {
+	const registry = await loadRegistry();
+	const currentRoot = await detectRepository(cwd)
+		.then((repository) => repository.currentRoot)
+		.catch(() => null);
+	const results = await Promise.allSettled(
+		registry.map(async (entry) => {
+			const worktrees = await listWorktrees(entry.path);
+			return { repoName: entry.name, repoRoot: entry.path, worktrees };
+		}),
+	);
+
+	const allItems: WarpWorktreeSource[] = [];
+	for (const result of results) {
+		if (result.status === "rejected") continue;
+		const { repoName, repoRoot, worktrees } = result.value;
+		for (const worktree of worktrees) {
+			allItems.push({
+				repoRoot,
+				repoName,
+				worktree: {
+					...worktree,
+					isCurrent: currentRoot !== null && worktree.path === currentRoot,
+				},
+			});
+		}
+	}
+
+	return allItems;
+}
+
 export async function resolveWarpTarget(options: {
 	branch?: string;
 	commandName?: string;
 	cwd: string;
+	excludeRepoRoot?: string;
 	json?: boolean;
 	queryPullRequests?: QueryWorktreePullRequests;
 	stderr: (chunk: string) => void;
@@ -214,9 +248,6 @@ export async function resolveWarpTarget(options: {
 	};
 
 	const registry = await loadRegistry();
-	const currentRoot = await detectRepository(options.cwd)
-		.then((repository) => repository.currentRoot)
-		.catch(() => null);
 	if (registry.length === 0) {
 		emitError(
 			"not in a git repository and no repos registered yet.",
@@ -225,28 +256,9 @@ export async function resolveWarpTarget(options: {
 		return null;
 	}
 
-	const results = await Promise.allSettled(
-		registry.map(async (entry) => {
-			const worktrees = await listWorktrees(entry.path);
-			return { repoName: entry.name, repoRoot: entry.path, worktrees };
-		}),
+	const allItems = (await listRegisteredWorktreeSources(options.cwd)).filter(
+		(item) => item.repoRoot !== options.excludeRepoRoot,
 	);
-
-	const allItems: WarpItem[] = [];
-	for (const result of results) {
-		if (result.status === "rejected") continue;
-		const { repoName, repoRoot, worktrees } = result.value;
-		for (const worktree of worktrees) {
-			allItems.push({
-				repoRoot,
-				repoName,
-				worktree: {
-					...worktree,
-					isCurrent: currentRoot !== null && worktree.path === currentRoot,
-				},
-			});
-		}
-	}
 
 	if (allItems.length === 0) {
 		emitError("no accessible worktrees found in any registered repo.");

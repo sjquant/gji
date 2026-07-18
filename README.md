@@ -135,6 +135,8 @@ gji pr 1234                       # checkout PR locally
 gji pr https://github.com/org/repo/pull/1234  # or paste the URL
 
 gji go feature/auth-refactor      # jump to a worktree
+gji go teammate-branch            # open an existing local or remote branch
+gji go -                          # return to the previous worktree
 gji root                          # jump to repo root
 
 gji status                        # health overview + ahead/behind counts
@@ -235,7 +237,7 @@ path=$(gji root --print)
 | `gji pr <ref> [--json]` | fetch PR ref, create worktree, cd in |
 | `gji pr open [branch|#N] [--select]` | open the current worktree PR, or choose a linked worktree with `--select` |
 | `gji open [branch] [--select] [--editor <cli>] [--save] [--workspace]` | open the current or selected worktree in an editor |
-| `gji go [branch] [--print]` | jump to a worktree |
+| `gji go [branch] [--print] [--json]` | resolve and jump to a worktree, branch, remote, or PR |
 | `gji root [--print]` | jump to the main repo root |
 | `gji status [--json]` | repo overview, worktree health, ahead/behind |
 | `gji ls [--compact] [--json]` | list active worktrees |
@@ -434,6 +436,10 @@ gji new --json feature/dark-mode
 # fetch PR
 gji pr --json 1234
 # → { "branch": "pr/1234", "path": "/…/worktrees/repo/pr/1234" }
+
+# resolve an existing destination without changing directories
+gji go --json feature/auth-refactor
+# → { "branch": "feature/auth-refactor", "path": "/…/worktrees/repo/feature/auth-refactor" }
 
 # detailed list
 gji ls --json

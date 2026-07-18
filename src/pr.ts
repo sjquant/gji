@@ -31,6 +31,7 @@ export interface PrCommandOptions {
 	dryRun?: boolean;
 	json?: boolean;
 	number: string;
+	outputEnv?: string;
 	stderr: (chunk: string) => void;
 	stdout: (chunk: string) => void;
 }
@@ -114,7 +115,7 @@ export function createPrCommand(
 
 			if (choice === "reuse") {
 				await recordWorktreeUsage(worktreePath, branchName);
-				await writeOutput(worktreePath, options.stdout);
+				await writeOutput(worktreePath, options.stdout, options.outputEnv);
 				return 0;
 			}
 
@@ -212,7 +213,7 @@ export function createPrCommand(
 			);
 		} else {
 			await recordWorktreeUsage(worktreePath, branchName);
-			await writeOutput(worktreePath, options.stdout);
+			await writeOutput(worktreePath, options.stdout, options.outputEnv);
 		}
 
 		return 0;
@@ -310,6 +311,7 @@ function sourceRefForForge(
 async function writeOutput(
 	worktreePath: string,
 	stdout: (chunk: string) => void,
+	outputEnv: string | undefined,
 ): Promise<void> {
-	await writeShellOutput(PR_OUTPUT_FILE_ENV, worktreePath, stdout);
+	await writeShellOutput(outputEnv ?? PR_OUTPUT_FILE_ENV, worktreePath, stdout);
 }

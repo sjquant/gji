@@ -12,7 +12,10 @@ export const BACK_OUTPUT_FILE_ENV = "GJI_BACK_OUTPUT_FILE";
 export interface BackCommandOptions {
 	cwd: string;
 	home?: string;
+	json?: boolean;
 	n?: number;
+	commandName?: string;
+	outputEnv?: string;
 	print?: boolean;
 	stderr: (chunk: string) => void;
 	stdout: (chunk: string) => void;
@@ -46,11 +49,27 @@ export async function runBackCommand(
 	}
 
 	if (!target) {
-		options.stderr("gji back: no previous worktree in history\n");
-		options.stderr(
-			"Hint: Use 'gji go', 'gji new', or 'gji pr' to navigate between worktrees\n",
-		);
+		const commandName = options.commandName ?? "gji back";
+		if (options.json) {
+			options.stderr(
+				`${JSON.stringify({ error: "no previous worktree in history" }, null, 2)}\n`,
+			);
+		} else {
+			options.stderr(`${commandName}: no previous worktree in history\n`);
+		}
+		if (!options.json) {
+			options.stderr(
+				"Hint: Use 'gji go', 'gji new', or 'gji pr' to navigate between worktrees\n",
+			);
+		}
 		return 1;
+	}
+
+	if (options.json) {
+		options.stdout(
+			`${JSON.stringify({ branch: target.branch, path: target.path }, null, 2)}\n`,
+		);
+		return 0;
 	}
 
 	try {
@@ -76,7 +95,11 @@ export async function runBackCommand(
 	}
 
 	await appendHistory(target.path, target.branch, options.home);
-	await writeShellOutput(BACK_OUTPUT_FILE_ENV, target.path, options.stdout);
+	await writeShellOutput(
+		options.outputEnv ?? BACK_OUTPUT_FILE_ENV,
+		target.path,
+		options.stdout,
+	);
 	return 0;
 }
 
@@ -89,9 +112,7 @@ export function formatHistoryList(
 		...history.map((e) => (e.branch ?? "(detached)").length),
 	);
 
-	const lines: string[] = [
-		"  " + "BRANCH".padEnd(branchWidth) + " WHEN       PATH",
-	];
+	const lines: string[] = [`  ${"BRANCH".padEnd(branchWidth)} WHEN       PATH`];
 
 	for (const entry of history) {
 		const isCurrent = entry.path === cwd;
@@ -100,7 +121,7 @@ export function formatHistoryList(
 		lines.push(`${isCurrent ? "*" : " "} ${branch} ${when} ${entry.path}`);
 	}
 
-	return lines.join("\n") + "\n";
+	return `${lines.join("\n")}\n`;
 }
 
 export function formatAge(timestamp: number): string {

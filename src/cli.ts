@@ -278,6 +278,7 @@ function registerCommands(program: Command): void {
 		.alias("jump")
 		.description("print or select a worktree path")
 		.option("--print", "print the resolved worktree path explicitly")
+		.option("--json", "emit JSON for an existing worktree destination")
 		.action(notImplemented("go"));
 
 	program
@@ -625,11 +626,12 @@ function attachCommandActions(
 		?.action(
 			async (
 				branch: string | undefined,
-				commandOptions: { print?: boolean },
+				commandOptions: { json?: boolean; print?: boolean },
 			) => {
 				const exitCode = await runGoCommand({
 					branch,
 					cwd: options.cwd,
+					json: commandOptions.json,
 					print: commandOptions.print,
 					stderr: options.stderr,
 					stdout: options.stdout,

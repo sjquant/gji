@@ -113,13 +113,23 @@ export function resolveWorktreeQuery(
 	sources: WorktreePromptSource[],
 	query: string,
 ): WorktreePromptSource | null {
+	return resolveWorktreeQueryMatches(sources, query)[0] ?? null;
+}
+
+export function resolveWorktreeQueryMatches(
+	sources: WorktreePromptSource[],
+	query: string,
+): WorktreePromptSource[] {
 	const normalizedQuery = normalizeQuery(query);
-	if (normalizedQuery === null) return null;
+	if (normalizedQuery === null) return [];
 
 	const matches = findWorktreePromptSourceMatches(sources, normalizedQuery);
-	if (isAmbiguousRepoOnlyQuery(matches, normalizedQuery)) return null;
+	if (isAmbiguousRepoOnlyQuery(matches, normalizedQuery)) return [];
 
-	return matches[0]?.source ?? null;
+	const bestScore = matches[0]?.matchScore;
+	return matches
+		.filter((match) => match.matchScore === bestScore)
+		.map((match) => match.source);
 }
 
 function findWorktreePromptSourceMatches(

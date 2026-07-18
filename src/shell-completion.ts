@@ -190,7 +190,7 @@ _gji_completion() {
       COMPREPLY=( $(compgen -W "$(__gji_worktree_branches) --editor --select --save --workspace --help" -- "$cur") )
       ;;
     go|jump)
-      COMPREPLY=( $(compgen -W "$(__gji_worktree_branches) --print --help" -- "$cur") )
+      COMPREPLY=( $(compgen -W "$(__gji_worktree_branches) --print --json --help" -- "$cur") )
       ;;
     root)
       COMPREPLY=( $(compgen -W "--print --help" -- "$cur") )
@@ -425,6 +425,7 @@ complete -c gji -n '__fish_seen_subcommand_from open' -l workspace -d 'generate 
 complete -c gji -n '__fish_seen_subcommand_from open' -a '(__gji_worktree_branches)' -d 'worktree branch'
 
 complete -c gji -n '__fish_seen_subcommand_from go jump' -l print -d 'print the resolved worktree path explicitly'
+complete -c gji -n '__fish_seen_subcommand_from go jump' -l json -d 'emit JSON for an existing worktree destination'
 complete -c gji -n '__fish_seen_subcommand_from go jump' -a '(__gji_worktree_branches)' -d 'worktree branch'
 
 complete -c gji -n '__fish_seen_subcommand_from root' -l print -d 'print the resolved repository root path explicitly'
@@ -582,7 +583,7 @@ case "\${words[2]}" in
     _arguments '--editor[editor CLI to use (code, cursor, zed, windsurf, subl, …)]:editor:' '--select[choose a worktree with the interactive selector]' '--save[save the chosen editor to global config]' '--workspace[generate a .code-workspace file before opening (VS Code / Cursor / Windsurf)]' '2:branch:->worktrees'
     ;;
   go|jump)
-    _arguments '--print[print the resolved worktree path explicitly]' '2:branch:->worktrees'
+    _arguments '--print[print the resolved worktree path explicitly]' '--json[emit JSON for an existing worktree destination]' '2:branch:->worktrees'
     ;;
   root)
     _arguments '--print[print the resolved repository root path explicitly]'

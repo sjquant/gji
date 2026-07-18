@@ -32,6 +32,8 @@ export type { PathConflictChoice };
 
 const NEW_OUTPUT_FILE_ENV = "GJI_NEW_OUTPUT_FILE";
 
+export type NewWorktreeMode = "create" | "checkout" | "track";
+
 export interface NewCommandOptions {
 	branch?: string;
 	cwd: string;
@@ -41,7 +43,10 @@ export interface NewCommandOptions {
 	fromCurrent?: boolean;
 	force?: boolean;
 	json?: boolean;
+	mode?: NewWorktreeMode;
 	open?: boolean;
+	outputEnv?: string;
+	remote?: string;
 	stderr: (chunk: string) => void;
 	stdout: (chunk: string) => void;
 }
@@ -137,9 +142,11 @@ export function createNewCommand(
 			rawBasePath?.startsWith("/") || rawBasePath?.startsWith("~")
 				? rawBasePath
 				: undefined;
-		const worktreeName = options.detached
+		const worktreeName = options.mode
 			? rawBranch
-			: applyConfiguredBranchPrefix(rawBranch, config.branchPrefix);
+			: options.detached
+				? rawBranch
+				: applyConfiguredBranchPrefix(rawBranch, config.branchPrefix);
 		const worktreePath = usesGeneratedDetachedName
 			? await resolveUniqueDetachedWorktreePath(
 					repository.repoRoot,
@@ -204,7 +211,7 @@ export function createNewCommand(
 
 				if (choice === "reuse") {
 					await recordWorktreeUsage(worktreePath, worktreeName);
-					await writeOutput(worktreePath, options.stdout);
+					await writeOutput(worktreePath, options.stdout, options.outputEnv);
 					return 0;
 				}
 
@@ -241,16 +248,27 @@ export function createNewCommand(
 				: undefined;
 		const gitArgs = options.detached
 			? ["worktree", "add", "--detach", worktreePath]
-			: (await localBranchExists(repository.repoRoot, worktreeName))
-				? ["worktree", "add", worktreePath, worktreeName]
-				: [
+			: options.mode === "track"
+				? [
 						"worktree",
 						"add",
+						"--track",
 						"-b",
 						worktreeName,
 						worktreePath,
-						...(startPoint ? [startPoint] : []),
-					];
+						`${options.remote ?? "origin"}/${worktreeName}`,
+					]
+				: options.mode === "checkout" ||
+						(await localBranchExists(repository.repoRoot, worktreeName))
+					? ["worktree", "add", worktreePath, worktreeName]
+					: [
+							"worktree",
+							"add",
+							"-b",
+							worktreeName,
+							worktreePath,
+							...(startPoint ? [startPoint] : []),
+						];
 
 		await execFileAsync("git", gitArgs, { cwd: repository.repoRoot });
 
@@ -297,7 +315,7 @@ export function createNewCommand(
 			);
 		} else {
 			await recordWorktreeUsage(worktreePath, worktreeName);
-			await writeOutput(worktreePath, options.stdout);
+			await writeOutput(worktreePath, options.stdout, options.outputEnv);
 		}
 
 		if (options.open) {
@@ -518,8 +536,13 @@ async function resolveCurrentWorktreeHead(cwd: string): Promise<string> {
 async function writeOutput(
 	worktreePath: string,
 	stdout: (chunk: string) => void,
+	outputEnv: string | undefined,
 ): Promise<void> {
-	await writeShellOutput(NEW_OUTPUT_FILE_ENV, worktreePath, stdout);
+	await writeShellOutput(
+		outputEnv ?? NEW_OUTPUT_FILE_ENV,
+		worktreePath,
+		stdout,
+	);
 }
 
 function isNotRegisteredWorktreeError(error: unknown): boolean {

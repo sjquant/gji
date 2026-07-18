@@ -618,7 +618,7 @@ function gji --wraps gji --description 'gji shell integration'
 
     if test (count $argv) -gt 0; and begin; test $argv[1] = go; or test $argv[1] = jump; end
         set -e argv[1]
-        if test (count $argv) -gt 0; and test $argv[1] = --print
+        if test (count $argv) -gt 0; and begin; test $argv[1] = --print; or test $argv[1] = --json; end
             command gji go $argv
             return $status
         end

@@ -68,7 +68,7 @@ const SHELL_WRAPPED_COMMANDS: ShellWrappedCommand[] = [
 		tempPrefix: "gji-back",
 	},
 	{
-		bypassOptions: ["--print"],
+		bypassOptions: ["--print", "--json"],
 		commandName: "go",
 		envVar: "GJI_GO_OUTPUT_FILE",
 		names: ["go", "jump"],
