@@ -132,6 +132,25 @@ export function resolveWorktreeQueryMatches(
 		.map((match) => match.source);
 }
 
+export function resolveExactWorktreeQueryMatches(
+	sources: WorktreePromptSource[],
+	query: string,
+): WorktreePromptSource[] {
+	const normalizedQuery = normalizeQuery(query);
+	if (normalizedQuery === null) return [];
+
+	return sources.filter(
+		(source) =>
+			scoreWorktreeMatch(
+				{
+					...source.worktree,
+					repoName: source.repoName,
+				},
+				normalizedQuery,
+			) === 1000,
+	);
+}
+
 function findWorktreePromptSourceMatches(
 	sources: WorktreePromptSource[],
 	normalizedQuery: string,

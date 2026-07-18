@@ -276,7 +276,11 @@ function registerCommands(program: Command): void {
 	program
 		.command("go [branch]")
 		.alias("jump")
-		.description("print or select a worktree path")
+		.description("resolve, create, and jump to a worktree path")
+		.option(
+			"-n, --new [branch]",
+			"create a new worktree in the current repository",
+		)
 		.option("--print", "print the resolved worktree path explicitly")
 		.option("--json", "emit JSON for an existing worktree destination")
 		.action(notImplemented("go"));
@@ -626,12 +630,20 @@ function attachCommandActions(
 		?.action(
 			async (
 				branch: string | undefined,
-				commandOptions: { json?: boolean; print?: boolean },
+				commandOptions: {
+					json?: boolean;
+					new?: string | boolean;
+					print?: boolean;
+				},
 			) => {
+				const newFlag = commandOptions.new;
+				const newWorktree = newFlag !== undefined && newFlag !== false;
+				const newBranch = typeof newFlag === "string" ? newFlag : undefined;
 				const exitCode = await runGoCommand({
-					branch,
+					branch: newWorktree ? (newBranch ?? branch) : branch,
 					cwd: options.cwd,
 					json: commandOptions.json,
+					newWorktree,
 					print: commandOptions.print,
 					stderr: options.stderr,
 					stdout: options.stdout,

@@ -75,6 +75,7 @@ describe("gji init", () => {
 		expect(result.exitCode).toBe(0);
 		expect(stdout.join("")).toContain("# >>> gji init >>>");
 		expect(stdout.join("")).toContain("gji() {");
+		expect(stdout.join("")).toContain("for arg do");
 		expect(stdout.join("")).not.toContain("__gji_worktree_branches() {");
 		expect(stdout.join("")).not.toContain("compdef _gji_completion gji");
 		expect(stdout.join("")).toContain("# <<< gji init <<<");
@@ -618,9 +619,13 @@ function gji --wraps gji --description 'gji shell integration'
 
     if test (count $argv) -gt 0; and begin; test $argv[1] = go; or test $argv[1] = jump; end
         set -e argv[1]
-        if test (count $argv) -gt 0; and begin; test $argv[1] = --print; or test $argv[1] = --json; end
-            command gji go $argv
-            return $status
+        if test (count $argv) -gt 0
+            for arg in $argv
+                if test $arg = --print; or test $arg = --json
+                    command gji go $argv
+                    return $status
+                end
+            end
         end
 
         set -l output_file (mktemp -t gji-go.XXXXXX)

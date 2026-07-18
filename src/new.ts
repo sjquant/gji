@@ -85,7 +85,7 @@ export function createNewCommand(
 		const config = await loadEffectiveConfig(
 			repository.repoRoot,
 			undefined,
-			options.stderr,
+			options.json ? undefined : options.stderr,
 		);
 		const usesGeneratedDetachedName =
 			options.detached && options.branch === undefined;

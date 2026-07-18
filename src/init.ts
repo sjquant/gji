@@ -651,13 +651,24 @@ function renderFishWrapper(command: ShellWrappedCommand): string {
 		bypassTests.length === 1
 			? bypassTests[0]
 			: `begin; ${bypassTests.join("; or ")}; end`;
+	const bypassBlock =
+		command.commandName === "go"
+			? `if test (count $argv) -gt 0
+        for arg in $argv
+            if ${command.bypassOptions.map((opt) => `test $arg = ${opt}`).join("; or ")}
+                command gji ${command.commandName} $argv
+                return $status
+            end
+        end
+    end`
+			: `if test (count $argv) -gt 0; and ${bypassCondition}
+        command gji ${command.commandName} $argv
+        return $status
+    end`;
 
 	return `if test (count $argv) -gt 0; and ${nameCondition}
     set -e argv[1]
-    if test (count $argv) -gt 0; and ${bypassCondition}
-        command gji ${command.commandName} $argv
-        return $status
-    end
+    ${bypassBlock}
 
     set -l output_file (mktemp -t ${command.tempPrefix}.XXXXXX)
     or return 1
@@ -681,13 +692,22 @@ function renderPosixWrapper(command: ShellWrappedCommand): string {
 	const bypassTests = command.bypassOptions
 		.map((opt) => `[ "\${1:-}" = "${opt}" ]`)
 		.join(" || ");
+	const bypassBlock =
+		command.commandName === "go"
+			? `for arg do
+    if ${command.bypassOptions.map((opt) => `[ "$arg" = "${opt}" ]`).join(" || ")}; then
+      command gji ${command.commandName} "$@"
+      return $?
+    fi
+  done`
+			: `if ${bypassTests}; then
+    command gji ${command.commandName} "$@"
+    return $?
+  fi`;
 
 	return `if ${tests}; then
   shift
-  if ${bypassTests}; then
-    command gji ${command.commandName} "$@"
-    return $?
-  fi
+  ${bypassBlock}
 
   local target
   local output_file

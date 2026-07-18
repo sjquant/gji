@@ -80,7 +80,7 @@ export function createPrCommand(
 		const config = await loadEffectiveConfig(
 			repository.repoRoot,
 			undefined,
-			options.stderr,
+			options.json ? undefined : options.stderr,
 		);
 		const branchName = `pr/${prNumber}`;
 		const remoteRef = `refs/remotes/origin/pull/${prNumber}/head`;

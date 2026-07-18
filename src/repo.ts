@@ -1,3 +1,4 @@
+import { access } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { runGit } from "./git.js";
@@ -155,16 +156,35 @@ export async function listWorktrees(cwd: string): Promise<WorktreeEntry[]> {
 	]);
 	const entries = output.split("\n\n").filter(Boolean);
 
-	return entries.map((entry) => {
+	const worktrees = entries.flatMap((entry) => {
+		if (findOptionalPorcelainValue(entry, "prunable") !== null) return [];
+
 		const path = findPorcelainValue(entry, "worktree");
 		const branchRef = findOptionalPorcelainValue(entry, "branch");
 
-		return {
-			branch: branchRef ? branchRef.replace("refs/heads/", "") : null,
-			isCurrent: path === currentRoot,
-			path,
-		};
+		return [
+			{
+				branch: branchRef ? branchRef.replace("refs/heads/", "") : null,
+				isCurrent: path === currentRoot,
+				path,
+			},
+		];
 	});
+
+	const accessible = await Promise.all(
+		worktrees.map(async (worktree) => {
+			try {
+				await access(worktree.path);
+				return worktree;
+			} catch {
+				return null;
+			}
+		}),
+	);
+
+	return accessible.filter(
+		(worktree): worktree is WorktreeEntry => worktree !== null,
+	);
 }
 
 function findPorcelainValue(block: string, key: string): string {

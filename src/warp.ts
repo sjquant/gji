@@ -196,6 +196,7 @@ export interface WarpTarget {
 
 export async function listRegisteredWorktreeSources(
 	cwd: string,
+	onSkipped?: (entry: RepoRegistryEntry) => void,
 ): Promise<WarpWorktreeSource[]> {
 	const registry = await loadRegistry();
 	const currentRoot = await detectRepository(cwd)
@@ -209,8 +210,11 @@ export async function listRegisteredWorktreeSources(
 	);
 
 	const allItems: WarpWorktreeSource[] = [];
-	for (const result of results) {
-		if (result.status === "rejected") continue;
+	for (const [index, result] of results.entries()) {
+		if (result.status === "rejected") {
+			onSkipped?.(registry[index]);
+			continue;
+		}
 		const { repoName, repoRoot, worktrees } = result.value;
 		for (const worktree of worktrees) {
 			allItems.push({
@@ -256,12 +260,20 @@ export async function resolveWarpTarget(options: {
 		return null;
 	}
 
-	const allItems = (await listRegisteredWorktreeSources(options.cwd)).filter(
-		(item) => item.repoRoot !== options.excludeRepoRoot,
-	);
+	let skippedRegisteredRepos = 0;
+	const allItems = (
+		await listRegisteredWorktreeSources(options.cwd, () => {
+			skippedRegisteredRepos++;
+		})
+	).filter((item) => item.repoRoot !== options.excludeRepoRoot);
 
 	if (allItems.length === 0) {
-		emitError("no accessible worktrees found in any registered repo.");
+		emitError(
+			"no accessible worktrees found in any registered repo.",
+			skippedRegisteredRepos > 0
+				? "Hint: Run 'gji doctor' to inspect stale repository entries.\n"
+				: undefined,
+		);
 		return null;
 	}
 
@@ -274,7 +286,12 @@ export async function resolveWarpTarget(options: {
 	if (options.branch) {
 		const match = resolveWorktreeQuery(promptSources, options.branch);
 		if (!match) {
-			emitError(`no worktree found matching: ${options.branch}`);
+			emitError(
+				`no worktree found matching: ${options.branch}`,
+				skippedRegisteredRepos > 0
+					? "Hint: Run 'gji doctor' to inspect stale repository entries.\n"
+					: undefined,
+			);
 			return null;
 		}
 		return { branch: match.worktree.branch, path: match.worktree.path };
