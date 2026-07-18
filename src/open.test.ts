@@ -58,6 +58,7 @@ describe("gji open", () => {
 		const result = await runOpenCommand({
 			cwd: repoRoot,
 			editor: "code",
+			select: true,
 			stderr: () => undefined,
 			stdout: () => undefined,
 		});
@@ -88,6 +89,7 @@ describe("gji open", () => {
 		const result = await runOpenCommand({
 			cwd: repoRoot,
 			editor: "code",
+			select: true,
 			stderr: () => undefined,
 			stdout: () => undefined,
 		});
@@ -123,6 +125,7 @@ describe("gji open", () => {
 		await runOpenCommand({
 			cwd: worktreeA,
 			editor: "code",
+			select: true,
 			stderr: () => undefined,
 			stdout: () => undefined,
 		});
@@ -146,6 +149,7 @@ describe("gji open", () => {
 		const result = await runOpenCommand({
 			cwd: repoRoot,
 			editor: "code",
+			select: true,
 			stderr: (chunk) => stderr.push(chunk),
 			stdout: () => undefined,
 		});
@@ -153,6 +157,54 @@ describe("gji open", () => {
 		// Then it exits 1 and reports the abort.
 		expect(result).toBe(1);
 		expect(stderr.join("")).toContain("Aborted");
+	});
+
+	it("opens the current worktree without prompting when no branch is given", async () => {
+		// Given a linked worktree and a prompt that must not run.
+		const repoRoot = await createRepository();
+		const currentBranch = "feature/current-open";
+		const currentPath = await addLinkedWorktree(repoRoot, currentBranch);
+		const spawned: { cli: string; args: string[] }[] = [];
+		const runOpenCommand = createOpenCommand({
+			promptForWorktree: async () => {
+				throw new Error("prompt must not be called without --select");
+			},
+			spawnEditor: async (cli, args) => {
+				spawned.push({ cli, args });
+			},
+		});
+
+		// When gji open runs from the linked worktree without a branch argument.
+		const result = await runOpenCommand({
+			cwd: currentPath,
+			editor: "code",
+			stderr: () => undefined,
+			stdout: () => undefined,
+		});
+
+		// Then it opens the current worktree directly.
+		expect(result).toBe(0);
+		expect(spawned[0].args).toContain(currentPath);
+	});
+
+	it("rejects --select in headless mode", async () => {
+		// Given headless mode and an explicit selector request.
+		process.env.GJI_NO_TUI = "1";
+		const repoRoot = await createRepository();
+		const stderr: string[] = [];
+		const runOpenCommand = createOpenCommand();
+
+		// When gji open is invoked with --select.
+		const result = await runOpenCommand({
+			cwd: repoRoot,
+			select: true,
+			stderr: (chunk) => stderr.push(chunk),
+			stdout: () => undefined,
+		});
+
+		// Then it exits before trying to open an editor.
+		expect(result).toBe(1);
+		expect(stderr.join("")).toContain("selector is unavailable");
 	});
 
 	it("opens a linked worktree by branch name without prompting", async () => {

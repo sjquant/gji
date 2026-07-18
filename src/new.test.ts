@@ -14,6 +14,7 @@ import {
 import { resolveWorktreePath } from "./repo.js";
 import {
 	addLinkedWorktree,
+	commitFile,
 	createRepository,
 	currentBranch,
 	pathExists,
@@ -101,6 +102,53 @@ describe("gji new", () => {
 		// Then it still creates the new branch/worktree from the main repository.
 		expect(result.exitCode).toBe(0);
 		await expect(pathExists(newWorktreePath)).resolves.toBe(true);
+		await expect(currentBranch(newWorktreePath)).resolves.toBe(newBranch);
+	});
+
+	it("rejects --from-current when creating a detached worktree", async () => {
+		// Given a detached-worktree request with the branch-base option.
+		const stderr: string[] = [];
+
+		// When gji new receives incompatible options.
+		const result = await runCli(["new", "--detached", "--from-current"], {
+			cwd: "/not-a-repository",
+			stderr: (chunk) => stderr.push(chunk),
+		});
+
+		// Then it reports the conflict without trying to create a worktree.
+		expect(result.exitCode).toBe(1);
+		expect(stderr.join("")).toBe(
+			"gji new: --from-current cannot be used with --detached\n",
+		);
+	});
+
+	it("creates the branch from the current worktree when requested", async () => {
+		// Given a linked worktree with a commit that is not in the main worktree.
+		const repoRoot = await createRepository();
+		const currentBranchName = "feature/current-base";
+		const currentWorktreePath = await addLinkedWorktree(
+			repoRoot,
+			currentBranchName,
+		);
+		await commitFile(
+			currentWorktreePath,
+			"current-only.txt",
+			"from current worktree\n",
+			"Add current-worktree change",
+		);
+		const newBranch = "feature/from-current-worktree";
+		const newWorktreePath = resolveWorktreePath(repoRoot, newBranch);
+
+		// When gji new --from-current runs from that linked worktree.
+		const result = await runCli(["new", "--from-current", newBranch], {
+			cwd: currentWorktreePath,
+		});
+
+		// Then the new branch contains the current worktree's commit.
+		expect(result.exitCode).toBe(0);
+		await expect(
+			pathExists(join(newWorktreePath, "current-only.txt")),
+		).resolves.toBe(true);
 		await expect(currentBranch(newWorktreePath)).resolves.toBe(newBranch);
 	});
 
