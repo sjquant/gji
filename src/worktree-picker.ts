@@ -4,6 +4,10 @@ import type { Readable, Writable } from "node:stream";
 import { isCancel, Prompt } from "@clack/core";
 
 import { loadHistory } from "./history.js";
+import {
+	createPullRequestQuery,
+	type PullRequestInfo,
+} from "./pull-requests.js";
 import type { WorktreeEntry } from "./repo.js";
 import {
 	readWorktreeInfos,
@@ -11,7 +15,10 @@ import {
 	type WorktreeInfo,
 } from "./worktree-info.js";
 
+const MAX_PULL_REQUEST_REPOSITORY_QUERY_CONCURRENCY = 4;
+
 export interface WorktreePromptSource {
+	repoRoot?: string;
 	repoName: string;
 	worktree: WorktreeEntry;
 }
@@ -20,7 +27,23 @@ export interface WorktreePromptEntry extends WorktreeEntry {
 	group: "recent" | "other";
 	label: string;
 	metadata?: string | null;
+	pullRequestNumbers?: number[];
+	pullRequestUrls?: string[];
 	repoName: string;
+}
+
+export type QueryWorktreePullRequests = (
+	repoRoot: string,
+	sourceBranch: string,
+) => Promise<PullRequestInfo[]>;
+
+export type QueryRepositoryPullRequests = (
+	repoRoot: string,
+) => Promise<PullRequestInfo[]>;
+
+export interface BuildWorktreePromptEntriesDependencies {
+	queryPullRequests?: QueryWorktreePullRequests;
+	queryRepositoryPullRequests?: QueryRepositoryPullRequests;
 }
 
 export interface WorktreePickerIO {
@@ -40,16 +63,40 @@ interface SortableWorktreePromptEntry extends WorktreePromptEntry {
 
 export async function buildWorktreePromptEntries(
 	sources: WorktreePromptSource[],
+	dependencies: BuildWorktreePromptEntriesDependencies = {},
 ): Promise<WorktreePromptEntry[]> {
-	const [history, infos] = await Promise.all([
+	const pullRequestQuery = createPullRequestQuery();
+	const queryPullRequests =
+		dependencies.queryPullRequests ?? pullRequestQuery.listOpenPullRequests;
+	const queryRepositoryPullRequests =
+		dependencies.queryRepositoryPullRequests ??
+		(dependencies.queryPullRequests === undefined
+			? pullRequestQuery.listOpenPullRequestsForRepository
+			: undefined);
+	const repositoryPullRequests =
+		queryRepositoryPullRequests === undefined
+			? Promise.resolve(null)
+			: readRepositoryPullRequests(sources, queryRepositoryPullRequests);
+	const [history, infos, pullRequestsByRepository] = await Promise.all([
 		loadHistory(),
 		readWorktreeInfos(sources.map((source) => source.worktree)),
+		repositoryPullRequests,
 	]);
+	const pullRequests = await Promise.all(
+		sources.map((source) =>
+			readSourcePullRequests(
+				source,
+				queryPullRequests,
+				pullRequestsByRepository,
+			),
+		),
+	);
 	const historyByPath = new Map(history.map((entry) => [entry.path, entry]));
 	const entries = sources.map((source, index) =>
 		buildWorktreePromptEntry(
 			source,
 			infos[index],
+			pullRequests[index],
 			historyByPath.get(source.worktree.path)?.timestamp ?? null,
 			Date.now(),
 		),
@@ -211,7 +258,10 @@ function buildSearchableWorktreeEntry(
 		searchText: buildPromptSearchText(worktree),
 		value: worktree.path,
 		worktree: {
-			branch,
+			branch: formatWorktreeBranchLabel(
+				worktree.branch,
+				worktree.pullRequestNumbers,
+			),
 			metadata,
 			path: worktree.path,
 			repoName: worktree.repoName,
@@ -1087,6 +1137,8 @@ function buildPromptSearchText(worktree: WorktreePromptEntry): string {
 		worktree.path,
 		worktree.label,
 		`${worktree.repoName}/${worktree.branch ?? "detached"}`,
+		...(worktree.pullRequestNumbers ?? []).map((number) => `#${number}`),
+		...(worktree.pullRequestUrls ?? []),
 	]
 		.join(" ")
 		.toLowerCase();
@@ -1095,6 +1147,7 @@ function buildPromptSearchText(worktree: WorktreePromptEntry): string {
 function buildWorktreePromptEntry(
 	source: WorktreePromptSource,
 	info: WorktreeInfo,
+	pullRequests: PullRequestInfo[],
 	lastUsedTimestamp: number | null,
 	now: number,
 ): SortableWorktreePromptEntry {
@@ -1107,7 +1160,10 @@ function buildWorktreePromptEntry(
 			: lastWorkedTimestamp !== null
 				? "worked"
 				: null;
-	const branch = source.worktree.branch ?? "(detached)";
+	const branch = formatWorktreeBranchLabel(
+		source.worktree.branch,
+		pullRequests.map((pullRequest) => pullRequest.number),
+	);
 	const badges = buildStatusBadges(info);
 	const recency = formatPromptRecency(
 		lastActivityTimestamp,
@@ -1136,8 +1192,111 @@ function buildWorktreePromptEntry(
 		label,
 		lastActivityTimestamp,
 		metadata,
+		pullRequestNumbers: pullRequests.map((pullRequest) => pullRequest.number),
+		pullRequestUrls: pullRequests.map((pullRequest) => pullRequest.url),
 		repoName: source.repoName,
 	};
+}
+
+async function readSourcePullRequests(
+	source: WorktreePromptSource,
+	queryPullRequests: QueryWorktreePullRequests,
+	pullRequestsByRepository: Map<string, PullRequestInfo[]> | null,
+): Promise<PullRequestInfo[]> {
+	if (source.repoRoot === undefined || source.worktree.branch === null) {
+		return [];
+	}
+
+	if (pullRequestsByRepository !== null) {
+		return sortSourcePullRequests(
+			pullRequestsByRepository
+				.get(source.repoRoot)
+				?.filter(
+					(pullRequest) => pullRequest.sourceBranch === source.worktree.branch,
+				),
+		);
+	}
+
+	try {
+		const pullRequests = await queryPullRequests(
+			source.repoRoot,
+			source.worktree.branch,
+		);
+		return sortSourcePullRequests(pullRequests);
+	} catch {
+		// PR metadata is optional selector decoration; preserve the worktree entry on lookup failures.
+		return [];
+	}
+}
+
+async function readRepositoryPullRequests(
+	sources: WorktreePromptSource[],
+	queryPullRequests: QueryRepositoryPullRequests,
+): Promise<Map<string, PullRequestInfo[]>> {
+	const repoRoots = [
+		...new Set(
+			sources.flatMap((source) =>
+				source.repoRoot === undefined || source.worktree.branch === null
+					? []
+					: [source.repoRoot],
+			),
+		),
+	];
+	const results = await mapWithConcurrency(
+		repoRoots,
+		MAX_PULL_REQUEST_REPOSITORY_QUERY_CONCURRENCY,
+		async (repoRoot): Promise<[string, PullRequestInfo[]]> => {
+			try {
+				return [
+					repoRoot,
+					sortSourcePullRequests(await queryPullRequests(repoRoot)),
+				];
+			} catch {
+				return [repoRoot, []];
+			}
+		},
+	);
+
+	return new Map(results);
+}
+
+async function mapWithConcurrency<Input, Output>(
+	items: Input[],
+	limit: number,
+	mapper: (item: Input) => Promise<Output>,
+): Promise<Output[]> {
+	const results: Output[] = new Array(items.length);
+	let nextIndex = 0;
+
+	async function readNext(): Promise<void> {
+		for (;;) {
+			const index = nextIndex;
+			nextIndex += 1;
+			if (index >= items.length) return;
+			results[index] = await mapper(items[index]);
+		}
+	}
+
+	await Promise.all(
+		Array.from({ length: Math.min(limit, items.length) }, () => readNext()),
+	);
+	return results;
+}
+
+function sortSourcePullRequests(
+	pullRequests: PullRequestInfo[] | undefined,
+): PullRequestInfo[] {
+	return [...(pullRequests ?? [])].sort((a, b) => a.number - b.number);
+}
+
+export function formatWorktreeBranchLabel(
+	branch: string | null,
+	pullRequestNumbers: number[] = [],
+): string {
+	const branchLabel = branch ?? "(detached)";
+	if (pullRequestNumbers.length === 0) return branchLabel;
+
+	return `${branchLabel} (${pullRequestNumbers.map((number) => `#${number}`).join(", ")})`;
 }
 
 function buildStatusBadges(info: WorktreeInfo): string[] {

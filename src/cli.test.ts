@@ -16,7 +16,7 @@ vi.mock("update-notifier", () => ({
 }));
 
 import packageJson from "../package.json" with { type: "json" };
-import { runCli } from "./cli.js";
+import { createProgram, runCli } from "./cli.js";
 import { createRepository } from "./repo.test-helpers.js";
 import { loadRegistry } from "./repo-registry.js";
 
@@ -81,6 +81,71 @@ describe("runCli", () => {
 		expect(output).toContain("number");
 		expect(output).toContain("#number");
 		expect(output).toContain("URL");
+	});
+
+	it("registers pr open as a nested command", () => {
+		// Given the Commander program definition.
+		const program = createProgram();
+		const prCommand = program.commands.find(
+			(command) => command.name() === "pr",
+		);
+
+		// When the nested help information is rendered.
+		const help = prCommand?.commands
+			.find((command) => command.name() === "open")
+			?.helpInformation();
+
+		// Then the new target syntax is documented by Commander.
+		expect(help).toContain("open [options] [target]");
+		expect(help).toContain("--select");
+	});
+
+	it("dispatches the pr open selector flag through the CLI action", async () => {
+		// Given headless mode and output collectors.
+		process.env.GJI_NO_TUI = "1";
+		const stderr: string[] = [];
+
+		// When the nested selector command is invoked through runCli.
+		const result = await runCli(["pr", "open", "--select"], {
+			cwd: "/not-a-repository",
+			stderr: (chunk) => stderr.push(chunk),
+		});
+
+		// Then the nested action forwards the selector-mode error and exit code.
+		expect(result.exitCode).toBe(1);
+		expect(stderr.join("")).toContain(
+			"gji pr open --select: selector is unavailable",
+		);
+	});
+
+	it("runs the current-worktree pr open flow through the CLI boundary", async () => {
+		// Given a current repository and injected PR/browser boundaries.
+		const repoRoot = await createRepository();
+		const opened: string[] = [];
+		const stdout: string[] = [];
+
+		// When the executable command path runs without a target.
+		const result = await runCli(["pr", "open"], {
+			cwd: repoRoot,
+			prOpenDependencies: {
+				openBrowser: async (url) => {
+					opened.push(url);
+				},
+				queryPullRequests: async (_root, sourceBranch) => [
+					{
+						number: 27,
+						sourceBranch,
+						url: "https://github.com/example/repo/pull/27",
+					},
+				],
+			},
+			stdout: (chunk) => stdout.push(chunk),
+		});
+
+		// Then Commander dispatches to the current-worktree opener and reports success.
+		expect(result.exitCode).toBe(0);
+		expect(opened).toEqual(["https://github.com/example/repo/pull/27"]);
+		expect(stdout.join("")).toContain("Opened PR #27");
 	});
 
 	it("passes the clean stale filter through command parsing", async () => {

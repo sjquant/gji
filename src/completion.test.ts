@@ -69,6 +69,20 @@ describe("gji completion", () => {
 		);
 		expect(stdout.join("")).toContain("'2:branch:->worktrees'");
 		expect(stdout.join("")).toContain("command gji ls --compact");
+		expect(stdout.join("")).toContain("branch or PR number:->pr_targets");
+		expect(stdout.join("")).toContain(
+			"'--select[choose a pull request from any linked worktree]'",
+		);
+		expect(stdout.join("")).toContain("'2:ref:(open)'");
+		expect(stdout.join("")).toContain("__gji_pr_targets");
+		expect(stdout.join("")).toContain("__gji_pr_targets_cache");
+		expect(stdout.join("")).toContain("__gji_pr_targets_cache_repo");
+		expect(stdout.join("")).toContain("__gji_run_bounded");
+		expect(stdout.join("")).toContain(
+			"sed -n 's/.*\"number\":[[:space:]]*\\([0-9][0-9]*\\).*/\\1/p'",
+		);
+		expect(stdout.join("")).toContain(`\${words[(I)--select]}`);
+		expect(stdout.join("")).toContain("command_entries");
 		expect(stdout.join("")).toContain('branch = ($1 == "*" ? $2 : $1)');
 		expect(stdout.join("")).toContain("_values 'config action' get set unset");
 		expect(stdout.join("")).toContain(
@@ -252,6 +266,16 @@ print -r -- "\${_comps[gji]-unset}"`,
 		expect(result.exitCode).toBe(0);
 		expect(stdout.join("")).toContain("function __gji_worktree_branches");
 		expect(stdout.join("")).toContain("command gji ls --compact");
+		expect(stdout.join("")).toContain(
+			"complete -c gji -n '__fish_seen_subcommand_from pr' -a 'open'",
+		);
+		expect(stdout.join("")).toContain(
+			"complete -c gji -n '__gji_should_complete_pr_select' -l select",
+		);
+		expect(stdout.join("")).toContain("__gji_should_complete_pr_target");
+		expect(stdout.join("")).toContain("__gji_should_complete_pr_select");
+		expect(stdout.join("")).toContain("test (commandline -opc)[3] != open");
+		expect(stdout.join("")).toContain("__gji_pr_targets");
 		expect(stdout.join("")).toContain('branch = ($1 == "*" ? $2 : $1)');
 		expect(stdout.join("")).toContain(
 			"complete -c gji -n '__fish_seen_subcommand_from completion' -a 'zsh'",
@@ -350,6 +374,12 @@ print -r -- "\${_comps[gji]-unset}"`,
 		expect(stdout.join("")).toContain("list add remove rm --json --help");
 		expect(stdout.join("")).toContain("--force --open --editor");
 		expect(stdout.join("")).toContain("go|jump)");
+		expect(stdout.join("")).toContain("open --dry-run --json --help");
+		expect(stdout.join("")).toContain("local has_select=0 has_target=0 word");
+		expect(stdout.join("")).toContain("has_target=0");
+		expect(stdout.join("")).toContain("__gji_run_bounded");
+		expect(stdout.join("")).toContain("$(__gji_pr_targets) --select --help");
+		expect(stdout.join("")).toContain("__gji_pr_targets");
 		expect(stdout.join("")).toContain("open)");
 		expect(stdout.join("")).toContain("warp)");
 		expect(stdout.join("")).toContain("doctor)");

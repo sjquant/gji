@@ -15,6 +15,10 @@ import { runLsCommand } from "./ls.js";
 import { runNewCommand } from "./new.js";
 import { runOpenCommand } from "./open.js";
 import { runPrCommand } from "./pr.js";
+import {
+	createPrOpenCommand,
+	type PrOpenCommandDependencies,
+} from "./pr-open.js";
 import { runRemoveCommand } from "./remove.js";
 import { detectRepository } from "./repo.js";
 import { registerRepo } from "./repo-registry.js";
@@ -32,6 +36,7 @@ interface PackageMetadata {
 
 export interface RunCliOptions {
 	cwd?: string;
+	prOpenDependencies?: Partial<PrOpenCommandDependencies>;
 	stderr?: (chunk: string) => void;
 	stdout?: (chunk: string) => void;
 }
@@ -42,6 +47,7 @@ export interface RunCliResult {
 
 interface CommandActionOptions {
 	cwd: string;
+	prOpenDependencies?: Partial<PrOpenCommandDependencies>;
 	stderr: (chunk: string) => void;
 	stdout: (chunk: string) => void;
 }
@@ -103,7 +109,12 @@ export async function runCli(
 	}
 
 	try {
-		attachCommandActions(program, { cwd, stderr, stdout });
+		attachCommandActions(program, {
+			cwd,
+			prOpenDependencies: options.prOpenDependencies,
+			stderr,
+			stdout,
+		});
 		await program.parseAsync(["node", "gji", ...argv], { from: "node" });
 
 		return { exitCode: 0 };
@@ -207,8 +218,9 @@ function registerCommands(program: Command): void {
 		.description("print shell completion definitions")
 		.action(notImplemented("completion"));
 
-	program
+	const prCommand = program
 		.command("pr <ref>")
+		.usage("[options] <ref>")
 		.description(
 			"fetch a pull request by number, #number, or URL into a linked worktree",
 		)
@@ -221,6 +233,12 @@ function registerCommands(program: Command): void {
 			"emit JSON on success or error instead of human-readable output",
 		)
 		.action(notImplemented("pr"));
+
+	prCommand
+		.command("open [target]")
+		.description("open an existing pull request in the default browser")
+		.option("--select", "choose a pull request from any linked worktree")
+		.action(notImplemented("pr open"));
 
 	program
 		.command("back [n]")
@@ -504,6 +522,30 @@ function attachCommandActions(
 				}
 			},
 		);
+
+	const prOpenCommand = program.commands
+		.find((command) => command.name() === "pr")
+		?.commands.find((command) => command.name() === "open");
+	const runPrOpenCommand = createPrOpenCommand(options.prOpenDependencies);
+
+	prOpenCommand?.action(
+		async (
+			target: string | undefined,
+			commandOptions: { select?: boolean },
+		) => {
+			const exitCode = await runPrOpenCommand({
+				cwd: options.cwd,
+				stderr: options.stderr,
+				stdout: options.stdout,
+				select: commandOptions.select,
+				target,
+			});
+
+			if (exitCode !== 0) {
+				throw commanderExit(exitCode);
+			}
+		},
+	);
 
 	program.commands
 		.find((command) => command.name() === "back")

@@ -20,6 +20,7 @@ import { detectRepository, listWorktrees, type WorktreeEntry } from "./repo.js";
 import {
 	buildWorktreePromptEntries,
 	promptForSingleWorktree,
+	type QueryWorktreePullRequests,
 	resolveWorktreeQuery,
 	type WorktreePromptEntry,
 } from "./worktree-picker.js";
@@ -44,6 +45,7 @@ export interface OpenCommandDependencies {
 	promptForWorktree: (
 		worktrees: WorktreePromptEntry[],
 	) => Promise<string | null>;
+	queryPullRequests: QueryWorktreePullRequests;
 	spawnEditor: (cli: string, args: string[]) => Promise<void>;
 }
 
@@ -91,9 +93,11 @@ export function createOpenCommand(
 		} else {
 			const entries = await buildWorktreePromptEntries(
 				worktrees.map((worktree) => ({
+					repoRoot: repository.repoRoot,
 					repoName: repository.repoName,
 					worktree,
 				})),
+				{ queryPullRequests: dependencies.queryPullRequests },
 			);
 			const chosen = await promptForWorktree(entries);
 			if (!chosen) {
