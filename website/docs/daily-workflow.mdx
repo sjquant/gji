@@ -36,6 +36,12 @@ gji new feature/auth-refactor --open --editor cursor
 
 Once you have a saved editor (`gji open --save`), `--editor` is optional.
 
+When starting a branch from work already committed in the current worktree, use `--from-current`:
+
+```bash
+gji new feature/auth-tests --from-current
+```
+
 ## Open a pull request in isolation
 
 ```bash
@@ -57,12 +63,13 @@ gji pr open '#1234'
 ## Open a worktree in an editor
 
 ```bash
-gji open                              # pick worktree + editor interactively
+gji open                              # open the current worktree in an editor
+gji open --select                     # pick a worktree + editor interactively
 gji open feature/auth-refactor        # open a specific branch
 gji open --editor cursor --save       # use cursor and remember it
 ```
 
-`gji open` is most useful when you want to open a worktree you are not currently in — for example launching a PR review in a new editor window without leaving your current task.
+`gji open` opens the current worktree by default. Use `--select` when you want to choose another linked worktree without leaving your current task.
 
 ## Move between active tasks
 

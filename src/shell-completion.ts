@@ -145,7 +145,7 @@ _gji_completion() {
 
   case "$command_name" in
     new)
-      COMPREPLY=( $(compgen -W "--detached --force --open --editor --dry-run --json --help" -- "$cur") )
+      COMPREPLY=( $(compgen -W "--detached --from-current --force --open --editor --dry-run --json --help" -- "$cur") )
       ;;
     init)
       COMPREPLY=( $(compgen -W "${shells} --write --json --help" -- "$cur") )
@@ -187,7 +187,7 @@ _gji_completion() {
       COMPREPLY=( $(compgen -W "--json --help" -- "$cur") )
       ;;
     open)
-      COMPREPLY=( $(compgen -W "$(__gji_worktree_branches) --editor --save --workspace --help" -- "$cur") )
+      COMPREPLY=( $(compgen -W "$(__gji_worktree_branches) --editor --select --save --workspace --help" -- "$cur") )
       ;;
     go|jump)
       COMPREPLY=( $(compgen -W "$(__gji_worktree_branches) --print --help" -- "$cur") )
@@ -389,6 +389,7 @@ complete -c gji -f
 ${commandLines}
 
 complete -c gji -n '__fish_seen_subcommand_from new' -l detached -d 'create a detached worktree without a branch'
+complete -c gji -n '__fish_seen_subcommand_from new' -l from-current -d 'base the new branch on the current worktree instead of the main worktree'
 complete -c gji -n '__fish_seen_subcommand_from new' -l force -d 'remove and recreate the worktree if the target path already exists'
 complete -c gji -n '__fish_seen_subcommand_from new' -l open -d 'open the new worktree in an editor after creation'
 complete -c gji -n '__fish_seen_subcommand_from new' -l editor -r -d 'editor CLI to use with --open (code, cursor, zed, …)'
@@ -418,6 +419,7 @@ complete -c gji -n '__fish_seen_subcommand_from back' -l print -d 'print the res
 complete -c gji -n '__fish_seen_subcommand_from history' -l json -d 'print history as JSON'
 
 complete -c gji -n '__fish_seen_subcommand_from open' -l editor -r -d 'editor CLI to use (code, cursor, zed, windsurf, subl, …)'
+complete -c gji -n '__fish_seen_subcommand_from open' -l select -d 'choose a worktree with the interactive selector'
 complete -c gji -n '__fish_seen_subcommand_from open' -l save -d 'save the chosen editor to global config'
 complete -c gji -n '__fish_seen_subcommand_from open' -l workspace -d 'generate a .code-workspace file before opening (VS Code / Cursor / Windsurf)'
 complete -c gji -n '__fish_seen_subcommand_from open' -a '(__gji_worktree_branches)' -d 'worktree branch'
@@ -546,7 +548,7 @@ fi
 
 case "\${words[2]}" in
   new)
-    _arguments '--detached[create a detached worktree without a branch]' '--force[remove and recreate the worktree if the target path already exists]' '--open[open the new worktree in an editor after creation]' '--editor[editor CLI to use with --open (code, cursor, zed, …)]:editor:' '--dry-run[show what would be created without executing any git commands or writing files]' '--json[emit JSON on success or error instead of human-readable output]' '2:branch: '
+    _arguments '--detached[create a detached worktree without a branch]' '--from-current[base the new branch on the current worktree instead of the main worktree]' '--force[remove and recreate the worktree if the target path already exists]' '--open[open the new worktree in an editor after creation]' '--editor[editor CLI to use with --open (code, cursor, zed, …)]:editor:' '--dry-run[show what would be created without executing any git commands or writing files]' '--json[emit JSON on success or error instead of human-readable output]' '2:branch: '
     ;;
   init)
     _arguments '--write[write the integration to the shell config file]' '--json[emit a JSON error in non-interactive mode]' '2:shell:(${shells})'
@@ -577,7 +579,7 @@ case "\${words[2]}" in
     _arguments '--json[print history as JSON]'
     ;;
   open)
-    _arguments '--editor[editor CLI to use (code, cursor, zed, windsurf, subl, …)]:editor:' '--save[save the chosen editor to global config]' '--workspace[generate a .code-workspace file before opening (VS Code / Cursor / Windsurf)]' '2:branch:->worktrees'
+    _arguments '--editor[editor CLI to use (code, cursor, zed, windsurf, subl, …)]:editor:' '--select[choose a worktree with the interactive selector]' '--save[save the chosen editor to global config]' '--workspace[generate a .code-workspace file before opening (VS Code / Cursor / Windsurf)]' '2:branch:->worktrees'
     ;;
   go|jump)
     _arguments '--print[print the resolved worktree path explicitly]' '2:branch:->worktrees'

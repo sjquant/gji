@@ -100,6 +100,38 @@ describe("runCli", () => {
 		expect(help).toContain("--select");
 	});
 
+	it("registers the worktree selector flag for gji open", () => {
+		// Given the Commander program definition.
+		const program = createProgram();
+
+		// When the gji open help information is rendered.
+		const help = program.commands
+			.find((command) => command.name() === "open")
+			?.helpInformation();
+
+		// Then the selector flag is documented by Commander.
+		expect(help).toContain("open [options] [branch]");
+		expect(help).toContain("--select");
+	});
+
+	it("dispatches the gji open selector flag through the CLI action", async () => {
+		// Given headless mode and output collectors.
+		process.env.GJI_NO_TUI = "1";
+		const stderr: string[] = [];
+
+		// When the selector command is invoked through runCli.
+		const result = await runCli(["open", "--select"], {
+			cwd: "/not-a-repository",
+			stderr: (chunk) => stderr.push(chunk),
+		});
+
+		// Then the action forwards the selector-mode error and exit code.
+		expect(result.exitCode).toBe(1);
+		expect(stderr.join("")).toContain(
+			"gji open --select: selector is unavailable",
+		);
+	});
+
 	it("dispatches the pr open selector flag through the CLI action", async () => {
 		// Given headless mode and output collectors.
 		process.env.GJI_NO_TUI = "1";

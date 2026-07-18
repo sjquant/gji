@@ -38,6 +38,7 @@ export interface NewCommandOptions {
 	detached?: boolean;
 	dryRun?: boolean;
 	editor?: string;
+	fromCurrent?: boolean;
 	force?: boolean;
 	json?: boolean;
 	open?: boolean;
@@ -224,11 +225,22 @@ export function createNewCommand(
 		}
 
 		await mkdir(dirname(worktreePath), { recursive: true });
+		const startPoint =
+			options.fromCurrent && !options.detached
+				? await resolveCurrentWorktreeHead(options.cwd)
+				: undefined;
 		const gitArgs = options.detached
 			? ["worktree", "add", "--detach", worktreePath]
 			: (await localBranchExists(repository.repoRoot, worktreeName))
 				? ["worktree", "add", worktreePath, worktreeName]
-				: ["worktree", "add", "-b", worktreeName, worktreePath];
+				: [
+						"worktree",
+						"add",
+						"-b",
+						worktreeName,
+						worktreePath,
+						...(startPoint ? [startPoint] : []),
+					];
 
 		await execFileAsync("git", gitArgs, { cwd: repository.repoRoot });
 
@@ -485,6 +497,12 @@ async function localBranchExists(
 	} catch {
 		return false;
 	}
+}
+
+async function resolveCurrentWorktreeHead(cwd: string): Promise<string> {
+	return execFileAsync("git", ["rev-parse", "--verify", "HEAD"], { cwd }).then(
+		({ stdout }) => stdout.trim(),
+	);
 }
 
 async function writeOutput(

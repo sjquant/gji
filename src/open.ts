@@ -34,6 +34,7 @@ export interface OpenCommandOptions {
 	cwd: string;
 	editor?: string;
 	save?: boolean;
+	select?: boolean;
 	stderr: (chunk: string) => void;
 	stdout: (chunk: string) => void;
 	workspace?: boolean;
@@ -62,6 +63,18 @@ export function createOpenCommand(
 	return async function runOpenCommand(
 		options: OpenCommandOptions,
 	): Promise<number> {
+		if (options.select && options.branch !== undefined) {
+			options.stderr("gji open: --select cannot be used with a branch\n");
+			return 1;
+		}
+
+		if (options.select && isHeadless()) {
+			options.stderr(
+				"gji open --select: selector is unavailable in non-interactive mode (GJI_NO_TUI=1)\n",
+			);
+			return 1;
+		}
+
 		const [worktrees, repository] = await Promise.all([
 			listWorktrees(options.cwd),
 			detectRepository(options.cwd),
@@ -87,9 +100,13 @@ export function createOpenCommand(
 			}
 			targetPath = match.worktree.path;
 			targetWorktree = match.worktree;
-		} else if (isHeadless()) {
+		} else if (!options.select) {
 			targetWorktree = worktrees.find((w) => w.isCurrent);
-			targetPath = targetWorktree?.path ?? options.cwd;
+			if (!targetWorktree) {
+				options.stderr("gji open: unable to identify the current worktree\n");
+				return 1;
+			}
+			targetPath = targetWorktree.path;
 		} else {
 			const entries = await buildWorktreePromptEntries(
 				worktrees.map((worktree) => ({

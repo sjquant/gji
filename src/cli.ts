@@ -181,6 +181,10 @@ function registerCommands(program: Command): void {
 			"remove and recreate the worktree if the target path already exists",
 		)
 		.option("--detached", "create a detached worktree without a branch")
+		.option(
+			"--from-current",
+			"base the new branch on the current worktree instead of the main worktree",
+		)
 		.option("--open", "open the new worktree in an editor after creation")
 		.option(
 			"--editor <cli>",
@@ -257,6 +261,7 @@ function registerCommands(program: Command): void {
 	program
 		.command("open [branch]")
 		.description("open the worktree in an editor")
+		.option("--select", "choose a worktree with the interactive selector")
 		.option(
 			"--editor <cli>",
 			"editor CLI to use (code, cursor, zed, windsurf, subl, …)",
@@ -420,6 +425,7 @@ function attachCommandActions(
 					detached?: boolean;
 					dryRun?: boolean;
 					editor?: string;
+					fromCurrent?: boolean;
 					force?: boolean;
 					json?: boolean;
 					open?: boolean;
@@ -431,6 +437,7 @@ function attachCommandActions(
 					detached: commandOptions.detached,
 					dryRun: commandOptions.dryRun,
 					editor: commandOptions.editor,
+					fromCurrent: commandOptions.fromCurrent,
 					force: commandOptions.force,
 					json: commandOptions.json,
 					open: commandOptions.open,
@@ -592,6 +599,7 @@ function attachCommandActions(
 				commandOptions: {
 					editor?: string;
 					save?: boolean;
+					select?: boolean;
 					workspace?: boolean;
 				},
 			) => {
@@ -600,6 +608,7 @@ function attachCommandActions(
 					cwd: options.cwd,
 					editor: commandOptions.editor,
 					save: commandOptions.save,
+					select: commandOptions.select,
 					stderr: options.stderr,
 					stdout: options.stdout,
 					workspace: commandOptions.workspace,

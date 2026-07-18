@@ -16,12 +16,12 @@ image: /img/social-card.png
 
 | Command | What it does |
 | --- | --- |
-| `gji new [branch] [--detached] [--open] [--editor <cli>] [--json]` | Create a branch and worktree, then enter it. |
+| `gji new [branch] [--from-current] [--detached] [--open] [--editor <cli>] [--json]` | Create a branch and worktree, optionally based on the current worktree. |
 | `gji pr <ref> [--json]` | Fetch a pull request ref and open it in a dedicated worktree. |
 | `gji pr open [branch|#N] [--select]` | Open the current worktree PR, or choose a linked worktree with `--select`. |
 | `gji go [branch] [--print]` | Jump to a worktree or print its path for scripting. |
 | `gji warp [branch] [--new [branch]] [--print] [--json]` | Jump to any known repo worktree, or create a new one from the same entry point. |
-| `gji open [branch] [--editor <cli>] [--save] [--workspace]` | Open a worktree in an editor. |
+| `gji open [branch] [--select] [--editor <cli>] [--save] [--workspace]` | Open the current or selected worktree in an editor. |
 | `gji back [n] [--print]` | Return to the previously visited worktree, optionally N steps back. |
 | `gji history [--json]` | Show navigation history. |
 | `gji root [--print]` | Jump back to the main repo root. |
@@ -84,10 +84,17 @@ Use these to shape default behavior and shell handoff.
 gji new feature/auth-refactor --open --editor cursor
 ```
 
+By default, `gji new` starts the branch from the main worktree. Use `--from-current` when the new branch should include the current worktree's `HEAD` instead:
+
+```bash
+gji new feature/auth-tests --from-current
+```
+
 Or open an existing worktree interactively from anywhere:
 
 ```bash
-gji open                    # pick a worktree, then an editor
+gji open                    # open the current worktree in an editor
+gji open --select           # pick a worktree, then an editor
 gji open feature/auth-refactor --editor code
 gji open --editor cursor --save   # save cursor as your default editor
 ```

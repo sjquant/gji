@@ -59,10 +59,16 @@ describe("gji completion", () => {
 			"'--force[remove and recreate the worktree if the target path already exists]'",
 		);
 		expect(stdout.join("")).toContain(
+			"'--from-current[base the new branch on the current worktree instead of the main worktree]'",
+		);
+		expect(stdout.join("")).toContain(
 			"'--editor[editor CLI to use with --open (code, cursor, zed, …)]:editor:'",
 		);
 		expect(stdout.join("")).toContain(
 			"'--workspace[generate a .code-workspace file before opening (VS Code / Cursor / Windsurf)]'",
+		);
+		expect(stdout.join("")).toContain(
+			"'--select[choose a worktree with the interactive selector]'",
 		);
 		expect(stdout.join("")).toContain(
 			"'(-n --new)'{-n,--new}'[create a new worktree in a registered repo]:branch:'",
@@ -99,6 +105,9 @@ describe("gji completion", () => {
 			"'2:action:(get set unset)' '3:key:->config_keys' '4:value: '",
 		);
 		expect(stdout.join("")).toContain("__gji_worktree_branches() {");
+		expect(stdout.join("")).toContain(
+			"'--select[choose a worktree with the interactive selector]'",
+		);
 		expect(stdout.join("")).not.toContain("compdef _gji_completion gji");
 		expect(stdout.join("")).not.toContain("# >>> gji init >>>");
 		expect(stdout.join("")).not.toContain("gji() {");
@@ -308,10 +317,16 @@ print -r -- "\${_comps[gji]-unset}"`,
 			"complete -c gji -n '__fish_seen_subcommand_from new' -l force",
 		);
 		expect(stdout.join("")).toContain(
+			"complete -c gji -n '__fish_seen_subcommand_from new' -l from-current",
+		);
+		expect(stdout.join("")).toContain(
 			"complete -c gji -n '__fish_seen_subcommand_from new' -l editor -r",
 		);
 		expect(stdout.join("")).toContain(
 			"complete -c gji -n '__fish_seen_subcommand_from open' -l workspace",
+		);
+		expect(stdout.join("")).toContain(
+			"complete -c gji -n '__fish_seen_subcommand_from open' -l select",
 		);
 		expect(stdout.join("")).toContain(
 			"complete -c gji -n '__fish_seen_subcommand_from go jump' -a '(__gji_worktree_branches)'",
@@ -372,6 +387,7 @@ print -r -- "\${_comps[gji]-unset}"`,
 		expect(stdout.join("")).toContain("doctor");
 		expect(stdout.join("")).toContain("sync-files");
 		expect(stdout.join("")).toContain("list add remove rm --json --help");
+		expect(stdout.join("")).toContain("--detached --from-current --force");
 		expect(stdout.join("")).toContain("--force --open --editor");
 		expect(stdout.join("")).toContain("go|jump)");
 		expect(stdout.join("")).toContain("open --dry-run --json --help");
@@ -381,6 +397,9 @@ print -r -- "\${_comps[gji]-unset}"`,
 		expect(stdout.join("")).toContain("$(__gji_pr_targets) --select --help");
 		expect(stdout.join("")).toContain("__gji_pr_targets");
 		expect(stdout.join("")).toContain("open)");
+		expect(stdout.join("")).toContain(
+			"--editor --select --save --workspace --help",
+		);
 		expect(stdout.join("")).toContain("warp)");
 		expect(stdout.join("")).toContain("doctor)");
 		expect(stdout.join("")).toContain("shellIntegration");

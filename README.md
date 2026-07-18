@@ -107,8 +107,9 @@ gji status
 gji go feature/dark-mode
 gji go main
 
-# open any worktree in an editor (interactive picker)
+# open the current worktree in an editor
 gji open
+gji open --select                # choose another worktree interactively
 gji open feature/dark-mode --editor code
 
 # clean up when done
@@ -127,6 +128,7 @@ Set `worktreePath` in your config to use a different base (e.g. `"~/worktrees"` 
 
 ```sh
 gji new feature/auth-refactor     # new branch + worktree
+gji new feature/auth-tests --from-current  # branch from the current worktree
 gji new --detached                # scratch space, auto-named
 
 gji pr 1234                       # checkout PR locally
@@ -229,10 +231,10 @@ path=$(gji root --print)
 
 | Command | Description |
 |---|---|
-| `gji new [branch] [--detached] [--open] [--editor <cli>] [--json]` | create branch + worktree, cd in (validates branch name against Git rules) |
+| `gji new [branch] [--from-current] [--detached] [--open] [--editor <cli>] [--json]` | create branch + worktree, optionally based on the current worktree |
 | `gji pr <ref> [--json]` | fetch PR ref, create worktree, cd in |
 | `gji pr open [branch|#N] [--select]` | open the current worktree PR, or choose a linked worktree with `--select` |
-| `gji open [branch] [--editor <cli>] [--save] [--workspace]` | open a worktree in an editor |
+| `gji open [branch] [--select] [--editor <cli>] [--save] [--workspace]` | open the current or selected worktree in an editor |
 | `gji go [branch] [--print]` | jump to a worktree |
 | `gji root [--print]` | jump to the main repo root |
 | `gji status [--json]` | repo overview, worktree health, ahead/behind |
