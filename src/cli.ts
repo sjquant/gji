@@ -64,6 +64,14 @@ export function createProgram(): Command {
 		.showSuggestionAfterError();
 
 	registerCommands(program);
+	program.addHelpText(
+		"after",
+		"\nCommon workflows:\n" +
+			"  gji new <branch>       create a worktree\n" +
+			"  gji go <branch>        navigate to a worktree\n" +
+			"  gji warp <repo/branch> navigate across repositories\n" +
+			"  gji go -               return to the previous worktree\n",
+	);
 
 	return program;
 }
@@ -87,14 +95,15 @@ export async function runCli(
 	options: RunCliOptions = {},
 ): Promise<RunCliResult> {
 	await maybeNotifyForUpdates(argv);
-	if (argv[0] !== "doctor") {
-		maybeRegisterCurrentRepo(options.cwd ?? process.cwd());
-	}
-
-	const program = createProgram();
 	const cwd = options.cwd ?? process.cwd();
 	const stdout = options.stdout ?? (() => undefined);
 	const stderr = options.stderr ?? (() => undefined);
+
+	if (shouldRegisterCurrentRepo(argv)) {
+		await maybeRegisterCurrentRepo(cwd);
+	}
+
+	const program = createProgram();
 
 	program.configureOutput({
 		writeErr: stderr,
@@ -166,10 +175,32 @@ function defaultNotifyForUpdates(pkg: PackageMetadata): void {
 	notifier.notify();
 }
 
-function maybeRegisterCurrentRepo(cwd: string): void {
-	detectRepository(cwd)
-		.then(({ repoRoot }) => registerRepo(repoRoot))
-		.catch(() => undefined);
+function shouldRegisterCurrentRepo(argv: string[]): boolean {
+	const command = argv[0];
+
+	return (
+		argv.length > 0 &&
+		![
+			"--help",
+			"-h",
+			"--version",
+			"-V",
+			"completion",
+			"config",
+			"doctor",
+			"help",
+			"init",
+		].includes(command ?? "")
+	);
+}
+
+async function maybeRegisterCurrentRepo(cwd: string): Promise<void> {
+	try {
+		const { repoRoot } = await detectRepository(cwd);
+		await registerRepo(repoRoot);
+	} catch {
+		// Registration is best effort; command behaviour should not depend on it.
+	}
 }
 
 function registerCommands(program: Command): void {

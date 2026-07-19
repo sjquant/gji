@@ -20,7 +20,14 @@ import { createProgram, runCli } from "./cli.js";
 import { createRepository } from "./repo.test-helpers.js";
 import { loadRegistry } from "./repo-registry.js";
 
+const originalConfigDir = process.env.GJI_CONFIG_DIR;
+
 afterEach(() => {
+	if (originalConfigDir === undefined) {
+		delete process.env.GJI_CONFIG_DIR;
+	} else {
+		process.env.GJI_CONFIG_DIR = originalConfigDir;
+	}
 	delete process.env.GJI_NO_TUI;
 	restoreStreamTty(process.stdout);
 	restoreStreamTty(process.stderr);
@@ -59,6 +66,9 @@ describe("runCli", () => {
 		expect(output).toContain("clean");
 		expect(output).toContain("remove");
 		expect(output).toContain("rm");
+		expect(output).toContain("Common workflows:");
+		expect(output).toContain("gji new <branch>");
+		expect(output).toContain("gji go <branch>");
 	});
 
 	it("describes gji pr as accepting generic PR references", async () => {
@@ -98,6 +108,23 @@ describe("runCli", () => {
 		// Then creation remains available through gji new instead of navigation flags.
 		expect(goHelp).not.toContain("--new");
 		expect(warpHelp).not.toContain("--new");
+	});
+
+	it("does not register repositories for metadata commands", async () => {
+		// Given a repository and an isolated registry directory.
+		const repoRoot = await createRepository();
+		const configDir = await mkdtemp(join(tmpdir(), "gji-config-"));
+		process.env.GJI_CONFIG_DIR = configDir;
+
+		// When a completion definition is requested from that repository.
+		const result = await runCli(["completion", "zsh"], {
+			cwd: repoRoot,
+			stdout: () => undefined,
+		});
+
+		// Then metadata generation does not mutate the repository registry.
+		expect(result.exitCode).toBe(0);
+		await expect(loadRegistry()).resolves.toEqual([]);
 	});
 
 	it("registers pr open as a nested command", () => {
@@ -327,14 +354,12 @@ describe("runCli", () => {
 
 		// Then the repo is recorded in the configured registry.
 		expect(result.exitCode).toBe(0);
-		await expect
-			.poll(async () => loadRegistry())
-			.toEqual([
-				expect.objectContaining({
-					name: "gji-test-repo",
-					path: repoRoot,
-				}),
-			]);
+		await expect(loadRegistry()).resolves.toEqual([
+			expect.objectContaining({
+				name: "gji-test-repo",
+				path: repoRoot,
+			}),
+		]);
 	});
 });
 

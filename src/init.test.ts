@@ -202,6 +202,27 @@ describe("gji init", () => {
 		expect(stdout.join("")).not.toContain("complete -F _gji_completion gji");
 	});
 
+	it("scans shell-wrapper bypass flags after positional arguments", async () => {
+		// Given a command output collector for the POSIX shell wrapper.
+		const stdout: string[] = [];
+
+		// When gji init renders the bash integration wrapper.
+		const result = await runCli(["init", "bash"], {
+			stdout: (chunk) => stdout.push(chunk),
+		});
+		const output = stdout.join("");
+
+		// Then every wrapped command scans all arguments before using path handoff.
+		expect(result.exitCode).toBe(0);
+		expect(output.match(/for arg do/g)).toHaveLength(7);
+		expect(output).toContain(
+			'if [ "$arg" = "--help" ] || [ "$arg" = "-h" ] || [ "$arg" = "--json" ]; then',
+		);
+		expect(output).toContain(
+			'if [ "$arg" = "--print" ] || [ "$arg" = "--json" ] || [ "$arg" = "--help" ] || [ "$arg" = "-h" ]; then',
+		);
+	});
+
 	it("prints fish integration without bundling fish completions", async () => {
 		// Given a command output collector.
 		const stdout: string[] = [];
@@ -556,9 +577,13 @@ function expectedFishIntegration(): string {
 function gji --wraps gji --description 'gji shell integration'
     if test (count $argv) -gt 0; and test $argv[1] = new
         set -e argv[1]
-        if test (count $argv) -gt 0; and test $argv[1] = --help
-            command gji new $argv
-            return $status
+        if test (count $argv) -gt 0
+            for arg in $argv
+                if test $arg = --help; or test $arg = -h; or test $arg = --json
+                    command gji new $argv
+                    return $status
+                end
+            end
         end
 
         set -l output_file (mktemp -t gji-new.XXXXXX)
@@ -577,9 +602,13 @@ function gji --wraps gji --description 'gji shell integration'
 
     if test (count $argv) -gt 0; and test $argv[1] = pr
         set -e argv[1]
-        if test (count $argv) -gt 0; and test $argv[1] = --help
-            command gji pr $argv
-            return $status
+        if test (count $argv) -gt 0
+            for arg in $argv
+                if test $arg = --help; or test $arg = -h; or test $arg = --json
+                    command gji pr $argv
+                    return $status
+                end
+            end
         end
 
         set -l output_file (mktemp -t gji-pr.XXXXXX)
@@ -598,9 +627,13 @@ function gji --wraps gji --description 'gji shell integration'
 
     if test (count $argv) -gt 0; and test $argv[1] = back
         set -e argv[1]
-        if test (count $argv) -gt 0; and test $argv[1] = --print
-            command gji back $argv
-            return $status
+        if test (count $argv) -gt 0
+            for arg in $argv
+                if test $arg = --print; or test $arg = --help; or test $arg = -h
+                    command gji back $argv
+                    return $status
+                end
+            end
         end
 
         set -l output_file (mktemp -t gji-back.XXXXXX)
@@ -621,7 +654,7 @@ function gji --wraps gji --description 'gji shell integration'
         set -e argv[1]
         if test (count $argv) -gt 0
             for arg in $argv
-                if test $arg = --print; or test $arg = --json
+                if test $arg = --print; or test $arg = --json; or test $arg = --help; or test $arg = -h
                     command gji go $argv
                     return $status
                 end
@@ -644,9 +677,13 @@ function gji --wraps gji --description 'gji shell integration'
 
     if test (count $argv) -gt 0; and test $argv[1] = root
         set -e argv[1]
-        if test (count $argv) -gt 0; and test $argv[1] = --print
-            command gji root $argv
-            return $status
+        if test (count $argv) -gt 0
+            for arg in $argv
+                if test $arg = --print; or test $arg = --help; or test $arg = -h
+                    command gji root $argv
+                    return $status
+                end
+            end
         end
 
         set -l output_file (mktemp -t gji-root.XXXXXX)
@@ -665,9 +702,13 @@ function gji --wraps gji --description 'gji shell integration'
 
     if test (count $argv) -gt 0; and begin; test $argv[1] = remove; or test $argv[1] = rm; end
         set -e argv[1]
-        if test (count $argv) -gt 0; and test $argv[1] = --help
-            command gji remove $argv
-            return $status
+        if test (count $argv) -gt 0
+            for arg in $argv
+                if test $arg = --help; or test $arg = -h; or test $arg = --json
+                    command gji remove $argv
+                    return $status
+                end
+            end
         end
 
         set -l output_file (mktemp -t gji-remove.XXXXXX)
@@ -686,9 +727,13 @@ function gji --wraps gji --description 'gji shell integration'
 
     if test (count $argv) -gt 0; and test $argv[1] = warp
         set -e argv[1]
-        if test (count $argv) -gt 0; and begin; test $argv[1] = --print; or test $argv[1] = --json; end
-            command gji warp $argv
-            return $status
+        if test (count $argv) -gt 0
+            for arg in $argv
+                if test $arg = --print; or test $arg = --json; or test $arg = --help; or test $arg = -h
+                    command gji warp $argv
+                    return $status
+                end
+            end
         end
 
         set -l output_file (mktemp -t gji-warp.XXXXXX)

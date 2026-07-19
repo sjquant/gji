@@ -116,6 +116,22 @@ describe("gji completion", () => {
 		expect(stdout.join("")).not.toContain("gji() {");
 	});
 
+	it("rejects an explicitly unsupported shell", async () => {
+		// Given an output collector for completion errors.
+		const stderr: string[] = [];
+
+		// When gji completion is invoked for an unsupported shell.
+		const result = await runCli(["completion", "powershell"], {
+			stderr: (chunk) => stderr.push(chunk),
+		});
+
+		// Then it identifies the requested shell and lists supported choices.
+		expect(result.exitCode).toBe(1);
+		expect(stderr.join("")).toBe(
+			'Unsupported shell "powershell". Supported shells: bash, fish, or zsh.\n',
+		);
+	});
+
 	it.skipIf(zshExecutable === undefined)(
 		"registers zsh completions through compinit when installed as _gji",
 		async () => {
