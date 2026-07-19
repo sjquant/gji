@@ -74,6 +74,79 @@ describe("gji root", () => {
 		expect(stdout.join("").trim()).toBe(repoRoot);
 	});
 
+	it("supports go --root as a navigation alias for the main repository root", async () => {
+		// Given a linked worktree with a separate shell output collector.
+		const repoRoot = await createRepository();
+		const worktreePath = await addLinkedWorktree(repoRoot, "feature/go-root");
+		const stdout: string[] = [];
+
+		// When gji go --root runs with --print from inside the linked worktree.
+		const result = await runCli(["go", "--root", "--print"], {
+			cwd: worktreePath,
+			stdout: (chunk) => stdout.push(chunk),
+		});
+
+		// Then it prints the main repository root.
+		expect(result.exitCode).toBe(0);
+		expect(stdout.join("").trim()).toBe(repoRoot);
+	});
+
+	it("includes repository metadata in go --root JSON output", async () => {
+		// Given a linked worktree and a JSON output collector.
+		const repoRoot = await createRepository();
+		const worktreePath = await addLinkedWorktree(
+			repoRoot,
+			"feature/go-root-json",
+		);
+		const stdout: string[] = [];
+
+		// When gji go --root --json runs from the linked worktree.
+		const result = await runCli(["go", "--root", "--json"], {
+			cwd: worktreePath,
+			stdout: (chunk) => stdout.push(chunk),
+		});
+
+		// Then it returns the repository root as a structured navigation target.
+		expect(result.exitCode).toBe(0);
+		expect(JSON.parse(stdout.join(""))).toEqual({
+			branch: expect.any(String),
+			path: repoRoot,
+			repository: { name: basename(repoRoot), root: repoRoot },
+		});
+	});
+
+	it("hands go --root to the shell integration output file", async () => {
+		// Given a linked worktree and a temporary shell handoff file.
+		const repoRoot = await createRepository();
+		const worktreePath = await addLinkedWorktree(
+			repoRoot,
+			"feature/go-root-handoff",
+		);
+		const outputFile = join(repoRoot, "selected-go-root.txt");
+		const originalOutputFile = process.env.GJI_GO_OUTPUT_FILE;
+		const stdout: string[] = [];
+		process.env.GJI_GO_OUTPUT_FILE = outputFile;
+
+		try {
+			// When gji go --root runs without --print.
+			const result = await runCli(["go", "--root"], {
+				cwd: worktreePath,
+				stdout: (chunk) => stdout.push(chunk),
+			});
+
+			// Then it writes the root to the handoff file instead of stdout.
+			expect(result.exitCode).toBe(0);
+			expect(stdout).toEqual([]);
+			expect(await readFile(outputFile, "utf8")).toBe(`${repoRoot}\n`);
+		} finally {
+			if (originalOutputFile === undefined) {
+				delete process.env.GJI_GO_OUTPUT_FILE;
+			} else {
+				process.env.GJI_GO_OUTPUT_FILE = originalOutputFile;
+			}
+		}
+	});
+
 	it("writes the repository root to the shell output file without printing it", async () => {
 		// Given a linked worktree and a shell output file.
 		const repoRoot = await createRepository();
@@ -336,6 +409,10 @@ describe("gji go", () => {
 			expect(JSON.parse(stdout.join(""))).toEqual({
 				branch: "feature/go-json-a",
 				path: worktreeA,
+				repository: {
+					name: basename(repoRoot),
+					root: repoRoot,
+				},
 			});
 		} finally {
 			if (originalConfigDir === undefined) {
@@ -466,6 +543,10 @@ describe("gji go", () => {
 		expect(JSON.parse(stdout.join(""))).toEqual({
 			branch: "pr/123",
 			path: worktreePath,
+			repository: {
+				name: basename(repoRoot),
+				root: repoRoot,
+			},
 		});
 	});
 
@@ -784,6 +865,62 @@ describe("gji go", () => {
 		expect(result).toBe(0);
 		expect(stderr).toEqual([]);
 		expect(stdout.join("").trim()).toBe(worktreePath);
+	});
+
+	it("starts go's chooser in the current repository and loads all repositories on toggle", async () => {
+		// Given a current repository and a registered repository with another worktree.
+		const originalConfigDir = process.env.GJI_CONFIG_DIR;
+		const configDir = await mkdtemp(join(tmpdir(), "gji-go-scope-"));
+		process.env.GJI_CONFIG_DIR = configDir;
+		const repoRoot = await createRepository();
+		const currentPath = await addLinkedWorktree(
+			repoRoot,
+			"feature/go-scope-current",
+		);
+		const otherRoot = await createRepository();
+		const otherPath = await addLinkedWorktree(
+			otherRoot,
+			"feature/go-scope-other",
+		);
+		await registerRepo(otherRoot);
+		const stdout: string[] = [];
+
+		try {
+			const runGoCommand = createGoCommand({
+				promptForWorktree: async (worktrees, scope) => {
+					expect(worktrees.map((worktree) => worktree.path)).toContain(
+						currentPath,
+					);
+					expect(worktrees.map((worktree) => worktree.path)).not.toContain(
+						otherPath,
+					);
+					expect(scope?.label).toBe("current repository");
+					const allRepositories = await scope?.toggle();
+					expect(allRepositories?.label).toBe("all repositories");
+					expect(allRepositories?.entries.map((entry) => entry.path)).toContain(
+						otherPath,
+					);
+					return otherPath;
+				},
+			});
+
+			// When gji go runs without a branch and the chooser toggles scope.
+			const result = await runGoCommand({
+				cwd: currentPath,
+				stderr: () => undefined,
+				stdout: (chunk) => stdout.push(chunk),
+			});
+
+			// Then it navigates to the selected worktree from the all-repositories scope.
+			expect(result).toBe(0);
+			expect(stdout.join("").trim()).toBe(otherPath);
+		} finally {
+			if (originalConfigDir === undefined) {
+				delete process.env.GJI_CONFIG_DIR;
+			} else {
+				process.env.GJI_CONFIG_DIR = originalConfigDir;
+			}
+		}
 	});
 
 	it("writes the selected worktree to the shell output file without printing it", async () => {

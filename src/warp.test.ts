@@ -210,7 +210,7 @@ describe("gji warp --json", () => {
 		expect(parsed).toHaveProperty("error");
 	});
 
-	it("outputs JSON { branch, path } when navigating to an existing worktree", async () => {
+	it("outputs JSON with repository metadata when navigating to an existing worktree", async () => {
 		// Given a registered repo with a linked worktree.
 		const configDir = await makeConfigDir();
 		process.env.GJI_CONFIG_DIR = configDir;
@@ -233,6 +233,10 @@ describe("gji warp --json", () => {
 		const parsed = JSON.parse(outputs.join(""));
 		expect(parsed.branch).toBe("feature/json-test");
 		expect(parsed.path).toBe(worktreePath);
+		expect(parsed.repository).toEqual({
+			name: repoRoot.split("/").at(-1),
+			root: repoRoot,
+		});
 	});
 
 	it("outputs a JSON error when no repos are registered", async () => {

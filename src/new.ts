@@ -20,6 +20,10 @@ import {
 	maybeRunInstallPrompt,
 } from "./install-prompt.js";
 import {
+	createNavigationRepository,
+	createNavigationTarget,
+} from "./navigation-output.js";
+import {
 	detectRepository,
 	resolveWorktreePath,
 	validateBranchName,
@@ -225,7 +229,21 @@ export function createNewCommand(
 		if (options.dryRun) {
 			if (options.json) {
 				options.stdout(
-					`${JSON.stringify({ branch: worktreeName, path: worktreePath, dryRun: true }, null, 2)}\n`,
+					`${JSON.stringify(
+						{
+							...createNavigationTarget(
+								createNavigationRepository(
+									repository.repoName,
+									repository.repoRoot,
+								),
+								worktreePath,
+								worktreeName,
+							),
+							dryRun: true,
+						},
+						null,
+						2,
+					)}\n`,
 				);
 			} else {
 				const resolvedEditor = options.open
@@ -311,7 +329,18 @@ export function createNewCommand(
 
 		if (options.json) {
 			options.stdout(
-				`${JSON.stringify({ branch: worktreeName, path: worktreePath }, null, 2)}\n`,
+				`${JSON.stringify(
+					createNavigationTarget(
+						createNavigationRepository(
+							repository.repoName,
+							repository.repoRoot,
+						),
+						worktreePath,
+						worktreeName,
+					),
+					null,
+					2,
+				)}\n`,
 			);
 		} else {
 			await recordWorktreeUsage(worktreePath, worktreeName);

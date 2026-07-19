@@ -128,6 +128,40 @@ describe("worktree picker search", () => {
 		expect(output.text()).toContain("/auth");
 	});
 
+	it("toggles from the current repository to all repositories with Tab", async () => {
+		// Given a scoped worktree picker with a worktree outside the initial repository.
+		const { input, output } = createPromptIO();
+		const current = worktreeEntry("feature/current", "/repo/current");
+		const global = worktreeEntry("feature/other", "/other/feature");
+		let toggleCount = 0;
+		const choice = promptForSingleWorktree("Choose a worktree", [current], {
+			input,
+			output,
+			scope: {
+				label: "current repository",
+				toggleLabel: "all repositories",
+				toggle: async () => {
+					toggleCount += 1;
+					return {
+						entries: [global],
+						label: "all repositories",
+						toggleLabel: "current repository",
+					};
+				},
+			},
+		});
+
+		// When the user switches scope and selects the newly loaded worktree.
+		input.write("\t");
+		await nextTick();
+		input.write("\r");
+
+		// Then the picker returns the worktree from the all-repositories scope.
+		expect(await choice).toBe(global.path);
+		expect(toggleCount).toBe(1);
+		expect(output.text()).toContain("all repositories");
+	});
+
 	it("filters multi-select choices after slash search", async () => {
 		// Given a searchable multi-select worktree picker with grouped branches.
 		const { input, output } = createPromptIO();

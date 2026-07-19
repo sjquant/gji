@@ -1,5 +1,5 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
@@ -419,7 +419,7 @@ describe("gji pr", () => {
 	});
 
 	describe("--json output", () => {
-		it("emits { branch, path } to stdout on success", async () => {
+		it("emits repository metadata with branch and path on success", async () => {
 			// Given a repository with a PR ref on origin.
 			const { repoRoot } = await createRepositoryWithOrigin();
 			const branchName = "feature/json-pr-source";
@@ -443,7 +443,11 @@ describe("gji pr", () => {
 			expect(result.exitCode).toBe(0);
 			expect(stderr).toEqual([]);
 			const output = JSON.parse(stdout.join(""));
-			expect(output).toEqual({ branch: "pr/3001", path: worktreePath });
+			expect(output).toEqual({
+				branch: "pr/3001",
+				path: worktreePath,
+				repository: { name: basename(repoRoot), root: repoRoot },
+			});
 		});
 
 		it("emits { error } to stderr and exits 1 for an invalid PR reference", async () => {
@@ -921,6 +925,7 @@ describe("gji pr", () => {
 				branch: expectedBranch,
 				path: expectedPath,
 				dryRun: true,
+				repository: { name: basename(repoRoot), root: repoRoot },
 			});
 		});
 	});

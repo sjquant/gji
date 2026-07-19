@@ -6,6 +6,10 @@ import { loadEffectiveConfig, resolveConfigString } from "./config.js";
 import { isHeadless } from "./headless.js";
 import { recordWorktreeUsage } from "./history.js";
 import { extractHooks, runHook } from "./hooks.js";
+import {
+	createNavigationRepository,
+	createNavigationTarget,
+} from "./navigation-output.js";
 import { runNewCommand } from "./new.js";
 import { parsePrInput, runPrCommand } from "./pr.js";
 import {
@@ -30,6 +34,7 @@ import {
 	resolveWorktreeQuery,
 	resolveWorktreeQueryMatches,
 	type WorktreePromptEntry,
+	type WorktreePromptScope,
 	type WorktreePromptSource,
 } from "./worktree-picker.js";
 
@@ -38,6 +43,7 @@ export interface GoCommandOptions {
 	cwd: string;
 	json?: boolean;
 	print?: boolean;
+	root?: boolean;
 	stderr: (chunk: string) => void;
 	stdout: (chunk: string) => void;
 }
@@ -46,6 +52,7 @@ export interface GoCommandDependencies {
 	confirmBranchCreation: (branch: string) => Promise<boolean>;
 	promptForWorktree: (
 		worktrees: WorktreePromptEntry[],
+		scope?: WorktreePromptScope,
 	) => Promise<string | null>;
 	queryPullRequests: QueryWorktreePullRequests;
 }
@@ -62,6 +69,14 @@ export function createGoCommand(
 	return async function runGoCommand(
 		options: GoCommandOptions,
 	): Promise<number> {
+		if (options.root) {
+			if (options.branch !== undefined) {
+				return emitError(options, "--root cannot be combined with a branch");
+			}
+
+			return navigateToRepositoryRoot(options);
+		}
+
 		if (options.branch === "-") {
 			return runBackCommand({
 				commandName: "gji go",
@@ -93,31 +108,66 @@ export function createGoCommand(
 			}
 
 			let skippedRegisteredRepos = 0;
-			const registeredSources = await listRegisteredWorktreeSources(
-				options.cwd,
-				() => {
-					skippedRegisteredRepos++;
-				},
-			);
-			const allSources = deduplicateSources([
-				...currentSources,
-				...registeredSources,
-			]);
+			let registeredSources: WarpWorktreeSource[] | null = null;
+			let promptSources = currentSources;
+			const loadAllSources = async (): Promise<WorktreePromptSource[]> => {
+				if (registeredSources === null) {
+					registeredSources = await listRegisteredWorktreeSources(
+						options.cwd,
+						() => {
+							skippedRegisteredRepos++;
+						},
+					);
+				}
 
-			if (allSources.length === 0 && !repository) {
+				return deduplicateSources([...currentSources, ...registeredSources]);
+			};
+
+			if (!repository) {
+				promptSources = await loadAllSources();
+			}
+
+			if (promptSources.length === 0 && !repository) {
 				return emitNoRepositoryError(options, skippedRegisteredRepos > 0);
 			}
 
-			const promptEntries = await buildWorktreePromptEntries(allSources, {
+			let currentRepositoryScope = true;
+			let scope: WorktreePromptScope | undefined;
+			if (repository) {
+				scope = {
+					label: "current repository",
+					toggleLabel: "all repositories",
+					toggle: async () => {
+						const nextCurrentRepositoryScope = !currentRepositoryScope;
+						const nextSources = nextCurrentRepositoryScope
+							? currentSources
+							: await loadAllSources();
+						currentRepositoryScope = nextCurrentRepositoryScope;
+						promptSources = nextSources;
+						return {
+							entries: await buildWorktreePromptEntries(promptSources, {
+								queryPullRequests: dependencies.queryPullRequests,
+							}),
+							label: currentRepositoryScope
+								? "current repository"
+								: "all repositories",
+							toggleLabel: currentRepositoryScope
+								? "all repositories"
+								: "current repository",
+						};
+					},
+				};
+			}
+			const promptEntries = await buildWorktreePromptEntries(promptSources, {
 				queryPullRequests: dependencies.queryPullRequests,
 			});
-			const selectedPath = await prompt(promptEntries);
+			const selectedPath = await prompt(promptEntries, scope);
 			if (!selectedPath) {
 				options.stderr("Aborted\n");
 				return 1;
 			}
 
-			const selected = allSources.find(
+			const selected = promptSources.find(
 				(source) => source.worktree.path === selectedPath,
 			);
 			return navigateToExistingWorktree(
@@ -382,14 +432,23 @@ async function navigateToExistingWorktree(
 	path: string,
 	worktree: WorktreeEntry | undefined,
 ): Promise<number> {
+	const repository = await detectRepository(path);
+
 	if (options.json) {
 		options.stdout(
-			`${JSON.stringify({ branch: worktree?.branch ?? null, path }, null, 2)}\n`,
+			`${JSON.stringify(
+				createNavigationTarget(
+					createNavigationRepository(repository.repoName, repository.repoRoot),
+					path,
+					worktree?.branch ?? null,
+				),
+				null,
+				2,
+			)}\n`,
 		);
 		return 0;
 	}
 
-	const repository = await detectRepository(path);
 	const config = await loadEffectiveConfig(
 		repository.repoRoot,
 		undefined,
@@ -409,6 +468,47 @@ async function navigateToExistingWorktree(
 
 	await recordWorktreeUsage(path, worktree?.branch ?? null);
 	await writeShellOutput(GO_OUTPUT_FILE_ENV, path, options.stdout);
+	return 0;
+}
+
+async function navigateToRepositoryRoot(
+	options: GoCommandOptions,
+): Promise<number> {
+	let repository: RepositoryContext;
+	try {
+		repository = await detectRepository(options.cwd);
+	} catch {
+		return emitError(options, "not inside a git repository");
+	}
+
+	if (options.json) {
+		const rootWorktree = (await listWorktrees(repository.repoRoot)).find(
+			(worktree) => worktree.path === repository.repoRoot,
+		);
+		options.stdout(
+			`${JSON.stringify(
+				createNavigationTarget(
+					createNavigationRepository(repository.repoName, repository.repoRoot),
+					repository.repoRoot,
+					rootWorktree?.branch ?? null,
+				),
+				null,
+				2,
+			)}\n`,
+		);
+		return 0;
+	}
+
+	if (options.print) {
+		options.stdout(`${repository.repoRoot}\n`);
+		return 0;
+	}
+
+	await writeShellOutput(
+		GO_OUTPUT_FILE_ENV,
+		repository.repoRoot,
+		options.stdout,
+	);
 	return 0;
 }
 
@@ -541,6 +641,7 @@ function normalizeRemoteUrl(value: string): string {
 
 async function promptForWorktree(
 	worktrees: WorktreePromptEntry[],
+	scope?: WorktreePromptScope,
 ): Promise<string | null> {
-	return promptForSingleWorktree("Choose a worktree", worktrees);
+	return promptForSingleWorktree("Choose a worktree", worktrees, { scope });
 }

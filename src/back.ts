@@ -4,6 +4,10 @@ import { basename } from "node:path";
 import { loadEffectiveConfig } from "./config.js";
 import { appendHistory, type HistoryEntry, loadHistory } from "./history.js";
 import { extractHooks, runHook } from "./hooks.js";
+import {
+	createNavigationRepository,
+	createNavigationTarget,
+} from "./navigation-output.js";
 import { detectRepository } from "./repo.js";
 import { writeShellOutput } from "./shell-handoff.js";
 
@@ -66,8 +70,17 @@ export async function runBackCommand(
 	}
 
 	if (options.json) {
+		const repository = await detectRepository(target.path);
 		options.stdout(
-			`${JSON.stringify({ branch: target.branch, path: target.path }, null, 2)}\n`,
+			`${JSON.stringify(
+				createNavigationTarget(
+					createNavigationRepository(repository.repoName, repository.repoRoot),
+					target.path,
+					target.branch,
+				),
+				null,
+				2,
+			)}\n`,
 		);
 		return 0;
 	}

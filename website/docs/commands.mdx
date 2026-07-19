@@ -19,7 +19,7 @@ image: /img/social-card.png
 | `gji new [branch] [--from-current] [--detached] [--open] [--editor <cli>] [--json]` | Create a branch and worktree, optionally based on the current worktree. |
 | `gji pr <ref> [--json]` | Fetch a pull request ref and open it in a dedicated worktree. |
 | `gji pr open [branch|#N] [--select]` | Open the current worktree PR, or choose a linked worktree with `--select`. |
-| `gji go [branch] [--print] [--json]` | Resolve and jump to a worktree, branch, remote, or PR. |
+| `gji go [branch] [--root] [--print] [--json]` | Resolve and jump to a worktree, branch, remote, or PR. |
 | `gji warp [branch] [--print] [--json]` | Jump to any known repo worktree. |
 | `gji open [branch] [--select] [--editor <cli>] [--save] [--workspace]` | Open the current or selected worktree in an editor. |
 | `gji back [n] [--print]` | Return to the previously visited worktree, optionally N steps back. |
@@ -115,17 +115,18 @@ gji pr open '#1234'
 
 ### Navigate across repositories
 
-`gji go` resolves destinations in one predictable order: a worktree in the current repository, a worktree in another registered repository, an existing local branch, a fetched remote branch, and finally a pull-request reference.
+With no branch argument, `gji go` opens a chooser scoped to the current repository. Press `Tab` to switch to all registered repositories; the chooser loads the global scope only when requested. A branch argument still resolves the current repository first, then other registered repositories, an existing local branch, a fetched remote branch, and finally a pull-request reference.
 
 ```bash
 gji go teammate-branch
 gji go origin-only-branch
 gji go 1234
 gji go -                         # return to the previous worktree
+gji go --root                    # return to the main repository checkout
 gji go --json feature/auth-refactor
 ```
 
-Use `--json` only for already-existing destinations; it never creates a worktree or fetches a PR. Use `gji new` when you want to create a worktree explicitly:
+Use `--json` only for already-existing destinations; it never creates a worktree or fetches a PR. Navigation JSON includes `repository.name` and the canonical `repository.root`. Use `gji new` when you want to create a worktree explicitly:
 
 ```bash
 gji new fix/copy-regression

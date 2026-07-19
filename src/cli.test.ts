@@ -108,6 +108,7 @@ describe("runCli", () => {
 		// Then creation remains available through gji new instead of navigation flags.
 		expect(goHelp).not.toContain("--new");
 		expect(warpHelp).not.toContain("--new");
+		expect(goHelp).toContain("--root");
 	});
 
 	it("does not register repositories for metadata commands", async () => {

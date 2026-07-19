@@ -17,6 +17,10 @@ import {
 	type InstallPromptDependencies,
 	maybeRunInstallPrompt,
 } from "./install-prompt.js";
+import {
+	createNavigationRepository,
+	createNavigationTarget,
+} from "./navigation-output.js";
 import { detectRepository, resolveWorktreePath } from "./repo.js";
 import { writeShellOutput } from "./shell-handoff.js";
 
@@ -128,7 +132,21 @@ export function createPrCommand(
 		if (options.dryRun) {
 			if (options.json) {
 				options.stdout(
-					`${JSON.stringify({ branch: branchName, path: worktreePath, dryRun: true }, null, 2)}\n`,
+					`${JSON.stringify(
+						{
+							...createNavigationTarget(
+								createNavigationRepository(
+									repository.repoName,
+									repository.repoRoot,
+								),
+								worktreePath,
+								branchName,
+							),
+							dryRun: true,
+						},
+						null,
+						2,
+					)}\n`,
 				);
 			} else {
 				options.stdout(
@@ -209,7 +227,18 @@ export function createPrCommand(
 
 		if (options.json) {
 			options.stdout(
-				`${JSON.stringify({ branch: branchName, path: worktreePath }, null, 2)}\n`,
+				`${JSON.stringify(
+					createNavigationTarget(
+						createNavigationRepository(
+							repository.repoName,
+							repository.repoRoot,
+						),
+						worktreePath,
+						branchName,
+					),
+					null,
+					2,
+				)}\n`,
 			);
 		} else {
 			await recordWorktreeUsage(worktreePath, branchName);

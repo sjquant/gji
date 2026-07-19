@@ -1,5 +1,10 @@
 import { isHeadless } from "./headless.js";
 import { recordWorktreeUsage } from "./history.js";
+import {
+	createNavigationRepository,
+	createNavigationTarget,
+	type NavigationRepository,
+} from "./navigation-output.js";
 import { detectRepository, listWorktrees, type WorktreeEntry } from "./repo.js";
 import { loadRegistry, type RepoRegistryEntry } from "./repo-registry.js";
 import { writeShellOutput } from "./shell-handoff.js";
@@ -58,7 +63,11 @@ async function runWarpNavigate(options: WarpCommandOptions): Promise<number> {
 	if (options.json) {
 		// json callers use the output programmatically; skip history and shell handoff.
 		options.stdout(
-			`${JSON.stringify({ branch: target.branch, path: target.path }, null, 2)}\n`,
+			`${JSON.stringify(
+				createNavigationTarget(target.repository, target.path, target.branch),
+				null,
+				2,
+			)}\n`,
 		);
 		return 0;
 	}
@@ -71,6 +80,7 @@ async function runWarpNavigate(options: WarpCommandOptions): Promise<number> {
 export interface WarpTarget {
 	branch: string | null;
 	path: string;
+	repository: NavigationRepository;
 }
 
 export async function listRegisteredWorktreeSources(
@@ -173,7 +183,15 @@ export async function resolveWarpTarget(options: {
 			);
 			return null;
 		}
-		return { branch: match.worktree.branch, path: match.worktree.path };
+		return {
+			branch: match.worktree.branch,
+			path: match.worktree.path,
+			repository: createNavigationRepository(
+				match.repoName,
+				match.repoRoot ??
+					(await detectRepository(match.worktree.path)).repoRoot,
+			),
+		};
 	}
 
 	const promptEntries = await buildWorktreePromptEntries(promptSources, {
@@ -184,8 +202,22 @@ export async function resolveWarpTarget(options: {
 		options.stderr("Aborted\n");
 		return null;
 	}
-	const chosen = promptEntries.find((item) => item.path === path);
-	return { branch: chosen?.branch ?? null, path };
+	const chosenSource = promptSources.find(
+		(item) => item.worktree.path === path,
+	);
+	if (chosenSource === undefined) {
+		emitError("selected worktree is no longer registered");
+		return null;
+	}
+	return {
+		branch: chosenSource.worktree.branch,
+		path,
+		repository: createNavigationRepository(
+			chosenSource.repoName,
+			chosenSource.repoRoot ??
+				(await detectRepository(chosenSource.worktree.path)).repoRoot,
+		),
+	};
 }
 
 async function promptForWarpTarget(
