@@ -573,6 +573,46 @@ describe("gji go", () => {
 		}
 	});
 
+	it("does not emit current-repository config warnings for a cross-repository match", async () => {
+		// Given an unknown config key in the current repository and a registered target repository.
+		const originalConfigDir = process.env.GJI_CONFIG_DIR;
+		process.env.GJI_CONFIG_DIR = await mkdtemp(
+			join(tmpdir(), "gji-go-cross-warning-"),
+		);
+		const currentRepo = await createRepository();
+		await writeFile(
+			join(currentRepo, ".gji.json"),
+			JSON.stringify({ unknownKey: true }),
+			"utf8",
+		);
+		const otherRepo = await createRepository();
+		const branchName = "feature/go-cross-warning";
+		const targetPath = await addLinkedWorktree(otherRepo, branchName);
+		await registerRepo(otherRepo);
+		const stdout: string[] = [];
+		const stderr: string[] = [];
+
+		try {
+			// When gji go resolves the registered repository's worktree.
+			const result = await runCli(["go", "--print", branchName], {
+				cwd: currentRepo,
+				stderr: (chunk) => stderr.push(chunk),
+				stdout: (chunk) => stdout.push(chunk),
+			});
+
+			// Then it navigates without reporting an unused current-repository warning.
+			expect(result.exitCode).toBe(0);
+			expect(stdout.join("")).toBe(`${targetPath}\n`);
+			expect(stderr.join("")).not.toContain("unknownKey");
+		} finally {
+			if (originalConfigDir === undefined) {
+				delete process.env.GJI_CONFIG_DIR;
+			} else {
+				process.env.GJI_CONFIG_DIR = originalConfigDir;
+			}
+		}
+	});
+
 	it("prefers a registered worktree over an unlinked local branch", async () => {
 		// Given an unlinked local branch and a linked worktree in another registered repository.
 		const originalConfigDir = process.env.GJI_CONFIG_DIR;

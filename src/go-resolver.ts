@@ -60,12 +60,15 @@ export async function resolveGoBranch(options: {
 	let remote: string | undefined;
 	let remoteBranch = false;
 	let configError: GoBranchResolution | null = null;
+	const configWarnings: string[] = [];
 	if (repository) {
 		try {
 			const config = await loadEffectiveConfig(
 				repository.repoRoot,
 				undefined,
-				configStderr,
+				configStderr === undefined
+					? undefined
+					: (warning) => configWarnings.push(warning),
 			);
 			remote = resolveConfigString(config, "syncRemote") ?? "origin";
 			remoteBranch = await hasRemoteBranch(repository.repoRoot, remote, branch);
@@ -76,6 +79,10 @@ export async function resolveGoBranch(options: {
 			};
 		}
 	}
+	const flushConfigWarnings = (): void => {
+		if (configStderr === undefined) return;
+		for (const warning of configWarnings) configStderr(warning);
+	};
 	const pullRequestBelongsToRepository =
 		repository && pullRequestNumber !== null
 			? await isPullRequestForRepository(repository.repoRoot, branch)
@@ -126,9 +133,11 @@ export async function resolveGoBranch(options: {
 
 	if (localBranch) {
 		if (configError) return configError;
+		flushConfigWarnings();
 		return { kind: "create", repository, branch, mode: "checkout" };
 	}
 	if (remoteBranch) {
+		flushConfigWarnings();
 		return { kind: "create", repository, branch, mode: "track", remote };
 	}
 	const localMatch =
@@ -141,6 +150,7 @@ export async function resolveGoBranch(options: {
 	if (configError) return configError;
 
 	if (pullRequestNumber !== null && !pullRequestBelongsToRepository) {
+		flushConfigWarnings();
 		return {
 			kind: "error",
 			message:
@@ -149,9 +159,11 @@ export async function resolveGoBranch(options: {
 	}
 
 	if (pullRequestNumber !== null) {
+		flushConfigWarnings();
 		return { kind: "pull-request", repository, input: branch };
 	}
 
+	flushConfigWarnings();
 	return { kind: "no-match", staleRegisteredRepos: skippedRegisteredRepos > 0 };
 }
 
@@ -183,15 +195,17 @@ async function resolveExistingWorktreeMatches(
 	}
 	if (!allowPullRequestFallback) return [];
 
+	const ownershipByRepository = new Map<string, Promise<boolean>>();
 	const eligibleSources = await Promise.all(
-		sources.map(async (source) =>
-			(await isPullRequestForRepository(
-				source.repoRoot ?? source.worktree.path,
-				query,
-			))
-				? source
-				: null,
-		),
+		sources.map(async (source) => {
+			const repoRoot = source.repoRoot ?? source.worktree.path;
+			let ownership = ownershipByRepository.get(repoRoot);
+			if (ownership === undefined) {
+				ownership = isPullRequestForRepository(repoRoot, query);
+				ownershipByRepository.set(repoRoot, ownership);
+			}
+			return (await ownership) ? source : null;
+		}),
 	);
 	const pullRequestMatches = resolveExactWorktreeQueryMatches(
 		eligibleSources.filter(
