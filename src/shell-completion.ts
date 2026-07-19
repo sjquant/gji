@@ -39,7 +39,10 @@ const TOP_LEVEL_COMMANDS = [
 		name: "run-hook",
 		description: "run a named hook in the current worktree",
 	},
-	{ name: "warp", description: "jump to any worktree across all known repos" },
+	{
+		name: "warp",
+		description: "deprecated: use go (press Tab for all known repos)",
+	},
 	{ name: "config", description: "manage global config defaults" },
 ] as const;
 

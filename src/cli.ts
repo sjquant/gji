@@ -69,7 +69,7 @@ export function createProgram(): Command {
 		"\nCommon workflows:\n" +
 			"  gji new <branch>       create a worktree\n" +
 			"  gji go <branch>        navigate to a worktree\n" +
-			"  gji warp <repo/branch> navigate across repositories\n" +
+			"  gji go                 choose; press Tab for all repositories\n" +
 			"  gji go -               return to the previous worktree\n",
 	);
 
@@ -410,7 +410,7 @@ function registerCommands(program: Command): void {
 
 	program
 		.command("warp [branch]")
-		.description("jump to any worktree across all known repos")
+		.description("deprecated: use gji go (press Tab for all known repos)")
 		// --print is the shell-wrapper bypass signal (see SHELL_WRAPPED_COMMANDS in init.ts).
 		// The shell omits GJI_WARP_OUTPUT_FILE, so writeShellOutput falls through to stdout.
 		.option(
@@ -876,6 +876,12 @@ function attachCommandActions(
 				branch: string | undefined,
 				commandOptions: { json?: boolean; print?: boolean },
 			) => {
+				if (!commandOptions.json) {
+					options.stderr(
+						"gji warp is deprecated; use 'gji go' (press Tab for all repositories).\n",
+					);
+				}
+
 				const exitCode = await runWarpCommand({
 					branch,
 					cwd: options.cwd,

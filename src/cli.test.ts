@@ -109,6 +109,42 @@ describe("runCli", () => {
 		expect(goHelp).not.toContain("--new");
 		expect(warpHelp).not.toContain("--new");
 		expect(goHelp).toContain("--root");
+		expect(warpHelp).toContain("deprecated");
+	});
+
+	it("warns before running the deprecated warp command", async () => {
+		// Given an isolated registry with no repositories.
+		const configDir = await mkdtemp(join(tmpdir(), "gji-config-"));
+		process.env.GJI_CONFIG_DIR = configDir;
+		const stderr: string[] = [];
+
+		// When gji warp is invoked in human-readable mode.
+		const result = await runCli(["warp", "missing"], {
+			cwd: "/",
+			stderr: (chunk) => stderr.push(chunk),
+		});
+
+		// Then the deprecation notice precedes the normal command error.
+		expect(result.exitCode).toBe(1);
+		expect(stderr.join("")).toContain("gji warp is deprecated; use 'gji go'");
+		expect(stderr.join("")).toContain("gji warp:");
+	});
+
+	it("keeps deprecated warp JSON stderr machine-readable", async () => {
+		// Given an isolated registry with no repositories.
+		const configDir = await mkdtemp(join(tmpdir(), "gji-config-"));
+		process.env.GJI_CONFIG_DIR = configDir;
+		const stderr: string[] = [];
+
+		// When gji warp is invoked in JSON mode.
+		const result = await runCli(["warp", "--json", "missing"], {
+			cwd: "/",
+			stderr: (chunk) => stderr.push(chunk),
+		});
+
+		// Then stderr remains a single JSON error object without a warning prefix.
+		expect(result.exitCode).toBe(1);
+		expect(JSON.parse(stderr.join(""))).toHaveProperty("error");
 	});
 
 	it("does not register repositories for metadata commands", async () => {

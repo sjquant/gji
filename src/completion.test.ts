@@ -49,7 +49,7 @@ describe("gji completion", () => {
 			"'sync-files:manage local files copied into new worktrees'",
 		);
 		expect(stdout.join("")).toContain(
-			"'warp:jump to any worktree across all known repos'",
+			"'warp:deprecated: use go (press Tab for all known repos)'",
 		);
 		expect(stdout.join("")).toContain("'2:shell:(bash fish zsh)'");
 		expect(stdout.join("")).toContain(

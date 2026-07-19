@@ -20,7 +20,7 @@ image: /img/social-card.png
 | `gji pr <ref> [--json]` | Fetch a pull request ref and open it in a dedicated worktree. |
 | `gji pr open [branch|#N] [--select]` | Open the current worktree PR, or choose a linked worktree with `--select`. |
 | `gji go [branch] [--root] [--print] [--json]` | Resolve and jump to a worktree, branch, remote, or PR. |
-| `gji warp [branch] [--print] [--json]` | Jump to any known repo worktree. |
+| `gji warp [branch] [--print] [--json]` | Deprecated compatibility command; use `gji go`. |
 | `gji open [branch] [--select] [--editor <cli>] [--save] [--workspace]` | Open the current or selected worktree in an editor. |
 | `gji back [n] [--print]` | Return to the previously visited worktree, optionally N steps back. |
 | `gji history [--json]` | Show navigation history. |
@@ -43,7 +43,6 @@ image: /img/social-card.png
 - `gji new`
 - `gji pr`
 - `gji go`
-- `gji warp`
 - `gji open`
 - `gji back [n]`
 - `gji root`
@@ -132,13 +131,20 @@ Use `--json` only for already-existing destinations; it never creates a worktree
 gji new fix/copy-regression
 ```
 
+`gji warp` is deprecated. Use `gji go <branch>` for direct navigation, or run
+`gji go` and press `Tab` when you want to browse all registered repositories.
+`repo/branch` still disambiguates across repositories, and `--print`/`--json`
+remain available for scripts:
+
 ```bash
-gji warp feature/auth-refactor
-gji warp repo-a/main
-gji warp feature/auth-refactor --json
+gji go feature/auth-refactor
+gji go repo-a/main
+gji go feature/auth-refactor --json
 ```
 
-Use `gji warp` when branch intent matters more than the repo directory you happen to be inside. `repo/branch` disambiguates across registered repos; use `gji new` to create a worktree explicitly.
+The navigation-only `warp` command remains available as a compatibility path
+during the deprecation window. It prints a warning in human-readable mode;
+JSON mode remains machine-readable. Use `gji new` for worktree creation.
 
 ### Re-run your setup hook
 
@@ -190,7 +196,6 @@ Several commands support `--json` so shell scripts and tools can consume structu
 - `gji remove --json`
 - `gji sync --json`
 - `gji sync-files --json`
-- `gji warp --json`
 - `gji go --json`
 
 `gji clean --stale` limits cleanup to clean branch worktrees whose upstream is gone and whose branch is already merged into the configured or remote default branch.
