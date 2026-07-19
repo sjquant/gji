@@ -17,6 +17,10 @@ import {
 	type InstallPromptDependencies,
 	maybeRunInstallPrompt,
 } from "./install-prompt.js";
+import {
+	createNavigationRepository,
+	createNavigationTarget,
+} from "./navigation-output.js";
 import { detectRepository, resolveWorktreePath } from "./repo.js";
 import { writeShellOutput } from "./shell-handoff.js";
 
@@ -31,6 +35,7 @@ export interface PrCommandOptions {
 	dryRun?: boolean;
 	json?: boolean;
 	number: string;
+	outputEnv?: string;
 	stderr: (chunk: string) => void;
 	stdout: (chunk: string) => void;
 }
@@ -79,7 +84,7 @@ export function createPrCommand(
 		const config = await loadEffectiveConfig(
 			repository.repoRoot,
 			undefined,
-			options.stderr,
+			options.json ? undefined : options.stderr,
 		);
 		const branchName = `pr/${prNumber}`;
 		const remoteRef = `refs/remotes/origin/pull/${prNumber}/head`;
@@ -114,7 +119,7 @@ export function createPrCommand(
 
 			if (choice === "reuse") {
 				await recordWorktreeUsage(worktreePath, branchName);
-				await writeOutput(worktreePath, options.stdout);
+				await writeOutput(worktreePath, options.stdout, options.outputEnv);
 				return 0;
 			}
 
@@ -127,7 +132,21 @@ export function createPrCommand(
 		if (options.dryRun) {
 			if (options.json) {
 				options.stdout(
-					`${JSON.stringify({ branch: branchName, path: worktreePath, dryRun: true }, null, 2)}\n`,
+					`${JSON.stringify(
+						{
+							...createNavigationTarget(
+								createNavigationRepository(
+									repository.repoName,
+									repository.repoRoot,
+								),
+								worktreePath,
+								branchName,
+							),
+							dryRun: true,
+						},
+						null,
+						2,
+					)}\n`,
 				);
 			} else {
 				options.stdout(
@@ -208,11 +227,22 @@ export function createPrCommand(
 
 		if (options.json) {
 			options.stdout(
-				`${JSON.stringify({ branch: branchName, path: worktreePath }, null, 2)}\n`,
+				`${JSON.stringify(
+					createNavigationTarget(
+						createNavigationRepository(
+							repository.repoName,
+							repository.repoRoot,
+						),
+						worktreePath,
+						branchName,
+					),
+					null,
+					2,
+				)}\n`,
 			);
 		} else {
 			await recordWorktreeUsage(worktreePath, branchName);
-			await writeOutput(worktreePath, options.stdout);
+			await writeOutput(worktreePath, options.stdout, options.outputEnv);
 		}
 
 		return 0;
@@ -310,6 +340,7 @@ function sourceRefForForge(
 async function writeOutput(
 	worktreePath: string,
 	stdout: (chunk: string) => void,
+	outputEnv: string | undefined,
 ): Promise<void> {
-	await writeShellOutput(PR_OUTPUT_FILE_ENV, worktreePath, stdout);
+	await writeShellOutput(outputEnv ?? PR_OUTPUT_FILE_ENV, worktreePath, stdout);
 }

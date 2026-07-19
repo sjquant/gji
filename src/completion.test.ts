@@ -49,7 +49,7 @@ describe("gji completion", () => {
 			"'sync-files:manage local files copied into new worktrees'",
 		);
 		expect(stdout.join("")).toContain(
-			"'warp:jump to any worktree across all known repos'",
+			"'warp:deprecated: use go (press Tab for all known repos)'",
 		);
 		expect(stdout.join("")).toContain("'2:shell:(bash fish zsh)'");
 		expect(stdout.join("")).toContain(
@@ -70,8 +70,11 @@ describe("gji completion", () => {
 		expect(stdout.join("")).toContain(
 			"'--select[choose a worktree with the interactive selector]'",
 		);
-		expect(stdout.join("")).toContain(
-			"'(-n --new)'{-n,--new}'[create a new worktree in a registered repo]:branch:'",
+		expect(stdout.join("")).not.toContain(
+			"create a new worktree in a registered repo",
+		);
+		expect(stdout.join("")).not.toContain(
+			"create a new worktree in the current repository",
 		);
 		expect(stdout.join("")).toContain("'2:branch:->worktrees'");
 		expect(stdout.join("")).toContain("command gji ls --compact");
@@ -111,6 +114,22 @@ describe("gji completion", () => {
 		expect(stdout.join("")).not.toContain("compdef _gji_completion gji");
 		expect(stdout.join("")).not.toContain("# >>> gji init >>>");
 		expect(stdout.join("")).not.toContain("gji() {");
+	});
+
+	it("rejects an explicitly unsupported shell", async () => {
+		// Given an output collector for completion errors.
+		const stderr: string[] = [];
+
+		// When gji completion is invoked for an unsupported shell.
+		const result = await runCli(["completion", "powershell"], {
+			stderr: (chunk) => stderr.push(chunk),
+		});
+
+		// Then it identifies the requested shell and lists supported choices.
+		expect(result.exitCode).toBe(1);
+		expect(stderr.join("")).toBe(
+			'Unsupported shell "powershell". Supported shells: bash, fish, or zsh.\n',
+		);
 	});
 
 	it.skipIf(zshExecutable === undefined)(
@@ -331,8 +350,8 @@ print -r -- "\${_comps[gji]-unset}"`,
 		expect(stdout.join("")).toContain(
 			"complete -c gji -n '__fish_seen_subcommand_from go jump' -a '(__gji_worktree_branches)'",
 		);
-		expect(stdout.join("")).toContain(
-			"complete -c gji -n '__fish_seen_subcommand_from warp' -s n -l new",
+		expect(stdout.join("")).not.toContain(
+			"__fish_seen_subcommand_from warp' -s n -l new",
 		);
 		expect(stdout.join("")).toContain("test (count $tokens) -eq 2");
 		expect(stdout.join("")).toContain("if test (count $tokens) -ne 3");

@@ -14,8 +14,8 @@ import {
 	type QueryWorktreePullRequests,
 	resolveWorktreeQuery,
 	type WorktreePromptEntry,
-	type WorktreePromptSource,
 } from "./worktree-picker.js";
+import type { WorktreeSource } from "./worktree-source.js";
 
 export interface PrOpenCommandOptions {
 	cwd: string;
@@ -309,7 +309,7 @@ async function readConnectedWorktreeSources(
 	queryRepositoryPullRequests: QueryRepositoryPullRequests | undefined,
 ): Promise<{
 	pullRequestsByBranch: Map<string, PullRequestInfo[]>;
-	sources: WorktreePromptSource[];
+	sources: WorktreeSource[];
 }> {
 	const pullRequestsByBranch = new Map<string, PullRequestInfo[]>();
 

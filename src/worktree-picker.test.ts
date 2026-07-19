@@ -61,6 +61,40 @@ describe("worktree picker search", () => {
 		expect(output.text()).toContain("feature/review (#12, #34)");
 	});
 
+	it("builds a fast all-repositories scope without status or PR lookups", async () => {
+		// Given a worktree and metadata lookups that would fail if invoked.
+		const source = {
+			repoRoot: "/repo",
+			repoName: "repo",
+			worktree: worktreeEntry("feature/fast", "/repo/fast"),
+		};
+		let branchQueryCount = 0;
+		let repositoryQueryCount = 0;
+
+		// When fast prompt entries are built for the all-repositories scope.
+		const entries = await buildWorktreePromptEntries([source], {
+			metadata: "fast",
+			queryPullRequests: async () => {
+				branchQueryCount += 1;
+				return [];
+			},
+			queryRepositoryPullRequests: async () => {
+				repositoryQueryCount += 1;
+				return [];
+			},
+		});
+
+		// Then it preserves the selectable identity without running expensive lookups.
+		expect(branchQueryCount).toBe(0);
+		expect(repositoryQueryCount).toBe(0);
+		expect(entries).toHaveLength(1);
+		expect(entries[0]).toMatchObject({
+			branch: "feature/fast",
+			path: "/repo/fast",
+			pullRequestNumbers: [],
+		});
+	});
+
 	it("queries each repository once and joins PRs by source branch", async () => {
 		// Given two worktrees from one repository and repository-scoped PR metadata.
 		const repoRoot = await createRepository();
@@ -126,6 +160,40 @@ describe("worktree picker search", () => {
 		// Then the filtered worktree is selected with Enter.
 		await expect(choice).resolves.toBe("/repo/auth");
 		expect(output.text()).toContain("/auth");
+	});
+
+	it("toggles from the current repository to all repositories with Tab", async () => {
+		// Given a scoped worktree picker with a worktree outside the initial repository.
+		const { input, output } = createPromptIO();
+		const current = worktreeEntry("feature/current", "/repo/current");
+		const global = worktreeEntry("feature/other", "/other/feature");
+		let toggleCount = 0;
+		const choice = promptForSingleWorktree("Choose a worktree", [current], {
+			input,
+			output,
+			scope: {
+				label: "current repository",
+				toggleLabel: "all repositories",
+				toggle: async () => {
+					toggleCount += 1;
+					return {
+						entries: [global],
+						label: "all repositories",
+						toggleLabel: "current repository",
+					};
+				},
+			},
+		});
+
+		// When the user switches scope and selects the newly loaded worktree.
+		input.write("\t");
+		await nextTick();
+		input.write("\r");
+
+		// Then the picker returns the worktree from the all-repositories scope.
+		expect(await choice).toBe(global.path);
+		expect(toggleCount).toBe(1);
+		expect(output.text()).toContain("all repositories");
 	});
 
 	it("filters multi-select choices after slash search", async () => {

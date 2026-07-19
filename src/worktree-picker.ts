@@ -14,14 +14,11 @@ import {
 	type UpstreamState,
 	type WorktreeInfo,
 } from "./worktree-info.js";
+import type { WorktreeSource } from "./worktree-source.js";
 
 const MAX_PULL_REQUEST_REPOSITORY_QUERY_CONCURRENCY = 4;
 
-export interface WorktreePromptSource {
-	repoRoot?: string;
-	repoName: string;
-	worktree: WorktreeEntry;
-}
+export type WorktreePromptSource = WorktreeSource;
 
 export interface WorktreePromptEntry extends WorktreeEntry {
 	group: "recent" | "other";
@@ -42,9 +39,12 @@ export type QueryRepositoryPullRequests = (
 ) => Promise<PullRequestInfo[]>;
 
 export interface BuildWorktreePromptEntriesDependencies {
+	metadata?: WorktreeMetadataMode;
 	queryPullRequests?: QueryWorktreePullRequests;
 	queryRepositoryPullRequests?: QueryRepositoryPullRequests;
 }
+
+export type WorktreeMetadataMode = "full" | "fast";
 
 export interface WorktreePickerIO {
 	input?: Readable & {
@@ -57,40 +57,63 @@ export interface WorktreePickerIO {
 	};
 }
 
+export interface WorktreePromptScope {
+	label: string;
+	toggle: () => Promise<WorktreePromptScopeResult>;
+	toggleLabel: string;
+}
+
+export interface WorktreePromptScopeResult {
+	entries: WorktreePromptEntry[];
+	label: string;
+	toggleLabel: string;
+}
+
 interface SortableWorktreePromptEntry extends WorktreePromptEntry {
 	lastActivityTimestamp: number | null;
 }
 
 export async function buildWorktreePromptEntries(
-	sources: WorktreePromptSource[],
+	sources: WorktreeSource[],
 	dependencies: BuildWorktreePromptEntriesDependencies = {},
 ): Promise<WorktreePromptEntry[]> {
+	const metadataMode = dependencies.metadata ?? "full";
+	const includeMetadata = metadataMode === "full";
 	const pullRequestQuery = createPullRequestQuery();
 	const queryPullRequests =
 		dependencies.queryPullRequests ?? pullRequestQuery.listOpenPullRequests;
-	const queryRepositoryPullRequests =
-		dependencies.queryRepositoryPullRequests ??
-		(dependencies.queryPullRequests === undefined
-			? pullRequestQuery.listOpenPullRequestsForRepository
-			: undefined);
+	const queryRepositoryPullRequests = includeMetadata
+		? (dependencies.queryRepositoryPullRequests ??
+			(dependencies.queryPullRequests === undefined
+				? pullRequestQuery.listOpenPullRequestsForRepository
+				: undefined))
+		: undefined;
 	const repositoryPullRequests =
 		queryRepositoryPullRequests === undefined
 			? Promise.resolve(null)
 			: readRepositoryPullRequests(sources, queryRepositoryPullRequests);
 	const [history, infos, pullRequestsByRepository] = await Promise.all([
 		loadHistory(),
-		readWorktreeInfos(sources.map((source) => source.worktree)),
+		includeMetadata
+			? readWorktreeInfos(sources.map((source) => source.worktree))
+			: Promise.resolve(
+					sources.map((source) =>
+						createUnhydratedWorktreeInfo(source.worktree),
+					),
+				),
 		repositoryPullRequests,
 	]);
-	const pullRequests = await Promise.all(
-		sources.map((source) =>
-			readSourcePullRequests(
-				source,
-				queryPullRequests,
-				pullRequestsByRepository,
-			),
-		),
-	);
+	const pullRequests = includeMetadata
+		? await Promise.all(
+				sources.map((source) =>
+					readSourcePullRequests(
+						source,
+						queryPullRequests,
+						pullRequestsByRepository,
+					),
+				),
+			)
+		: sources.map(() => []);
 	const historyByPath = new Map(history.map((entry) => [entry.path, entry]));
 	const entries = sources.map((source, index) =>
 		buildWorktreePromptEntry(
@@ -109,23 +132,61 @@ export async function buildWorktreePromptEntries(
 		);
 }
 
+function createUnhydratedWorktreeInfo(worktree: WorktreeEntry): WorktreeInfo {
+	return {
+		...worktree,
+		lastCommitTimestamp: null,
+		status: "unknown",
+		upstream: { kind: "unknown" },
+	};
+}
+
 export function resolveWorktreeQuery(
-	sources: WorktreePromptSource[],
+	sources: WorktreeSource[],
 	query: string,
-): WorktreePromptSource | null {
+): WorktreeSource | null {
+	return resolveWorktreeQueryMatches(sources, query)[0] ?? null;
+}
+
+export function resolveWorktreeQueryMatches(
+	sources: WorktreeSource[],
+	query: string,
+): WorktreeSource[] {
 	const normalizedQuery = normalizeQuery(query);
-	if (normalizedQuery === null) return null;
+	if (normalizedQuery === null) return [];
 
 	const matches = findWorktreePromptSourceMatches(sources, normalizedQuery);
-	if (isAmbiguousRepoOnlyQuery(matches, normalizedQuery)) return null;
+	if (isAmbiguousRepoOnlyQuery(matches, normalizedQuery)) return [];
 
-	return matches[0]?.source ?? null;
+	const bestScore = matches[0]?.matchScore;
+	return matches
+		.filter((match) => match.matchScore === bestScore)
+		.map((match) => match.source);
+}
+
+export function resolveExactWorktreeQueryMatches(
+	sources: WorktreeSource[],
+	query: string,
+): WorktreeSource[] {
+	const normalizedQuery = normalizeQuery(query);
+	if (normalizedQuery === null) return [];
+
+	return sources.filter(
+		(source) =>
+			scoreWorktreeMatch(
+				{
+					...source.worktree,
+					repoName: source.repoName,
+				},
+				normalizedQuery,
+			) === 1000,
+	);
 }
 
 function findWorktreePromptSourceMatches(
-	sources: WorktreePromptSource[],
+	sources: WorktreeSource[],
 	normalizedQuery: string,
-): { matchScore: number; source: WorktreePromptSource }[] {
+): { matchScore: number; source: WorktreeSource }[] {
 	return sources
 		.flatMap((source) => {
 			const matchScore = scoreWorktreeMatch(
@@ -142,7 +203,7 @@ function findWorktreePromptSourceMatches(
 }
 
 function isAmbiguousRepoOnlyQuery(
-	matches: { matchScore: number; source: WorktreePromptSource }[],
+	matches: { matchScore: number; source: WorktreeSource }[],
 	query: string,
 ): boolean {
 	if (matches[0]?.matchScore === 1000) return false;
@@ -156,7 +217,7 @@ function isAmbiguousRepoOnlyQuery(
 export async function promptForSingleWorktree(
 	message: string,
 	worktrees: WorktreePromptEntry[],
-	io: WorktreePickerIO = {},
+	io: WorktreePickerIO & { scope?: WorktreePromptScope } = {},
 ): Promise<string | null> {
 	const choice = await runSearchablePrompt({
 		entries: worktrees.map(buildSearchableWorktreeEntry),
@@ -164,6 +225,7 @@ export async function promptForSingleWorktree(
 		message,
 		multiple: false,
 		output: io.output,
+		scope: io.scope,
 	});
 
 	return typeof choice === "string" ? choice : null;
@@ -186,8 +248,8 @@ export async function promptForMultipleWorktrees(
 }
 
 function compareQueryMatches(
-	a: { matchScore: number; source: WorktreePromptSource },
-	b: { matchScore: number; source: WorktreePromptSource },
+	a: { matchScore: number; source: WorktreeSource },
+	b: { matchScore: number; source: WorktreeSource },
 ): number {
 	if (a.matchScore !== b.matchScore) {
 		return b.matchScore - a.matchScore;
@@ -296,6 +358,7 @@ interface SearchablePromptOptions extends WorktreePickerIO {
 	entries: SearchablePromptEntry[];
 	message: string;
 	multiple: boolean;
+	scope?: WorktreePromptScope;
 }
 
 interface PromptGlyphs {
@@ -348,9 +411,12 @@ async function runSearchablePrompt(
 
 class SearchablePrompt {
 	private cursor = 0;
+	private entries: SearchablePromptEntry[];
 	private query = "";
 	private searchActive = false;
 	private selected = new Set<string>();
+	private scope: WorktreePromptScope | undefined;
+	private scopeTogglePending = false;
 	private readonly prompt: WorktreeCorePrompt;
 
 	constructor(
@@ -364,6 +430,8 @@ class SearchablePrompt {
 			rows?: number;
 		},
 	) {
+		this.entries = options.entries;
+		this.scope = options.scope;
 		this.cursor = this.firstSelectableIndex();
 		const owner = this;
 		this.prompt = new WorktreeCorePrompt(this, {
@@ -406,6 +474,11 @@ class SearchablePrompt {
 			return;
 		}
 
+		if (isScopeToggleKey(character, key)) {
+			void this.toggleScope(prompt);
+			return;
+		}
+
 		if (this.searchActive && this.handleSearchKey(character, key?.name)) {
 			this.syncValue();
 			renderPrompt(prompt);
@@ -424,6 +497,34 @@ class SearchablePrompt {
 		this.handleNavigationKey(character, action);
 		this.syncValue();
 		renderPrompt(prompt);
+	}
+
+	private async toggleScope(prompt: WorktreeCorePrompt): Promise<void> {
+		const currentScope = this.scope;
+		if (currentScope === undefined || this.scopeTogglePending) return;
+
+		this.scopeTogglePending = true;
+		renderPrompt(prompt);
+
+		try {
+			const nextScope = await currentScope.toggle();
+			this.entries = nextScope.entries.map(buildSearchableWorktreeEntry);
+			this.scope = {
+				label: nextScope.label,
+				toggle: currentScope.toggle,
+				toggleLabel: nextScope.toggleLabel,
+			};
+			this.query = "";
+			this.cursor = this.firstSelectableIndex();
+			this.syncValue();
+		} catch (error) {
+			prompt.error =
+				error instanceof Error ? error.message : "Could not load worktrees";
+			prompt.state = "error";
+		} finally {
+			this.scopeTogglePending = false;
+			renderPrompt(prompt);
+		}
 	}
 
 	private handleEscapeKey(prompt: WorktreeCorePrompt): void {
@@ -596,8 +697,11 @@ class SearchablePrompt {
 	): string {
 		const symbol = colors.symbol(promptSymbol(state, glyphs), state);
 		const maxTitleLength = Math.max(8, this.columns() - 3);
+		const title = this.scope
+			? `${this.options.message} · ${this.scope.label}`
+			: this.options.message;
 		if (!this.searchActive) {
-			return `${symbol}  ${middleEllipsize(this.options.message, maxTitleLength)}`;
+			return `${symbol}  ${middleEllipsize(title, maxTitleLength)}`;
 		}
 
 		const search = ` /${this.query}`;
@@ -606,7 +710,7 @@ class SearchablePrompt {
 			Math.floor(maxTitleLength / 2),
 		);
 		const message = middleEllipsize(
-			this.options.message,
+			title,
 			Math.max(1, maxTitleLength - maxSearchLength),
 		);
 		const visibleSearch = middleEllipsize(
@@ -618,11 +722,30 @@ class SearchablePrompt {
 	}
 
 	private renderSearchHint(colors: PromptColors): string {
-		if (this.searchActive) {
-			return `${colors.hint("type to filter")} ${colors.hint("·")} ${colors.key("esc")} ${colors.hint("clears")}`;
+		const scopeHint = this.scope
+			? `${colors.key("tab")} ${colors.hint(this.scope.toggleLabel)}`
+			: null;
+		const separator = colors.hint(" · ");
+
+		if (this.scopeTogglePending) {
+			return `${colors.hint("loading worktrees")} ${separator}${scopeHint}`;
 		}
 
-		return `${colors.hint("press ")}${colors.key("/")}${colors.hint(" to search")}`;
+		if (this.searchActive) {
+			return [
+				`${colors.hint("type to filter")} ${separator} ${colors.key("esc")} ${colors.hint("clears")}`,
+				scopeHint,
+			]
+				.filter((hint): hint is string => hint !== null)
+				.join(separator);
+		}
+
+		return [
+			`${colors.hint("press ")}${colors.key("/")}${colors.hint(" to search")}`,
+			scopeHint,
+		]
+			.filter((hint): hint is string => hint !== null)
+			.join(separator);
 	}
 
 	private renderEntries(
@@ -774,10 +897,10 @@ class SearchablePrompt {
 	private visibleEntries(): SearchablePromptEntry[] {
 		const query = normalizeQuery(this.query);
 		if (query === null) {
-			return this.options.entries;
+			return this.entries;
 		}
 
-		return filterSearchablePromptEntries(this.options.entries, query);
+		return filterSearchablePromptEntries(this.entries, query);
 	}
 
 	private maxItems(): number {
@@ -833,6 +956,13 @@ function onWorktreeKeypress(
 	key?: { ctrl?: boolean; name?: string; sequence?: string },
 ): void {
 	this.worktreePrompt.handleKeypress(this, character, key);
+}
+
+function isScopeToggleKey(
+	character: string | undefined,
+	key?: { ctrl?: boolean; name?: string; sequence?: string },
+): boolean {
+	return key?.name === "tab" || character === "\t";
 }
 
 function resolvePromptAction(
@@ -1145,7 +1275,7 @@ function buildPromptSearchText(worktree: WorktreePromptEntry): string {
 }
 
 function buildWorktreePromptEntry(
-	source: WorktreePromptSource,
+	source: WorktreeSource,
 	info: WorktreeInfo,
 	pullRequests: PullRequestInfo[],
 	lastUsedTimestamp: number | null,
@@ -1199,7 +1329,7 @@ function buildWorktreePromptEntry(
 }
 
 async function readSourcePullRequests(
-	source: WorktreePromptSource,
+	source: WorktreeSource,
 	queryPullRequests: QueryWorktreePullRequests,
 	pullRequestsByRepository: Map<string, PullRequestInfo[]> | null,
 ): Promise<PullRequestInfo[]> {
@@ -1230,7 +1360,7 @@ async function readSourcePullRequests(
 }
 
 async function readRepositoryPullRequests(
-	sources: WorktreePromptSource[],
+	sources: WorktreeSource[],
 	queryPullRequests: QueryRepositoryPullRequests,
 ): Promise<Map<string, PullRequestInfo[]>> {
 	const repoRoots = [

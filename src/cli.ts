@@ -64,6 +64,14 @@ export function createProgram(): Command {
 		.showSuggestionAfterError();
 
 	registerCommands(program);
+	program.addHelpText(
+		"after",
+		"\nCommon workflows:\n" +
+			"  gji new <branch>       create a worktree\n" +
+			"  gji go <branch>        navigate to a worktree\n" +
+			"  gji go                 choose; press Tab for all repositories\n" +
+			"  gji go -               return to the previous worktree\n",
+	);
 
 	return program;
 }
@@ -87,14 +95,15 @@ export async function runCli(
 	options: RunCliOptions = {},
 ): Promise<RunCliResult> {
 	await maybeNotifyForUpdates(argv);
-	if (argv[0] !== "doctor") {
-		maybeRegisterCurrentRepo(options.cwd ?? process.cwd());
-	}
-
-	const program = createProgram();
 	const cwd = options.cwd ?? process.cwd();
 	const stdout = options.stdout ?? (() => undefined);
 	const stderr = options.stderr ?? (() => undefined);
+
+	if (shouldRegisterCurrentRepo(argv)) {
+		await maybeRegisterCurrentRepo(cwd);
+	}
+
+	const program = createProgram();
 
 	program.configureOutput({
 		writeErr: stderr,
@@ -166,10 +175,32 @@ function defaultNotifyForUpdates(pkg: PackageMetadata): void {
 	notifier.notify();
 }
 
-function maybeRegisterCurrentRepo(cwd: string): void {
-	detectRepository(cwd)
-		.then(({ repoRoot }) => registerRepo(repoRoot))
-		.catch(() => undefined);
+function shouldRegisterCurrentRepo(argv: string[]): boolean {
+	const command = argv[0];
+
+	return (
+		argv.length > 0 &&
+		![
+			"--help",
+			"-h",
+			"--version",
+			"-V",
+			"completion",
+			"config",
+			"doctor",
+			"help",
+			"init",
+		].includes(command ?? "")
+	);
+}
+
+async function maybeRegisterCurrentRepo(cwd: string): Promise<void> {
+	try {
+		const { repoRoot } = await detectRepository(cwd);
+		await registerRepo(repoRoot);
+	} catch {
+		// Registration is best effort; command behaviour should not depend on it.
+	}
 }
 
 function registerCommands(program: Command): void {
@@ -276,8 +307,10 @@ function registerCommands(program: Command): void {
 	program
 		.command("go [branch]")
 		.alias("jump")
-		.description("print or select a worktree path")
+		.description("resolve and jump to a worktree path")
+		.option("--root", "navigate to the main repository root")
 		.option("--print", "print the resolved worktree path explicitly")
+		.option("--json", "emit JSON for an existing worktree destination")
 		.action(notImplemented("go"));
 
 	program
@@ -377,8 +410,7 @@ function registerCommands(program: Command): void {
 
 	program
 		.command("warp [branch]")
-		.description("jump to any worktree across all known repos")
-		.option("-n, --new [branch]", "create a new worktree in a registered repo")
+		.description("deprecated: use gji go (press Tab for all known repos)")
 		// --print is the shell-wrapper bypass signal (see SHELL_WRAPPED_COMMANDS in init.ts).
 		// The shell omits GJI_WARP_OUTPUT_FILE, so writeShellOutput falls through to stdout.
 		.option(
@@ -625,12 +657,14 @@ function attachCommandActions(
 		?.action(
 			async (
 				branch: string | undefined,
-				commandOptions: { print?: boolean },
+				commandOptions: { json?: boolean; print?: boolean; root?: boolean },
 			) => {
 				const exitCode = await runGoCommand({
 					branch,
 					cwd: options.cwd,
+					json: commandOptions.json,
 					print: commandOptions.print,
+					root: commandOptions.root,
 					stderr: options.stderr,
 					stdout: options.stdout,
 				});
@@ -840,20 +874,18 @@ function attachCommandActions(
 		?.action(
 			async (
 				branch: string | undefined,
-				commandOptions: {
-					json?: boolean;
-					new?: string | boolean;
-					print?: boolean;
-				},
+				commandOptions: { json?: boolean; print?: boolean },
 			) => {
-				const newFlag = commandOptions.new;
-				const newWorktree = newFlag !== undefined && newFlag !== false;
-				const newBranch = typeof newFlag === "string" ? newFlag : undefined;
+				if (!commandOptions.json) {
+					options.stderr(
+						"gji warp is deprecated; use 'gji go' (press Tab for all repositories).\n",
+					);
+				}
+
 				const exitCode = await runWarpCommand({
-					branch: newWorktree ? (newBranch ?? branch) : branch,
+					branch,
 					cwd: options.cwd,
 					json: commandOptions.json,
-					newWorktree,
 					stderr: options.stderr,
 					stdout: options.stdout,
 				});

@@ -41,14 +41,14 @@ const heroStats = [
 	{
 		value: "Fast navigation",
 		label:
-			"Use go, back, open, and warp to move between active tasks without path hunting or stash churn.",
+			"Use go, back, and open to move between active tasks without path hunting or stash churn.",
 	},
 ];
 
 const heroChecklist = [
 	"Create branches and worktrees together with `gji new`",
 	"Review pull requests without mutating your current checkout",
-	"Jump between tasks with `go`, `back`, `open`, and `warp`",
+	"Jump between tasks with `go`, `back`, and `open`",
 ];
 
 const heroWorkflow = [
@@ -63,7 +63,7 @@ const heroWorkflow = [
 			"Open a pull request in isolation instead of mutating the checkout you were already using.",
 	},
 	{
-		command: "gji warp api/main",
+		command: "gji go api/main",
 		detail:
 			"When several repos are active, jump straight to the matching worktree by repo and branch.",
 	},
@@ -80,7 +80,7 @@ const workflowSteps = [
 	},
 	{
 		title: "Move without losing momentum",
-		body: "Use `go`, `back`, `open`, and `warp` to re-enter work quickly when several branches or repos are active at once.",
+		body: "Use `go`, `back`, and `open` to re-enter work quickly when several branches or repos are active at once.",
 	},
 ];
 
@@ -95,7 +95,7 @@ const featureCards = [
 	},
 	{
 		title: "Navigation is broader than one command",
-		body: "Warp covers cross-repo jumps, but the day-to-day flow also includes new, pr, go, back, open, sync, and cleanup.",
+		body: "Go covers current-repository and cross-repository jumps, while the day-to-day flow also includes new, pr, back, open, sync, and cleanup.",
 	},
 ];
 
@@ -114,7 +114,7 @@ const docsCards: Card[] = [
 	},
 	{
 		title: "Command Reference",
-		body: "Review `new`, `pr`, `go`, `warp`, `back`, `open`, and the rest of the day-to-day command surface.",
+		body: "Review `new`, `pr`, `go`, `back`, `open`, and the rest of the day-to-day command surface.",
 		href: "/docs/commands",
 		label: "Browse commands",
 	},

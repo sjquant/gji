@@ -1,6 +1,6 @@
 import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
@@ -1087,7 +1087,7 @@ describe("gji new", () => {
 	});
 
 	describe("--json output", () => {
-		it("emits { branch, path } to stdout on success", async () => {
+		it("emits repository metadata with branch and path on success", async () => {
 			// Given a repository root and a new branch name.
 			const repoRoot = await createRepository();
 			const stdout: string[] = [];
@@ -1106,7 +1106,11 @@ describe("gji new", () => {
 			expect(result.exitCode).toBe(0);
 			expect(stderr).toEqual([]);
 			const output = JSON.parse(stdout.join(""));
-			expect(output).toEqual({ branch: branchName, path: worktreePath });
+			expect(output).toEqual({
+				branch: branchName,
+				path: worktreePath,
+				repository: { name: basename(repoRoot), root: repoRoot },
+			});
 		});
 
 		it("emits { error } to stderr and exits 1 when no branch is provided", async () => {
@@ -1245,6 +1249,7 @@ describe("gji new", () => {
 				branch: branchName,
 				path: worktreePath,
 				dryRun: true,
+				repository: { name: basename(repoRoot), root: repoRoot },
 			});
 		});
 

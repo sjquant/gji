@@ -19,7 +19,7 @@ const TOP_LEVEL_COMMANDS = [
 	{ name: "back", description: "navigate to the previously visited worktree" },
 	{ name: "history", description: "show navigation history" },
 	{ name: "open", description: "open the worktree in an editor" },
-	{ name: "go", description: "print or select a worktree path" },
+	{ name: "go", description: "resolve and jump to a worktree path" },
 	{ name: "jump", description: "alias of go" },
 	{ name: "root", description: "print the main repository root path" },
 	{ name: "status", description: "summarize repository and worktree health" },
@@ -39,7 +39,10 @@ const TOP_LEVEL_COMMANDS = [
 		name: "run-hook",
 		description: "run a named hook in the current worktree",
 	},
-	{ name: "warp", description: "jump to any worktree across all known repos" },
+	{
+		name: "warp",
+		description: "deprecated: use go (press Tab for all known repos)",
+	},
 	{ name: "config", description: "manage global config defaults" },
 ] as const;
 
@@ -190,7 +193,7 @@ _gji_completion() {
       COMPREPLY=( $(compgen -W "$(__gji_worktree_branches) --editor --select --save --workspace --help" -- "$cur") )
       ;;
     go|jump)
-      COMPREPLY=( $(compgen -W "$(__gji_worktree_branches) --print --help" -- "$cur") )
+      COMPREPLY=( $(compgen -W "$(__gji_worktree_branches) --root --print --json --help" -- "$cur") )
       ;;
     root)
       COMPREPLY=( $(compgen -W "--print --help" -- "$cur") )
@@ -220,7 +223,7 @@ _gji_completion() {
       COMPREPLY=( $(compgen -W "${hooks} --help" -- "$cur") )
       ;;
     warp)
-      COMPREPLY=( $(compgen -W "-n --new --print --json --help" -- "$cur") )
+      COMPREPLY=( $(compgen -W "--print --json --help" -- "$cur") )
       ;;
     config)
       if [ "$COMP_CWORD" -eq 2 ]; then
@@ -425,6 +428,8 @@ complete -c gji -n '__fish_seen_subcommand_from open' -l workspace -d 'generate 
 complete -c gji -n '__fish_seen_subcommand_from open' -a '(__gji_worktree_branches)' -d 'worktree branch'
 
 complete -c gji -n '__fish_seen_subcommand_from go jump' -l print -d 'print the resolved worktree path explicitly'
+complete -c gji -n '__fish_seen_subcommand_from go jump' -l root -d 'navigate to the main repository root'
+complete -c gji -n '__fish_seen_subcommand_from go jump' -l json -d 'emit JSON for an existing worktree destination'
 complete -c gji -n '__fish_seen_subcommand_from go jump' -a '(__gji_worktree_branches)' -d 'worktree branch'
 
 complete -c gji -n '__fish_seen_subcommand_from root' -l print -d 'print the resolved repository root path explicitly'
@@ -455,7 +460,6 @@ complete -c gji -n '__fish_seen_subcommand_from remove rm' -a '(__gji_worktree_b
 
 ${hookLines}
 
-complete -c gji -n '__fish_seen_subcommand_from warp' -s n -l new -d 'create a new worktree in a registered repo'
 complete -c gji -n '__fish_seen_subcommand_from warp' -l print -d 'print the resolved worktree path without changing directory'
 complete -c gji -n '__fish_seen_subcommand_from warp' -l json -d 'emit JSON on success or error instead of human-readable output'
 
@@ -582,7 +586,7 @@ case "\${words[2]}" in
     _arguments '--editor[editor CLI to use (code, cursor, zed, windsurf, subl, …)]:editor:' '--select[choose a worktree with the interactive selector]' '--save[save the chosen editor to global config]' '--workspace[generate a .code-workspace file before opening (VS Code / Cursor / Windsurf)]' '2:branch:->worktrees'
     ;;
   go|jump)
-    _arguments '--print[print the resolved worktree path explicitly]' '2:branch:->worktrees'
+    _arguments '--root[navigate to the main repository root]' '--print[print the resolved worktree path explicitly]' '--json[emit JSON for an existing worktree destination]' '2:branch:->worktrees'
     ;;
   root)
     _arguments '--print[print the resolved repository root path explicitly]'
@@ -609,7 +613,7 @@ case "\${words[2]}" in
     _arguments "2:hook:(${hooks})"
     ;;
   warp)
-    _arguments '(-n --new)'{-n,--new}'[create a new worktree in a registered repo]:branch:' '--print[print the resolved worktree path without changing directory]' '--json[emit JSON on success or error instead of human-readable output]' '2:branch: '
+    _arguments '--print[print the resolved worktree path without changing directory]' '--json[emit JSON on success or error instead of human-readable output]' '2:branch: '
     ;;
   config)
     if (( CURRENT == 3 )); then

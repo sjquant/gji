@@ -135,7 +135,12 @@ gji pr 1234                       # checkout PR locally
 gji pr https://github.com/org/repo/pull/1234  # or paste the URL
 
 gji go feature/auth-refactor      # jump to a worktree
+gji go teammate-branch            # open an existing local or remote branch
+gji go -                          # return to the previous worktree
+gji go --root                     # return to the main repository checkout
 gji root                          # jump to repo root
+
+# with no branch, the chooser starts in the current repo; press Tab for all repos
 
 gji status                        # health overview + ahead/behind counts
 gji ls                            # list with status/upstream/last commit
@@ -235,7 +240,7 @@ path=$(gji root --print)
 | `gji pr <ref> [--json]` | fetch PR ref, create worktree, cd in |
 | `gji pr open [branch|#N] [--select]` | open the current worktree PR, or choose a linked worktree with `--select` |
 | `gji open [branch] [--select] [--editor <cli>] [--save] [--workspace]` | open the current or selected worktree in an editor |
-| `gji go [branch] [--print]` | jump to a worktree |
+| `gji go [branch] [--root] [--print] [--json]` | resolve and jump to a worktree, branch, remote, or PR |
 | `gji root [--print]` | jump to the main repo root |
 | `gji status [--json]` | repo overview, worktree health, ahead/behind |
 | `gji ls [--compact] [--json]` | list active worktrees |
@@ -429,11 +434,15 @@ Every mutating command supports `--json` for scripting and AI agent use. Success
 ```sh
 # create
 gji new --json feature/dark-mode
-# → { "branch": "feature/dark-mode", "path": "/…/worktrees/repo/feature/dark-mode" }
+# → { "branch": "feature/dark-mode", "path": "/…/worktrees/repo/feature/dark-mode", "repository": { "name": "repo", "root": "/…/repo" } }
 
 # fetch PR
 gji pr --json 1234
-# → { "branch": "pr/1234", "path": "/…/worktrees/repo/pr/1234" }
+# → { "branch": "pr/1234", "path": "/…/worktrees/repo/pr/1234", "repository": { "name": "repo", "root": "/…/repo" } }
+
+# resolve an existing destination without changing directories
+gji go --json feature/auth-refactor
+# → { "branch": "feature/auth-refactor", "path": "/…/worktrees/repo/feature/auth-refactor", "repository": { "name": "repo", "root": "/…/repo" } }
 
 # detailed list
 gji ls --json
@@ -457,7 +466,7 @@ gji clean --stale --json --force
 
 `gji clean --stale` limits cleanup to clean branch worktrees whose upstream is gone and whose branch is already merged into the configured or remote default branch.
 
-`--json` suppresses all interactive prompts. `--force` is required for `remove` and `clean` in JSON mode. `branch` is `null` for detached worktrees.
+`--json` suppresses all interactive prompts. Navigation results include a `repository` object with the stable repository `root` and display `name`. `--force` is required for `remove` and `clean` in JSON mode. `branch` is `null` for detached worktrees.
 
 `gji ls --json` and `gji status --json` also produce structured output — see `gji status --json | jq` for the full schema.
 

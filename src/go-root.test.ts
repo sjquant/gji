@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 
@@ -6,12 +6,16 @@ import { describe, expect, it } from "vitest";
 
 import { runCli } from "./cli.js";
 import { createGoCommand } from "./go.js";
-import { HISTORY_FILE_PATH } from "./history.js";
+import { appendHistory, HISTORY_FILE_PATH } from "./history.js";
+import { resolveWorktreePath } from "./repo.js";
 import {
 	addLinkedWorktree,
 	createRepository,
+	createRepositoryWithOrigin,
 	pathExists,
+	runGit,
 } from "./repo.test-helpers.js";
+import { registerRepo } from "./repo-registry.js";
 import { runRootCommand } from "./root.js";
 
 describe("gji root", () => {
@@ -70,6 +74,79 @@ describe("gji root", () => {
 		expect(stdout.join("").trim()).toBe(repoRoot);
 	});
 
+	it("supports go --root as a navigation alias for the main repository root", async () => {
+		// Given a linked worktree with a separate shell output collector.
+		const repoRoot = await createRepository();
+		const worktreePath = await addLinkedWorktree(repoRoot, "feature/go-root");
+		const stdout: string[] = [];
+
+		// When gji go --root runs with --print from inside the linked worktree.
+		const result = await runCli(["go", "--root", "--print"], {
+			cwd: worktreePath,
+			stdout: (chunk) => stdout.push(chunk),
+		});
+
+		// Then it prints the main repository root.
+		expect(result.exitCode).toBe(0);
+		expect(stdout.join("").trim()).toBe(repoRoot);
+	});
+
+	it("includes repository metadata in go --root JSON output", async () => {
+		// Given a linked worktree and a JSON output collector.
+		const repoRoot = await createRepository();
+		const worktreePath = await addLinkedWorktree(
+			repoRoot,
+			"feature/go-root-json",
+		);
+		const stdout: string[] = [];
+
+		// When gji go --root --json runs from the linked worktree.
+		const result = await runCli(["go", "--root", "--json"], {
+			cwd: worktreePath,
+			stdout: (chunk) => stdout.push(chunk),
+		});
+
+		// Then it returns the repository root as a structured navigation target.
+		expect(result.exitCode).toBe(0);
+		expect(JSON.parse(stdout.join(""))).toEqual({
+			branch: expect.any(String),
+			path: repoRoot,
+			repository: { name: basename(repoRoot), root: repoRoot },
+		});
+	});
+
+	it("hands go --root to the shell integration output file", async () => {
+		// Given a linked worktree and a temporary shell handoff file.
+		const repoRoot = await createRepository();
+		const worktreePath = await addLinkedWorktree(
+			repoRoot,
+			"feature/go-root-handoff",
+		);
+		const outputFile = join(repoRoot, "selected-go-root.txt");
+		const originalOutputFile = process.env.GJI_GO_OUTPUT_FILE;
+		const stdout: string[] = [];
+		process.env.GJI_GO_OUTPUT_FILE = outputFile;
+
+		try {
+			// When gji go --root runs without --print.
+			const result = await runCli(["go", "--root"], {
+				cwd: worktreePath,
+				stdout: (chunk) => stdout.push(chunk),
+			});
+
+			// Then it writes the root to the handoff file instead of stdout.
+			expect(result.exitCode).toBe(0);
+			expect(stdout).toEqual([]);
+			expect(await readFile(outputFile, "utf8")).toBe(`${repoRoot}\n`);
+		} finally {
+			if (originalOutputFile === undefined) {
+				delete process.env.GJI_GO_OUTPUT_FILE;
+			} else {
+				process.env.GJI_GO_OUTPUT_FILE = originalOutputFile;
+			}
+		}
+	});
+
 	it("writes the repository root to the shell output file without printing it", async () => {
 		// Given a linked worktree and a shell output file.
 		const repoRoot = await createRepository();
@@ -104,6 +181,773 @@ describe("gji root", () => {
 });
 
 describe("gji go", () => {
+	it("explains how to register a repository when go has no sources", async () => {
+		// Given a directory outside Git and an empty repository registry.
+		const cwd = await mkdtemp(join(tmpdir(), "gji-go-empty-"));
+		const stderr: string[] = [];
+		const runGoCommand = createGoCommand({
+			promptForWorktree: async (entries) => {
+				expect(entries).toEqual([]);
+				return null;
+			},
+		});
+
+		// When gji go is invoked without a current repository or branch.
+		const result = await runGoCommand({
+			cwd,
+			stderr: (chunk) => stderr.push(chunk),
+			stdout: () => undefined,
+		});
+
+		// Then it gives registration guidance instead of an empty-picker abort.
+		expect(result).toBe(1);
+		expect(stderr.join("")).toContain("no repos registered yet");
+		expect(stderr.join("")).toContain("register it");
+	});
+
+	it("requires a repository for pull request references", async () => {
+		// Given a registered repository with a pull request worktree and an external cwd.
+		const originalConfigDir = process.env.GJI_CONFIG_DIR;
+		process.env.GJI_CONFIG_DIR = await mkdtemp(
+			join(tmpdir(), "gji-go-pr-outside-"),
+		);
+		const repoRoot = await createRepository();
+		await addLinkedWorktree(repoRoot, "pr/123");
+		await registerRepo(repoRoot);
+		const cwd = await mkdtemp(join(tmpdir(), "gji-go-pr-cwd-"));
+		const stderr: string[] = [];
+
+		try {
+			// When gji go receives a pull request reference outside Git.
+			const result = await createGoCommand()({
+				branch: "123",
+				cwd,
+				stderr: (chunk) => stderr.push(chunk),
+				stdout: () => undefined,
+			});
+
+			// Then it rejects the reference instead of navigating a registered worktree.
+			expect(result).toBe(1);
+			expect(stderr.join("")).toContain(
+				"PR references must be resolved from inside a git repository",
+			);
+		} finally {
+			if (originalConfigDir === undefined) {
+				delete process.env.GJI_CONFIG_DIR;
+			} else {
+				process.env.GJI_CONFIG_DIR = originalConfigDir;
+			}
+		}
+	});
+
+	it("adds a doctor hint when registered repositories are stale", async () => {
+		// Given a registry entry whose repository path has been removed.
+		const staleRepo = await createRepository();
+		await registerRepo(staleRepo);
+		await rm(staleRepo, { force: true, recursive: true });
+		const cwd = await mkdtemp(join(tmpdir(), "gji-go-stale-registry-"));
+		const stderr: string[] = [];
+		const runGoCommand = createGoCommand({
+			promptForWorktree: async () => null,
+		});
+
+		// When gji go is invoked without any accessible worktree source.
+		const result = await runGoCommand({
+			cwd,
+			stderr: (chunk) => stderr.push(chunk),
+			stdout: () => undefined,
+		});
+
+		// Then it points users to the stale-entry diagnostic.
+		expect(result).toBe(1);
+		expect(stderr.join("")).toContain("gji doctor");
+	});
+
+	it("creates a worktree for an existing local branch after confirmation", async () => {
+		// Given a local branch that is not checked out in a worktree.
+		const repoRoot = await createRepository();
+		const branchName = "feature/go-existing-branch";
+		await runGit(repoRoot, ["branch", branchName]);
+		const stdout: string[] = [];
+		const runGoCommand = createGoCommand({
+			confirmBranchCreation: async () => true,
+		});
+
+		// When gji go resolves the existing branch.
+		const result = await runGoCommand({
+			branch: branchName,
+			cwd: repoRoot,
+			stderr: () => undefined,
+			stdout: (chunk) => stdout.push(chunk),
+		});
+
+		// Then it creates the linked worktree and hands off its path.
+		const worktreePath = join(
+			repoRoot,
+			"..",
+			"worktrees",
+			basename(repoRoot),
+			"feature",
+			"go-existing-branch",
+		);
+		expect(result).toBe(0);
+		expect(await pathExists(worktreePath)).toBe(true);
+		expect(stdout.join("")).toBe(`${worktreePath}\n`);
+	});
+
+	it("creates a tracking worktree for a remote-only branch after confirmation", async () => {
+		// Given a remote branch whose local branch has been deleted.
+		const { repoRoot } = await createRepositoryWithOrigin();
+		const branchName = "feature/go-remote-branch";
+		await runGit(repoRoot, ["checkout", "-b", branchName]);
+		await runGit(repoRoot, ["push", "-u", "origin", branchName]);
+		await runGit(repoRoot, ["checkout", "-"]);
+		await runGit(repoRoot, ["branch", "-D", branchName]);
+		const stdout: string[] = [];
+		const runGoCommand = createGoCommand({
+			confirmBranchCreation: async () => true,
+		});
+
+		// When gji go resolves the remote-only branch.
+		const result = await runGoCommand({
+			branch: branchName,
+			cwd: repoRoot,
+			stderr: () => undefined,
+			stdout: (chunk) => stdout.push(chunk),
+		});
+
+		// Then it creates a tracking worktree from the configured remote.
+		const worktreePath = resolveWorktreePath(repoRoot, branchName);
+		expect(result).toBe(0);
+		expect(await pathExists(worktreePath)).toBe(true);
+		expect(stdout.join("")).toBe(`${worktreePath}\n`);
+		expect(
+			await runGit(worktreePath, [
+				"rev-parse",
+				"--abbrev-ref",
+				"--symbolic-full-name",
+				"@{upstream}",
+			]),
+		).toBe(`origin/${branchName}`);
+	});
+
+	it("returns JSON without creating a worktree for an existing branch", async () => {
+		// Given a local branch that does not have a worktree.
+		const repoRoot = await createRepository();
+		const branchName = "feature/go-json-create-guard";
+		await runGit(repoRoot, ["branch", branchName]);
+		const stdout: string[] = [];
+		const stderr: string[] = [];
+
+		// When gji go --json is asked to resolve that branch.
+		const result = await runCli(["go", "--json", branchName], {
+			cwd: repoRoot,
+			stderr: (chunk) => stderr.push(chunk),
+			stdout: (chunk) => stdout.push(chunk),
+		});
+
+		// Then it refuses the write and reports a structured error.
+		expect(result.exitCode).toBe(1);
+		expect(JSON.parse(stderr.join(""))).toMatchObject({
+			error: expect.any(String),
+		});
+		expect(stdout).toEqual([]);
+		expect(
+			await runGit(repoRoot, ["worktree", "list", "--porcelain"]),
+		).not.toContain(branchName);
+	});
+
+	it("prefers an exact local branch over a fuzzy current worktree", async () => {
+		// Given a fuzzy worktree and an exact local branch without a worktree.
+		const repoRoot = await createRepository();
+		await addLinkedWorktree(repoRoot, "feature/go-fuzzy-old");
+		const branchName = "feature/go-fuzzy";
+		await runGit(repoRoot, ["branch", branchName]);
+		const stdout: string[] = [];
+		const runGoCommand = createGoCommand({
+			confirmBranchCreation: async () => true,
+		});
+
+		// When gji go resolves the exact branch.
+		const result = await runGoCommand({
+			branch: branchName,
+			cwd: repoRoot,
+			stderr: () => undefined,
+			stdout: (chunk) => stdout.push(chunk),
+		});
+
+		// Then it creates the exact branch worktree instead of choosing the fuzzy one.
+		expect(result).toBe(0);
+		expect(stdout.join("")).toBe(
+			`${resolveWorktreePath(repoRoot, branchName)}\n`,
+		);
+	});
+
+	it("prefers an exact numeric branch over a pull request worktree", async () => {
+		// Given a local numeric branch and a pr/123 worktree.
+		const repoRoot = await createRepository();
+		await addLinkedWorktree(repoRoot, "pr/123");
+		await runGit(repoRoot, ["branch", "123"]);
+		const stdout: string[] = [];
+		const runGoCommand = createGoCommand({
+			confirmBranchCreation: async () => true,
+		});
+
+		// When gji go resolves the numeric branch.
+		const result = await runGoCommand({
+			branch: "123",
+			cwd: repoRoot,
+			stderr: () => undefined,
+			stdout: (chunk) => stdout.push(chunk),
+		});
+
+		// Then it creates the exact branch worktree instead of selecting pr/123.
+		expect(result).toBe(0);
+		expect(stdout.join("")).toBe(`${resolveWorktreePath(repoRoot, "123")}\n`);
+	});
+
+	it("prefers the current pull request worktree over a registered duplicate", async () => {
+		// Given pr/123 worktrees in the current and another registered repository.
+		const originalConfigDir = process.env.GJI_CONFIG_DIR;
+		process.env.GJI_CONFIG_DIR = await mkdtemp(
+			join(tmpdir(), "gji-go-pr-current-"),
+		);
+		const currentRepo = await createRepository();
+		const otherRepo = await createRepository();
+		const currentPath = await addLinkedWorktree(currentRepo, "pr/123");
+		await addLinkedWorktree(otherRepo, "pr/123");
+		await registerRepo(otherRepo);
+		const stdout: string[] = [];
+
+		try {
+			// When gji go resolves the numeric pull request reference.
+			const result = await createGoCommand()({
+				branch: "123",
+				cwd: currentRepo,
+				stderr: () => undefined,
+				stdout: (chunk) => stdout.push(chunk),
+			});
+
+			// Then it navigates to the current repository's worktree.
+			expect(result).toBe(0);
+			expect(stdout.join("")).toBe(`${currentPath}\n`);
+		} finally {
+			if (originalConfigDir === undefined) {
+				delete process.env.GJI_CONFIG_DIR;
+			} else {
+				process.env.GJI_CONFIG_DIR = originalConfigDir;
+			}
+		}
+	});
+
+	it("prefers an exact numeric remote branch over a pull request worktree", async () => {
+		// Given a remote-only numeric branch and a pr/123 worktree.
+		const { repoRoot } = await createRepositoryWithOrigin();
+		await addLinkedWorktree(repoRoot, "pr/123");
+		await runGit(repoRoot, ["branch", "123"]);
+		await runGit(repoRoot, ["checkout", "123"]);
+		await runGit(repoRoot, ["push", "-u", "origin", "123"]);
+		await runGit(repoRoot, ["checkout", "-"]);
+		await runGit(repoRoot, ["branch", "-D", "123"]);
+		const stdout: string[] = [];
+		const runGoCommand = createGoCommand({
+			confirmBranchCreation: async () => true,
+		});
+
+		// When gji go resolves the remote-only numeric branch.
+		const result = await runGoCommand({
+			branch: "123",
+			cwd: repoRoot,
+			stderr: () => undefined,
+			stdout: (chunk) => stdout.push(chunk),
+		});
+
+		// Then it creates the remote branch worktree instead of selecting pr/123.
+		expect(result).toBe(0);
+		expect(stdout.join("")).toBe(`${resolveWorktreePath(repoRoot, "123")}\n`);
+	});
+
+	it("uses go - as the previous-worktree toggle", async () => {
+		// Given two worktrees with the second one most recently visited.
+		const originalConfigDir = process.env.GJI_CONFIG_DIR;
+		process.env.GJI_CONFIG_DIR = await mkdtemp(
+			join(tmpdir(), "gji-go-history-"),
+		);
+		const repoRoot = await createRepository();
+		const worktreeA = await addLinkedWorktree(repoRoot, "feature/go-back-a");
+		const worktreeB = await addLinkedWorktree(repoRoot, "feature/go-back-b");
+		await appendHistory(worktreeA, "feature/go-back-a");
+		await appendHistory(worktreeB, "feature/go-back-b");
+		const stdout: string[] = [];
+
+		try {
+			// When gji go - runs from the most recent worktree.
+			const result = await runCli(["go", "-", "--print"], {
+				cwd: worktreeB,
+				stdout: (chunk) => stdout.push(chunk),
+				stderr: () => undefined,
+			});
+
+			// Then it returns to the preceding worktree.
+			expect(result.exitCode).toBe(0);
+			expect(stdout.join("")).toBe(`${worktreeA}\n`);
+		} finally {
+			if (originalConfigDir === undefined) {
+				delete process.env.GJI_CONFIG_DIR;
+			} else {
+				process.env.GJI_CONFIG_DIR = originalConfigDir;
+			}
+		}
+	});
+
+	it("returns the previous worktree as JSON without shell handoff", async () => {
+		// Given history with a previous worktree.
+		const originalConfigDir = process.env.GJI_CONFIG_DIR;
+		process.env.GJI_CONFIG_DIR = await mkdtemp(
+			join(tmpdir(), "gji-go-history-json-"),
+		);
+		const repoRoot = await createRepository();
+		const worktreeA = await addLinkedWorktree(repoRoot, "feature/go-json-a");
+		const worktreeB = await addLinkedWorktree(repoRoot, "feature/go-json-b");
+		await appendHistory(worktreeA, "feature/go-json-a");
+		await appendHistory(worktreeB, "feature/go-json-b");
+		const stdout: string[] = [];
+		const stderr: string[] = [];
+
+		try {
+			// When gji go - --json runs from the most recent worktree.
+			const result = await runCli(["go", "-", "--json"], {
+				cwd: worktreeB,
+				stderr: (chunk) => stderr.push(chunk),
+				stdout: (chunk) => stdout.push(chunk),
+			});
+
+			// Then it returns structured data without invoking shell handoff.
+			expect(result.exitCode).toBe(0);
+			expect(stderr).toEqual([]);
+			expect(JSON.parse(stdout.join(""))).toEqual({
+				branch: "feature/go-json-a",
+				path: worktreeA,
+				repository: {
+					name: basename(repoRoot),
+					root: repoRoot,
+				},
+			});
+		} finally {
+			if (originalConfigDir === undefined) {
+				delete process.env.GJI_CONFIG_DIR;
+			} else {
+				process.env.GJI_CONFIG_DIR = originalConfigDir;
+			}
+		}
+	});
+
+	it("resolves a matching worktree in a registered repository", async () => {
+		// Given a current repository and a different registered repository.
+		const originalConfigDir = process.env.GJI_CONFIG_DIR;
+		process.env.GJI_CONFIG_DIR = await mkdtemp(join(tmpdir(), "gji-go-warp-"));
+		const currentRepo = await createRepository();
+		const otherRepo = await createRepository();
+		const branchName = "feature/go-cross-repo";
+		const targetPath = await addLinkedWorktree(otherRepo, branchName);
+		await registerRepo(otherRepo);
+		const stdout: string[] = [];
+
+		try {
+			// When gji go resolves the branch from the current repository.
+			const result = await runCli(["go", "--print", branchName], {
+				cwd: currentRepo,
+				stdout: (chunk) => stdout.push(chunk),
+				stderr: () => undefined,
+			});
+
+			// Then it navigates to the registered repository's worktree.
+			expect(result.exitCode).toBe(0);
+			expect(stdout.join("")).toBe(`${targetPath}\n`);
+		} finally {
+			if (originalConfigDir === undefined) {
+				delete process.env.GJI_CONFIG_DIR;
+			} else {
+				process.env.GJI_CONFIG_DIR = originalConfigDir;
+			}
+		}
+	});
+
+	it("does not emit current-repository config warnings for a cross-repository match", async () => {
+		// Given an unknown config key in the current repository and a registered target repository.
+		const originalConfigDir = process.env.GJI_CONFIG_DIR;
+		process.env.GJI_CONFIG_DIR = await mkdtemp(
+			join(tmpdir(), "gji-go-cross-warning-"),
+		);
+		const currentRepo = await createRepository();
+		await writeFile(
+			join(currentRepo, ".gji.json"),
+			JSON.stringify({ unknownKey: true }),
+			"utf8",
+		);
+		const otherRepo = await createRepository();
+		const branchName = "feature/go-cross-warning";
+		const targetPath = await addLinkedWorktree(otherRepo, branchName);
+		await registerRepo(otherRepo);
+		const stdout: string[] = [];
+		const stderr: string[] = [];
+
+		try {
+			// When gji go resolves the registered repository's worktree.
+			const result = await runCli(["go", "--print", branchName], {
+				cwd: currentRepo,
+				stderr: (chunk) => stderr.push(chunk),
+				stdout: (chunk) => stdout.push(chunk),
+			});
+
+			// Then it navigates without reporting an unused current-repository warning.
+			expect(result.exitCode).toBe(0);
+			expect(stdout.join("")).toBe(`${targetPath}\n`);
+			expect(stderr.join("")).not.toContain("unknownKey");
+		} finally {
+			if (originalConfigDir === undefined) {
+				delete process.env.GJI_CONFIG_DIR;
+			} else {
+				process.env.GJI_CONFIG_DIR = originalConfigDir;
+			}
+		}
+	});
+
+	it("prefers a registered worktree over an unlinked local branch", async () => {
+		// Given an unlinked local branch and a linked worktree in another registered repository.
+		const originalConfigDir = process.env.GJI_CONFIG_DIR;
+		process.env.GJI_CONFIG_DIR = await mkdtemp(
+			join(tmpdir(), "gji-go-cross-local-"),
+		);
+		const currentRepo = await createRepository();
+		const otherRepo = await createRepository();
+		const branchName = "feature/go-cross-local";
+		await runGit(currentRepo, ["branch", branchName]);
+		const targetPath = await addLinkedWorktree(otherRepo, branchName);
+		await registerRepo(otherRepo);
+		const stdout: string[] = [];
+
+		try {
+			// When gji go resolves the branch from the current repository.
+			const result = await runCli(["go", "--print", branchName], {
+				cwd: currentRepo,
+				stdout: (chunk) => stdout.push(chunk),
+				stderr: () => undefined,
+			});
+
+			// Then it navigates to the existing registered worktree.
+			expect(result.exitCode).toBe(0);
+			expect(stdout.join("")).toBe(`${targetPath}\n`);
+		} finally {
+			if (originalConfigDir === undefined) {
+				delete process.env.GJI_CONFIG_DIR;
+			} else {
+				process.env.GJI_CONFIG_DIR = originalConfigDir;
+			}
+		}
+	});
+
+	it("prefers an exact local numeric branch over a registered pull request worktree", async () => {
+		// Given a local numeric branch and pr/123 in another registered repository.
+		const originalConfigDir = process.env.GJI_CONFIG_DIR;
+		process.env.GJI_CONFIG_DIR = await mkdtemp(
+			join(tmpdir(), "gji-go-cross-numeric-"),
+		);
+		const currentRepo = await createRepository();
+		const otherRepo = await createRepository();
+		await runGit(currentRepo, ["branch", "123"]);
+		await addLinkedWorktree(otherRepo, "pr/123");
+		await registerRepo(otherRepo);
+		const stdout: string[] = [];
+		const runGoCommand = createGoCommand({
+			confirmBranchCreation: async () => true,
+		});
+
+		try {
+			// When gji go resolves the numeric branch from the current repository.
+			const result = await runGoCommand({
+				branch: "123",
+				cwd: currentRepo,
+				stderr: () => undefined,
+				stdout: (chunk) => stdout.push(chunk),
+			});
+
+			// Then it creates the local branch worktree instead of selecting pr/123.
+			expect(result).toBe(0);
+			expect(stdout.join("")).toBe(
+				`${resolveWorktreePath(currentRepo, "123")}\n`,
+			);
+		} finally {
+			if (originalConfigDir === undefined) {
+				delete process.env.GJI_CONFIG_DIR;
+			} else {
+				process.env.GJI_CONFIG_DIR = originalConfigDir;
+			}
+		}
+	});
+
+	it("prefers a registered worktree over a remote-only branch", async () => {
+		// Given a remote-only branch and a linked worktree in another registered repository.
+		const originalConfigDir = process.env.GJI_CONFIG_DIR;
+		process.env.GJI_CONFIG_DIR = await mkdtemp(
+			join(tmpdir(), "gji-go-cross-remote-"),
+		);
+		const { repoRoot: currentRepo } = await createRepositoryWithOrigin();
+		const otherRepo = await createRepository();
+		const branchName = "feature/go-cross-remote";
+		await runGit(currentRepo, ["checkout", "-b", branchName]);
+		await runGit(currentRepo, ["push", "-u", "origin", branchName]);
+		await runGit(currentRepo, ["checkout", "-"]);
+		await runGit(currentRepo, ["branch", "-D", branchName]);
+		const targetPath = await addLinkedWorktree(otherRepo, branchName);
+		await registerRepo(otherRepo);
+		const stdout: string[] = [];
+
+		try {
+			// When gji go resolves the branch from the current repository.
+			const result = await runCli(["go", "--print", branchName], {
+				cwd: currentRepo,
+				stdout: (chunk) => stdout.push(chunk),
+				stderr: () => undefined,
+			});
+
+			// Then it navigates to the existing registered worktree.
+			expect(result.exitCode).toBe(0);
+			expect(stdout.join("")).toBe(`${targetPath}\n`);
+		} finally {
+			if (originalConfigDir === undefined) {
+				delete process.env.GJI_CONFIG_DIR;
+			} else {
+				process.env.GJI_CONFIG_DIR = originalConfigDir;
+			}
+		}
+	});
+
+	it("reports cross-repository ambiguity in headless mode", async () => {
+		// Given two registered repositories with the same matching branch.
+		const originalConfigDir = process.env.GJI_CONFIG_DIR;
+		const originalHeadless = process.env.GJI_NO_TUI;
+		process.env.GJI_CONFIG_DIR = await mkdtemp(
+			join(tmpdir(), "gji-go-ambiguous-"),
+		);
+		process.env.GJI_NO_TUI = "1";
+		const currentRepo = await createRepository();
+		const firstRepo = await createRepository();
+		const secondRepo = await createRepository();
+		const branchName = "feature/go-ambiguous";
+		await addLinkedWorktree(firstRepo, branchName);
+		await addLinkedWorktree(secondRepo, branchName);
+		await registerRepo(firstRepo);
+		await registerRepo(secondRepo);
+		const stderr: string[] = [];
+
+		try {
+			// When gji go resolves the ambiguous branch without a TTY.
+			const result = await runCli(["go", branchName], {
+				cwd: currentRepo,
+				stderr: (chunk) => stderr.push(chunk),
+				stdout: () => undefined,
+			});
+
+			// Then it fails with the candidate repositories instead of choosing one.
+			expect(result.exitCode).toBe(1);
+			expect(stderr.join("")).toContain("multiple worktrees match");
+		} finally {
+			if (originalConfigDir === undefined) {
+				delete process.env.GJI_CONFIG_DIR;
+			} else {
+				process.env.GJI_CONFIG_DIR = originalConfigDir;
+			}
+			if (originalHeadless === undefined) {
+				delete process.env.GJI_NO_TUI;
+			} else {
+				process.env.GJI_NO_TUI = originalHeadless;
+			}
+		}
+	});
+
+	it("rejects a PR URL that belongs to another repository", async () => {
+		// Given a repository whose origin does not match the PR URL.
+		const { repoRoot } = await createRepositoryWithOrigin();
+		const stderr: string[] = [];
+
+		// When gji go receives the unrelated PR URL.
+		const result = await runCli(
+			["go", "https://github.com/other/repo/pull/123"],
+			{
+				cwd: repoRoot,
+				stderr: (chunk) => stderr.push(chunk),
+				stdout: () => undefined,
+			},
+		);
+
+		// Then it rejects the URL before attempting a fetch.
+		expect(result.exitCode).toBe(1);
+		expect(stderr.join("")).toContain("does not belong to this repository");
+	});
+
+	it("does not treat a foreign PR URL as a local PR worktree", async () => {
+		// Given a local pr/123 worktree and a different repository origin.
+		const repoRoot = await createRepository();
+		await runGit(repoRoot, [
+			"remote",
+			"add",
+			"origin",
+			"https://github.com/example/project.git",
+		]);
+		await addLinkedWorktree(repoRoot, "pr/123");
+		const stderr: string[] = [];
+
+		// When gji go receives a foreign PR URL with the same number.
+		const result = await runCli(
+			["go", "https://github.com/other/project/pull/123"],
+			{
+				cwd: repoRoot,
+				stderr: (chunk) => stderr.push(chunk),
+				stdout: () => undefined,
+			},
+		);
+
+		// Then it rejects the URL instead of navigating to pr/123.
+		expect(result.exitCode).toBe(1);
+		expect(stderr.join("")).toContain("does not belong to this repository");
+	});
+
+	it("resolves a same-repository PR URL to an existing PR worktree", async () => {
+		// Given an origin URL and an existing pr/123 worktree.
+		const repoRoot = await createRepository();
+		await runGit(repoRoot, [
+			"remote",
+			"add",
+			"origin",
+			"https://github.com/example/project.git",
+		]);
+		const worktreePath = await addLinkedWorktree(repoRoot, "pr/123");
+		const stdout: string[] = [];
+
+		// When gji go receives the matching PR URL in JSON mode.
+		const result = await runCli(
+			["go", "--json", "https://github.com/example/project/pull/123"],
+			{
+				cwd: repoRoot,
+				stdout: (chunk) => stdout.push(chunk),
+			},
+		);
+
+		// Then it returns the existing destination without fetching or creating anything.
+		expect(result.exitCode).toBe(0);
+		expect(JSON.parse(stdout.join(""))).toEqual({
+			branch: "pr/123",
+			path: worktreePath,
+			repository: {
+				name: basename(repoRoot),
+				root: repoRoot,
+			},
+		});
+	});
+
+	it("resolves a same-repository GitLab merge request URL to an existing worktree", async () => {
+		// Given a GitLab origin URL and an existing pr/123 worktree.
+		const repoRoot = await createRepository();
+		await runGit(repoRoot, [
+			"remote",
+			"add",
+			"origin",
+			"https://gitlab.com/example/project.git",
+		]);
+		const worktreePath = await addLinkedWorktree(repoRoot, "pr/123");
+		const stdout: string[] = [];
+
+		// When gji go --json receives the matching merge request URL.
+		const result = await runCli(
+			[
+				"go",
+				"--json",
+				"https://gitlab.com/example/project/-/merge_requests/123",
+			],
+			{
+				cwd: repoRoot,
+				stdout: (chunk) => stdout.push(chunk),
+			},
+		);
+
+		// Then it returns the existing merge request worktree.
+		expect(result.exitCode).toBe(0);
+		expect(JSON.parse(stdout.join(""))).toEqual({
+			branch: "pr/123",
+			path: worktreePath,
+			repository: {
+				name: basename(repoRoot),
+				root: repoRoot,
+			},
+		});
+	});
+
+	it("keeps JSON errors parseable when repository config emits warnings", async () => {
+		// Given a repository config with an unknown key.
+		const repoRoot = await createRepository();
+		await writeFile(
+			join(repoRoot, ".gji.json"),
+			JSON.stringify({ unknownKey: true }),
+			"utf8",
+		);
+		const stderr: string[] = [];
+
+		// When gji go --json resolves an unknown branch.
+		const result = await runCli(["go", "--json", "missing"], {
+			cwd: repoRoot,
+			stderr: (chunk) => stderr.push(chunk),
+		});
+
+		// Then stderr contains only the documented JSON error object.
+		expect(result.exitCode).toBe(1);
+		expect(JSON.parse(stderr.join(""))).toMatchObject({
+			error: expect.stringContaining("nothing matched"),
+		});
+	});
+
+	it("serializes malformed repository config failures in JSON mode", async () => {
+		// Given a repository with malformed local configuration.
+		const repoRoot = await createRepository();
+		await writeFile(join(repoRoot, ".gji.json"), "{ malformed", "utf8");
+		const stderr: string[] = [];
+
+		// When gji go --json needs to inspect the repository configuration.
+		const result = await runCli(["go", "--json", "missing"], {
+			cwd: repoRoot,
+			stderr: (chunk) => stderr.push(chunk),
+		});
+
+		// Then it returns a structured configuration error instead of throwing raw text.
+		expect(result.exitCode).toBe(1);
+		expect(JSON.parse(stderr.join(""))).toMatchObject({
+			error: expect.stringContaining("could not load repository config"),
+		});
+	});
+
+	it("skips deleted worktrees instead of returning a stale destination", async () => {
+		// Given a linked worktree whose directory has been deleted.
+		const repoRoot = await createRepository();
+		const branchName = "feature/go-stale";
+		const stalePath = await addLinkedWorktree(repoRoot, branchName);
+		await rm(stalePath, { force: true, recursive: true });
+		const stderr: string[] = [];
+
+		// When gji go resolves the deleted worktree.
+		const result = await createGoCommand()({
+			branch: branchName,
+			cwd: repoRoot,
+			json: true,
+			stderr: (chunk) => stderr.push(chunk),
+			stdout: () => undefined,
+		});
+
+		// Then it reports the branch as unlinked instead of returning the deleted path.
+		expect(result).toBe(1);
+		expect(stderr.join("")).toContain("exists but has no worktree");
+		expect(stderr.join("")).not.toContain(stalePath);
+	});
+
 	it("resolves a direct query argument by searchable branch text", async () => {
 		// Given two linked worktrees where only one branch matches a partial query.
 		const repoRoot = await createRepository();
@@ -354,6 +1198,62 @@ describe("gji go", () => {
 		expect(result).toBe(0);
 		expect(stderr).toEqual([]);
 		expect(stdout.join("").trim()).toBe(worktreePath);
+	});
+
+	it("starts go's chooser in the current repository and loads all repositories on toggle", async () => {
+		// Given a current repository and a registered repository with another worktree.
+		const originalConfigDir = process.env.GJI_CONFIG_DIR;
+		const configDir = await mkdtemp(join(tmpdir(), "gji-go-scope-"));
+		process.env.GJI_CONFIG_DIR = configDir;
+		const repoRoot = await createRepository();
+		const currentPath = await addLinkedWorktree(
+			repoRoot,
+			"feature/go-scope-current",
+		);
+		const otherRoot = await createRepository();
+		const otherPath = await addLinkedWorktree(
+			otherRoot,
+			"feature/go-scope-other",
+		);
+		await registerRepo(otherRoot);
+		const stdout: string[] = [];
+
+		try {
+			const runGoCommand = createGoCommand({
+				promptForWorktree: async (worktrees, scope) => {
+					expect(worktrees.map((worktree) => worktree.path)).toContain(
+						currentPath,
+					);
+					expect(worktrees.map((worktree) => worktree.path)).not.toContain(
+						otherPath,
+					);
+					expect(scope?.label).toBe("current repository");
+					const allRepositories = await scope?.toggle();
+					expect(allRepositories?.label).toBe("all repositories");
+					expect(allRepositories?.entries.map((entry) => entry.path)).toContain(
+						otherPath,
+					);
+					return otherPath;
+				},
+			});
+
+			// When gji go runs without a branch and the chooser toggles scope.
+			const result = await runGoCommand({
+				cwd: currentPath,
+				stderr: () => undefined,
+				stdout: (chunk) => stdout.push(chunk),
+			});
+
+			// Then it navigates to the selected worktree from the all-repositories scope.
+			expect(result).toBe(0);
+			expect(stdout.join("").trim()).toBe(otherPath);
+		} finally {
+			if (originalConfigDir === undefined) {
+				delete process.env.GJI_CONFIG_DIR;
+			} else {
+				process.env.GJI_CONFIG_DIR = originalConfigDir;
+			}
+		}
 	});
 
 	it("writes the selected worktree to the shell output file without printing it", async () => {
