@@ -139,6 +139,9 @@ gji go teammate-branch            # open an existing local or remote branch
 gji go -                          # return to the previous worktree
 gji go --root                     # return to the main repository checkout
 gji root                          # jump to repo root
+gji warp repo-a/main              # compatibility spelling for cross-repo navigation
+gji back                          # return through navigation history
+gji history                       # inspect recent navigation
 
 # with no branch, the chooser starts in the current repo; press Tab for all repos
 
@@ -236,9 +239,14 @@ path=$(gji root --print)
 
 | Command | Description |
 |---|---|
-| `gji new [branch] [--from-current] [--detached] [--open] [--editor <cli>] [--json]` | create branch + worktree, optionally based on the current worktree |
+| `gji new [branch] [--from-current] [--detached] [--take] [--copy] [--open] [--editor <cli>] [--dry-run] [--json]` | create branch + worktree, optionally carrying uncommitted changes |
+| `gji done [branch] [--force] [--keep-branch] [--json]` | safely finish a linked worktree and return |
+| `gji undo [id] [--list] [--json]` | restore a journaled cleanup without overwriting work |
 | `gji pr <ref> [--json]` | fetch PR ref, create worktree, cd in |
 | `gji pr open [branch|#N] [--select]` | open the current worktree PR, or choose a linked worktree with `--select` |
+| `gji back [n] [--print]` | return to a previous worktree from navigation history |
+| `gji history [--json]` | show navigation history |
+| `gji warp [branch] [--print] [--json]` | compatibility spelling for cross-repository navigation |
 | `gji open [branch] [--select] [--editor <cli>] [--save] [--workspace]` | open the current or selected worktree in an editor |
 | `gji go [branch] [--root] [--print] [--json]` | resolve and jump to a worktree, branch, remote, or PR |
 | `gji root [--print]` | jump to the main repo root |
@@ -246,13 +254,18 @@ path=$(gji root --print)
 | `gji ls [--compact] [--json]` | list active worktrees |
 | `gji sync [--all]` | fetch and rebase worktrees onto default branch |
 | `gji sync-files [list\|add\|remove] [paths...]` | manage local files copied into new worktrees |
-| `gji clean [--stale] [--force] [--json]` | interactively prune linked worktrees |
-| `gji remove [branch] [--force] [--json]` | remove a worktree and its branch |
+| `gji clean [--stale] [--force] [--dry-run] [--json]` | interactively prune linked worktrees |
+| `gji remove [branch] [--force] [--dry-run] [--json]` | remove a worktree and its branch |
 | `gji trigger-hook <hook>` | run a hook in the current worktree |
 | `gji config [get\|set\|unset] [key] [value]` | manage global defaults |
 | `gji init [shell]` | interactively set up onboarding, or print/install a shell wrapper |
 | `gji doctor [--json] [--fix] [--yes]` | check installation and configuration health; optionally remove stale repository entries |
 | `gji completion [shell]` | print shell completion definitions |
+
+The repository registry records projects that gji has visited so `go`, `warp`,
+and the chooser can resolve worktrees across repositories. It is advisory
+metadata: missing paths are skipped and `gji doctor --fix` can remove stale
+entries.
 
 ## Configuration
 

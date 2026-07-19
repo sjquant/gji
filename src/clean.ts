@@ -9,6 +9,7 @@ import {
 } from "./git.js";
 import { isHeadless } from "./headless.js";
 import type { WorktreeEntry } from "./repo.js";
+import { recordUndoOperation } from "./undo.js";
 import {
 	formatLastCommit,
 	formatUpstreamState,
@@ -179,6 +180,15 @@ export function createCleanCommand(
 
 		const removedWorktrees: WorktreeEntry[] = [];
 		const failures: CleanFailure[] = [];
+		await recordUndoOperation(
+			"clean",
+			repository.repoRoot,
+			selectedWorktrees,
+		).catch((error) =>
+			options.stderr(
+				`Warning: could not write undo journal: ${toMessage(error)}\n`,
+			),
+		);
 
 		for (const worktree of selectedWorktrees) {
 			if (
@@ -282,6 +292,7 @@ export function createCleanCommand(
 		} else if (failures.length > 0) {
 			reportCleanFailures(failures, options.stderr);
 		} else {
+			options.stderr("undo: gji undo\n");
 			options.stdout(`${repository.repoRoot}\n`);
 		}
 

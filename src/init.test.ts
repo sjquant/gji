@@ -214,7 +214,7 @@ describe("gji init", () => {
 
 		// Then every wrapped command scans all arguments before using path handoff.
 		expect(result.exitCode).toBe(0);
-		expect(output.match(/for arg do/g)).toHaveLength(7);
+		expect(output.match(/for arg do/g)).toHaveLength(8);
 		expect(output).toContain(
 			'if [ "$arg" = "--help" ] || [ "$arg" = "-h" ] || [ "$arg" = "--json" ]; then',
 		);
@@ -714,6 +714,31 @@ function gji --wraps gji --description 'gji shell integration'
         set -l output_file (mktemp -t gji-remove.XXXXXX)
         or return 1
         env GJI_REMOVE_OUTPUT_FILE=$output_file command gji remove $argv
+        or begin
+            set -l status_code $status
+            rm -f $output_file
+            return $status_code
+        end
+        set -l target (cat $output_file)
+        rm -f $output_file
+        cd $target
+        return $status
+    end
+
+    if test (count $argv) -gt 0; and test $argv[1] = done
+        set -e argv[1]
+        if test (count $argv) -gt 0
+            for arg in $argv
+                if test $arg = --help; or test $arg = -h; or test $arg = --json
+                    command gji done $argv
+                    return $status
+                end
+            end
+        end
+
+        set -l output_file (mktemp -t gji-done.XXXXXX)
+        or return 1
+        env GJI_DONE_OUTPUT_FILE=$output_file command gji done $argv
         or begin
             set -l status_code $status
             rm -f $output_file

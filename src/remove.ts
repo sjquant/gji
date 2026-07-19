@@ -7,6 +7,7 @@ import { isHeadless } from "./headless.js";
 import { extractHooks, runHook } from "./hooks.js";
 import type { WorktreeEntry } from "./repo.js";
 import { writeShellOutput } from "./shell-handoff.js";
+import { recordUndoOperation } from "./undo.js";
 import {
 	deleteBranch,
 	forceDeleteBranch,
@@ -149,6 +150,12 @@ export function createRemoveCommand(
 			options.stderr,
 		);
 		const hooks = extractHooks(config);
+		await recordUndoOperation("remove", repository.repoRoot, [worktree]).catch(
+			(error) =>
+				options.stderr(
+					`Warning: could not write undo journal: ${toMessage(error)}\n`,
+				),
+		);
 		await runHook(
 			hooks["before-remove"],
 			worktree.path,
@@ -218,6 +225,7 @@ export function createRemoveCommand(
 				`${JSON.stringify({ branch: worktree.branch, path: worktree.path, deleted: true }, null, 2)}\n`,
 			);
 		} else {
+			options.stderr("undo: gji undo\n");
 			await writeOutput(repository.repoRoot, options.stdout);
 		}
 

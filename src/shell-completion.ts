@@ -6,6 +6,14 @@ const TOP_LEVEL_COMMANDS = [
 		description: "create a new branch or detached linked worktree",
 	},
 	{
+		name: "done",
+		description: "finish the current linked worktree and return safely",
+	},
+	{
+		name: "undo",
+		description: "restore the most recent destructive worktree operation",
+	},
+	{
 		name: "init",
 		description:
 			"set up shell integration interactively or print a shell wrapper",
@@ -149,6 +157,12 @@ _gji_completion() {
   case "$command_name" in
     new)
       COMPREPLY=( $(compgen -W "--detached --from-current --force --open --editor --dry-run --json --help" -- "$cur") )
+      ;;
+    done)
+      COMPREPLY=( $(compgen -W "--force --keep-branch --json --help" -- "$cur") )
+      ;;
+    undo)
+      COMPREPLY=( $(compgen -W "--list --json --help" -- "$cur") )
       ;;
     init)
       COMPREPLY=( $(compgen -W "${shells} --write --json --help" -- "$cur") )
@@ -389,6 +403,11 @@ function __gji_should_complete_config_key
 end
 
 complete -c gji -f
+complete -c gji -n '__fish_seen_subcommand_from done' -l force -d 'remove dirty or unmerged worktrees without prompting'
+complete -c gji -n '__fish_seen_subcommand_from done' -l keep-branch -d 'remove the worktree but preserve its branch'
+complete -c gji -n '__fish_seen_subcommand_from done' -l json -d 'emit JSON on success or error instead of human-readable output'
+complete -c gji -n '__fish_seen_subcommand_from undo' -l list -d 'list recoverable operations'
+complete -c gji -n '__fish_seen_subcommand_from undo' -l json -d 'emit JSON on success or error instead of human-readable output'
 ${commandLines}
 
 complete -c gji -n '__fish_seen_subcommand_from new' -l detached -d 'create a detached worktree without a branch'
@@ -553,6 +572,12 @@ fi
 case "\${words[2]}" in
   new)
     _arguments '--detached[create a detached worktree without a branch]' '--from-current[base the new branch on the current worktree instead of the main worktree]' '--force[remove and recreate the worktree if the target path already exists]' '--open[open the new worktree in an editor after creation]' '--editor[editor CLI to use with --open (code, cursor, zed, …)]:editor:' '--dry-run[show what would be created without executing any git commands or writing files]' '--json[emit JSON on success or error instead of human-readable output]' '2:branch: '
+    ;;
+  done)
+    _arguments '--force[remove dirty or unmerged worktrees without prompting]' '--keep-branch[remove the worktree but preserve its branch]' '--json[emit JSON on success or error instead of human-readable output]' '2:branch: '
+    ;;
+  undo)
+    _arguments '--list[list recoverable operations]' '--json[emit JSON on success or error instead of human-readable output]' '2:id: '
     ;;
   init)
     _arguments '--write[write the integration to the shell config file]' '--json[emit a JSON error in non-interactive mode]' '2:shell:(${shells})'

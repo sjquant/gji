@@ -16,7 +16,9 @@ image: /img/social-card.png
 
 | Command | What it does |
 | --- | --- |
-| `gji new [branch] [--from-current] [--detached] [--open] [--editor <cli>] [--json]` | Create a branch and worktree, optionally based on the current worktree. |
+| `gji new [branch] [--from-current] [--detached] [--take] [--copy] [--open] [--editor <cli>] [--dry-run] [--json]` | Create a branch and worktree, optionally carrying uncommitted changes. |
+| `gji done [branch] [--force] [--keep-branch] [--json]` | Safely finish a linked worktree and return. |
+| `gji undo [id] [--list] [--json]` | Restore a journaled cleanup without overwriting work. |
 | `gji pr <ref> [--json]` | Fetch a pull request ref and open it in a dedicated worktree. |
 | `gji pr open [branch|#N] [--select]` | Open the current worktree PR, or choose a linked worktree with `--select`. |
 | `gji go [branch] [--root] [--print] [--json]` | Resolve and jump to a worktree, branch, remote, or PR. |
@@ -29,12 +31,13 @@ image: /img/social-card.png
 | `gji ls [--compact] [--json]` | Show detailed or compact worktree lists. |
 | `gji sync [--all]` | Fetch and rebase worktrees onto the default branch. |
 | `gji sync-files [--json] [list\|add\|remove] [paths...]` | Manage local files copied into new worktrees. |
-| `gji clean [--stale] [--force] [--json]` | Interactively prune linked worktrees. |
-| `gji remove [branch] [--force] [--json]` | Remove a worktree and its branch. |
+| `gji clean [--stale] [--force] [--dry-run] [--json]` | Interactively prune linked worktrees. |
+| `gji remove [branch] [--force] [--dry-run] [--json]` | Remove a worktree and its branch. |
 | `gji trigger-hook <hook>` | Re-run a configured hook in the current worktree. |
 | `gji config [get\|set\|unset] [key] [value]` | Read and update configuration values. |
 | `gji init [shell]` | Interactively set up shell integration, completion, and an editor; with a shell argument, print or install the wrapper. |
 | `gji doctor [--json] [--fix] [--yes]` | Check installation and configuration health; optionally remove stale repository entries. |
+| `gji completion [shell]` | Print shell completion definitions. |
 
 ## Command groups
 

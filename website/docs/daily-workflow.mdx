@@ -42,6 +42,13 @@ When starting a branch from work already committed in the current worktree, use 
 gji new feature/auth-tests --from-current
 ```
 
+Move in-progress changes into a new branch without a manual stash:
+
+```bash
+gji new feature/auth-take --take
+gji new feature/auth-take-copy --take --copy
+```
+
 ## Open a pull request in isolation
 
 ```bash
@@ -113,6 +120,8 @@ gji back
 gji sync
 gji status
 gji remove feature/dark-mode
+gji done
+gji undo
 ```
 
 The main point is that each task keeps its own files, dependencies, and terminal context.

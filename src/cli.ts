@@ -7,6 +7,7 @@ import { runCleanCommand } from "./clean.js";
 import { runCompletionCommand } from "./completion.js";
 import { runConfigCommand } from "./config-command.js";
 import { runDoctorCommand } from "./doctor.js";
+import { runDoneCommand } from "./done.js";
 import { runGoCommand } from "./go.js";
 import { isHeadless } from "./headless.js";
 import { runHistoryCommand } from "./history-command.js";
@@ -27,6 +28,7 @@ import { runHookCommand } from "./run-hook.js";
 import { runStatusCommand } from "./status.js";
 import { runSyncCommand } from "./sync.js";
 import { runSyncFilesCommand } from "./sync-files-command.js";
+import { runUndoCommand } from "./undo.js";
 import { runWarpCommand } from "./warp.js";
 
 interface PackageMetadata {
@@ -216,6 +218,11 @@ function registerCommands(program: Command): void {
 			"--from-current",
 			"base the new branch on the current worktree instead of the main worktree (cannot be combined with --detached)",
 		)
+		.option("--take", "move current uncommitted changes into the new worktree")
+		.option(
+			"--copy",
+			"copy current uncommitted changes instead of moving them (requires --take)",
+		)
 		.option("--open", "open the new worktree in an editor after creation")
 		.option(
 			"--editor <cli>",
@@ -230,6 +237,26 @@ function registerCommands(program: Command): void {
 			"emit JSON on success or error instead of human-readable output",
 		)
 		.action(notImplemented("new"));
+
+	program
+		.command("done [branch]")
+		.description("finish the current linked worktree and return safely")
+		.option("--force", "remove dirty or unmerged worktrees without prompting")
+		.option("--keep-branch", "remove the worktree but preserve its branch")
+		.option(
+			"--json",
+			"emit JSON on success or error instead of human-readable output",
+		)
+		.action(notImplemented("done"));
+	program
+		.command("undo [id]")
+		.description("restore the most recent destructive worktree operation")
+		.option("--list", "list recoverable operations")
+		.option(
+			"--json",
+			"emit JSON on success or error instead of human-readable output",
+		)
+		.action(notImplemented("undo"));
 
 	program
 		.command("init [shell]")
@@ -454,6 +481,7 @@ function attachCommandActions(
 			async (
 				branch: string | undefined,
 				commandOptions: {
+					copy?: boolean;
 					detached?: boolean;
 					dryRun?: boolean;
 					editor?: string;
@@ -461,11 +489,13 @@ function attachCommandActions(
 					force?: boolean;
 					json?: boolean;
 					open?: boolean;
+					take?: boolean;
 				},
 			) => {
 				const exitCode = await runNewCommand({
 					...options,
 					branch,
+					copy: commandOptions.copy,
 					detached: commandOptions.detached,
 					dryRun: commandOptions.dryRun,
 					editor: commandOptions.editor,
@@ -473,11 +503,54 @@ function attachCommandActions(
 					force: commandOptions.force,
 					json: commandOptions.json,
 					open: commandOptions.open,
+					take: commandOptions.take,
 				});
 
 				if (exitCode !== 0) {
 					throw commanderExit(exitCode);
 				}
+			},
+		);
+
+	program.commands
+		.find((command) => command.name() === "done")
+		?.action(
+			async (
+				branch: string | undefined,
+				commandOptions: {
+					force?: boolean;
+					json?: boolean;
+					keepBranch?: boolean;
+				},
+			) => {
+				const exitCode = await runDoneCommand({
+					branch,
+					cwd: options.cwd,
+					force: commandOptions.force,
+					json: commandOptions.json,
+					keepBranch: commandOptions.keepBranch,
+					stderr: options.stderr,
+					stdout: options.stdout,
+				});
+				if (exitCode !== 0) throw commanderExit(exitCode);
+			},
+		);
+	program.commands
+		.find((command) => command.name() === "undo")
+		?.action(
+			async (
+				id: string | undefined,
+				commandOptions: { json?: boolean; list?: boolean },
+			) => {
+				const exitCode = await runUndoCommand({
+					cwd: options.cwd,
+					id,
+					json: commandOptions.json,
+					list: commandOptions.list,
+					stderr: options.stderr,
+					stdout: options.stdout,
+				});
+				if (exitCode !== 0) throw commanderExit(exitCode);
 			},
 		);
 
