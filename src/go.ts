@@ -2,7 +2,8 @@ import { basename } from "node:path";
 
 import { confirm, isCancel } from "@clack/prompts";
 import { runBackCommand } from "./back.js";
-import { loadEffectiveConfig, resolveConfigString } from "./config.js";
+import { loadEffectiveConfig } from "./config.js";
+import { type GoBranchResolution, resolveGoBranch } from "./go-resolver.js";
 import { isHeadless } from "./headless.js";
 import { recordWorktreeUsage } from "./history.js";
 import { extractHooks, runHook } from "./hooks.js";
@@ -11,32 +12,23 @@ import {
 	createNavigationTarget,
 } from "./navigation-output.js";
 import { runNewCommand } from "./new.js";
-import { parsePrInput, runPrCommand } from "./pr.js";
+import { runPrCommand } from "./pr.js";
 import {
 	detectRepository,
-	getRepositoryRemoteUrl,
-	hasLocalBranch,
-	hasRemoteBranch,
 	listWorktrees,
 	type RepositoryContext,
 	type WorktreeEntry,
 } from "./repo.js";
 import { writeShellOutput } from "./shell-handoff.js";
 import {
-	listRegisteredWorktreeSources,
-	type WarpWorktreeSource,
-} from "./warp.js";
-import {
 	buildWorktreePromptEntries,
 	promptForSingleWorktree,
 	type QueryWorktreePullRequests,
-	resolveExactWorktreeQueryMatches,
-	resolveWorktreeQuery,
-	resolveWorktreeQueryMatches,
 	type WorktreePromptEntry,
 	type WorktreePromptScope,
-	type WorktreePromptSource,
 } from "./worktree-picker.js";
+import type { WorktreeSource } from "./worktree-source.js";
+import { listRegisteredWorktreeSources } from "./worktree-sources.js";
 
 export interface GoCommandOptions {
 	branch?: string;
@@ -108,9 +100,9 @@ export function createGoCommand(
 			}
 
 			let skippedRegisteredRepos = 0;
-			let registeredSources: WarpWorktreeSource[] | null = null;
+			let registeredSources: WorktreeSource[] | null = null;
 			let promptSources = currentSources;
-			const loadAllSources = async (): Promise<WorktreePromptSource[]> => {
+			const loadAllSources = async (): Promise<WorktreeSource[]> => {
 				if (registeredSources === null) {
 					registeredSources = await listRegisteredWorktreeSources(
 						options.cwd,
@@ -146,7 +138,7 @@ export function createGoCommand(
 						promptSources = nextSources;
 						return {
 							entries: await buildWorktreePromptEntries(promptSources, {
-								includeMetadata: currentRepositoryScope,
+								metadata: currentRepositoryScope ? "full" : "fast",
 								queryPullRequests: dependencies.queryPullRequests,
 							}),
 							label: currentRepositoryScope
@@ -160,6 +152,7 @@ export function createGoCommand(
 				};
 			}
 			const promptEntries = await buildWorktreePromptEntries(promptSources, {
+				metadata: repository ? "full" : "fast",
 				queryPullRequests: dependencies.queryPullRequests,
 			});
 			const selectedPath = await prompt(promptEntries, scope);
@@ -178,69 +171,54 @@ export function createGoCommand(
 			);
 		}
 
-		const exactCurrentMatches = resolveExistingExactWorktreeMatches(
+		const resolution = await resolveGoBranch({
+			branch: options.branch,
+			configStderr: options.json ? undefined : options.stderr,
+			cwd: options.cwd,
 			currentSources,
-			options.branch,
+			repository,
+		});
+		return handleGoBranchResolution(
+			options,
+			resolution,
+			confirmBranchCreation,
+			prompt,
+			dependencies.queryPullRequests,
 		);
-		if (exactCurrentMatches.length === 1) {
+	};
+}
+
+export const runGoCommand = createGoCommand();
+
+async function handleGoBranchResolution(
+	options: GoCommandOptions,
+	resolution: GoBranchResolution,
+	confirmBranchCreation: GoCommandDependencies["confirmBranchCreation"],
+	prompt: GoCommandDependencies["promptForWorktree"],
+	queryPullRequests?: QueryWorktreePullRequests,
+): Promise<number> {
+	switch (resolution.kind) {
+		case "existing":
 			return navigateToExistingWorktree(
 				options,
-				exactCurrentMatches[0].worktree.path,
-				exactCurrentMatches[0].worktree,
+				resolution.source.worktree.path,
+				resolution.source.worktree,
 			);
-		}
-
-		let localBranch = false;
-		if (repository) {
-			localBranch = await hasLocalBranch(repository.repoRoot, options.branch);
-		}
-
-		const localMatch = localBranch
-			? null
-			: resolveWorktreeQuery(currentSources, options.branch);
-		if (localMatch) {
-			return navigateToExistingWorktree(
-				options,
-				localMatch.worktree.path,
-				localMatch.worktree,
-			);
-		}
-
-		let skippedRegisteredRepos = 0;
-		const registeredSources = await listRegisteredWorktreeSources(
-			options.cwd,
-			() => {
-				skippedRegisteredRepos++;
-			},
-		);
-		const crossRepoSources = registeredSources.filter(
-			(source) => source.repoRoot !== repository?.repoRoot,
-		);
-		const crossMatches = resolveExistingWorktreeMatches(
-			crossRepoSources,
-			options.branch,
-		);
-		if (crossMatches.length === 1) {
-			return navigateToExistingWorktree(
-				options,
-				crossMatches[0].worktree.path,
-				crossMatches[0].worktree,
-			);
-		}
-		if (crossMatches.length > 1) {
+		case "ambiguous": {
 			if (options.json || isHeadless() || options.print) {
-				return emitAmbiguousCrossRepoError(options, crossMatches);
+				return emitAmbiguousCrossRepoError(options, resolution.matches);
 			}
 
-			const candidates = await buildWorktreePromptEntries(crossMatches, {
-				queryPullRequests: dependencies.queryPullRequests,
+			const candidates = await buildWorktreePromptEntries(resolution.matches, {
+				metadata: "fast",
+				queryPullRequests,
 			});
 			const selectedPath = await prompt(candidates);
 			if (!selectedPath) {
 				options.stderr("Aborted\n");
 				return 1;
 			}
-			const selected = crossMatches.find(
+			const selected = resolution.matches.find(
 				(source) => source.worktree.path === selectedPath,
 			);
 			return navigateToExistingWorktree(
@@ -249,71 +227,16 @@ export function createGoCommand(
 				selected?.worktree,
 			);
 		}
-
-		if (!repository) {
-			if (parsePrInput(options.branch)) {
-				return emitError(
-					options,
-					"PR references must be resolved from inside a git repository",
-				);
-			}
-			if (registeredSources.length === 0) {
-				return emitNoRepositoryError(options, skippedRegisteredRepos > 0);
-			}
-			return emitNoMatchError(options, skippedRegisteredRepos > 0);
-		}
-
-		let remote: string | undefined;
-		let remoteBranch = false;
-		try {
-			const config = await loadEffectiveConfig(
-				repository.repoRoot,
-				undefined,
-				options.json ? undefined : options.stderr,
-			);
-			remote = resolveConfigString(config, "syncRemote") ?? "origin";
-			remoteBranch = await hasRemoteBranch(
-				repository.repoRoot,
-				remote,
-				options.branch,
-			);
-		} catch (error) {
-			return emitError(
-				options,
-				`could not load repository config: ${error instanceof Error ? error.message : String(error)}`,
-			);
-		}
-
-		if (localBranch) {
+		case "create":
 			return createExistingBranchWorktree(
 				options,
 				confirmBranchCreation,
-				repository,
-				options.branch,
-				"checkout",
+				resolution.repository,
+				resolution.branch,
+				resolution.mode,
+				resolution.remote,
 			);
-		}
-
-		if (remoteBranch) {
-			return createExistingBranchWorktree(
-				options,
-				confirmBranchCreation,
-				repository,
-				options.branch,
-				"track",
-				remote,
-			);
-		}
-
-		if (parsePrInput(options.branch)) {
-			if (
-				!(await isPullRequestForRepository(repository.repoRoot, options.branch))
-			) {
-				return emitError(
-					options,
-					"PR URL does not belong to this repository; run gji go from the matching checkout",
-				);
-			}
+		case "pull-request":
 			if (options.json || isHeadless() || options.print) {
 				return emitError(
 					options,
@@ -322,19 +245,20 @@ export function createGoCommand(
 			}
 
 			return runPrCommand({
-				cwd: repository.repoRoot,
-				number: options.branch,
+				cwd: resolution.repository.repoRoot,
+				number: resolution.input,
 				outputEnv: GO_OUTPUT_FILE_ENV,
 				stderr: options.stderr,
 				stdout: options.stdout,
 			});
-		}
-
-		return emitNoMatchError(options, skippedRegisteredRepos > 0);
-	};
+		case "no-repository":
+			return emitNoRepositoryError(options, resolution.staleRegisteredRepos);
+		case "no-match":
+			return emitNoMatchError(options, resolution.staleRegisteredRepos);
+		case "error":
+			return emitError(options, resolution.message);
+	}
 }
-
-export const runGoCommand = createGoCommand();
 
 async function readCurrentRepository(
 	cwd: string,
@@ -354,47 +278,19 @@ function toPromptSources(
 	repoRoot: string,
 	repoName: string,
 	worktrees: WorktreeEntry[],
-): WorktreePromptSource[] {
+): WorktreeSource[] {
 	return worktrees.map((worktree) => ({ repoName, repoRoot, worktree }));
 }
 
-function deduplicateSources(
-	sources: Array<WorktreePromptSource | WarpWorktreeSource>,
-): WorktreePromptSource[] {
+function deduplicateSources(sources: WorktreeSource[]): WorktreeSource[] {
 	const seen = new Set<string>();
-	const deduplicated: WorktreePromptSource[] = [];
+	const deduplicated: WorktreeSource[] = [];
 	for (const source of sources) {
 		if (seen.has(source.worktree.path)) continue;
 		seen.add(source.worktree.path);
 		deduplicated.push(source);
 	}
 	return deduplicated;
-}
-
-function resolveExistingExactWorktreeMatches(
-	sources: WorktreePromptSource[],
-	query: string,
-): WorktreePromptSource[] {
-	const exactMatches = resolveExactWorktreeQueryMatches(sources, query);
-	if (exactMatches.length > 0) return exactMatches;
-
-	const pullRequestNumber = parsePrInput(query);
-	return pullRequestNumber === null
-		? []
-		: resolveExactWorktreeQueryMatches(sources, `pr/${pullRequestNumber}`);
-}
-
-function resolveExistingWorktreeMatches(
-	sources: WorktreePromptSource[],
-	query: string,
-): WorktreePromptSource[] {
-	const matches = resolveWorktreeQueryMatches(sources, query);
-	if (matches.length > 0) return matches;
-
-	const pullRequestNumber = parsePrInput(query);
-	return pullRequestNumber === null
-		? []
-		: resolveWorktreeQueryMatches(sources, `pr/${pullRequestNumber}`);
 }
 
 async function createExistingBranchWorktree(
@@ -515,7 +411,7 @@ async function navigateToRepositoryRoot(
 
 function emitAmbiguousCrossRepoError(
 	options: GoCommandOptions,
-	matches: WorktreePromptSource[],
+	matches: WorktreeSource[],
 ): number {
 	const candidates = matches
 		.map(
@@ -590,54 +486,6 @@ async function defaultConfirmBranchCreation(branch: string): Promise<boolean> {
 		initialValue: true,
 	});
 	return !isCancel(choice) && choice;
-}
-
-async function isPullRequestForRepository(
-	repoRoot: string,
-	input: string,
-): Promise<boolean> {
-	if (/^\d+$/.test(input) || /^#\d+$/.test(input)) return true;
-
-	let pullRequestUrl: URL;
-	try {
-		pullRequestUrl = new URL(input);
-	} catch {
-		return true;
-	}
-
-	const remoteUrl = await getRepositoryRemoteUrl(repoRoot, "origin");
-	if (!remoteUrl) return true;
-
-	return (
-		normalizeRepositoryUrl(remoteUrl) ===
-		normalizeRepositoryUrl(pullRequestUrl.href)
-	);
-}
-
-function normalizeRepositoryUrl(value: string): string {
-	return normalizeRemoteUrl(value).replace(
-		/\/(?:pull|pull-requests|merge_requests)\/\d+(?:\/.*)?$/,
-		"",
-	);
-}
-
-function normalizeRemoteUrl(value: string): string {
-	const trimmed = value.trim();
-	const sshMatch = trimmed.match(/^(?:[^@]+@)?([^:]+):(.+)$/);
-	if (sshMatch && !trimmed.includes("://")) {
-		return `${sshMatch[1]}/${sshMatch[2]}`
-			.replace(/\.git$/, "")
-			.replace(/\/$/, "");
-	}
-
-	try {
-		const url = new URL(trimmed);
-		return `${url.host}${url.pathname}`
-			.replace(/\.git$/, "")
-			.replace(/\/$/, "");
-	} catch {
-		return trimmed.replace(/\.git$/, "").replace(/\/$/, "");
-	}
 }
 
 async function promptForWorktree(

@@ -73,7 +73,7 @@ describe("worktree picker search", () => {
 
 		// When fast prompt entries are built for the all-repositories scope.
 		const entries = await buildWorktreePromptEntries([source], {
-			includeMetadata: false,
+			metadata: "fast",
 			queryPullRequests: async () => {
 				branchQueryCount += 1;
 				return [];

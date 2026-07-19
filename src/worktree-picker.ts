@@ -14,14 +14,11 @@ import {
 	type UpstreamState,
 	type WorktreeInfo,
 } from "./worktree-info.js";
+import type { WorktreeSource } from "./worktree-source.js";
 
 const MAX_PULL_REQUEST_REPOSITORY_QUERY_CONCURRENCY = 4;
 
-export interface WorktreePromptSource {
-	repoRoot?: string;
-	repoName: string;
-	worktree: WorktreeEntry;
-}
+export type WorktreePromptSource = WorktreeSource;
 
 export interface WorktreePromptEntry extends WorktreeEntry {
 	group: "recent" | "other";
@@ -42,10 +39,12 @@ export type QueryRepositoryPullRequests = (
 ) => Promise<PullRequestInfo[]>;
 
 export interface BuildWorktreePromptEntriesDependencies {
-	includeMetadata?: boolean;
+	metadata?: WorktreeMetadataMode;
 	queryPullRequests?: QueryWorktreePullRequests;
 	queryRepositoryPullRequests?: QueryRepositoryPullRequests;
 }
+
+export type WorktreeMetadataMode = "full" | "fast";
 
 export interface WorktreePickerIO {
 	input?: Readable & {
@@ -75,10 +74,11 @@ interface SortableWorktreePromptEntry extends WorktreePromptEntry {
 }
 
 export async function buildWorktreePromptEntries(
-	sources: WorktreePromptSource[],
+	sources: WorktreeSource[],
 	dependencies: BuildWorktreePromptEntriesDependencies = {},
 ): Promise<WorktreePromptEntry[]> {
-	const includeMetadata = dependencies.includeMetadata ?? true;
+	const metadataMode = dependencies.metadata ?? "full";
+	const includeMetadata = metadataMode === "full";
 	const pullRequestQuery = createPullRequestQuery();
 	const queryPullRequests =
 		dependencies.queryPullRequests ?? pullRequestQuery.listOpenPullRequests;
@@ -142,16 +142,16 @@ function createUnhydratedWorktreeInfo(worktree: WorktreeEntry): WorktreeInfo {
 }
 
 export function resolveWorktreeQuery(
-	sources: WorktreePromptSource[],
+	sources: WorktreeSource[],
 	query: string,
-): WorktreePromptSource | null {
+): WorktreeSource | null {
 	return resolveWorktreeQueryMatches(sources, query)[0] ?? null;
 }
 
 export function resolveWorktreeQueryMatches(
-	sources: WorktreePromptSource[],
+	sources: WorktreeSource[],
 	query: string,
-): WorktreePromptSource[] {
+): WorktreeSource[] {
 	const normalizedQuery = normalizeQuery(query);
 	if (normalizedQuery === null) return [];
 
@@ -165,9 +165,9 @@ export function resolveWorktreeQueryMatches(
 }
 
 export function resolveExactWorktreeQueryMatches(
-	sources: WorktreePromptSource[],
+	sources: WorktreeSource[],
 	query: string,
-): WorktreePromptSource[] {
+): WorktreeSource[] {
 	const normalizedQuery = normalizeQuery(query);
 	if (normalizedQuery === null) return [];
 
@@ -184,9 +184,9 @@ export function resolveExactWorktreeQueryMatches(
 }
 
 function findWorktreePromptSourceMatches(
-	sources: WorktreePromptSource[],
+	sources: WorktreeSource[],
 	normalizedQuery: string,
-): { matchScore: number; source: WorktreePromptSource }[] {
+): { matchScore: number; source: WorktreeSource }[] {
 	return sources
 		.flatMap((source) => {
 			const matchScore = scoreWorktreeMatch(
@@ -203,7 +203,7 @@ function findWorktreePromptSourceMatches(
 }
 
 function isAmbiguousRepoOnlyQuery(
-	matches: { matchScore: number; source: WorktreePromptSource }[],
+	matches: { matchScore: number; source: WorktreeSource }[],
 	query: string,
 ): boolean {
 	if (matches[0]?.matchScore === 1000) return false;
@@ -248,8 +248,8 @@ export async function promptForMultipleWorktrees(
 }
 
 function compareQueryMatches(
-	a: { matchScore: number; source: WorktreePromptSource },
-	b: { matchScore: number; source: WorktreePromptSource },
+	a: { matchScore: number; source: WorktreeSource },
+	b: { matchScore: number; source: WorktreeSource },
 ): number {
 	if (a.matchScore !== b.matchScore) {
 		return b.matchScore - a.matchScore;
@@ -1275,7 +1275,7 @@ function buildPromptSearchText(worktree: WorktreePromptEntry): string {
 }
 
 function buildWorktreePromptEntry(
-	source: WorktreePromptSource,
+	source: WorktreeSource,
 	info: WorktreeInfo,
 	pullRequests: PullRequestInfo[],
 	lastUsedTimestamp: number | null,
@@ -1329,7 +1329,7 @@ function buildWorktreePromptEntry(
 }
 
 async function readSourcePullRequests(
-	source: WorktreePromptSource,
+	source: WorktreeSource,
 	queryPullRequests: QueryWorktreePullRequests,
 	pullRequestsByRepository: Map<string, PullRequestInfo[]> | null,
 ): Promise<PullRequestInfo[]> {
@@ -1360,7 +1360,7 @@ async function readSourcePullRequests(
 }
 
 async function readRepositoryPullRequests(
-	sources: WorktreePromptSource[],
+	sources: WorktreeSource[],
 	queryPullRequests: QueryRepositoryPullRequests,
 ): Promise<Map<string, PullRequestInfo[]>> {
 	const repoRoots = [

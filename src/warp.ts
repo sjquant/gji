@@ -5,8 +5,8 @@ import {
 	createNavigationTarget,
 	type NavigationRepository,
 } from "./navigation-output.js";
-import { detectRepository, listWorktrees, type WorktreeEntry } from "./repo.js";
-import { loadRegistry, type RepoRegistryEntry } from "./repo-registry.js";
+import { detectRepository } from "./repo.js";
+import { loadRegistry } from "./repo-registry.js";
 import { writeShellOutput } from "./shell-handoff.js";
 import {
 	buildWorktreePromptEntries,
@@ -15,6 +15,7 @@ import {
 	resolveWorktreeQuery,
 	type WorktreePromptEntry,
 } from "./worktree-picker.js";
+import { listRegisteredWorktreeSources } from "./worktree-sources.js";
 
 const WARP_OUTPUT_FILE_ENV = "GJI_WARP_OUTPUT_FILE";
 
@@ -25,12 +26,6 @@ export interface WarpCommandOptions {
 	queryPullRequests?: QueryWorktreePullRequests;
 	stderr: (chunk: string) => void;
 	stdout: (chunk: string) => void;
-}
-
-export interface WarpWorktreeSource {
-	repoRoot: string;
-	repoName: string;
-	worktree: WorktreeEntry;
 }
 
 export async function runWarpCommand(
@@ -81,43 +76,6 @@ export interface WarpTarget {
 	branch: string | null;
 	path: string;
 	repository: NavigationRepository;
-}
-
-export async function listRegisteredWorktreeSources(
-	cwd: string,
-	onSkipped?: (entry: RepoRegistryEntry) => void,
-): Promise<WarpWorktreeSource[]> {
-	const registry = await loadRegistry();
-	const currentRoot = await detectRepository(cwd)
-		.then((repository) => repository.currentRoot)
-		.catch(() => null);
-	const results = await Promise.allSettled(
-		registry.map(async (entry) => {
-			const worktrees = await listWorktrees(entry.path);
-			return { repoName: entry.name, repoRoot: entry.path, worktrees };
-		}),
-	);
-
-	const allItems: WarpWorktreeSource[] = [];
-	for (const [index, result] of results.entries()) {
-		if (result.status === "rejected") {
-			onSkipped?.(registry[index]);
-			continue;
-		}
-		const { repoName, repoRoot, worktrees } = result.value;
-		for (const worktree of worktrees) {
-			allItems.push({
-				repoRoot,
-				repoName,
-				worktree: {
-					...worktree,
-					isCurrent: currentRoot !== null && worktree.path === currentRoot,
-				},
-			});
-		}
-	}
-
-	return allItems;
 }
 
 export async function resolveWarpTarget(options: {
@@ -195,7 +153,7 @@ export async function resolveWarpTarget(options: {
 	}
 
 	const promptEntries = await buildWorktreePromptEntries(promptSources, {
-		includeMetadata: false,
+		metadata: "fast",
 		queryPullRequests: options.queryPullRequests,
 	});
 	const path = await promptForWarpTarget(promptEntries);

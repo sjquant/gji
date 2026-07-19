@@ -205,6 +205,41 @@ describe("gji go", () => {
 		expect(stderr.join("")).toContain("register it");
 	});
 
+	it("requires a repository for pull request references", async () => {
+		// Given a registered repository with a pull request worktree and an external cwd.
+		const originalConfigDir = process.env.GJI_CONFIG_DIR;
+		process.env.GJI_CONFIG_DIR = await mkdtemp(
+			join(tmpdir(), "gji-go-pr-outside-"),
+		);
+		const repoRoot = await createRepository();
+		await addLinkedWorktree(repoRoot, "pr/123");
+		await registerRepo(repoRoot);
+		const cwd = await mkdtemp(join(tmpdir(), "gji-go-pr-cwd-"));
+		const stderr: string[] = [];
+
+		try {
+			// When gji go receives a pull request reference outside Git.
+			const result = await createGoCommand()({
+				branch: "123",
+				cwd,
+				stderr: (chunk) => stderr.push(chunk),
+				stdout: () => undefined,
+			});
+
+			// Then it rejects the reference instead of navigating a registered worktree.
+			expect(result).toBe(1);
+			expect(stderr.join("")).toContain(
+				"PR references must be resolved from inside a git repository",
+			);
+		} finally {
+			if (originalConfigDir === undefined) {
+				delete process.env.GJI_CONFIG_DIR;
+			} else {
+				process.env.GJI_CONFIG_DIR = originalConfigDir;
+			}
+		}
+	});
+
 	it("adds a doctor hint when registered repositories are stale", async () => {
 		// Given a registry entry whose repository path has been removed.
 		const staleRepo = await createRepository();
@@ -348,6 +383,90 @@ describe("gji go", () => {
 		);
 	});
 
+	it("prefers an exact numeric branch over a pull request worktree", async () => {
+		// Given a local numeric branch and a pr/123 worktree.
+		const repoRoot = await createRepository();
+		await addLinkedWorktree(repoRoot, "pr/123");
+		await runGit(repoRoot, ["branch", "123"]);
+		const stdout: string[] = [];
+		const runGoCommand = createGoCommand({
+			confirmBranchCreation: async () => true,
+		});
+
+		// When gji go resolves the numeric branch.
+		const result = await runGoCommand({
+			branch: "123",
+			cwd: repoRoot,
+			stderr: () => undefined,
+			stdout: (chunk) => stdout.push(chunk),
+		});
+
+		// Then it creates the exact branch worktree instead of selecting pr/123.
+		expect(result).toBe(0);
+		expect(stdout.join("")).toBe(`${resolveWorktreePath(repoRoot, "123")}\n`);
+	});
+
+	it("prefers the current pull request worktree over a registered duplicate", async () => {
+		// Given pr/123 worktrees in the current and another registered repository.
+		const originalConfigDir = process.env.GJI_CONFIG_DIR;
+		process.env.GJI_CONFIG_DIR = await mkdtemp(
+			join(tmpdir(), "gji-go-pr-current-"),
+		);
+		const currentRepo = await createRepository();
+		const otherRepo = await createRepository();
+		const currentPath = await addLinkedWorktree(currentRepo, "pr/123");
+		await addLinkedWorktree(otherRepo, "pr/123");
+		await registerRepo(otherRepo);
+		const stdout: string[] = [];
+
+		try {
+			// When gji go resolves the numeric pull request reference.
+			const result = await createGoCommand()({
+				branch: "123",
+				cwd: currentRepo,
+				stderr: () => undefined,
+				stdout: (chunk) => stdout.push(chunk),
+			});
+
+			// Then it navigates to the current repository's worktree.
+			expect(result).toBe(0);
+			expect(stdout.join("")).toBe(`${currentPath}\n`);
+		} finally {
+			if (originalConfigDir === undefined) {
+				delete process.env.GJI_CONFIG_DIR;
+			} else {
+				process.env.GJI_CONFIG_DIR = originalConfigDir;
+			}
+		}
+	});
+
+	it("prefers an exact numeric remote branch over a pull request worktree", async () => {
+		// Given a remote-only numeric branch and a pr/123 worktree.
+		const { repoRoot } = await createRepositoryWithOrigin();
+		await addLinkedWorktree(repoRoot, "pr/123");
+		await runGit(repoRoot, ["branch", "123"]);
+		await runGit(repoRoot, ["checkout", "123"]);
+		await runGit(repoRoot, ["push", "-u", "origin", "123"]);
+		await runGit(repoRoot, ["checkout", "-"]);
+		await runGit(repoRoot, ["branch", "-D", "123"]);
+		const stdout: string[] = [];
+		const runGoCommand = createGoCommand({
+			confirmBranchCreation: async () => true,
+		});
+
+		// When gji go resolves the remote-only numeric branch.
+		const result = await runGoCommand({
+			branch: "123",
+			cwd: repoRoot,
+			stderr: () => undefined,
+			stdout: (chunk) => stdout.push(chunk),
+		});
+
+		// Then it creates the remote branch worktree instead of selecting pr/123.
+		expect(result).toBe(0);
+		expect(stdout.join("")).toBe(`${resolveWorktreePath(repoRoot, "123")}\n`);
+	});
+
 	it("uses go - as the previous-worktree toggle", async () => {
 		// Given two worktrees with the second one most recently visited.
 		const originalConfigDir = process.env.GJI_CONFIG_DIR;
@@ -454,6 +573,116 @@ describe("gji go", () => {
 		}
 	});
 
+	it("prefers a registered worktree over an unlinked local branch", async () => {
+		// Given an unlinked local branch and a linked worktree in another registered repository.
+		const originalConfigDir = process.env.GJI_CONFIG_DIR;
+		process.env.GJI_CONFIG_DIR = await mkdtemp(
+			join(tmpdir(), "gji-go-cross-local-"),
+		);
+		const currentRepo = await createRepository();
+		const otherRepo = await createRepository();
+		const branchName = "feature/go-cross-local";
+		await runGit(currentRepo, ["branch", branchName]);
+		const targetPath = await addLinkedWorktree(otherRepo, branchName);
+		await registerRepo(otherRepo);
+		const stdout: string[] = [];
+
+		try {
+			// When gji go resolves the branch from the current repository.
+			const result = await runCli(["go", "--print", branchName], {
+				cwd: currentRepo,
+				stdout: (chunk) => stdout.push(chunk),
+				stderr: () => undefined,
+			});
+
+			// Then it navigates to the existing registered worktree.
+			expect(result.exitCode).toBe(0);
+			expect(stdout.join("")).toBe(`${targetPath}\n`);
+		} finally {
+			if (originalConfigDir === undefined) {
+				delete process.env.GJI_CONFIG_DIR;
+			} else {
+				process.env.GJI_CONFIG_DIR = originalConfigDir;
+			}
+		}
+	});
+
+	it("prefers an exact local numeric branch over a registered pull request worktree", async () => {
+		// Given a local numeric branch and pr/123 in another registered repository.
+		const originalConfigDir = process.env.GJI_CONFIG_DIR;
+		process.env.GJI_CONFIG_DIR = await mkdtemp(
+			join(tmpdir(), "gji-go-cross-numeric-"),
+		);
+		const currentRepo = await createRepository();
+		const otherRepo = await createRepository();
+		await runGit(currentRepo, ["branch", "123"]);
+		await addLinkedWorktree(otherRepo, "pr/123");
+		await registerRepo(otherRepo);
+		const stdout: string[] = [];
+		const runGoCommand = createGoCommand({
+			confirmBranchCreation: async () => true,
+		});
+
+		try {
+			// When gji go resolves the numeric branch from the current repository.
+			const result = await runGoCommand({
+				branch: "123",
+				cwd: currentRepo,
+				stderr: () => undefined,
+				stdout: (chunk) => stdout.push(chunk),
+			});
+
+			// Then it creates the local branch worktree instead of selecting pr/123.
+			expect(result).toBe(0);
+			expect(stdout.join("")).toBe(
+				`${resolveWorktreePath(currentRepo, "123")}\n`,
+			);
+		} finally {
+			if (originalConfigDir === undefined) {
+				delete process.env.GJI_CONFIG_DIR;
+			} else {
+				process.env.GJI_CONFIG_DIR = originalConfigDir;
+			}
+		}
+	});
+
+	it("prefers a registered worktree over a remote-only branch", async () => {
+		// Given a remote-only branch and a linked worktree in another registered repository.
+		const originalConfigDir = process.env.GJI_CONFIG_DIR;
+		process.env.GJI_CONFIG_DIR = await mkdtemp(
+			join(tmpdir(), "gji-go-cross-remote-"),
+		);
+		const { repoRoot: currentRepo } = await createRepositoryWithOrigin();
+		const otherRepo = await createRepository();
+		const branchName = "feature/go-cross-remote";
+		await runGit(currentRepo, ["checkout", "-b", branchName]);
+		await runGit(currentRepo, ["push", "-u", "origin", branchName]);
+		await runGit(currentRepo, ["checkout", "-"]);
+		await runGit(currentRepo, ["branch", "-D", branchName]);
+		const targetPath = await addLinkedWorktree(otherRepo, branchName);
+		await registerRepo(otherRepo);
+		const stdout: string[] = [];
+
+		try {
+			// When gji go resolves the branch from the current repository.
+			const result = await runCli(["go", "--print", branchName], {
+				cwd: currentRepo,
+				stdout: (chunk) => stdout.push(chunk),
+				stderr: () => undefined,
+			});
+
+			// Then it navigates to the existing registered worktree.
+			expect(result.exitCode).toBe(0);
+			expect(stdout.join("")).toBe(`${targetPath}\n`);
+		} finally {
+			if (originalConfigDir === undefined) {
+				delete process.env.GJI_CONFIG_DIR;
+			} else {
+				process.env.GJI_CONFIG_DIR = originalConfigDir;
+			}
+		}
+	});
+
 	it("reports cross-repository ambiguity in headless mode", async () => {
 		// Given two registered repositories with the same matching branch.
 		const originalConfigDir = process.env.GJI_CONFIG_DIR;
@@ -517,6 +746,33 @@ describe("gji go", () => {
 		expect(stderr.join("")).toContain("does not belong to this repository");
 	});
 
+	it("does not treat a foreign PR URL as a local PR worktree", async () => {
+		// Given a local pr/123 worktree and a different repository origin.
+		const repoRoot = await createRepository();
+		await runGit(repoRoot, [
+			"remote",
+			"add",
+			"origin",
+			"https://github.com/example/project.git",
+		]);
+		await addLinkedWorktree(repoRoot, "pr/123");
+		const stderr: string[] = [];
+
+		// When gji go receives a foreign PR URL with the same number.
+		const result = await runCli(
+			["go", "https://github.com/other/project/pull/123"],
+			{
+				cwd: repoRoot,
+				stderr: (chunk) => stderr.push(chunk),
+				stdout: () => undefined,
+			},
+		);
+
+		// Then it rejects the URL instead of navigating to pr/123.
+		expect(result.exitCode).toBe(1);
+		expect(stderr.join("")).toContain("does not belong to this repository");
+	});
+
 	it("resolves a same-repository PR URL to an existing PR worktree", async () => {
 		// Given an origin URL and an existing pr/123 worktree.
 		const repoRoot = await createRepository();
@@ -539,6 +795,43 @@ describe("gji go", () => {
 		);
 
 		// Then it returns the existing destination without fetching or creating anything.
+		expect(result.exitCode).toBe(0);
+		expect(JSON.parse(stdout.join(""))).toEqual({
+			branch: "pr/123",
+			path: worktreePath,
+			repository: {
+				name: basename(repoRoot),
+				root: repoRoot,
+			},
+		});
+	});
+
+	it("resolves a same-repository GitLab merge request URL to an existing worktree", async () => {
+		// Given a GitLab origin URL and an existing pr/123 worktree.
+		const repoRoot = await createRepository();
+		await runGit(repoRoot, [
+			"remote",
+			"add",
+			"origin",
+			"https://gitlab.com/example/project.git",
+		]);
+		const worktreePath = await addLinkedWorktree(repoRoot, "pr/123");
+		const stdout: string[] = [];
+
+		// When gji go --json receives the matching merge request URL.
+		const result = await runCli(
+			[
+				"go",
+				"--json",
+				"https://gitlab.com/example/project/-/merge_requests/123",
+			],
+			{
+				cwd: repoRoot,
+				stdout: (chunk) => stdout.push(chunk),
+			},
+		);
+
+		// Then it returns the existing merge request worktree.
 		expect(result.exitCode).toBe(0);
 		expect(JSON.parse(stdout.join(""))).toEqual({
 			branch: "pr/123",
