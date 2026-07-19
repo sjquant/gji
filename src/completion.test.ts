@@ -70,8 +70,11 @@ describe("gji completion", () => {
 		expect(stdout.join("")).toContain(
 			"'--select[choose a worktree with the interactive selector]'",
 		);
-		expect(stdout.join("")).toContain(
-			"'(-n --new)'{-n,--new}'[create a new worktree in a registered repo]:branch:'",
+		expect(stdout.join("")).not.toContain(
+			"create a new worktree in a registered repo",
+		);
+		expect(stdout.join("")).not.toContain(
+			"create a new worktree in the current repository",
 		);
 		expect(stdout.join("")).toContain("'2:branch:->worktrees'");
 		expect(stdout.join("")).toContain("command gji ls --compact");
@@ -331,8 +334,8 @@ print -r -- "\${_comps[gji]-unset}"`,
 		expect(stdout.join("")).toContain(
 			"complete -c gji -n '__fish_seen_subcommand_from go jump' -a '(__gji_worktree_branches)'",
 		);
-		expect(stdout.join("")).toContain(
-			"complete -c gji -n '__fish_seen_subcommand_from warp' -s n -l new",
+		expect(stdout.join("")).not.toContain(
+			"__fish_seen_subcommand_from warp' -s n -l new",
 		);
 		expect(stdout.join("")).toContain("test (count $tokens) -eq 2");
 		expect(stdout.join("")).toContain("if test (count $tokens) -ne 3");

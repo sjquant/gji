@@ -83,6 +83,23 @@ describe("runCli", () => {
 		expect(output).toContain("URL");
 	});
 
+	it("keeps worktree creation flags off navigation commands", () => {
+		// Given the Commander definitions for the navigation commands.
+		const program = createProgram();
+		const goHelp = program.commands
+			.find((command) => command.name() === "go")
+			?.helpInformation();
+		const warpHelp = program.commands
+			.find((command) => command.name() === "warp")
+			?.helpInformation();
+
+		// When their help information is rendered.
+
+		// Then creation remains available through gji new instead of navigation flags.
+		expect(goHelp).not.toContain("--new");
+		expect(warpHelp).not.toContain("--new");
+	});
+
 	it("registers pr open as a nested command", () => {
 		// Given the Commander program definition.
 		const program = createProgram();

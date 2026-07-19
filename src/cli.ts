@@ -276,11 +276,7 @@ function registerCommands(program: Command): void {
 	program
 		.command("go [branch]")
 		.alias("jump")
-		.description("resolve, create, and jump to a worktree path")
-		.option(
-			"-n, --new [branch]",
-			"create a new worktree in the current repository",
-		)
+		.description("resolve and jump to a worktree path")
 		.option("--print", "print the resolved worktree path explicitly")
 		.option("--json", "emit JSON for an existing worktree destination")
 		.action(notImplemented("go"));
@@ -383,7 +379,6 @@ function registerCommands(program: Command): void {
 	program
 		.command("warp [branch]")
 		.description("jump to any worktree across all known repos")
-		.option("-n, --new [branch]", "create a new worktree in a registered repo")
 		// --print is the shell-wrapper bypass signal (see SHELL_WRAPPED_COMMANDS in init.ts).
 		// The shell omits GJI_WARP_OUTPUT_FILE, so writeShellOutput falls through to stdout.
 		.option(
@@ -630,20 +625,12 @@ function attachCommandActions(
 		?.action(
 			async (
 				branch: string | undefined,
-				commandOptions: {
-					json?: boolean;
-					new?: string | boolean;
-					print?: boolean;
-				},
+				commandOptions: { json?: boolean; print?: boolean },
 			) => {
-				const newFlag = commandOptions.new;
-				const newWorktree = newFlag !== undefined && newFlag !== false;
-				const newBranch = typeof newFlag === "string" ? newFlag : undefined;
 				const exitCode = await runGoCommand({
-					branch: newWorktree ? (newBranch ?? branch) : branch,
+					branch,
 					cwd: options.cwd,
 					json: commandOptions.json,
-					newWorktree,
 					print: commandOptions.print,
 					stderr: options.stderr,
 					stdout: options.stdout,
@@ -854,20 +841,12 @@ function attachCommandActions(
 		?.action(
 			async (
 				branch: string | undefined,
-				commandOptions: {
-					json?: boolean;
-					new?: string | boolean;
-					print?: boolean;
-				},
+				commandOptions: { json?: boolean; print?: boolean },
 			) => {
-				const newFlag = commandOptions.new;
-				const newWorktree = newFlag !== undefined && newFlag !== false;
-				const newBranch = typeof newFlag === "string" ? newFlag : undefined;
 				const exitCode = await runWarpCommand({
-					branch: newWorktree ? (newBranch ?? branch) : branch,
+					branch,
 					cwd: options.cwd,
 					json: commandOptions.json,
-					newWorktree,
 					stderr: options.stderr,
 					stdout: options.stdout,
 				});

@@ -19,8 +19,8 @@ image: /img/social-card.png
 | `gji new [branch] [--from-current] [--detached] [--open] [--editor <cli>] [--json]` | Create a branch and worktree, optionally based on the current worktree. |
 | `gji pr <ref> [--json]` | Fetch a pull request ref and open it in a dedicated worktree. |
 | `gji pr open [branch|#N] [--select]` | Open the current worktree PR, or choose a linked worktree with `--select`. |
-| `gji go [branch] [--new [branch]] [--print] [--json]` | Resolve, create, and jump to a worktree, branch, remote, or PR. |
-| `gji warp [branch] [--new [branch]] [--print] [--json]` | Jump to any known repo worktree, or create a new one from the same entry point. |
+| `gji go [branch] [--print] [--json]` | Resolve and jump to a worktree, branch, remote, or PR. |
+| `gji warp [branch] [--print] [--json]` | Jump to any known repo worktree. |
 | `gji open [branch] [--select] [--editor <cli>] [--save] [--workspace]` | Open the current or selected worktree in an editor. |
 | `gji back [n] [--print]` | Return to the previously visited worktree, optionally N steps back. |
 | `gji history [--json]` | Show navigation history. |
@@ -123,21 +123,21 @@ gji go origin-only-branch
 gji go 1234
 gji go -                         # return to the previous worktree
 gji go --json feature/auth-refactor
-gji go --new fix/copy-regression
 ```
 
-Use `--json` only for already-existing destinations; it never creates a worktree or fetches a PR.
+Use `--json` only for already-existing destinations; it never creates a worktree or fetches a PR. Use `gji new` when you want to create a worktree explicitly:
 
-Use `--new` to create a worktree in the current repository, optionally supplying the branch as the option value or positional argument.
+```bash
+gji new fix/copy-regression
+```
 
 ```bash
 gji warp feature/auth-refactor
 gji warp repo-a/main
-gji warp --new fix/copy-regression
 gji warp feature/auth-refactor --json
 ```
 
-Use `gji warp` when branch intent matters more than the repo directory you happen to be inside. `repo/branch` disambiguates across registered repos, and `--new` lets you create the next worktree from the same command surface.
+Use `gji warp` when branch intent matters more than the repo directory you happen to be inside. `repo/branch` disambiguates across registered repos; use `gji new` to create a worktree explicitly.
 
 ### Re-run your setup hook
 

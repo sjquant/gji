@@ -1,10 +1,5 @@
-import { realpath } from "node:fs/promises";
-import { basename, resolve } from "node:path";
-import { isCancel, select } from "@clack/prompts";
-
 import { isHeadless } from "./headless.js";
 import { recordWorktreeUsage } from "./history.js";
-import { runNewCommand } from "./new.js";
 import { detectRepository, listWorktrees, type WorktreeEntry } from "./repo.js";
 import { loadRegistry, type RepoRegistryEntry } from "./repo-registry.js";
 import { writeShellOutput } from "./shell-handoff.js";
@@ -22,7 +17,6 @@ export interface WarpCommandOptions {
 	branch?: string;
 	cwd: string;
 	json?: boolean;
-	newWorktree?: boolean;
 	queryPullRequests?: QueryWorktreePullRequests;
 	stderr: (chunk: string) => void;
 	stdout: (chunk: string) => void;
@@ -37,18 +31,6 @@ export interface WarpWorktreeSource {
 export async function runWarpCommand(
 	options: WarpCommandOptions,
 ): Promise<number> {
-	if (options.newWorktree) {
-		const registry = await loadRegistry();
-		if (registry.length === 0) {
-			options.stderr(
-				"gji warp: no repos registered yet.\n" +
-					"Use any gji command in a repository to register it automatically.\n",
-			);
-			return 1;
-		}
-		return runWarpNew(options, registry);
-	}
-
 	return runWarpNavigate(options);
 }
 
@@ -84,109 +66,6 @@ async function runWarpNavigate(options: WarpCommandOptions): Promise<number> {
 	await recordWorktreeUsage(target.path, target.branch);
 	await writeShellOutput(WARP_OUTPUT_FILE_ENV, target.path, options.stdout);
 	return 0;
-}
-
-async function runWarpNew(
-	options: WarpCommandOptions,
-	registry: RepoRegistryEntry[],
-): Promise<number> {
-	const deduplicatedRegistry = await deduplicateRegistryForNew(registry);
-	let targetRepoRoot: string;
-
-	if (deduplicatedRegistry.length === 1) {
-		targetRepoRoot = deduplicatedRegistry[0].path;
-	} else {
-		if (isHeadless()) {
-			options.stderr(
-				"gji warp: repo argument is required in non-interactive mode (GJI_NO_TUI=1)\n",
-			);
-			return 1;
-		}
-
-		const choice = await select<string>({
-			message: "Create worktree in which repo?",
-			options: deduplicatedRegistry.map((entry) => ({
-				value: entry.path,
-				label: entry.name,
-				hint: entry.path,
-			})),
-		});
-
-		if (isCancel(choice)) {
-			options.stderr("Aborted\n");
-			return 1;
-		}
-
-		targetRepoRoot = choice;
-	}
-
-	if (options.json) {
-		return runNewCommand({
-			branch: options.branch,
-			cwd: targetRepoRoot,
-			json: true,
-			stderr: options.stderr,
-			stdout: options.stdout,
-		});
-	}
-
-	// runNewCommand writes the created path to options.stdout via writeShellOutput.
-	// Since GJI_NEW_OUTPUT_FILE is not set in the warp shell context, it falls
-	// through to our captured stdout, giving us the path to hand off.
-	let capturedPath = "";
-	const captureStdout = (chunk: string) => {
-		capturedPath = chunk.trim();
-	};
-
-	const exitCode = await runNewCommand({
-		branch: options.branch,
-		cwd: targetRepoRoot,
-		stderr: options.stderr,
-		stdout: captureStdout,
-	});
-
-	if (exitCode !== 0) {
-		return exitCode;
-	}
-
-	if (!capturedPath) {
-		options.stderr("gji warp: could not determine new worktree path\n");
-		return 1;
-	}
-
-	await writeShellOutput(WARP_OUTPUT_FILE_ENV, capturedPath, options.stdout);
-	return 0;
-}
-
-async function deduplicateRegistryForNew(
-	registry: RepoRegistryEntry[],
-): Promise<RepoRegistryEntry[]> {
-	const deduplicated: RepoRegistryEntry[] = [];
-	const seenPaths = new Set<string>();
-
-	for (const entry of registry) {
-		const canonicalPath = await canonicalizeRepoPath(entry.path);
-		if (seenPaths.has(canonicalPath)) {
-			continue;
-		}
-
-		seenPaths.add(canonicalPath);
-		deduplicated.push({
-			...entry,
-			name: basename(canonicalPath),
-			path: canonicalPath,
-		});
-	}
-
-	return deduplicated;
-}
-
-async function canonicalizeRepoPath(repoPath: string): Promise<string> {
-	try {
-		return await realpath(repoPath);
-	} catch {
-		return resolve(repoPath);
-	}
 }
 
 export interface WarpTarget {

@@ -237,7 +237,7 @@ path=$(gji root --print)
 | `gji pr <ref> [--json]` | fetch PR ref, create worktree, cd in |
 | `gji pr open [branch|#N] [--select]` | open the current worktree PR, or choose a linked worktree with `--select` |
 | `gji open [branch] [--select] [--editor <cli>] [--save] [--workspace]` | open the current or selected worktree in an editor |
-| `gji go [branch] [--new [branch]] [--print] [--json]` | resolve, create, and jump to a worktree, branch, remote, or PR |
+| `gji go [branch] [--print] [--json]` | resolve and jump to a worktree, branch, remote, or PR |
 | `gji root [--print]` | jump to the main repo root |
 | `gji status [--json]` | repo overview, worktree health, ahead/behind |
 | `gji ls [--compact] [--json]` | list active worktrees |

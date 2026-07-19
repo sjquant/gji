@@ -108,25 +108,6 @@ describe("gji root", () => {
 });
 
 describe("gji go", () => {
-	it("creates a new worktree with --new in the current repository", async () => {
-		// Given a repository and a requested new branch.
-		const repoRoot = await createRepository();
-		const branchName = "feature/go-new";
-		const stdout: string[] = [];
-
-		// When gji go --new creates the branch and worktree.
-		const result = await runCli(["go", "--new", branchName], {
-			cwd: repoRoot,
-			stdout: (chunk) => stdout.push(chunk),
-		});
-
-		// Then it hands the new worktree path to the shell integration.
-		const worktreePath = resolveWorktreePath(repoRoot, branchName);
-		expect(result.exitCode).toBe(0);
-		expect(await pathExists(worktreePath)).toBe(true);
-		expect(stdout.join("")).toBe(`${worktreePath}\n`);
-	});
-
 	it("explains how to register a repository when go has no sources", async () => {
 		// Given a directory outside Git and an empty repository registry.
 		const cwd = await mkdtemp(join(tmpdir(), "gji-go-empty-"));

@@ -37,7 +37,6 @@ export interface GoCommandOptions {
 	branch?: string;
 	cwd: string;
 	json?: boolean;
-	newWorktree?: boolean;
 	print?: boolean;
 	stderr: (chunk: string) => void;
 	stdout: (chunk: string) => void;
@@ -63,26 +62,6 @@ export function createGoCommand(
 	return async function runGoCommand(
 		options: GoCommandOptions,
 	): Promise<number> {
-		if (options.newWorktree) {
-			if (options.branch === "-") {
-				return emitError(options, "--new cannot be combined with `-`");
-			}
-
-			const [repository] = await readCurrentRepository(options.cwd);
-			if (!repository) {
-				return emitError(options, "--new requires a git repository");
-			}
-
-			return runNewCommand({
-				branch: options.branch,
-				cwd: repository.repoRoot,
-				json: options.json,
-				outputEnv: GO_OUTPUT_FILE_ENV,
-				stderr: options.stderr,
-				stdout: options.stdout,
-			});
-		}
-
 		if (options.branch === "-") {
 			return runBackCommand({
 				commandName: "gji go",
