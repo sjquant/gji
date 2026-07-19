@@ -146,6 +146,7 @@ export function createGoCommand(
 						promptSources = nextSources;
 						return {
 							entries: await buildWorktreePromptEntries(promptSources, {
+								includeMetadata: currentRepositoryScope,
 								queryPullRequests: dependencies.queryPullRequests,
 							}),
 							label: currentRepositoryScope

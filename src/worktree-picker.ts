@@ -42,6 +42,7 @@ export type QueryRepositoryPullRequests = (
 ) => Promise<PullRequestInfo[]>;
 
 export interface BuildWorktreePromptEntriesDependencies {
+	includeMetadata?: boolean;
 	queryPullRequests?: QueryWorktreePullRequests;
 	queryRepositoryPullRequests?: QueryRepositoryPullRequests;
 }
@@ -77,32 +78,42 @@ export async function buildWorktreePromptEntries(
 	sources: WorktreePromptSource[],
 	dependencies: BuildWorktreePromptEntriesDependencies = {},
 ): Promise<WorktreePromptEntry[]> {
+	const includeMetadata = dependencies.includeMetadata ?? true;
 	const pullRequestQuery = createPullRequestQuery();
 	const queryPullRequests =
 		dependencies.queryPullRequests ?? pullRequestQuery.listOpenPullRequests;
-	const queryRepositoryPullRequests =
-		dependencies.queryRepositoryPullRequests ??
-		(dependencies.queryPullRequests === undefined
-			? pullRequestQuery.listOpenPullRequestsForRepository
-			: undefined);
+	const queryRepositoryPullRequests = includeMetadata
+		? (dependencies.queryRepositoryPullRequests ??
+			(dependencies.queryPullRequests === undefined
+				? pullRequestQuery.listOpenPullRequestsForRepository
+				: undefined))
+		: undefined;
 	const repositoryPullRequests =
 		queryRepositoryPullRequests === undefined
 			? Promise.resolve(null)
 			: readRepositoryPullRequests(sources, queryRepositoryPullRequests);
 	const [history, infos, pullRequestsByRepository] = await Promise.all([
 		loadHistory(),
-		readWorktreeInfos(sources.map((source) => source.worktree)),
+		includeMetadata
+			? readWorktreeInfos(sources.map((source) => source.worktree))
+			: Promise.resolve(
+					sources.map((source) =>
+						createUnhydratedWorktreeInfo(source.worktree),
+					),
+				),
 		repositoryPullRequests,
 	]);
-	const pullRequests = await Promise.all(
-		sources.map((source) =>
-			readSourcePullRequests(
-				source,
-				queryPullRequests,
-				pullRequestsByRepository,
-			),
-		),
-	);
+	const pullRequests = includeMetadata
+		? await Promise.all(
+				sources.map((source) =>
+					readSourcePullRequests(
+						source,
+						queryPullRequests,
+						pullRequestsByRepository,
+					),
+				),
+			)
+		: sources.map(() => []);
 	const historyByPath = new Map(history.map((entry) => [entry.path, entry]));
 	const entries = sources.map((source, index) =>
 		buildWorktreePromptEntry(
@@ -119,6 +130,15 @@ export async function buildWorktreePromptEntries(
 		.map(
 			({ lastActivityTimestamp: _lastActivityTimestamp, ...entry }) => entry,
 		);
+}
+
+function createUnhydratedWorktreeInfo(worktree: WorktreeEntry): WorktreeInfo {
+	return {
+		...worktree,
+		lastCommitTimestamp: null,
+		status: "unknown",
+		upstream: { kind: "unknown" },
+	};
 }
 
 export function resolveWorktreeQuery(

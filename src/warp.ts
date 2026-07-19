@@ -195,6 +195,7 @@ export async function resolveWarpTarget(options: {
 	}
 
 	const promptEntries = await buildWorktreePromptEntries(promptSources, {
+		includeMetadata: false,
 		queryPullRequests: options.queryPullRequests,
 	});
 	const path = await promptForWarpTarget(promptEntries);

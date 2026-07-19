@@ -61,6 +61,40 @@ describe("worktree picker search", () => {
 		expect(output.text()).toContain("feature/review (#12, #34)");
 	});
 
+	it("builds a fast all-repositories scope without status or PR lookups", async () => {
+		// Given a worktree and metadata lookups that would fail if invoked.
+		const source = {
+			repoRoot: "/repo",
+			repoName: "repo",
+			worktree: worktreeEntry("feature/fast", "/repo/fast"),
+		};
+		let branchQueryCount = 0;
+		let repositoryQueryCount = 0;
+
+		// When fast prompt entries are built for the all-repositories scope.
+		const entries = await buildWorktreePromptEntries([source], {
+			includeMetadata: false,
+			queryPullRequests: async () => {
+				branchQueryCount += 1;
+				return [];
+			},
+			queryRepositoryPullRequests: async () => {
+				repositoryQueryCount += 1;
+				return [];
+			},
+		});
+
+		// Then it preserves the selectable identity without running expensive lookups.
+		expect(branchQueryCount).toBe(0);
+		expect(repositoryQueryCount).toBe(0);
+		expect(entries).toHaveLength(1);
+		expect(entries[0]).toMatchObject({
+			branch: "feature/fast",
+			path: "/repo/fast",
+			pullRequestNumbers: [],
+		});
+	});
+
 	it("queries each repository once and joins PRs by source branch", async () => {
 		// Given two worktrees from one repository and repository-scoped PR metadata.
 		const repoRoot = await createRepository();
