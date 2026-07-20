@@ -7,7 +7,7 @@ export async function defaultConfirmForceRemoveWorktree(
 		active: "Yes",
 		inactive: "No",
 		initialValue: false,
-		message: `Worktree at ${worktreePath} has untracked or modified files. Force remove?`,
+		message: `Worktree at ${worktreePath} has untracked or modified files that cannot be undone. Force remove?`,
 	});
 
 	return !isCancel(choice) && choice;

@@ -239,7 +239,7 @@ path=$(gji root --print)
 
 | Command | Description |
 |---|---|
-| `gji new [branch] [--from-current] [--detached] [--take] [--copy] [--open] [--editor <cli>] [--dry-run] [--json]` | create branch + worktree, optionally carrying uncommitted changes |
+| `gji new [branch] [--from-current] [--detached] [--take] [--copy] [--force] [--open] [--editor <cli>] [--dry-run] [--json]` | create branch + worktree, optionally carrying uncommitted changes |
 | `gji done [branch] [--force] [--keep-branch] [--json]` | safely finish a linked worktree and return |
 | `gji undo [id] [--list] [--json]` | restore a journaled cleanup without overwriting work |
 | `gji pr <ref> [--json]` | fetch PR ref, create worktree, cd in |

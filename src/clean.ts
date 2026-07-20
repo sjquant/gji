@@ -9,7 +9,7 @@ import {
 } from "./git.js";
 import { isHeadless } from "./headless.js";
 import type { WorktreeEntry } from "./repo.js";
-import { recordUndoOperation } from "./undo.js";
+import { finalizeUndoOperation, recordUndoOperation } from "./undo.js";
 import {
 	formatLastCommit,
 	formatUpstreamState,
@@ -180,15 +180,27 @@ export function createCleanCommand(
 
 		const removedWorktrees: WorktreeEntry[] = [];
 		const failures: CleanFailure[] = [];
-		await recordUndoOperation(
-			"clean",
-			repository.repoRoot,
-			selectedWorktrees,
-		).catch((error) =>
-			options.stderr(
-				`Warning: could not write undo journal: ${toMessage(error)}\n`,
-			),
-		);
+		let journal: Awaited<ReturnType<typeof recordUndoOperation>>;
+		try {
+			journal = await recordUndoOperation(
+				"clean",
+				repository.repoRoot,
+				selectedWorktrees,
+			);
+		} catch (error) {
+			emitError(
+				options,
+				`could not write undo journal; no worktrees were removed: ${toMessage(error)}`,
+			);
+			return 1;
+		}
+		if (!journal) {
+			emitError(
+				options,
+				"could not capture undo state; no worktrees were removed",
+			);
+			return 1;
+		}
 
 		for (const worktree of selectedWorktrees) {
 			if (
@@ -255,7 +267,12 @@ export function createCleanCommand(
 					await deleteBranch(repository.repoRoot, worktree.branch);
 				} catch (error) {
 					if (!isBranchUnmergedError(error)) {
-						throw error;
+						failures.push({
+							branch: worktree.branch,
+							message: toMessage(error),
+							path: worktree.path,
+						});
+						continue;
 					}
 
 					if (
@@ -277,6 +294,7 @@ export function createCleanCommand(
 				}
 			}
 		}
+		await finalizeUndoOperation(journal, removedWorktrees);
 
 		if (options.json) {
 			const removed = removedWorktrees.map((worktree) => {

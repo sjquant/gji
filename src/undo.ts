@@ -1,12 +1,24 @@
-import { access, mkdir, readFile, writeFile } from "node:fs/promises";
+import {
+	access,
+	mkdir,
+	open,
+	readFile,
+	rename,
+	stat,
+	unlink,
+	writeFile,
+} from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
+import { confirm, isCancel } from "@clack/prompts";
 
 import { GLOBAL_CONFIG_DIRECTORY } from "./config.js";
 import { isDirtyWorktree, runGit } from "./git.js";
+import { isHeadless } from "./headless.js";
 import { detectRepository, type WorktreeEntry } from "./repo.js";
 
 const MAX_UNDO_RECORDS = 20;
+const undoLogQueues = new Map<string, Promise<void>>();
 export type UndoOperation = "remove" | "clean" | "done";
 export interface UndoEntry {
 	branch: string | null;
@@ -97,14 +109,35 @@ export async function recordUndoOperation(
 		timestamp,
 		entries,
 	};
-	const existing = await loadUndoRecords(home);
-	await mkdir(dirname(undoLogPath(home)), { recursive: true });
-	await writeFile(
-		undoLogPath(home),
-		`${JSON.stringify([record, ...existing].slice(0, MAX_UNDO_RECORDS), null, 2)}\n`,
-		"utf8",
+	return enqueueUndoLogWrite(home, async () => {
+		const existing = await loadUndoRecords(home);
+		await writeUndoRecords(
+			home,
+			[record, ...existing].slice(0, MAX_UNDO_RECORDS),
+		);
+		return record;
+	});
+}
+
+export async function finalizeUndoOperation(
+	record: UndoRecord,
+	removedWorktrees: WorktreeEntry[],
+	home: string = homedir(),
+): Promise<void> {
+	const removedPaths = new Set(
+		removedWorktrees.map((worktree) => worktree.path),
 	);
-	return record;
+	await enqueueUndoLogWrite(home, async () => {
+		const records = await loadUndoRecords(home);
+		const remaining = records.flatMap((candidate) => {
+			if (candidate.id !== record.id) return [candidate];
+			const entries = candidate.entries.filter((entry) =>
+				removedPaths.has(entry.path),
+			);
+			return entries.length === 0 ? [] : [{ ...candidate, entries }];
+		});
+		await writeUndoRecords(home, remaining);
+	});
 }
 
 export async function restoreUndoRecord(
@@ -113,31 +146,29 @@ export async function restoreUndoRecord(
 ): Promise<UndoRestoreResult> {
 	const restored: UndoEntry[] = [];
 	const failed: Array<UndoEntry & { message: string }> = [];
+	const unresolved: UndoEntry[] = [];
 	for (const entry of record.entries) {
 		try {
-			await restoreUndoEntry(record.repoRoot, entry);
+			const upstreamFailure = await restoreUndoEntry(record.repoRoot, entry);
 			restored.push(entry);
+			if (upstreamFailure) {
+				failed.push({ ...entry, message: upstreamFailure });
+				unresolved.push(entry);
+			}
 		} catch (error) {
 			failed.push({ ...entry, message: toMessage(error) });
+			unresolved.push(entry);
 		}
 	}
-	const records = await loadUndoRecords(home);
-	const remaining = records.flatMap((candidate) => {
-		if (candidate.id !== record.id) return [candidate];
-		if (failed.length === 0) return [];
-		return [
-			{
-				...candidate,
-				entries: failed.map(({ message: _message, ...entry }) => entry),
-			},
-		];
+	await enqueueUndoLogWrite(home, async () => {
+		const records = await loadUndoRecords(home);
+		const remaining = records.flatMap((candidate) => {
+			if (candidate.id !== record.id) return [candidate];
+			if (unresolved.length === 0) return [];
+			return [{ ...candidate, entries: unresolved }];
+		});
+		await writeUndoRecords(home, remaining);
 	});
-	await mkdir(dirname(undoLogPath(home)), { recursive: true });
-	await writeFile(
-		undoLogPath(home),
-		`${JSON.stringify(remaining, null, 2)}\n`,
-		"utf8",
-	);
 	return { restored, failed };
 }
 
@@ -173,11 +204,26 @@ export async function runUndoCommand(
 	} catch {
 		/* use latest globally */
 	}
-	const record = options.id
-		? records.find((candidate) => candidate.id === options.id)
-		: (records.find(
-				(candidate) => repoRoot === null || candidate.repoRoot === repoRoot,
-			) ?? records[0]);
+	let record: UndoRecord | undefined;
+	if (options.id) {
+		record = records.find((candidate) => candidate.id === options.id);
+	} else if (repoRoot !== null && records[0]?.repoRoot !== repoRoot) {
+		const latest = records[0];
+		const message = `latest undo record belongs to ${latest.repoRoot}; use --id to select it`;
+		if (options.json || isHeadless()) return emitUndoError(options, message);
+		const choice = await confirm({
+			message: `${message}. Restore it anyway?`,
+			active: "Yes",
+			inactive: "No",
+			initialValue: false,
+		});
+		if (isCancel(choice) || !choice) return emitUndoError(options, "Aborted");
+		record = latest;
+	} else {
+		record = repoRoot
+			? records.find((candidate) => candidate.repoRoot === repoRoot)
+			: records[0];
+	}
 	if (!record)
 		return emitUndoError(options, `undo record not found: ${options.id}`);
 	const result = await restoreUndoRecord(record);
@@ -221,7 +267,7 @@ async function hasMalformedUndoLog(): Promise<boolean> {
 async function restoreUndoEntry(
 	repoRoot: string,
 	entry: UndoEntry,
-): Promise<void> {
+): Promise<string | null> {
 	try {
 		await access(entry.path);
 		throw new Error(`path already exists: ${entry.path}`);
@@ -233,6 +279,7 @@ async function restoreUndoEntry(
 			throw error;
 	}
 	if (entry.branch === null) {
+		await assertCommitExists(repoRoot, entry.headSha);
 		await runGit(repoRoot, [
 			"worktree",
 			"add",
@@ -240,9 +287,10 @@ async function restoreUndoEntry(
 			entry.path,
 			entry.headSha,
 		]);
-		return;
+		return null;
 	}
 	let branchExists = false;
+	let existingUpstream: string | null = null;
 	try {
 		await runGit(repoRoot, [
 			"show-ref",
@@ -259,7 +307,24 @@ async function restoreUndoEntry(
 			throw new Error(
 				`branch ${entry.branch} already exists at a different commit`,
 			);
-	} else await runGit(repoRoot, ["branch", entry.branch, entry.headSha]);
+		existingUpstream = await runGit(repoRoot, [
+			"rev-parse",
+			"--abbrev-ref",
+			"--symbolic-full-name",
+			`${entry.branch}@{u}`,
+		]).catch(() => null);
+		if (
+			entry.upstream &&
+			existingUpstream &&
+			existingUpstream !== entry.upstream
+		)
+			throw new Error(
+				`branch ${entry.branch} already tracks ${existingUpstream}; refusing to overwrite it`,
+			);
+	} else {
+		await assertCommitExists(repoRoot, entry.headSha);
+		await runGit(repoRoot, ["branch", entry.branch, entry.headSha]);
+	}
 	try {
 		await runGit(repoRoot, ["worktree", "add", entry.path, entry.branch]);
 	} catch (error) {
@@ -273,6 +338,7 @@ async function restoreUndoEntry(
 		throw error;
 	}
 	if (entry.upstream) {
+		if (existingUpstream === entry.upstream) return null;
 		try {
 			await runGit(repoRoot, [
 				"branch",
@@ -280,9 +346,90 @@ async function restoreUndoEntry(
 				entry.upstream,
 				entry.branch,
 			]);
-		} catch {
-			/* remote may be gone */
+		} catch (error) {
+			return `could not restore upstream ${entry.upstream}: ${toRestoreMessage(error)}`;
 		}
+	}
+	return null;
+}
+
+async function assertCommitExists(
+	repoRoot: string,
+	headSha: string,
+): Promise<void> {
+	try {
+		await runGit(repoRoot, ["cat-file", "-e", `${headSha}^{commit}`]);
+	} catch {
+		throw new Error("commit no longer exists (gc'd) — cannot restore");
+	}
+}
+
+async function enqueueUndoLogWrite<T>(
+	home: string,
+	operation: () => Promise<T>,
+): Promise<T> {
+	const path = undoLogPath(home);
+	await mkdir(dirname(path), { recursive: true });
+	const previous = undoLogQueues.get(path) ?? Promise.resolve();
+	const runLocked = async (): Promise<T> => {
+		const release = await acquireUndoLogLock(path);
+		try {
+			return await operation();
+		} finally {
+			await release();
+		}
+	};
+	const current = previous.then(runLocked, runLocked);
+	const settled = current.then(
+		() => undefined,
+		() => undefined,
+	);
+	undoLogQueues.set(path, settled);
+	try {
+		return await current;
+	} finally {
+		if (undoLogQueues.get(path) === settled) undoLogQueues.delete(path);
+	}
+}
+
+async function acquireUndoLogLock(path: string): Promise<() => Promise<void>> {
+	const lockPath = `${path}.lock`;
+	for (let attempt = 0; attempt < 200; attempt += 1) {
+		try {
+			const handle = await open(lockPath, "wx");
+			return async () => {
+				await handle.close();
+				await unlink(lockPath).catch(() => undefined);
+			};
+		} catch (error) {
+			if (
+				!(error instanceof Error && "code" in error && error.code === "EEXIST")
+			)
+				throw error;
+			const lockStat = await stat(lockPath).catch(() => null);
+			if (lockStat && Date.now() - lockStat.mtimeMs > 60_000)
+				await unlink(lockPath).catch(() => undefined);
+			await new Promise((resolve) => setTimeout(resolve, 5));
+		}
+	}
+	throw new Error("timed out waiting for the undo journal lock");
+}
+
+async function writeUndoRecords(
+	home: string,
+	records: UndoRecord[],
+): Promise<void> {
+	const path = undoLogPath(home);
+	await mkdir(dirname(path), { recursive: true });
+	const temporaryPath = `${path}.${process.pid}.${Math.random().toString(36).slice(2)}.tmp`;
+	try {
+		await writeFile(temporaryPath, `${JSON.stringify(records, null, 2)}\n`, {
+			encoding: "utf8",
+			flag: "wx",
+		});
+		await rename(temporaryPath, path);
+	} finally {
+		await unlink(temporaryPath).catch(() => undefined);
 	}
 }
 
@@ -317,6 +464,13 @@ function formatTimestamp(timestamp: number): string {
 }
 function toMessage(error: unknown): string {
 	return error instanceof Error ? error.message : String(error);
+}
+
+function toRestoreMessage(error: unknown): string {
+	const message = toMessage(error);
+	return /bad object|unknown revision|not a valid object name/i.test(message)
+		? "commit no longer exists (gc'd) — cannot restore"
+		: message;
 }
 function emitUndoError(options: UndoCommandOptions, message: string): number {
 	if (options.json)

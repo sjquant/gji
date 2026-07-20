@@ -1,6 +1,6 @@
 import { basename } from "node:path";
 import { confirm, isCancel } from "@clack/prompts";
-import { loadEffectiveConfig } from "./config.js";
+import { loadEffectiveConfig, resolveConfigString } from "./config.js";
 import {
 	isBranchMergedInto,
 	readWorktreeHealth,
@@ -12,7 +12,7 @@ import { loadHistory } from "./history.js";
 import { extractHooks, runHook } from "./hooks.js";
 import { detectRepository, listWorktrees } from "./repo.js";
 import { writeShellOutput } from "./shell-handoff.js";
-import { recordUndoOperation } from "./undo.js";
+import { finalizeUndoOperation, recordUndoOperation } from "./undo.js";
 import {
 	deleteBranch,
 	forceDeleteBranch,
@@ -55,11 +55,23 @@ export async function runDoneCommand(
 				? `gji done: no linked worktree found for ${options.branch}`
 				: "gji done: not inside a linked worktree",
 		);
+	const config = await loadEffectiveConfig(
+		repository.repoRoot,
+		undefined,
+		options.stderr,
+	);
+	await refreshUpstream(repository.repoRoot, target.path);
 	const health = await readWorktreeHealth(target.path);
 	if (
 		target.branch &&
 		!options.force &&
-		!(await isSafeToComplete(repository.repoRoot, target.branch, health))
+		!options.keepBranch &&
+		!(await isSafeToComplete(
+			repository.repoRoot,
+			target.branch,
+			health,
+			config,
+		))
 	) {
 		if (options.json || isHeadless())
 			return doneError(
@@ -81,24 +93,27 @@ export async function runDoneCommand(
 				"worktree has uncommitted changes; use --force",
 			);
 		const choice = await confirm({
-			message: `worktree ${target.path} has uncommitted changes. Remove anyway?`,
+			message: `worktree ${target.path} has uncommitted changes that cannot be undone. Remove anyway?`,
 			active: "Yes",
 			inactive: "No",
 			initialValue: false,
 		});
 		if (isCancel(choice) || !choice) return doneError(options, "Aborted");
 	}
-	await recordUndoOperation("done", repository.repoRoot, [target]).catch(
-		(error) =>
-			options.stderr(
-				`Warning: could not write undo journal: ${toMessage(error)}\n`,
-			),
-	);
-	const config = await loadEffectiveConfig(
-		repository.repoRoot,
-		undefined,
-		options.stderr,
-	);
+	let journal: Awaited<ReturnType<typeof recordUndoOperation>>;
+	try {
+		journal = await recordUndoOperation("done", repository.repoRoot, [target]);
+	} catch (error) {
+		return doneError(
+			options,
+			`could not write undo journal; no worktree was removed: ${toMessage(error)}`,
+		);
+	}
+	if (!journal)
+		return doneError(
+			options,
+			"could not capture undo state; no worktree was removed",
+		);
 	await runHook(
 		extractHooks(config)["before-remove"],
 		target.path,
@@ -112,14 +127,36 @@ export async function runDoneCommand(
 	try {
 		await removeWorktree(repository.repoRoot, target.path);
 	} catch (error) {
-		if (!isWorktreeForceRemovalError(error))
+		if (!isWorktreeForceRemovalError(error)) {
+			await finalizeUndoOperation(journal, []);
 			return doneError(
 				options,
 				`Failed to remove worktree at ${target.path}: ${toMessage(error)}`,
 			);
+		}
+		if (!options.force) {
+			if (options.json || isHeadless()) {
+				await finalizeUndoOperation(journal, []);
+				return doneError(
+					options,
+					"worktree requires force removal; use --force",
+				);
+			}
+			const choice = await confirm({
+				message: `worktree ${target.path} contains uncommitted changes that cannot be undone. Force remove?`,
+				active: "Yes",
+				inactive: "No",
+				initialValue: false,
+			});
+			if (isCancel(choice) || !choice) {
+				await finalizeUndoOperation(journal, []);
+				return doneError(options, "Aborted");
+			}
+		}
 		try {
 			await forceRemoveWorktree(repository.repoRoot, target.path);
 		} catch (forceError) {
+			await finalizeUndoOperation(journal, []);
 			return doneError(
 				options,
 				`Failed to remove worktree at ${target.path}: ${toMessage(forceError)}`,
@@ -147,16 +184,26 @@ export async function runDoneCommand(
 						`Failed to delete branch ${target.branch}: ${toMessage(forceError)}`,
 					);
 				}
+			} else if (!options.json) {
+				options.stderr(
+					`Branch ${target.branch} was not deleted (has unmerged commits)\n`,
+				);
 			}
 		}
 	}
+	await finalizeUndoOperation(journal, [target]);
+	await runGit(repository.repoRoot, ["worktree", "prune"]).catch(
+		() => undefined,
+	);
 	const shouldMove =
 		options.branch === undefined || target.path === repository.currentRoot;
 	const movedTo = shouldMove
 		? await resolveDoneDestination(repository.repoRoot, target.path)
 		: null;
-	if (movedTo && !options.json)
+	if (!options.json && movedTo)
 		await writeShellOutput(DONE_OUTPUT_FILE_ENV, movedTo, options.stdout);
+	else if (!options.json && options.branch && process.env[DONE_OUTPUT_FILE_ENV])
+		await writeShellOutput(DONE_OUTPUT_FILE_ENV, options.cwd, options.stdout);
 	if (options.json)
 		options.stdout(
 			`${JSON.stringify({ branch: target.branch, path: target.path, deleted: true, branchDeleted, movedTo }, null, 2)}\n`,
@@ -172,18 +219,55 @@ async function isSafeToComplete(
 	repoRoot: string,
 	branch: string,
 	health: Awaited<ReturnType<typeof readWorktreeHealth>>,
+	config: Record<string, unknown>,
 ): Promise<boolean> {
 	if (health.upstreamGone) return true;
-	const remoteDefault = await resolveRemoteDefaultBranch(
-		repoRoot,
-		"origin",
-	).catch(() => null);
-	const base = remoteDefault
-		? `origin/${remoteDefault}`
-		: await runGit(repoRoot, ["symbolic-ref", "--short", "HEAD"]).catch(
-				() => "main",
-			);
-	return isBranchMergedInto(repoRoot, branch, base);
+	const remote = resolveConfigString(config, "syncRemote") ?? "origin";
+	const configuredDefault = resolveConfigString(config, "syncDefaultBranch");
+	const remoteDefault =
+		configuredDefault ??
+		(await resolveRemoteDefaultBranch(repoRoot, remote).catch(() => null));
+	if (remoteDefault) {
+		for (const base of [`${remote}/${remoteDefault}`, remoteDefault]) {
+			if (await gitRefExists(repoRoot, base))
+				return isBranchMergedInto(repoRoot, branch, base).catch(() => false);
+		}
+		return false;
+	}
+	const base = await runGit(repoRoot, [
+		"symbolic-ref",
+		"--short",
+		"HEAD",
+	]).catch(() => null);
+	return base === null
+		? false
+		: isBranchMergedInto(repoRoot, branch, base).catch(() => false);
+}
+
+async function gitRefExists(repoRoot: string, ref: string): Promise<boolean> {
+	try {
+		await runGit(repoRoot, ["rev-parse", "--verify", ref]);
+		return true;
+	} catch {
+		return false;
+	}
+}
+
+async function refreshUpstream(
+	repoRoot: string,
+	worktreePath: string,
+): Promise<void> {
+	const upstream = await runGit(worktreePath, [
+		"rev-parse",
+		"--abbrev-ref",
+		"--symbolic-full-name",
+		"@{u}",
+	]).catch(() => null);
+	const remote = upstream?.split("/")[0];
+	if (!remote) return;
+	await runGit(repoRoot, ["fetch", "--prune", "--quiet", remote]).catch(
+		() => undefined,
+	);
 }
 async function resolveDoneDestination(
 	repoRoot: string,
