@@ -207,7 +207,7 @@ export function createNewCommand(
 						`gji new: ${message} in non-interactive mode (GJI_NO_TUI=1)\n`,
 					);
 					options.stderr(
-						`Hint: Use 'gji remove ${worktreeName}' or 'gji clean' to remove the existing worktree\n`,
+						`Hint: Use 'gji done ${worktreeName}' or 'gji clean' to remove the existing worktree\n`,
 					);
 					options.stderr(
 						`Hint: Use 'gji run-hook after-create' inside the worktree to re-run setup hooks\n`,

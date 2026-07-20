@@ -1456,7 +1456,7 @@ describe("gji new", () => {
 			expect(result).toBe(1);
 			const stderrText = stderr.join("");
 			expect(stderrText).toContain("Hint:");
-			expect(stderrText).toContain("gji remove");
+			expect(stderrText).toContain("gji done");
 		});
 
 		it("does NOT emit a Hint: line in --json mode when the target path already exists", async () => {

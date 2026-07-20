@@ -415,7 +415,9 @@ function registerCommands(program: Command): void {
 	program
 		.command("remove [branch]")
 		.alias("rm")
-		.description("remove a linked worktree and delete its branch when present")
+		.description(
+			"deprecated: use gji done for one worktree or gji clean for bulk cleanup",
+		)
 		.option(
 			"-f, --force",
 			"bypass prompts, force-remove a dirty worktree, and force-delete an unmerged branch",
@@ -926,7 +928,19 @@ function attachCommandActions(
 
 	program.commands
 		.find((command) => command.name() === "remove")
-		?.action(runRemovalCommand);
+		?.action(
+			async (
+				branch: string | undefined,
+				commandOptions: { dryRun?: boolean; force?: boolean; json?: boolean },
+			) => {
+				if (!commandOptions.json) {
+					options.stderr(
+						"gji remove is deprecated; use 'gji done' for one worktree or 'gji clean' for bulk cleanup.\n",
+					);
+				}
+				return runRemovalCommand(branch, commandOptions);
+			},
+		);
 
 	program.commands
 		.find((command) => command.name() === "run-hook")

@@ -32,7 +32,7 @@ image: /img/social-card.png
 | `gji sync [--all]` | Fetch and rebase worktrees onto the default branch. |
 | `gji sync-files [--json] [list\|add\|remove] [paths...]` | Manage local files copied into new worktrees. |
 | `gji clean [--stale] [--force] [--dry-run] [--json]` | Interactively prune linked worktrees. |
-| `gji remove [branch] [--force] [--dry-run] [--json]` | Remove a worktree and its branch. |
+| `gji remove [branch] [--force] [--dry-run] [--json]` (`rm`) | Deprecated; use `gji done` for one worktree or `gji clean` for bulk cleanup. |
 | `gji trigger-hook <hook>` | Re-run a configured hook in the current worktree. |
 | `gji config [get\|set\|unset] [key] [value]` | Read and update configuration values. |
 | `gji init [shell]` | Interactively set up shell integration, completion, and an editor; with a shell argument, print or install the wrapper. |
@@ -65,11 +65,15 @@ Use these when you need to understand the current set of worktrees and their sta
 
 - `gji sync`
 - `gji sync-files`
+- `gji done`
 - `gji clean`
-- `gji remove`
 - `gji trigger-hook`
 
 These are the commands that keep the worktree set healthy over time.
+
+`gji remove` and `rm` remain available during the deprecation window for
+compatibility. They print a migration warning in human-readable mode; use
+`gji done <branch>` to finish one worktree or `gji clean` for bulk cleanup.
 
 ### Configuration and shell setup
 
@@ -196,7 +200,7 @@ Several commands support `--json` so shell scripts and tools can consume structu
 - `gji status --json`
 - `gji ls --json`
 - `gji clean --json`
-- `gji remove --json`
+- `gji done --json`
 - `gji sync --json`
 - `gji sync-files --json`
 - `gji go --json`

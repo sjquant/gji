@@ -68,4 +68,28 @@ describe("CLI documentation parity", () => {
 		// Then no lifecycle option silently drifts out of documentation or completion.
 		expect(missing).toEqual([]);
 	});
+
+	it("keeps remove deprecation guidance aligned across surfaces", async () => {
+		// Given the deprecated remove command and its public references.
+		const command = createProgram().commands.find(
+			(candidate) => candidate.name() === "remove",
+		);
+		const readme = await readFile(join(process.cwd(), "README.md"), "utf8");
+		const website = await readFile(
+			join(process.cwd(), "website/docs/commands.mdx"),
+			"utf8",
+		);
+		const zsh = renderShellCompletion("zsh");
+
+		// When deprecation wording is compared with help, docs, and completion.
+		// Then every public surface points users to the replacement lifecycle commands.
+		expect(command?.description()).toContain("deprecated");
+		expect(readme).toContain("Use `gji done <branch>`");
+		expect(readme).toContain("`gji clean` to prune");
+		expect(website).toContain("`gji done <branch>` to finish");
+		expect(website).toContain("`gji clean` for bulk cleanup");
+		expect(zsh).toContain(
+			"deprecated: use done for one worktree or clean for bulk cleanup",
+		);
+	});
 });

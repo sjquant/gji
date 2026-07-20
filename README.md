@@ -11,7 +11,7 @@ gji new feature/payment-refactor   # new branch + worktree, cd in
 gji pr 1234                        # review PR in isolation, cd in
 gji pr open                         # open the PR for the current worktree
 gji go main                        # jump back, shell changes directory
-gji remove feature/payment-refactor
+gji done feature/payment-refactor
 ```
 
 ## Before / After
@@ -112,8 +112,8 @@ gji open
 gji open --select                # choose another worktree interactively
 gji open feature/dark-mode --editor code
 
-# clean up when done
-gji remove feature/dark-mode
+# finish a worktree when done
+gji done feature/dark-mode
 ```
 
 Worktrees land at a deterministic path so your editor bookmarks and scripts always know where to look:
@@ -154,7 +154,7 @@ gji sync --all                    # rebase every worktree
 
 gji clean                         # interactive bulk cleanup
 gji clean --stale                 # only target safe stale cleanup candidates
-gji remove feature/auth-refactor  # remove one worktree and its branch
+gji done feature/auth-refactor    # finish one worktree and its branch
 
 gji trigger-hook afterCreate      # re-run setup in the current worktree
 ```
@@ -255,7 +255,7 @@ path=$(gji root --print)
 | `gji sync [--all]` | fetch and rebase worktrees onto default branch |
 | `gji sync-files [list\|add\|remove] [paths...]` | manage local files copied into new worktrees |
 | `gji clean [--stale] [--force] [--dry-run] [--json]` | interactively prune linked worktrees |
-| `gji remove [branch] [--force] [--dry-run] [--json]` | remove a worktree and its branch |
+| `gji remove [branch] [--force] [--dry-run] [--json]` (`rm`) | **deprecated**; use `gji done` for one worktree or `gji clean` for bulk cleanup |
 | `gji trigger-hook <hook>` | run a hook in the current worktree |
 | `gji config [get\|set\|unset] [key] [value]` | manage global defaults |
 | `gji init [shell]` | interactively set up onboarding, or print/install a shell wrapper |
@@ -266,6 +266,10 @@ The repository registry records projects that gji has visited so `go`, `warp`,
 and the chooser can resolve worktrees across repositories. It is advisory
 metadata: missing paths are skipped and `gji doctor --fix` can remove stale
 entries.
+
+`gji remove` and its `rm` alias remain available during the deprecation window,
+but print a migration warning in human-readable mode. Use `gji done <branch>`
+to finish one linked worktree or `gji clean` to prune several worktrees.
 
 ## Configuration
 
@@ -369,7 +373,7 @@ Run scripts automatically at key lifecycle moments:
 |---|---|
 | `afterCreate` | after `gji new` or `gji pr` creates a worktree |
 | `afterEnter` | after `gji go` switches to a worktree |
-| `beforeRemove` | before `gji remove` deletes a worktree |
+| `beforeRemove` | before `gji done` or `gji clean` deletes a worktree |
 
 Hooks receive `{{branch}}`, `{{path}}`, `{{repo}}` as template variables and `GJI_BRANCH`, `GJI_PATH`, `GJI_REPO` as environment variables. A failing hook emits a warning but never aborts the command.
 
@@ -461,8 +465,8 @@ gji go --json feature/auth-refactor
 gji ls --json
 # → [{ "branch": "...", "status": "clean", "upstream": { "kind": "tracked", ... }, ... }]
 
-# remove
-gji remove --json --force feature/dark-mode
+# finish one worktree
+gji done --json --force feature/dark-mode
 # → { "branch": "feature/dark-mode", "path": "/…", "deleted": true }
 
 # bulk clean
@@ -479,7 +483,7 @@ gji clean --stale --json --force
 
 `gji clean --stale` limits cleanup to clean branch worktrees whose upstream is gone and whose branch is already merged into the configured or remote default branch.
 
-`--json` suppresses all interactive prompts. Navigation results include a `repository` object with the stable repository `root` and display `name`. `--force` is required for `remove` and `clean` in JSON mode. `branch` is `null` for detached worktrees.
+`--json` suppresses all interactive prompts. Navigation results include a `repository` object with the stable repository `root` and display `name`. `--force` is required for `done` and `clean` in JSON mode. `branch` is `null` for detached worktrees.
 
 `gji ls --json` and `gji status --json` also produce structured output — see `gji status --json | jq` for the full schema.
 
@@ -487,7 +491,7 @@ gji clean --stale --json --force
 
 ```sh
 GJI_NO_TUI=1 gji new feature/ci-branch
-GJI_NO_TUI=1 gji remove --force feature/ci-branch
+GJI_NO_TUI=1 gji done --force feature/ci-branch
 GJI_NO_TUI=1 gji clean --force
 ```
 

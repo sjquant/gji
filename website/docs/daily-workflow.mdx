@@ -119,10 +119,13 @@ gji go feature/dark-mode
 gji back
 gji sync
 gji status
-gji remove feature/dark-mode
 gji done
 gji undo
 ```
+
+Use `gji done` to finish one linked worktree. Use `gji clean` when you want to
+prune several worktrees; the older `gji remove`/`rm` commands remain available
+with a deprecation warning for compatibility.
 
 The main point is that each task keeps its own files, dependencies, and terminal context.
 

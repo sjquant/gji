@@ -40,9 +40,10 @@ const TOP_LEVEL_COMMANDS = [
 	{ name: "clean", description: "interactively prune linked worktrees" },
 	{
 		name: "remove",
-		description: "remove a linked worktree and delete its branch when present",
+		description:
+			"deprecated: use done for one worktree or clean for bulk cleanup",
 	},
-	{ name: "rm", description: "alias of remove" },
+	{ name: "rm", description: "deprecated alias of remove" },
 	{
 		name: "run-hook",
 		description: "run a named hook in the current worktree",

@@ -17,7 +17,11 @@ vi.mock("update-notifier", () => ({
 
 import packageJson from "../package.json" with { type: "json" };
 import { createProgram, runCli } from "./cli.js";
-import { createRepository } from "./repo.test-helpers.js";
+import {
+	addLinkedWorktree,
+	createRepository,
+	pathExists,
+} from "./repo.test-helpers.js";
 import { loadRegistry } from "./repo-registry.js";
 
 const originalConfigDir = process.env.GJI_CONFIG_DIR;
@@ -66,6 +70,8 @@ describe("runCli", () => {
 		expect(output).toContain("clean");
 		expect(output).toContain("remove");
 		expect(output).toContain("rm");
+		expect(output).toContain("deprecated: use gji done");
+		expect(output).toContain("clean for bulk cleanup");
 		expect(output).toContain("Common workflows:");
 		expect(output).toContain("gji new <branch>");
 		expect(output).toContain("gji go <branch>");
@@ -145,6 +151,53 @@ describe("runCli", () => {
 		// Then stderr remains a single JSON error object without a warning prefix.
 		expect(result.exitCode).toBe(1);
 		expect(JSON.parse(stderr.join(""))).toHaveProperty("error");
+	});
+
+	it("warns before running deprecated remove cleanup", async () => {
+		// Given a linked worktree selected through the deprecated command.
+		const repoRoot = await createRepository();
+		const branch = "feature/deprecated-remove";
+		const worktreePath = await addLinkedWorktree(repoRoot, branch);
+		const stderr: string[] = [];
+
+		// When gji remove runs in human-readable mode.
+		const result = await runCli(["remove", "--force", branch], {
+			cwd: repoRoot,
+			stderr: (chunk) => stderr.push(chunk),
+			stdout: () => undefined,
+		});
+
+		// Then cleanup still works while directing users to done or clean.
+		expect(result.exitCode).toBe(0);
+		expect(stderr.join("")).toContain(
+			"gji remove is deprecated; use 'gji done' for one worktree or 'gji clean' for bulk cleanup",
+		);
+		await expect(pathExists(worktreePath)).resolves.toBe(false);
+	});
+
+	it("keeps deprecated rm JSON output machine-readable", async () => {
+		// Given a linked worktree selected through the deprecated alias.
+		const repoRoot = await createRepository();
+		const branch = "feature/deprecated-rm";
+		const worktreePath = await addLinkedWorktree(repoRoot, branch);
+		const stderr: string[] = [];
+		const stdout: string[] = [];
+
+		// When rm runs in JSON mode.
+		const result = await runCli(["rm", "--json", "--force", branch], {
+			cwd: repoRoot,
+			stderr: (chunk) => stderr.push(chunk),
+			stdout: (chunk) => stdout.push(chunk),
+		});
+
+		// Then the alias remains script-compatible without a deprecation prefix.
+		expect(result.exitCode).toBe(0);
+		expect(stderr).toEqual([]);
+		expect(JSON.parse(stdout.join(""))).toMatchObject({
+			branch,
+			path: worktreePath,
+			deleted: true,
+		});
 	});
 
 	it("does not register repositories for metadata commands", async () => {
