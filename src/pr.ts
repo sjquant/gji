@@ -109,7 +109,7 @@ export function createPrCommand(
 						`gji pr: ${message} in non-interactive mode (GJI_NO_TUI=1)\n`,
 					);
 					options.stderr(
-						`Hint: Use 'gji remove pr/${prNumber}' or 'gji clean' to remove the existing worktree\n`,
+						`Hint: Use 'gji done pr/${prNumber}' or 'gji clean' to remove the existing worktree\n`,
 					);
 				}
 				return 1;

@@ -5,6 +5,7 @@ import { beforeEach } from "vitest";
 
 const SHELL_OUTPUT_ENV_VARS = [
 	"GJI_BACK_OUTPUT_FILE",
+	"GJI_DONE_OUTPUT_FILE",
 	"GJI_GO_OUTPUT_FILE",
 	"GJI_NEW_OUTPUT_FILE",
 	"GJI_PR_OUTPUT_FILE",

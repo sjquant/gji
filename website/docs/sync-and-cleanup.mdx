@@ -25,13 +25,13 @@ Use this when you have multiple active branches and want to bring them forward t
 
 Detached worktrees are skipped automatically because there is no branch to rebase cleanly.
 
-## Remove one worktree
+## Finish one worktree
 
 ```bash
-gji remove feature/auth-refactor
+gji done feature/auth-refactor
 ```
 
-This removes the worktree and, when appropriate, its branch.
+This safely finishes the worktree and, when appropriate, its branch.
 
 ## Bulk cleanup
 
@@ -56,7 +56,7 @@ When you know you want non-interactive cleanup:
 ```bash
 gji clean --stale --force
 gji clean --force
-gji remove feature/auth-refactor --force
+gji done feature/auth-refactor --force
 ```
 
 Force mode is useful for automation or when you have already reviewed the state and want to skip confirmation prompts.
@@ -69,3 +69,6 @@ Force mode is useful for automation or when you have already reviewed the state 
 - Do you want to keep the branch but remove only the worktree?
 
 `gji` prompts for these cases interactively so you do not have to remember the right raw `git worktree` incantations.
+
+`gji remove` and `rm` are deprecated compatibility commands. Use `gji done`
+for one worktree and `gji clean` for bulk cleanup.

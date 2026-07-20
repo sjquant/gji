@@ -75,8 +75,10 @@ gji sync --all
 ## Clean up when done
 
 ```bash
-gji remove feature/dark-mode
+gji done feature/dark-mode
 gji clean
 ```
 
-`clean` is the right choice when you want to prune several stale worktrees in one interactive pass.
+Use `done` for one linked worktree and `clean` to prune several stale
+worktrees in one interactive pass. The older `remove`/`rm` commands remain
+available with a deprecation warning for compatibility.

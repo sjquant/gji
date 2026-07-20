@@ -152,6 +152,128 @@ describe("gji new", () => {
 		await expect(currentBranch(newWorktreePath)).resolves.toBe(newBranch);
 	});
 
+	it("takes changes onto the current worktree commit when requested", async () => {
+		// Given a linked worktree with a divergent commit and an uncommitted change.
+		const repoRoot = await createRepository();
+		const currentWorktreePath = await addLinkedWorktree(
+			repoRoot,
+			"feature/take-current-base",
+		);
+		await commitFile(
+			currentWorktreePath,
+			"current-only.txt",
+			"committed in current worktree\n",
+			"Add current-only commit",
+		);
+		await writeFile(
+			join(currentWorktreePath, "taken.txt"),
+			"taken from current worktree\n",
+			"utf8",
+		);
+		const newBranch = "feature/take-from-current";
+		const newWorktreePath = resolveWorktreePath(repoRoot, newBranch);
+		const stderr: string[] = [];
+
+		// When gji new --take --from-current runs in that linked worktree.
+		const result = await runCli(
+			["new", "--take", "--from-current", newBranch],
+			{
+				cwd: currentWorktreePath,
+				stderr: (chunk) => stderr.push(chunk),
+			},
+		);
+
+		// Then the target contains both the divergent commit and the transferred change.
+		expect(result.exitCode).toBe(0);
+		await expect(
+			pathExists(join(newWorktreePath, "current-only.txt")),
+		).resolves.toBe(true);
+		await expect(pathExists(join(newWorktreePath, "taken.txt"))).resolves.toBe(
+			true,
+		);
+		await expect(
+			pathExists(join(currentWorktreePath, "taken.txt")),
+		).resolves.toBe(false);
+		expect(stderr.join("")).toContain("✓ took 1 changed file (1 untracked)");
+	});
+
+	it("lists files and ignored-file limitations in take dry-runs", async () => {
+		// Given modified and untracked files in the current worktree.
+		const repoRoot = await createRepository();
+		await writeFile(join(repoRoot, "README.md"), "changed\n", "utf8");
+		await writeFile(join(repoRoot, "untracked.txt"), "untracked\n", "utf8");
+		const stdout: string[] = [];
+
+		// When gji new --take --dry-run runs.
+		const result = await runCli(
+			["new", "--take", "--dry-run", "feature/take-dry"],
+			{
+				cwd: repoRoot,
+				stdout: (chunk) => stdout.push(chunk),
+			},
+		);
+
+		// Then it lists the files without creating a worktree.
+		expect(result.exitCode).toBe(0);
+		expect(stdout.join("")).toContain("README.md");
+		expect(stdout.join("")).toContain("untracked.txt");
+		await expect(
+			pathExists(resolveWorktreePath(repoRoot, "feature/take-dry")),
+		).resolves.toBe(false);
+	});
+
+	it("restores the source changes when applying a take stash fails", async () => {
+		// Given an existing branch whose target contains a conflicting tracked file.
+		const repoRoot = await createRepository();
+		const targetBranch = "feature/take-conflict";
+		await runGit(repoRoot, ["branch", targetBranch]);
+		await commitFile(
+			repoRoot,
+			"conflict.txt",
+			"target content\n",
+			"Add target conflict",
+		);
+		await runGit(repoRoot, ["branch", "-f", targetBranch, "HEAD"]);
+		await runGit(repoRoot, ["reset", "--hard", "HEAD~1"]);
+		await writeFile(join(repoRoot, "conflict.txt"), "source content\n", "utf8");
+		const stderr: string[] = [];
+
+		// When gji new --take attempts to apply the conflicting stash.
+		const result = await runCli(["new", "--take", targetBranch], {
+			cwd: repoRoot,
+			stderr: (chunk) => stderr.push(chunk),
+		});
+
+		// Then creation fails safely and the source file remains available.
+		expect(result.exitCode).toBe(1);
+		expect(stderr.join("")).toContain("changes are safe in stash");
+		expect(await readFile(join(repoRoot, "conflict.txt"), "utf8")).toBe(
+			"source content\n",
+		);
+	});
+
+	it("copies taken changes while leaving the source worktree unchanged", async () => {
+		// Given an uncommitted file in the source worktree.
+		const repoRoot = await createRepository();
+		await writeFile(join(repoRoot, "copied.txt"), "copy me\n", "utf8");
+		const branch = "feature/take-copy";
+		const targetPath = resolveWorktreePath(repoRoot, branch);
+
+		// When gji new --take --copy runs.
+		const result = await runCli(["new", "--take", "--copy", branch], {
+			cwd: repoRoot,
+		});
+
+		// Then both source and target contain the copied file.
+		expect(result.exitCode).toBe(0);
+		await expect(readFile(join(repoRoot, "copied.txt"), "utf8")).resolves.toBe(
+			"copy me\n",
+		);
+		await expect(
+			readFile(join(targetPath, "copied.txt"), "utf8"),
+		).resolves.toBe("copy me\n");
+	});
+
 	it("writes the created worktree path to the shell output file without printing it", async () => {
 		// Given a repository root and a shell output file.
 		const repoRoot = await createRepository();
@@ -1334,7 +1456,7 @@ describe("gji new", () => {
 			expect(result).toBe(1);
 			const stderrText = stderr.join("");
 			expect(stderrText).toContain("Hint:");
-			expect(stderrText).toContain("gji remove");
+			expect(stderrText).toContain("gji done");
 		});
 
 		it("does NOT emit a Hint: line in --json mode when the target path already exists", async () => {

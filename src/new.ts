@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
-import { mkdir } from "node:fs/promises";
-import { basename, dirname } from "node:path";
+import { access, mkdir } from "node:fs/promises";
+import { basename, dirname, resolve } from "node:path";
 import { promisify } from "node:util";
 import { isCancel, text } from "@clack/prompts";
 
@@ -40,6 +40,7 @@ export type NewWorktreeMode = "create" | "checkout" | "track";
 
 export interface NewCommandOptions {
 	branch?: string;
+	copy?: boolean;
 	cwd: string;
 	detached?: boolean;
 	dryRun?: boolean;
@@ -51,6 +52,7 @@ export interface NewCommandOptions {
 	open?: boolean;
 	outputEnv?: string;
 	remote?: string;
+	take?: boolean;
 	stderr: (chunk: string) => void;
 	stdout: (chunk: string) => void;
 }
@@ -75,6 +77,8 @@ export function createNewCommand(
 	return async function runNewCommand(
 		options: NewCommandOptions,
 	): Promise<number> {
+		if (options.copy && !options.take)
+			return emitNewError(options, "--copy requires --take");
 		if (options.detached && options.fromCurrent) {
 			const message = "--from-current cannot be used with --detached";
 			if (options.json) {
@@ -203,7 +207,7 @@ export function createNewCommand(
 						`gji new: ${message} in non-interactive mode (GJI_NO_TUI=1)\n`,
 					);
 					options.stderr(
-						`Hint: Use 'gji remove ${worktreeName}' or 'gji clean' to remove the existing worktree\n`,
+						`Hint: Use 'gji done ${worktreeName}' or 'gji clean' to remove the existing worktree\n`,
 					);
 					options.stderr(
 						`Hint: Use 'gji run-hook after-create' inside the worktree to re-run setup hooks\n`,
@@ -227,6 +231,36 @@ export function createNewCommand(
 		}
 
 		if (options.dryRun) {
+			if (options.take) {
+				const changedFiles = await listTakeFiles(options.cwd);
+				const submoduleFiles = await listSubmoduleFiles(
+					options.cwd,
+					changedFiles,
+				);
+				const transferableFiles = changedFiles.filter(
+					(file) => !submoduleFiles.includes(file),
+				);
+				const ignoredFiles = await listIgnoredFiles(options.cwd);
+				if (transferableFiles.length === 0)
+					return emitNewError(
+						options,
+						submoduleFiles.length > 0
+							? "nothing to take: submodule changes are not supported"
+							: ignoredFiles.length > 0
+								? "nothing to take: ignored files are not moved"
+								: "nothing to take: working tree is clean",
+					);
+				if (options.json)
+					options.stdout(
+						`${JSON.stringify({ branch: worktreeName, path: worktreePath, dryRun: true, take: transferableFiles, ignored: ignoredFiles, submodules: submoduleFiles }, null, 2)}\n`,
+					);
+				else {
+					options.stdout(
+						`Would take ${transferableFiles.length} changed file${transferableFiles.length === 1 ? "" : "s"} into ${worktreeName}${ignoredFiles.length > 0 ? ` (ignored files not moved: ${ignoredFiles.length})` : ""}${submoduleFiles.length > 0 ? ` (submodules not moved: ${submoduleFiles.length})` : ""}\n${transferableFiles.map((file) => `  ${file}\n`).join("")}`,
+					);
+				}
+				return 0;
+			}
 			if (options.json) {
 				options.stdout(
 					`${JSON.stringify(
@@ -264,8 +298,57 @@ export function createNewCommand(
 			options.fromCurrent && !options.detached
 				? await resolveCurrentWorktreeHead(options.cwd)
 				: undefined;
+		const takeStartPoint = options.take
+			? await resolveCurrentWorktreeHead(options.cwd)
+			: undefined;
+		const changedTakeFiles = options.take
+			? await listTakeFiles(options.cwd)
+			: [];
+		const submoduleFiles = options.take
+			? await listSubmoduleFiles(options.cwd, changedTakeFiles)
+			: [];
+		const takeFiles = changedTakeFiles.filter(
+			(file) => !submoduleFiles.includes(file),
+		);
+		const takeUntracked = options.take
+			? await countUntrackedFiles(options.cwd)
+			: 0;
+		if (options.take && takeFiles.length === 0)
+			return emitNewError(
+				options,
+				submoduleFiles.length > 0
+					? "nothing to take: submodule changes are not supported"
+					: "nothing to take: working tree is clean",
+			);
+		if (options.take && submoduleFiles.length > 0)
+			options.stderr(
+				`Warning: submodule changes are not transferred: ${submoduleFiles.join(", ")}\n`,
+			);
+		let stashSha: string | null = null;
+		if (options.take) {
+			try {
+				const inProgressState = await detectInProgressGitState(options.cwd);
+				if (inProgressState)
+					return emitNewError(
+						options,
+						`cannot take changes while Git is in progress (${inProgressState})`,
+					);
+				stashSha = await createTakeStash(options.cwd, worktreeName);
+			} catch (error) {
+				return emitNewError(
+					options,
+					`could not stash changes safely: ${toExecMessage(error)}`,
+				);
+			}
+		}
 		const gitArgs = options.detached
-			? ["worktree", "add", "--detach", worktreePath]
+			? [
+					"worktree",
+					"add",
+					"--detach",
+					worktreePath,
+					...(takeStartPoint ? [takeStartPoint] : []),
+				]
 			: options.mode === "track"
 				? [
 						"worktree",
@@ -285,10 +368,46 @@ export function createNewCommand(
 							"-b",
 							worktreeName,
 							worktreePath,
-							...(startPoint ? [startPoint] : []),
+							...(takeStartPoint
+								? [takeStartPoint]
+								: startPoint
+									? [startPoint]
+									: []),
 						];
-
-		await execFileAsync("git", gitArgs, { cwd: repository.repoRoot });
+		try {
+			await execFileAsync("git", gitArgs, { cwd: repository.repoRoot });
+		} catch (error) {
+			if (stashSha)
+				await restoreTakeStash(options.cwd, stashSha, options.stderr);
+			return emitNewError(
+				options,
+				`failed to create worktree: ${toExecMessage(error)}`,
+			);
+		}
+		if (
+			stashSha &&
+			!(await applyTakeStash(
+				worktreePath,
+				options.cwd,
+				stashSha,
+				!!options.copy,
+				options.stderr,
+			))
+		) {
+			try {
+				await execFileAsync(
+					"git",
+					["worktree", "remove", "--force", worktreePath],
+					{ cwd: repository.repoRoot },
+				);
+			} catch {
+				/* rollback best effort */
+			}
+			return emitNewError(
+				options,
+				`could not apply taken changes; your changes are safe in stash: ${stashSha}`,
+			);
+		}
 
 		// Sync files from main worktree before afterCreate so synced files are available to install scripts.
 		const syncPatterns = Array.isArray(config.syncFiles)
@@ -328,21 +447,32 @@ export function createNewCommand(
 		);
 
 		if (options.json) {
+			const navigation = createNavigationTarget(
+				createNavigationRepository(repository.repoName, repository.repoRoot),
+				worktreePath,
+				worktreeName,
+			);
 			options.stdout(
 				`${JSON.stringify(
-					createNavigationTarget(
-						createNavigationRepository(
-							repository.repoName,
-							repository.repoRoot,
-						),
-						worktreePath,
-						worktreeName,
-					),
+					options.take
+						? {
+								...navigation,
+								taken: {
+									files: takeFiles.length,
+									untracked: takeUntracked,
+									submodules: submoduleFiles,
+								},
+							}
+						: navigation,
 					null,
 					2,
 				)}\n`,
 			);
 		} else {
+			if (options.take)
+				options.stderr(
+					`✓ took ${takeFiles.length} changed file${takeFiles.length === 1 ? "" : "s"} (${takeUntracked} untracked) → ${worktreeName}\n`,
+				);
 			await recordWorktreeUsage(worktreePath, worktreeName);
 			await writeOutput(worktreePath, options.stdout, options.outputEnv);
 		}
@@ -562,6 +692,55 @@ async function resolveCurrentWorktreeHead(cwd: string): Promise<string> {
 	);
 }
 
+async function createTakeStash(
+	cwd: string,
+	worktreeName: string,
+): Promise<string> {
+	const message = `gji-take: ${worktreeName}:${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+	await execFileAsync(
+		"git",
+		["stash", "push", "--include-untracked", "-m", message],
+		{ cwd },
+	);
+	const { stdout } = await execFileAsync(
+		"git",
+		["stash", "list", "--format=%H%x00%s"],
+		{ cwd },
+	);
+	const line = stdout
+		.split("\n")
+		.map((candidate) => candidate.split("\0"))
+		.find(([, subject]) => subject?.endsWith(message));
+	if (!line?.[0])
+		throw new Error("could not identify the stash created for --take");
+	return line[0];
+}
+
+async function detectInProgressGitState(cwd: string): Promise<string | null> {
+	const markers = [
+		["MERGE_HEAD", "merge"],
+		["rebase-merge", "rebase"],
+		["rebase-apply", "rebase"],
+		["CHERRY_PICK_HEAD", "cherry-pick"],
+		["REVERT_HEAD", "revert"],
+		["BISECT_LOG", "bisect"],
+	] as const;
+	for (const [marker, name] of markers) {
+		try {
+			const { stdout } = await execFileAsync(
+				"git",
+				["rev-parse", "--git-path", marker],
+				{ cwd },
+			);
+			await access(resolve(cwd, stdout.trim()));
+			return name;
+		} catch {
+			/* marker is absent */
+		}
+	}
+	return null;
+}
+
 async function writeOutput(
 	worktreePath: string,
 	stdout: (chunk: string) => void,
@@ -620,4 +799,135 @@ async function openWorktree(
 		const message = error instanceof Error ? error.message : String(error);
 		stderr(`gji new: failed to open editor: ${message}\n`);
 	}
+}
+
+async function listTakeFiles(cwd: string): Promise<string[]> {
+	try {
+		const { stdout } = await execFileAsync(
+			"git",
+			["status", "--porcelain=v1"],
+			{ cwd },
+		);
+		return stdout
+			.split("\n")
+			.filter((line) => line.length > 3)
+			.map((line) => line.slice(3).replace(/^"|"$/g, ""));
+	} catch {
+		return [];
+	}
+}
+
+async function listIgnoredFiles(cwd: string): Promise<string[]> {
+	try {
+		const { stdout } = await execFileAsync(
+			"git",
+			["status", "--porcelain=v1", "--ignored", "--untracked-files=all"],
+			{ cwd },
+		);
+		return stdout
+			.split("\n")
+			.filter((line) => line.startsWith("!! "))
+			.map((line) => line.slice(3).replace(/^"|"$/g, ""));
+	} catch {
+		return [];
+	}
+}
+
+async function listSubmoduleFiles(
+	cwd: string,
+	changedFiles: string[],
+): Promise<string[]> {
+	if (changedFiles.length === 0) return [];
+	try {
+		const { stdout } = await execFileAsync("git", ["ls-files", "--stage"], {
+			cwd,
+		});
+		const submodules = new Set(
+			stdout
+				.split("\n")
+				.filter((line) => line.startsWith("160000 "))
+				.map((line) => line.slice(line.indexOf("\t") + 1)),
+		);
+		return changedFiles.filter((file) => submodules.has(file));
+	} catch {
+		return [];
+	}
+}
+async function countUntrackedFiles(cwd: string): Promise<number> {
+	try {
+		const { stdout } = await execFileAsync(
+			"git",
+			["status", "--porcelain=v1", "--untracked-files=all"],
+			{ cwd },
+		);
+		return stdout.split("\n").filter((line) => line.startsWith("?? ")).length;
+	} catch {
+		return 0;
+	}
+}
+async function applyTakeStash(
+	worktreePath: string,
+	sourcePath: string,
+	stashSha: string,
+	copy: boolean,
+	stderr: (chunk: string) => void,
+): Promise<boolean> {
+	try {
+		await execFileAsync("git", ["stash", "apply", stashSha], {
+			cwd: worktreePath,
+		});
+	} catch (error) {
+		stderr(`Warning: stash apply failed: ${toExecMessage(error)}\n`);
+		await restoreTakeStash(sourcePath, stashSha, stderr);
+		return false;
+	}
+	if (copy) {
+		try {
+			await execFileAsync("git", ["stash", "apply", stashSha], {
+				cwd: sourcePath,
+			});
+		} catch (error) {
+			stderr(
+				`Warning: could not restore copied changes to the source: ${toExecMessage(error)}\n`,
+			);
+			return false;
+		}
+	}
+	try {
+		const { stdout } = await execFileAsync(
+			"git",
+			["stash", "list", "--format=%H %gd"],
+			{ cwd: sourcePath },
+		);
+		const line = stdout
+			.split("\n")
+			.find((candidate) => candidate.startsWith(stashSha));
+		const ref = line?.trim().split(/\s+/).at(1);
+		if (ref)
+			await execFileAsync("git", ["stash", "drop", ref], { cwd: sourcePath });
+	} catch {
+		/* preserving the stash is safer */
+	}
+	return true;
+}
+async function restoreTakeStash(
+	sourcePath: string,
+	stashSha: string,
+	stderr: (chunk: string) => void,
+): Promise<void> {
+	try {
+		await execFileAsync("git", ["stash", "apply", stashSha], {
+			cwd: sourcePath,
+		});
+	} catch {
+		stderr(
+			`Your changes are safe in stash: ${stashSha} — run "git stash apply ${stashSha}" to restore\n`,
+		);
+	}
+}
+function emitNewError(options: NewCommandOptions, message: string): number {
+	if (options.json)
+		options.stderr(`${JSON.stringify({ error: message }, null, 2)}\n`);
+	else options.stderr(`gji new: ${message}\n`);
+	return 1;
 }

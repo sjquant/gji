@@ -7,6 +7,7 @@ import { isHeadless } from "./headless.js";
 import { extractHooks, runHook } from "./hooks.js";
 import type { WorktreeEntry } from "./repo.js";
 import { writeShellOutput } from "./shell-handoff.js";
+import { finalizeUndoOperation, recordUndoOperation } from "./undo.js";
 import {
 	deleteBranch,
 	forceDeleteBranch,
@@ -149,6 +150,25 @@ export function createRemoveCommand(
 			options.stderr,
 		);
 		const hooks = extractHooks(config);
+		let journal: Awaited<ReturnType<typeof recordUndoOperation>>;
+		try {
+			journal = await recordUndoOperation("remove", repository.repoRoot, [
+				worktree,
+			]);
+		} catch (error) {
+			emitError(
+				options,
+				`could not write undo journal; no worktree was removed: ${toMessage(error)}`,
+			);
+			return 1;
+		}
+		if (!journal) {
+			emitError(
+				options,
+				"could not capture undo state; no worktree was removed",
+			);
+			return 1;
+		}
 		await runHook(
 			hooks["before-remove"],
 			worktree.path,
@@ -164,6 +184,7 @@ export function createRemoveCommand(
 			await removeWorktree(repository.repoRoot, worktree.path);
 		} catch (error) {
 			if (!isWorktreeForceRemovalError(error)) {
+				await finalizeUndoOperation(journal, []);
 				throw error;
 			}
 
@@ -171,6 +192,7 @@ export function createRemoveCommand(
 				!options.force &&
 				!(await confirmForceRemoveWorktree(worktree.path))
 			) {
+				await finalizeUndoOperation(journal, []);
 				options.stderr("Aborted\n");
 				return 1;
 			}
@@ -178,6 +200,7 @@ export function createRemoveCommand(
 			try {
 				await forceRemoveWorktree(repository.repoRoot, worktree.path);
 			} catch (forceError) {
+				await finalizeUndoOperation(journal, []);
 				emitError(
 					options,
 					`Failed to remove worktree at ${worktree.path}: ${toMessage(forceError)}`,
@@ -185,6 +208,7 @@ export function createRemoveCommand(
 				return 1;
 			}
 		}
+		await finalizeUndoOperation(journal, [worktree]);
 
 		if (worktree.branch) {
 			try {
@@ -218,6 +242,7 @@ export function createRemoveCommand(
 				`${JSON.stringify({ branch: worktree.branch, path: worktree.path, deleted: true }, null, 2)}\n`,
 			);
 		} else {
+			options.stderr("undo: gji undo\n");
 			await writeOutput(repository.repoRoot, options.stdout);
 		}
 
