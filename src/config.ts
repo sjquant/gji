@@ -1,6 +1,13 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import {
+	dirname,
+	isAbsolute,
+	join,
+	normalize,
+	resolve,
+	win32,
+} from "node:path";
 
 export const CONFIG_FILE_NAME = ".gji.json";
 export const GLOBAL_CONFIG_DIRECTORY = ".config/gji";
@@ -13,6 +20,7 @@ export const KNOWN_CONFIG_KEYS: ReadonlySet<string> = new Set([
 	"installSaveTarget",
 	"shellIntegration",
 	"skipInstallPrompt",
+	"syncDirs",
 	"syncDefaultBranch",
 	"syncFiles",
 	"syncRemote",
@@ -56,6 +64,7 @@ export async function loadEffectiveConfig(
 	const perRepoConfig: Record<string, unknown> = isPlainObject(repos)
 		? findPerRepoConfig(repos, root, home)
 		: {};
+	validateSyncDirsConfig(perRepoConfig.syncDirs);
 
 	// Strip the internal `repos` registry from the global base before merging.
 	const globalBase: Record<string, unknown> = { ...globalConfig.config };
@@ -248,10 +257,59 @@ export function resolveConfigString(
 	return typeof value === "string" && value.length > 0 ? value : undefined;
 }
 
+export function validateSyncDirsConfig(value: unknown): void {
+	if (value === undefined) return;
+
+	if (!Array.isArray(value)) {
+		throw new Error("syncDirs: expected an array of relative directory paths");
+	}
+
+	for (const pattern of value) {
+		if (typeof pattern !== "string") {
+			throw new Error("syncDirs: every entry must be a string");
+		}
+
+		validateSyncDirPattern(pattern);
+	}
+}
+
+export function validateSyncDirPattern(pattern: string): string {
+	if (
+		pattern.length === 0 ||
+		isAbsolute(pattern) ||
+		win32.isAbsolute(pattern)
+	) {
+		throw new Error(
+			`syncDirs: pattern must be a relative path, got: ${pattern}`,
+		);
+	}
+
+	const segments = pattern.split(/[\\/]+/u);
+	if (segments.includes("..")) {
+		throw new Error(
+			`syncDirs: pattern must not contain '..' segments, got: ${pattern}`,
+		);
+	}
+
+	if (segments.some((segment) => segment.toLowerCase() === ".git")) {
+		throw new Error(`syncDirs: pattern must not include .git, got: ${pattern}`);
+	}
+
+	const normalized = normalize(pattern);
+	if (normalized === ".") {
+		throw new Error(
+			`syncDirs: pattern must name a directory below the repository root, got: ${pattern}`,
+		);
+	}
+
+	return normalized;
+}
+
 async function loadConfigFile(path: string): Promise<LoadedConfig> {
 	try {
 		const rawConfig = await readFile(path, "utf8");
 		const parsedConfig = JSON.parse(rawConfig) as Record<string, unknown>;
+		validateSyncDirsConfig(parsedConfig.syncDirs);
 
 		return {
 			config: mergeConfig(parsedConfig),

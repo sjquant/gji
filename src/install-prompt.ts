@@ -45,9 +45,10 @@ export async function maybeRunInstallPrompt(
 	stderr: (chunk: string) => void,
 	dependencies: InstallPromptDependencies = {},
 	nonInteractive = false,
+	skipAfterClone = false,
 ): Promise<void> {
 	// Skip in non-interactive mode — no prompt can be shown.
-	if (isHeadless() || nonInteractive) {
+	if (isHeadless() || nonInteractive || skipAfterClone) {
 		return;
 	}
 

@@ -554,6 +554,57 @@ describe("gji pr", () => {
 			return repoRoot;
 		}
 
+		it("clones syncDirs before the PR install prompt", async () => {
+			// Given a PR repository with a configured node_modules directory.
+			const repoRoot = await setupPrRepo("2017");
+			await mkdir(join(repoRoot, "node_modules"));
+			await writeFile(
+				join(repoRoot, "node_modules", "ready.txt"),
+				"ready\n",
+				"utf8",
+			);
+			await writeFile(
+				join(repoRoot, ".gji.json"),
+				JSON.stringify({ syncDirs: ["node_modules"] }),
+				"utf8",
+			);
+			let promptCalled = false;
+			const runPrCmd = createPrCommand({
+				cloneDir: async (_source, destination) => {
+					await mkdir(destination, { recursive: true });
+					await writeFile(join(destination, "ready.txt"), "ready\n", "utf8");
+					return { bytes: 6, ms: 4 };
+				},
+				detectInstallPackageManager: async () => fakePm,
+				promptForInstallChoice: async () => {
+					promptCalled = true;
+					return "yes";
+				},
+			});
+
+			// When gji pr creates the review worktree.
+			const result = await runPrCmd({
+				cwd: repoRoot,
+				number: "2017",
+				stderr: () => undefined,
+				stdout: () => undefined,
+			});
+
+			// Then the cloned directory is available and the install prompt is skipped.
+			expect(result).toBe(0);
+			expect(promptCalled).toBe(false);
+			await expect(
+				readFile(
+					join(
+						resolveWorktreePath(repoRoot, "pr/2017"),
+						"node_modules",
+						"ready.txt",
+					),
+					"utf8",
+				),
+			).resolves.toBe("ready\n");
+		});
+
 		it('runs install once and does not persist anything when "yes" is chosen', async () => {
 			// Given a PR repo with a detected package manager and a "yes" prompt choice.
 			const repoRoot = await setupPrRepo("2001");

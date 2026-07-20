@@ -3,12 +3,17 @@ import { mkdir } from "node:fs/promises";
 import { basename, dirname } from "node:path";
 import { promisify } from "node:util";
 
-import { loadEffectiveConfig, resolveConfigString } from "./config.js";
+import {
+	type GjiConfig,
+	loadEffectiveConfig,
+	resolveConfigString,
+} from "./config.js";
 import {
 	type PathConflictChoice,
 	pathExists,
 	promptForPathConflict,
 } from "./conflict.js";
+import type { CloneDirectory } from "./dir-clone.js";
 import { syncFiles } from "./file-sync.js";
 import { isHeadless } from "./headless.js";
 import { recordWorktreeUsage } from "./history.js";
@@ -21,6 +26,7 @@ import {
 	createNavigationRepository,
 	createNavigationTarget,
 } from "./navigation-output.js";
+import { estimateSyncDirs, syncConfiguredDirs } from "./new.js";
 import { detectRepository, resolveWorktreePath } from "./repo.js";
 import { writeShellOutput } from "./shell-handoff.js";
 
@@ -41,6 +47,7 @@ export interface PrCommandOptions {
 }
 
 export interface PrCommandDependencies extends InstallPromptDependencies {
+	cloneDir?: CloneDirectory;
 	promptForPathConflict: (path: string) => Promise<PathConflictChoice>;
 }
 
@@ -81,11 +88,22 @@ export function createPrCommand(
 		}
 
 		const repository = await detectRepository(options.cwd);
-		const config = await loadEffectiveConfig(
-			repository.repoRoot,
-			undefined,
-			options.json ? undefined : options.stderr,
-		);
+		let config: GjiConfig;
+		try {
+			config = await loadEffectiveConfig(
+				repository.repoRoot,
+				undefined,
+				options.json ? undefined : options.stderr,
+			);
+		} catch (error) {
+			const message = error instanceof Error ? error.message : String(error);
+			if (options.json) {
+				options.stderr(`${JSON.stringify({ error: message }, null, 2)}\n`);
+			} else {
+				options.stderr(`gji pr: ${message}\n`);
+			}
+			return 1;
+		}
 		const branchName = `pr/${prNumber}`;
 		const remoteRef = `refs/remotes/origin/pull/${prNumber}/head`;
 		const rawBasePath = resolveConfigString(config, "worktreePath");
@@ -129,28 +147,28 @@ export function createPrCommand(
 			return 1;
 		}
 
+		const dryRunSyncDirs = options.dryRun
+			? await estimateSyncDirs(repository.repoRoot, worktreePath, config)
+			: [];
+
 		if (options.dryRun) {
 			if (options.json) {
-				options.stdout(
-					`${JSON.stringify(
-						{
-							...createNavigationTarget(
-								createNavigationRepository(
-									repository.repoName,
-									repository.repoRoot,
-								),
-								worktreePath,
-								branchName,
-							),
-							dryRun: true,
-						},
-						null,
-						2,
-					)}\n`,
-				);
+				const output: Record<string, unknown> = {
+					...createNavigationTarget(
+						createNavigationRepository(
+							repository.repoName,
+							repository.repoRoot,
+						),
+						worktreePath,
+						branchName,
+					),
+					dryRun: true,
+				};
+				if (dryRunSyncDirs.length > 0) output.syncDirs = dryRunSyncDirs;
+				options.stdout(`${JSON.stringify(output, null, 2)}\n`);
 			} else {
 				options.stdout(
-					`Would create worktree at ${worktreePath} (branch: ${branchName})\n`,
+					`Would create worktree at ${worktreePath} (branch: ${branchName})\n${dryRunSyncDirs.map(({ dir, bytes }) => `Would clone ${dir} (${bytes} bytes)\n`).join("")}`,
 				);
 			}
 			return 0;
@@ -188,6 +206,15 @@ export function createPrCommand(
 
 		await execFileAsync("git", worktreeArgs, { cwd: repository.repoRoot });
 
+		const clonedDirs = await syncConfiguredDirs(
+			repository.repoRoot,
+			worktreePath,
+			config,
+			options.stderr,
+			!!options.json,
+			dependencies.cloneDir,
+		);
+
 		// Sync files from main worktree before afterCreate so synced files are available to install scripts.
 		const syncPatterns = Array.isArray(config.syncFiles)
 			? (config.syncFiles as unknown[]).filter(
@@ -211,6 +238,9 @@ export function createPrCommand(
 			options.stderr,
 			dependencies,
 			!!options.json,
+			clonedDirs.some(
+				({ dir, installSkipped }) => dir === "node_modules" && installSkipped,
+			),
 		);
 
 		const hooks = extractHooks(config);
@@ -226,20 +256,17 @@ export function createPrCommand(
 		);
 
 		if (options.json) {
-			options.stdout(
-				`${JSON.stringify(
-					createNavigationTarget(
-						createNavigationRepository(
-							repository.repoName,
-							repository.repoRoot,
-						),
-						worktreePath,
-						branchName,
-					),
-					null,
-					2,
-				)}\n`,
-			);
+			const output: Record<string, unknown> = {
+				...createNavigationTarget(
+					createNavigationRepository(repository.repoName, repository.repoRoot),
+					worktreePath,
+					branchName,
+				),
+			};
+			if (clonedDirs.length > 0) {
+				output.cloned = clonedDirs.map(({ dir, ms }) => ({ dir, ms }));
+			}
+			options.stdout(`${JSON.stringify(output, null, 2)}\n`);
 		} else {
 			await recordWorktreeUsage(worktreePath, branchName);
 			await writeOutput(worktreePath, options.stdout, options.outputEnv);

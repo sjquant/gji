@@ -3,7 +3,8 @@ import { KNOWN_GLOBAL_CONFIG_KEYS } from "./config.js";
 const TOP_LEVEL_COMMANDS = [
 	{
 		name: "new",
-		description: "create a new branch or detached linked worktree",
+		description:
+			"create a new branch or detached linked worktree and CoW-bootstrap configured directories",
 	},
 	{
 		name: "done",

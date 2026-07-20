@@ -23,6 +23,7 @@ Use the global file for defaults you want everywhere. Use `.gji.json` when one r
 | `syncRemote` | Remote used by `gji sync`. |
 | `syncDefaultBranch` | Branch used as the rebase target. |
 | `syncFiles` | Files copied from the main worktree into new worktrees. Use global per-repo config for private files. |
+| `syncDirs` | Directories cloned with filesystem copy-on-write before files, installs, and hooks. |
 | `skipInstallPrompt` | Disable the automatic install prompt permanently. |
 | `installSaveTarget` | Persist install prompt choices locally or globally. |
 | `hooks` | Lifecycle commands for create, enter, and remove events. String hooks run through a shell; array hooks run as argv without a shell. |
@@ -35,7 +36,8 @@ Use the global file for defaults you want everywhere. Use `.gji.json` when one r
   "branchPrefix": "feature/",
   "syncRemote": "origin",
   "syncDefaultBranch": "main",
-  "syncFiles": [".env.example", ".nvmrc"]
+  "syncFiles": [".env.example", ".nvmrc"],
+  "syncDirs": ["node_modules", ".next"]
 }
 ```
 
@@ -115,6 +117,22 @@ The command stores the list under the current repository inside your global conf
 ```
 
 `gji new` copies configured files from the main worktree before install hooks run, skips missing source files, and never overwrites a file that already exists in the new worktree.
+
+## Instant directory bootstrap
+
+Use `syncDirs` for large directories such as dependency trees and build caches:
+
+```json
+{
+  "syncDirs": ["node_modules", ".next"]
+}
+```
+
+The setting is resolved through the same three layers as other normal config values: global defaults, per-repository global overrides, then `.gji.json`. Paths must be relative to the repository root; absolute paths, `..` segments, and any `.git` path are rejected.
+
+On macOS, gji uses APFS clonefile copies. On Linux, it requires reflinks. Unsupported filesystems are skipped rather than falling back to an ordinary recursive copy, and failed attempts are cached in `state.json`. Missing sources, external symlink targets, and existing destinations are also skipped without overwriting work. For pnpm projects, `node_modules/.modules.yaml` is removed after cloning so pnpm can regenerate it safely.
+
+Cloning happens before `syncFiles`, install prompts, and `afterCreate`. A successful `node_modules` clone skips the install prompt; run the package manager manually when the lockfile changes. Human output reports size and duration, while `--json` exposes `cloned: [{ "dir": "node_modules", "ms": 1200 }]`. Use `gji new --dry-run` to list configured sources and estimated sizes without creating a worktree. The benchmark target for a 2 GB dependency tree on a supported filesystem is under 5 seconds.
 
 ## CLI helpers
 

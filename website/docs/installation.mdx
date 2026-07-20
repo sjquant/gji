@@ -63,6 +63,16 @@ gji sync-files add .env.local .npmrc
 
 `gji` stores that list in your global per-repo config and copies the files before setup hooks run.
 
+For large dependency trees, configure copy-on-write bootstrap instead of waiting for a full install:
+
+```json
+{
+  "syncDirs": ["node_modules", ".next"]
+}
+```
+
+On supported macOS and Linux filesystems, `gji new` clones these directories before files, install prompts, and `afterCreate`. Unsupported filesystems are skipped without an ordinary-copy fallback. A successful `node_modules` clone skips the install prompt; use `gji new --dry-run` to inspect the estimated source sizes.
+
 Add an `afterCreate` hook:
 
 ```json

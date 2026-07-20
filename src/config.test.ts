@@ -15,6 +15,8 @@ import {
 	saveLocalConfig,
 	updateGlobalRepoConfigKey,
 	updateLocalConfigKey,
+	validateSyncDirPattern,
+	validateSyncDirsConfig,
 } from "./config.js";
 
 const originalHome = process.env.HOME;
@@ -48,6 +50,27 @@ describe("resolveConfigString", () => {
 		expect(
 			resolveConfigString({ branchPrefix: 42 }, "branchPrefix"),
 		).toBeUndefined();
+	});
+});
+
+describe("syncDirs validation", () => {
+	it.each([
+		["an absolute path", "/tmp/node_modules", "relative path"],
+		["a parent traversal", "../node_modules", "'..' segments"],
+		["a nested Git path", "cache/.git/objects", ".git"],
+		["a Windows absolute path", "C:\\node_modules", "relative path"],
+	])("rejects %s", (_description, pattern, reason) => {
+		// Given a syncDirs entry that could escape or clone Git metadata.
+		// When the entry is validated.
+		// Then validation rejects it with a safety-specific message.
+		expect(() => validateSyncDirPattern(pattern)).toThrow(reason);
+	});
+
+	it("rejects non-array syncDirs values", () => {
+		// Given a scalar syncDirs configuration value.
+		// When the value is loaded through a local config file.
+		// Then configuration loading rejects the malformed shape.
+		expect(() => validateSyncDirsConfig("node_modules")).toThrow("array");
 	});
 });
 
@@ -88,6 +111,56 @@ describe("loadConfig", () => {
 			exists: true,
 			path: join(root, CONFIG_FILE_NAME),
 		});
+	});
+
+	it("rejects unsafe syncDirs in a local config file", async () => {
+		// Given a local config with a path that escapes the repository.
+		const root = await mkdtemp(join(tmpdir(), "gji-config-"));
+		await writeFile(
+			join(root, CONFIG_FILE_NAME),
+			JSON.stringify({ syncDirs: ["../node_modules"] }),
+			"utf8",
+		);
+
+		// When the local config is loaded.
+		// Then loading fails before the unsafe value can be used.
+		await expect(loadConfig(root)).rejects.toThrow("'..' segments");
+	});
+
+	it("validates syncDirs in both global config layers", async () => {
+		// Given a repository and a per-repository global config with an unsafe path.
+		const home = await mkdtemp(join(tmpdir(), "gji-home-"));
+		const repoRoot = await mkdtemp(join(tmpdir(), "gji-repo-"));
+		const globalConfigPath = GLOBAL_CONFIG_FILE_PATH(home);
+		await mkdir(dirname(globalConfigPath), { recursive: true });
+		await writeFile(
+			globalConfigPath,
+			JSON.stringify({ repos: { [repoRoot]: { syncDirs: [".git"] } } }),
+			"utf8",
+		);
+
+		// When effective configuration is loaded.
+		// Then the per-repository layer is rejected with the same safety rule.
+		await expect(loadEffectiveConfig(repoRoot, home)).rejects.toThrow(".git");
+	});
+
+	it("rejects unsafe syncDirs in global defaults", async () => {
+		// Given a global config with an absolute syncDirs path.
+		const home = await mkdtemp(join(tmpdir(), "gji-home-"));
+		const repoRoot = await mkdtemp(join(tmpdir(), "gji-repo-"));
+		const globalConfigPath = GLOBAL_CONFIG_FILE_PATH(home);
+		await mkdir(dirname(globalConfigPath), { recursive: true });
+		await writeFile(
+			globalConfigPath,
+			JSON.stringify({ syncDirs: ["/tmp/node_modules"] }),
+			"utf8",
+		);
+
+		// When effective configuration is loaded.
+		// Then global validation rejects the absolute path.
+		await expect(loadEffectiveConfig(repoRoot, home)).rejects.toThrow(
+			"relative path",
+		);
 	});
 });
 

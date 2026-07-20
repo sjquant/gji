@@ -1,4 +1,11 @@
-import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import {
+	mkdir,
+	mkdtemp,
+	readFile,
+	rm,
+	symlink,
+	writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 
@@ -22,14 +29,14 @@ import {
 } from "./repo.test-helpers.js";
 
 const originalHome = process.env.HOME;
+const originalConfigDir = process.env.GJI_CONFIG_DIR;
 
 afterEach(() => {
 	if (originalHome === undefined) {
 		delete process.env.HOME;
-		return;
-	}
-
-	process.env.HOME = originalHome;
+	} else process.env.HOME = originalHome;
+	if (originalConfigDir === undefined) delete process.env.GJI_CONFIG_DIR;
+	else process.env.GJI_CONFIG_DIR = originalConfigDir;
 });
 
 describe("gji new", () => {
@@ -707,6 +714,264 @@ describe("gji new", () => {
 			await expect(
 				pathExists(join(worktreePath, "global-file.txt")),
 			).resolves.toBe(false);
+		});
+	});
+
+	describe("syncDirs CoW bootstrap", () => {
+		it("clones configured directories before sync files and after-create", async () => {
+			// Given a repository with a CoW directory, a sync file, and an after-create hook.
+			const repoRoot = await createRepository();
+			const home = await mkdtemp(join(tmpdir(), "gji-home-"));
+			const branchName = "feature/cow-order";
+			const worktreePath = resolveWorktreePath(repoRoot, branchName);
+			const marker = join(worktreePath, "bootstrap-order.txt");
+			await mkdir(join(repoRoot, "node_modules"));
+			await writeFile(join(repoRoot, "node_modules", "ready.txt"), "ready\n");
+			await writeFile(join(repoRoot, ".env.local"), "TOKEN=abc\n");
+			await writeFile(
+				join(repoRoot, ".gji.json"),
+				JSON.stringify({
+					syncDirs: ["node_modules"],
+					syncFiles: [".env.local"],
+					hooks: {
+						"after-create": `test -f node_modules/ready.txt && test -f .env.local && touch "${marker}"`,
+					},
+				}),
+				"utf8",
+			);
+			process.env.HOME = home;
+
+			// When gji new runs with an injected successful CoW cloner.
+			const runNew = createNewCommand({
+				cloneDir: async (_source, destination) => {
+					await mkdir(destination, { recursive: true });
+					await writeFile(join(destination, "ready.txt"), "ready\n");
+					return { bytes: 6, ms: 12 };
+				},
+			});
+			const stderr: string[] = [];
+			const result = await runNew({
+				branch: branchName,
+				cwd: repoRoot,
+				stderr: (chunk) => stderr.push(chunk),
+				stdout: () => undefined,
+			});
+
+			// Then the clone and file sync are complete before the hook runs.
+			expect(result).toBe(0);
+			await expect(readFile(marker, "utf8")).resolves.toBe("");
+			expect(stderr.join("")).toContain("cloned node_modules");
+		});
+
+		it("removes pnpm metadata and skips the install prompt after cloning node_modules", async () => {
+			// Given a pnpm repository whose cloned node_modules contains absolute-path metadata.
+			const repoRoot = await createRepository();
+			const branchName = "feature/cow-pnpm";
+			await writeFile(
+				join(repoRoot, "pnpm-lock.yaml"),
+				"lockfileVersion: '9'\n",
+			);
+			await mkdir(join(repoRoot, "node_modules"));
+			await writeFile(
+				join(repoRoot, "node_modules", ".modules.yaml"),
+				"store-dir: /main\n",
+			);
+			await writeFile(
+				join(repoRoot, ".gji.json"),
+				JSON.stringify({ syncDirs: ["node_modules"] }),
+				"utf8",
+			);
+			let promptCalled = false;
+			let installCalled = false;
+
+			// When gji new clones the directory and supplies install dependencies.
+			const runNew = createNewCommand({
+				cloneDir: async (_source, destination) => {
+					await mkdir(destination, { recursive: true });
+					await writeFile(
+						join(destination, ".modules.yaml"),
+						"store-dir: /main\n",
+					);
+					return { bytes: 20, ms: 20 };
+				},
+				detectInstallPackageManager: async () => ({
+					name: "pnpm",
+					installCommand: "pnpm install",
+				}),
+				promptForInstallChoice: async () => {
+					promptCalled = true;
+					return "yes";
+				},
+				runInstallCommand: async () => {
+					installCalled = true;
+				},
+			});
+			const result = await runNew({
+				branch: branchName,
+				cwd: repoRoot,
+				stderr: () => undefined,
+				stdout: () => undefined,
+			});
+
+			// Then pnpm metadata is removed and neither prompt nor install runs.
+			expect(result).toBe(0);
+			expect(promptCalled).toBe(false);
+			expect(installCalled).toBe(false);
+			await expect(
+				readFile(
+					join(
+						resolveWorktreePath(repoRoot, branchName),
+						"node_modules",
+						".modules.yaml",
+					),
+				),
+			).rejects.toThrow();
+		});
+
+		it("reports cloned directories in JSON output", async () => {
+			// Given a repository with one configured CoW directory.
+			const repoRoot = await createRepository();
+			await mkdir(join(repoRoot, "node_modules"));
+			await writeFile(
+				join(repoRoot, ".gji.json"),
+				JSON.stringify({ syncDirs: ["node_modules"] }),
+				"utf8",
+			);
+			const stdout: string[] = [];
+
+			// When gji new runs in JSON mode with a successful cloner.
+			const result = await createNewCommand({
+				cloneDir: async (_source, destination) => {
+					await mkdir(destination, { recursive: true });
+					return { bytes: 42, ms: 7 };
+				},
+			})({
+				branch: "feature/cow-json",
+				cwd: repoRoot,
+				json: true,
+				stderr: () => undefined,
+				stdout: (chunk) => stdout.push(chunk),
+			});
+
+			// Then stdout remains one parseable JSON document with clone timing.
+			expect(result).toBe(0);
+			expect(JSON.parse(stdout.join(""))).toMatchObject({
+				cloned: [{ dir: "node_modules", ms: 7 }],
+			});
+		});
+
+		it("cleans partial clones and caches the failure for later worktrees", async () => {
+			// Given a repository and an isolated state directory.
+			const repoRoot = await createRepository();
+			const configDir = await mkdtemp(join(tmpdir(), "gji-config-"));
+			process.env.GJI_CONFIG_DIR = configDir;
+			await mkdir(join(repoRoot, "node_modules"));
+			await writeFile(
+				join(repoRoot, ".gji.json"),
+				JSON.stringify({ syncDirs: ["node_modules"] }),
+				"utf8",
+			);
+			let cloneCalls = 0;
+			const runNew = createNewCommand({
+				cloneDir: async (_source, destination) => {
+					cloneCalls += 1;
+					await mkdir(destination, { recursive: true });
+					await writeFile(join(destination, "partial.txt"), "partial\n");
+					await rm(destination, { force: true, recursive: true });
+					throw new Error("reflink unsupported");
+				},
+			});
+
+			// When two worktrees are created after the first CoW attempt fails.
+			const first = await runNew({
+				branch: "feature/cow-failure-one",
+				cwd: repoRoot,
+				stderr: () => undefined,
+				stdout: () => undefined,
+			});
+			const second = await runNew({
+				branch: "feature/cow-failure-two",
+				cwd: repoRoot,
+				stderr: () => undefined,
+				stdout: () => undefined,
+			});
+
+			// Then neither partial directory remains and the cached failure suppresses retry.
+			expect(first).toBe(0);
+			expect(second).toBe(0);
+			expect(cloneCalls).toBe(1);
+			await expect(
+				readFile(join(configDir, "state.json"), "utf8"),
+			).resolves.toContain("node_modules");
+			await expect(
+				readFile(
+					join(
+						resolveWorktreePath(repoRoot, "feature/cow-failure-one"),
+						"node_modules",
+						"partial.txt",
+					),
+				),
+			).rejects.toThrow();
+		});
+
+		it("skips a sync directory whose symlink points outside the repository", async () => {
+			// Given a node_modules symlink whose target is outside the repository.
+			const repoRoot = await createRepository();
+			const outsideRoot = await mkdtemp(join(tmpdir(), "gji-outside-"));
+			await mkdir(join(outsideRoot, "node_modules"));
+			await symlink(
+				join(outsideRoot, "node_modules"),
+				join(repoRoot, "node_modules"),
+			);
+			await writeFile(
+				join(repoRoot, ".gji.json"),
+				JSON.stringify({ syncDirs: ["node_modules"] }),
+				"utf8",
+			);
+			let cloneCalled = false;
+			const stderr: string[] = [];
+
+			// When gji new examines the configured source.
+			const result = await createNewCommand({
+				cloneDir: async () => {
+					cloneCalled = true;
+					return { bytes: 0, ms: 0 };
+				},
+			})({
+				branch: "feature/cow-symlink",
+				cwd: repoRoot,
+				stderr: (chunk) => stderr.push(chunk),
+				stdout: () => undefined,
+			});
+
+			// Then creation succeeds without copying data outside the repository.
+			expect(result).toBe(0);
+			expect(cloneCalled).toBe(false);
+			expect(stderr.join("")).toContain("outside the repository");
+		});
+
+		it("lists CoW directories and their estimated size in dry-run mode", async () => {
+			// Given a repository with a configured directory that has one file.
+			const repoRoot = await createRepository();
+			const source = join(repoRoot, "node_modules");
+			await mkdir(source);
+			await writeFile(join(source, "ready.txt"), "ready\n", "utf8");
+			await writeFile(
+				join(repoRoot, ".gji.json"),
+				JSON.stringify({ syncDirs: ["node_modules"] }),
+				"utf8",
+			);
+			const stdout: string[] = [];
+
+			// When gji new runs without executing Git or clone operations.
+			const result = await runCli(["new", "--dry-run", "feature/cow-dry-run"], {
+				cwd: repoRoot,
+				stdout: (chunk) => stdout.push(chunk),
+			});
+
+			// Then the output names the directory and reports its expected size.
+			expect(result.exitCode).toBe(0);
+			expect(stdout.join("")).toContain("Would clone node_modules (6 B)");
 		});
 	});
 
