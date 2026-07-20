@@ -18,6 +18,10 @@ import { isHeadless } from "./headless.js";
 import { detectRepository, type WorktreeEntry } from "./repo.js";
 
 const MAX_UNDO_RECORDS = 20;
+const UNDO_LOCK_STALE_AFTER_MS = 60_000;
+const UNDO_LOCK_RETRY_DELAY_MS = 5;
+const UNDO_LOCK_WAIT_TIMEOUT_MS =
+	UNDO_LOCK_STALE_AFTER_MS + UNDO_LOCK_RETRY_DELAY_MS;
 const undoLogQueues = new Map<string, Promise<void>>();
 export type UndoOperation = "remove" | "clean" | "done";
 export interface UndoEntry {
@@ -394,7 +398,8 @@ async function enqueueUndoLogWrite<T>(
 
 async function acquireUndoLogLock(path: string): Promise<() => Promise<void>> {
 	const lockPath = `${path}.lock`;
-	for (let attempt = 0; attempt < 200; attempt += 1) {
+	const deadline = Date.now() + UNDO_LOCK_WAIT_TIMEOUT_MS;
+	while (Date.now() < deadline) {
 		try {
 			const handle = await open(lockPath, "wx");
 			return async () => {
@@ -407,9 +412,13 @@ async function acquireUndoLogLock(path: string): Promise<() => Promise<void>> {
 			)
 				throw error;
 			const lockStat = await stat(lockPath).catch(() => null);
-			if (lockStat && Date.now() - lockStat.mtimeMs > 60_000)
+			if (lockStat && Date.now() - lockStat.mtimeMs > UNDO_LOCK_STALE_AFTER_MS)
 				await unlink(lockPath).catch(() => undefined);
-			await new Promise((resolve) => setTimeout(resolve, 5));
+			const remainingMs = deadline - Date.now();
+			if (remainingMs > 0)
+				await new Promise((resolve) =>
+					setTimeout(resolve, Math.min(UNDO_LOCK_RETRY_DELAY_MS, remainingMs)),
+				);
 		}
 	}
 	throw new Error("timed out waiting for the undo journal lock");

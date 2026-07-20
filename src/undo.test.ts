@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, unlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -12,6 +12,7 @@ import {
 	runGit,
 } from "./repo.test-helpers.js";
 import {
+	finalizeUndoOperation,
 	recordUndoOperation,
 	restoreUndoRecord,
 	runUndoCommand,
@@ -120,5 +121,35 @@ describe("gji undo", () => {
 		expect(`${stdout.join("")}${stderr.join("")}`).toContain(
 			"commit no longer exists",
 		);
+	});
+
+	it("waits for a live undo lock beyond the retry window", async () => {
+		// Given another process holds a fresh undo journal lock.
+		const lockPath = `${undoLogPath()}.lock`;
+		await writeFile(lockPath, "");
+		const operation = finalizeUndoOperation(
+			{
+				id: "u-lock-timeout",
+				op: "done",
+				repoRoot: process.cwd(),
+				timestamp: Date.now(),
+				entries: [],
+			},
+			[],
+		).then(
+			() => ({ status: "fulfilled" as const }),
+			(error) => ({ status: "rejected" as const, error }),
+		);
+
+		try {
+			// When the live lock is released after the old one-second timeout.
+			await new Promise((resolve) => setTimeout(resolve, 1_100));
+			await unlink(lockPath);
+
+			// Then the journal write completes instead of timing out early.
+			await expect(operation).resolves.toMatchObject({ status: "fulfilled" });
+		} finally {
+			await unlink(lockPath).catch(() => undefined);
+		}
 	});
 });
