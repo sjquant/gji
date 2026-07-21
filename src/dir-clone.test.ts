@@ -2,60 +2,13 @@ import { mkdir, mkdtemp, readdir, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { afterEach, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 
 import {
-	cacheCloneFailure,
-	clearCloneFailure,
 	cloneDir,
-	cloneStrategy,
 	isCloneDestinationExistsError,
-	isCloneFailureCached,
-	isClonePlatformSupported,
 	isCloneUnsupportedError,
 } from "./dir-clone.js";
-
-const originalConfigDir = process.env.GJI_CONFIG_DIR;
-
-afterEach(() => {
-	if (originalConfigDir === undefined) delete process.env.GJI_CONFIG_DIR;
-	else process.env.GJI_CONFIG_DIR = originalConfigDir;
-});
-
-describe("cloneStrategy", () => {
-	it("recognizes macOS as a native APFS clone platform", () => {
-		// Given the macOS platform.
-		// When platform support is checked.
-		const supported = isClonePlatformSupported("darwin");
-
-		// Then the native clonefile implementation is selected by cloneDir.
-		expect(supported).toBe(true);
-		expect(cloneStrategy("darwin")).toBeNull();
-	});
-
-	it("selects mandatory reflinks on Linux", () => {
-		// Given the Linux platform.
-		// When the CoW strategy is selected.
-		const strategy = cloneStrategy("linux");
-
-		// Then it requires reflinks instead of allowing a normal copy.
-		expect(strategy?.("source", "destination")).toEqual([
-			"-a",
-			"--reflink=always",
-			"source",
-			"destination",
-		]);
-	});
-
-	it("rejects platforms without a CoW strategy", () => {
-		// Given an unsupported platform.
-		// When the CoW strategy is selected.
-		const strategy = cloneStrategy("win32");
-
-		// Then no ordinary-copy strategy is returned.
-		expect(strategy).toBeNull();
-	});
-});
 
 describe("cloneDir", () => {
 	it("atomically publishes a successful clone", async () => {
@@ -134,6 +87,27 @@ describe("cloneDir", () => {
 		expect(result.bytes).toBe(2000);
 	});
 
+	it("can omit the size traversal for machine-readable bootstrap", async () => {
+		// Given a source directory with a measurable file.
+		const root = await mkdtemp(join(tmpdir(), "gji-dir-clone-no-size-"));
+		const source = join(root, "source");
+		const destination = join(root, "destination");
+		await mkdir(source);
+		await writeFile(join(source, "data.bin"), "x".repeat(2000), "utf8");
+
+		// When cloneDir is asked to skip optional size reporting.
+		const result = await cloneDir(source, destination, {
+			measureBytes: false,
+			platform: "linux",
+			runCommand: async (_command, args) => {
+				await mkdir(args.at(-1) as string);
+			},
+		});
+
+		// Then cloning succeeds without traversing the source for a byte estimate.
+		expect(result.bytes).toBeUndefined();
+	});
+
 	it("does not invoke the copy command when the destination already exists", async () => {
 		// Given an existing destination and a valid source directory.
 		const root = await mkdtemp(join(tmpdir(), "gji-dir-clone-"));
@@ -192,27 +166,5 @@ describe("cloneDir", () => {
 				readFile(join(destination, "package.json"), "utf8"),
 			).resolves.toBe("{}\n");
 		}
-	});
-
-	it("does not treat inherited names as cached failures", async () => {
-		// Given an isolated state directory with one ordinary cached failure.
-		const root = await mkdtemp(join(tmpdir(), "gji-state-"));
-		process.env.GJI_CONFIG_DIR = root;
-		await cacheCloneFailure("/repo", "node_modules", "unsupported");
-
-		// When cache lookups use a valid directory named like an object property.
-		const inheritedNameCached = await isCloneFailureCached(
-			"/repo",
-			"constructor",
-		);
-		const ordinaryNameCached = await isCloneFailureCached(
-			"/repo",
-			"node_modules",
-		);
-
-		// Then only the explicitly cached directory is suppressed.
-		expect(inheritedNameCached).toBe(false);
-		expect(ordinaryNameCached).toBe(true);
-		await clearCloneFailure("/repo", "node_modules");
 	});
 });

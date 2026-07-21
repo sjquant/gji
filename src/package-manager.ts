@@ -1,5 +1,7 @@
-import { access, readdir } from "node:fs/promises";
+import { access, readdir, unlink } from "node:fs/promises";
 import { join } from "node:path";
+
+import type { SyncDirectoryPostProcessor } from "./sync-directories.js";
 
 export interface PackageManager {
 	name: string;
@@ -147,6 +149,40 @@ export async function detectPackageManager(
 	return null;
 }
 
+export async function createDependencyClonePostProcessor(
+	worktreePath: string,
+	repoRoot: string,
+	directories: readonly string[],
+): Promise<SyncDirectoryPostProcessor | undefined> {
+	if (!directories.includes("node_modules")) return undefined;
+
+	const packageManager =
+		(await detectPackageManager(worktreePath)) ??
+		(await detectPackageManager(repoRoot));
+
+	return {
+		async postProcess(directory, destination) {
+			if (directory !== "node_modules") return undefined;
+
+			if (packageManager?.name === "pnpm") {
+				try {
+					await unlink(join(destination, ".modules.yaml"));
+				} catch (error) {
+					if (isNotFoundError(error)) {
+						return { installSkipped: true };
+					}
+					return {
+						installSkipped: false,
+						warning: `could not remove pnpm .modules.yaml: ${toErrorMessage(error)}`,
+					};
+				}
+			}
+
+			return { installSkipped: true };
+		},
+	};
+}
+
 async function matchesExact(
 	repoRoot: string,
 	signals: string[],
@@ -178,6 +214,18 @@ async function matchesGlob(
 	const regexes = patterns.map(patternToRegex);
 
 	return files.some((file) => regexes.some((re) => re.test(file)));
+}
+
+function isNotFoundError(error: unknown): boolean {
+	return (
+		error instanceof Error &&
+		"code" in error &&
+		(error as NodeJS.ErrnoException).code === "ENOENT"
+	);
+}
+
+function toErrorMessage(error: unknown): string {
+	return error instanceof Error ? error.message : String(error);
 }
 
 function patternToRegex(pattern: string): RegExp {

@@ -6,41 +6,27 @@ import {
 	mkdir,
 	mkdtemp,
 	readdir,
-	readFile,
 	realpath,
 	rename,
 	rm,
-	writeFile,
 } from "node:fs/promises";
-import { homedir } from "node:os";
-import { basename, dirname, join, resolve } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { promisify } from "node:util";
 
-import { GLOBAL_CONFIG_DIRECTORY } from "./config.js";
-
 const execFileAsync = promisify(execFile);
-const STATE_FILE_NAME = "state.json";
-
-interface CloneFailure {
-	failedAt: number;
-	reason: string;
-}
-
-const CLONE_FAILURE_TTL_MS = 24 * 60 * 60 * 1000;
 const CLONE_LOCK_TTL_MS = 24 * 60 * 60 * 1000;
 const CLONE_LOCK_SUFFIX = ".gji-clone-lock";
 
-interface GjiState {
-	[key: string]: unknown;
-	syncDirs?: Record<string, Record<string, CloneFailure>>;
-}
-
 export interface CloneDirResult {
-	bytes: number;
+	bytes?: number;
 	ms: number;
 }
 
-export interface CloneDirOptions {
+export interface CloneRequestOptions {
+	measureBytes?: boolean;
+}
+
+export interface CloneDirOptions extends CloneRequestOptions {
 	platform?: NodeJS.Platform;
 	runCommand?: (command: string, args: string[]) => Promise<void>;
 	copyDirectory?: (source: string, destination: string) => Promise<void>;
@@ -49,6 +35,7 @@ export interface CloneDirOptions {
 export type CloneDirectory = (
 	source: string,
 	destination: string,
+	options?: CloneRequestOptions,
 ) => Promise<CloneDirResult>;
 
 export async function cloneDir(
@@ -117,7 +104,10 @@ export async function cloneDir(
 		await rm(lockPath, { force: true, recursive: true });
 	}
 
-	const bytes = await estimateCloneBytes(sourcePath);
+	const bytes =
+		options.measureBytes === false
+			? undefined
+			: await estimateCloneBytes(sourcePath);
 	return { bytes, ms: Date.now() - startedAt };
 }
 
@@ -164,56 +154,6 @@ export function isCloneUnsupportedError(error: unknown): boolean {
 	);
 }
 
-export async function isCloneFailureCached(
-	repoRoot: string,
-	directory: string,
-): Promise<boolean> {
-	const state = await readState();
-	const repoState = state.syncDirs?.[repoRoot];
-	if (!repoState || !Object.hasOwn(repoState, directory)) return false;
-
-	const failure = repoState[directory];
-	return (
-		isPlainObject(failure) &&
-		typeof failure.failedAt === "number" &&
-		Date.now() - failure.failedAt < CLONE_FAILURE_TTL_MS
-	);
-}
-
-export async function cacheCloneFailure(
-	repoRoot: string,
-	directory: string,
-	reason: string,
-): Promise<void> {
-	const state = await readState();
-	const syncDirs = state.syncDirs ?? {};
-	const repoState = syncDirs[repoRoot] ?? {};
-
-	syncDirs[repoRoot] = {
-		...repoState,
-		[directory]: { failedAt: Date.now(), reason },
-	};
-
-	await writeState({ ...state, syncDirs });
-}
-
-export async function clearCloneFailure(
-	repoRoot: string,
-	directory: string,
-): Promise<void> {
-	const state = await readState();
-	const repoState = state.syncDirs?.[repoRoot];
-	if (!repoState || !Object.hasOwn(repoState, directory)) return;
-
-	const nextRepoState = { ...repoState };
-	delete nextRepoState[directory];
-	const syncDirs = { ...state.syncDirs };
-	if (Object.keys(nextRepoState).length === 0) delete syncDirs[repoRoot];
-	else syncDirs[repoRoot] = nextRepoState;
-
-	await writeState({ ...state, syncDirs });
-}
-
 export async function directorySize(path: string): Promise<number> {
 	const stats = await lstat(path);
 	if (!stats.isDirectory()) return stats.size;
@@ -227,7 +167,7 @@ export async function directorySize(path: string): Promise<number> {
 	return total;
 }
 
-export function cloneStrategy(
+function cloneStrategy(
 	platform: NodeJS.Platform,
 ): ((source: string, destination: string) => string[]) | null {
 	if (platform === "linux") {
@@ -242,7 +182,7 @@ export function cloneStrategy(
 	return null;
 }
 
-export function isClonePlatformSupported(platform: NodeJS.Platform): boolean {
+function isClonePlatformSupported(platform: NodeJS.Platform): boolean {
 	return platform === "darwin" || platform === "linux";
 }
 
@@ -265,38 +205,6 @@ async function runCloneCommand(command: string, args: string[]): Promise<void> {
 	}
 }
 
-async function readState(): Promise<GjiState> {
-	try {
-		const raw = await readFile(stateFilePath(), "utf8");
-		const parsed = JSON.parse(raw) as unknown;
-		if (!isPlainObject(parsed)) return {};
-		return isPlainObject(parsed.syncDirs)
-			? (parsed as GjiState)
-			: { ...parsed, syncDirs: {} };
-	} catch {
-		return {};
-	}
-}
-
-async function writeState(state: GjiState): Promise<void> {
-	try {
-		const path = stateFilePath();
-		await mkdir(dirname(path), { recursive: true });
-		await writeFile(path, `${JSON.stringify(state, null, 2)}\n`, "utf8");
-	} catch {
-		// The failure cache is advisory and must never block worktree creation.
-	}
-}
-
-function stateFilePath(home: string = homedir()): string {
-	const configuredDirectory = process.env.GJI_CONFIG_DIR;
-	const directory = configuredDirectory
-		? resolve(configuredDirectory)
-		: join(home, GLOBAL_CONFIG_DIRECTORY);
-
-	return join(directory, STATE_FILE_NAME);
-}
-
 async function pathExists(path: string): Promise<boolean> {
 	try {
 		await lstat(path);
@@ -305,10 +213,6 @@ async function pathExists(path: string): Promise<boolean> {
 		if (isNotFoundError(error)) return false;
 		throw error;
 	}
-}
-
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-	return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function isNotFoundError(error: unknown): boolean {

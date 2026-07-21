@@ -2,9 +2,9 @@ import { execFile } from "node:child_process";
 import { mkdir } from "node:fs/promises";
 import { dirname } from "node:path";
 import { promisify } from "node:util";
-
+import { createBootstrapReporter } from "./bootstrap-output.js";
 import {
-	type GjiConfig,
+	type EffectiveGjiConfig,
 	loadEffectiveConfig,
 	resolveConfigString,
 } from "./config.js";
@@ -23,7 +23,8 @@ import {
 } from "./navigation-output.js";
 import { detectRepository, resolveWorktreePath } from "./repo.js";
 import { writeShellOutput } from "./shell-handoff.js";
-import { bootstrapWorktree, estimateSyncDirs } from "./worktree-bootstrap.js";
+import { estimateSyncDirectories } from "./sync-plan.js";
+import { bootstrapWorktree } from "./worktree-bootstrap.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -83,7 +84,7 @@ export function createPrCommand(
 		}
 
 		const repository = await detectRepository(options.cwd);
-		let config: GjiConfig;
+		let config: EffectiveGjiConfig;
 		try {
 			config = await loadEffectiveConfig(
 				repository.repoRoot,
@@ -143,7 +144,11 @@ export function createPrCommand(
 		}
 
 		const dryRunSyncDirs = options.dryRun
-			? await estimateSyncDirs(repository.repoRoot, worktreePath, config)
+			? await estimateSyncDirectories(
+					repository.repoRoot,
+					worktreePath,
+					config.syncDirs ?? [],
+				)
 			: [];
 
 		if (options.dryRun) {
@@ -205,9 +210,9 @@ export function createPrCommand(
 			branch: branchName,
 			cloneDirectory: dependencies.cloneDir,
 			config,
-			json: options.json,
+			nonInteractive: !!options.json,
 			repoRoot: repository.repoRoot,
-			stderr: options.stderr,
+			reporter: createBootstrapReporter(options.stderr, !!options.json),
 			worktreePath,
 			installDependencies: dependencies,
 		});

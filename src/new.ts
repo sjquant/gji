@@ -3,9 +3,9 @@ import { access, mkdir } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { promisify } from "node:util";
 import { isCancel, text } from "@clack/prompts";
-
+import { createBootstrapReporter } from "./bootstrap-output.js";
 import {
-	type GjiConfig,
+	type EffectiveGjiConfig,
 	loadEffectiveConfig,
 	resolveConfigString,
 } from "./config.js";
@@ -29,7 +29,8 @@ import {
 	validateBranchName,
 } from "./repo.js";
 import { writeShellOutput } from "./shell-handoff.js";
-import { bootstrapWorktree, estimateSyncDirs } from "./worktree-bootstrap.js";
+import { estimateSyncDirectories } from "./sync-plan.js";
+import { bootstrapWorktree } from "./worktree-bootstrap.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -93,7 +94,7 @@ export function createNewCommand(
 		}
 
 		const repository = await detectRepository(options.cwd);
-		let config: GjiConfig;
+		let config: EffectiveGjiConfig;
 		try {
 			config = await loadEffectiveConfig(
 				repository.repoRoot,
@@ -272,10 +273,10 @@ export function createNewCommand(
 				}
 				return 0;
 			}
-			const dryRunSyncDirs = await estimateSyncDirs(
+			const dryRunSyncDirs = await estimateSyncDirectories(
 				repository.repoRoot,
 				worktreePath,
-				config,
+				config.syncDirs ?? [],
 			);
 			if (options.json) {
 				const output: Record<string, unknown> = {
@@ -425,9 +426,9 @@ export function createNewCommand(
 			branch: worktreeName,
 			cloneDirectory,
 			config,
-			json: options.json,
+			nonInteractive: !!options.json,
 			repoRoot: repository.repoRoot,
-			stderr: options.stderr,
+			reporter: createBootstrapReporter(options.stderr, !!options.json),
 			worktreePath,
 			installDependencies: dependencies,
 		});

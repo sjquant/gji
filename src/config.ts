@@ -34,6 +34,20 @@ export const KNOWN_GLOBAL_CONFIG_KEYS: ReadonlySet<string> = new Set([
 
 export type GjiConfig = Record<string, unknown>;
 
+export interface EffectiveGjiConfig extends GjiConfig {
+	branchPrefix?: string;
+	editor?: string;
+	hooks?: Record<string, unknown>;
+	installSaveTarget?: string;
+	shellIntegration?: string;
+	skipInstallPrompt?: boolean;
+	syncDirs?: readonly string[];
+	syncFiles?: readonly string[];
+	syncDefaultBranch?: string;
+	syncRemote?: string;
+	worktreePath?: string;
+}
+
 export interface LoadedConfig {
 	config: GjiConfig;
 	exists: boolean;
@@ -52,7 +66,7 @@ export async function loadEffectiveConfig(
 	root: string,
 	home: string = homedir(),
 	onWarning?: (message: string) => void,
-): Promise<GjiConfig> {
+): Promise<EffectiveGjiConfig> {
 	const [globalConfig, localConfig] = await Promise.all([
 		loadGlobalConfig(home),
 		loadConfig(root),
@@ -133,7 +147,7 @@ export async function loadEffectiveConfig(
 		merged.hooks = { ...globalHooks, ...perRepoHooks, ...localHooks };
 	}
 
-	return merged;
+	return toEffectiveConfig(merged);
 }
 
 export async function loadGlobalConfig(
@@ -260,19 +274,25 @@ export function resolveConfigString(
 }
 
 export function validateSyncDirsConfig(value: unknown): void {
+	normalizeSyncDirsConfig(value);
+}
+
+export function normalizeSyncDirsConfig(
+	value: unknown,
+): readonly string[] | undefined {
 	if (value === undefined) return;
 
 	if (!Array.isArray(value)) {
 		throw new Error("syncDirs: expected an array of relative directory paths");
 	}
 
-	for (const pattern of value) {
+	return value.map((pattern) => {
 		if (typeof pattern !== "string") {
 			throw new Error("syncDirs: every entry must be a string");
 		}
 
-		validateSyncDirPattern(pattern);
-	}
+		return validateSyncDirPattern(pattern);
+	});
 }
 
 function validateConfigSyncDirs(config: GjiConfig): void {
@@ -349,6 +369,40 @@ function mergeConfig(...values: Record<string, unknown>[]): GjiConfig {
 		(config, value) => Object.assign(config, value),
 		{ ...DEFAULT_CONFIG },
 	);
+}
+
+function toEffectiveConfig(config: GjiConfig): EffectiveGjiConfig {
+	const effective = { ...config } as EffectiveGjiConfig;
+	for (const key of [
+		"branchPrefix",
+		"editor",
+		"installSaveTarget",
+		"shellIntegration",
+		"syncDefaultBranch",
+		"syncRemote",
+		"worktreePath",
+	]) {
+		if (effective[key] !== undefined && typeof effective[key] !== "string") {
+			delete effective[key];
+		}
+	}
+	if (
+		effective.skipInstallPrompt !== undefined &&
+		typeof effective.skipInstallPrompt !== "boolean"
+	) {
+		delete effective.skipInstallPrompt;
+	}
+	if (config.syncDirs !== undefined) {
+		effective.syncDirs = normalizeSyncDirsConfig(config.syncDirs);
+	}
+	if (Array.isArray(config.syncFiles)) {
+		effective.syncFiles = config.syncFiles.filter(
+			(value): value is string => typeof value === "string",
+		);
+	} else delete effective.syncFiles;
+	if (!isPlainObject(config.hooks)) delete effective.hooks;
+
+	return effective;
 }
 
 function findPerRepoConfig(

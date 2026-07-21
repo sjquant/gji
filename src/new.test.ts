@@ -889,10 +889,12 @@ describe("gji new", () => {
 				"utf8",
 			);
 			const stdout: string[] = [];
+			let measureBytes: boolean | undefined;
 
 			// When gji new runs in JSON mode with a successful cloner.
 			const result = await createNewCommand({
-				cloneDir: async (_source, destination) => {
+				cloneDir: async (_source, destination, options) => {
+					measureBytes = options?.measureBytes;
 					await mkdir(destination, { recursive: true });
 					return { bytes: 42, ms: 7 };
 				},
@@ -906,6 +908,7 @@ describe("gji new", () => {
 
 			// Then stdout remains one parseable JSON document with clone timing.
 			expect(result).toBe(0);
+			expect(measureBytes).toBe(false);
 			expect(JSON.parse(stdout.join(""))).toMatchObject({
 				cloned: [{ dir: "node_modules", ms: 7 }],
 			});
