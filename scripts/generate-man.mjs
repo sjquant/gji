@@ -131,6 +131,9 @@ function subcommandManPage(cmd) {
 	out += `.SH SYNOPSIS\n${synopsisTokens.join(" ")}\n`;
 
 	out += `.SH DESCRIPTION\n${esc(desc)}\n`;
+	if (cmd.name() === "new" || cmd.name() === "pr") {
+		out += `.SH BOOTSTRAP\n${esc("syncDirs performs generic copy-on-write directory seeding before syncFiles. It never falls back to ordinary copying and never suppresses installation prompts. Set dependencyBootstrap to off, cow-then-repair, or install-only to enable deterministic package-manager or build-cache repair. The lifecycle is CoW seed, syncFiles, repair or install, then after-create. CoW failures fall back to repair from an empty target; partial clones are removed and existing targets are never deleted.\n")}\n`;
+	}
 
 	out += optionsSection(cmd);
 

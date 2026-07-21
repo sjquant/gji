@@ -814,7 +814,7 @@ describe("gji new", () => {
 			).resolves.toBe("leaf\n");
 		});
 
-		it("removes pnpm metadata and skips the install prompt after cloning node_modules", async () => {
+		it("repairs a CoW pnpm seed and preserves pnpm metadata", async () => {
 			// Given a pnpm repository whose cloned node_modules contains absolute-path metadata.
 			const repoRoot = await createRepository();
 			const branchName = "feature/cow-pnpm";
@@ -828,12 +828,21 @@ describe("gji new", () => {
 				"store-dir: /main\n",
 			);
 			await writeFile(
+				join(repoRoot, ".npmrc"),
+				"registry=https://example.test\n",
+			);
+			await writeFile(
 				join(repoRoot, ".gji.json"),
-				JSON.stringify({ syncDirs: ["node_modules"] }),
+				JSON.stringify({
+					dependencyBootstrap: "cow-then-repair",
+					syncDirs: ["node_modules"],
+					syncFiles: [".npmrc"],
+					hooks: { "after-create": "touch after-create-ran" },
+				}),
 				"utf8",
 			);
 			let promptCalled = false;
-			let installCalled = false;
+			const installCommands: string[] = [];
 
 			// When gji new clones the directory and supplies install dependencies.
 			const runNew = createNewCommand({
@@ -853,8 +862,22 @@ describe("gji new", () => {
 					promptCalled = true;
 					return "yes";
 				},
-				runInstallCommand: async () => {
-					installCalled = true;
+				runInstallCommand: async (command) => {
+					installCommands.push(command);
+					await expect(
+						readFile(
+							join(resolveWorktreePath(repoRoot, branchName), ".npmrc"),
+							"utf8",
+						),
+					).resolves.toBe("registry=https://example.test\n");
+					await writeFile(
+						join(
+							resolveWorktreePath(repoRoot, branchName),
+							"node_modules",
+							".modules.yaml",
+						),
+						"regenerated\n",
+					);
 				},
 			});
 			const result = await runNew({
@@ -864,10 +887,10 @@ describe("gji new", () => {
 				stdout: () => undefined,
 			});
 
-			// Then pnpm metadata is removed and neither prompt nor install runs.
+			// Then the adapter repairs the seed without using the interactive prompt.
 			expect(result).toBe(0);
 			expect(promptCalled).toBe(false);
-			expect(installCalled).toBe(false);
+			expect(installCommands).toEqual(["pnpm install --frozen-lockfile"]);
 			await expect(
 				readFile(
 					join(
@@ -875,8 +898,15 @@ describe("gji new", () => {
 						"node_modules",
 						".modules.yaml",
 					),
+					"utf8",
 				),
-			).rejects.toThrow();
+			).resolves.toBe("regenerated\n");
+			await expect(
+				readFile(
+					join(resolveWorktreePath(repoRoot, branchName), "after-create-ran"),
+					"utf8",
+				),
+			).resolves.toBe("");
 		});
 
 		it("reports cloned directories in JSON output", async () => {
@@ -911,6 +941,81 @@ describe("gji new", () => {
 			expect(measureBytes).toBe(false);
 			expect(JSON.parse(stdout.join(""))).toMatchObject({
 				cloned: [{ dir: "node_modules", ms: 7 }],
+			});
+		});
+
+		it("does not run after-create when dependency repair fails", async () => {
+			// Given a dependency bootstrap configuration whose repair command fails.
+			const repoRoot = await createRepository();
+			await commitFile(
+				repoRoot,
+				"pnpm-lock.yaml",
+				"lockfileVersion: '9'\n",
+				"Add pnpm lockfile",
+			);
+			await writeFile(
+				join(repoRoot, ".gji.json"),
+				JSON.stringify({
+					dependencyBootstrap: "cow-then-repair",
+					hooks: { "after-create": "touch after-create-ran" },
+				}),
+				"utf8",
+			);
+
+			// When gji new cannot complete the authoritative dependency repair.
+			const result = await createNewCommand({
+				runInstallCommand: async () => {
+					throw new Error("repair failed");
+				},
+			})({
+				branch: "feature/repair-failure",
+				cwd: repoRoot,
+				stderr: () => undefined,
+				stdout: () => undefined,
+			});
+
+			// Then the command fails closed and the after-create hook never runs.
+			expect(result).toBe(1);
+			await expect(
+				readFile(
+					join(
+						resolveWorktreePath(repoRoot, "feature/repair-failure"),
+						"after-create-ran",
+					),
+				),
+			).rejects.toThrow();
+		});
+
+		it("reports dependency bootstrap states in JSON output", async () => {
+			// Given a repository with an explicit install-only dependency policy.
+			const repoRoot = await createRepository();
+			await writeFile(join(repoRoot, "package-lock.json"), "{}\n", "utf8");
+			await writeFile(
+				join(repoRoot, ".gji.json"),
+				JSON.stringify({ dependencyBootstrap: "install-only" }),
+				"utf8",
+			);
+			const stdout: string[] = [];
+
+			// When gji new runs headlessly with a structured output request.
+			const result = await createNewCommand({
+				runInstallCommand: async () => undefined,
+			})({
+				branch: "feature/bootstrap-json",
+				cwd: repoRoot,
+				json: true,
+				stderr: () => undefined,
+				stdout: (chunk) => stdout.push(chunk),
+			});
+
+			// Then JSON exposes the adapter, install state, and successful readiness.
+			expect(result).toBe(0);
+			expect(JSON.parse(stdout.join(""))).toMatchObject({
+				dependencyBootstrap: {
+					mode: "install-only",
+					ready: true,
+					events: [{ adapter: "npm", state: "installed" }],
+				},
 			});
 		});
 
@@ -1086,7 +1191,7 @@ describe("gji new", () => {
 			expect(stderr.join("")).toContain("source is not a directory");
 		});
 
-		it("skips the install prompt after cloning node_modules for npm", async () => {
+		it("does not let a generic node_modules clone skip the npm install prompt", async () => {
 			// Given an npm repository with a configured node_modules directory.
 			const repoRoot = await createRepository();
 			await commitFile(
@@ -1124,9 +1229,9 @@ describe("gji new", () => {
 				stdout: () => undefined,
 			});
 
-			// Then the successful dependency clone suppresses installation for npm too.
+			// Then syncDirs remains generic and the normal prompt still runs.
 			expect(result).toBe(0);
-			expect(promptCalled).toBe(false);
+			expect(promptCalled).toBe(true);
 		});
 
 		it("emits a JSON error and does not create a worktree for invalid syncDirs", async () => {
@@ -1177,6 +1282,49 @@ describe("gji new", () => {
 			// Then the output names the directory and reports its expected size.
 			expect(result.exitCode).toBe(0);
 			expect(stdout.join("")).toContain("Would clone node_modules (6 B)");
+		});
+
+		it("previews dependency bootstrap strategy in text and JSON dry-runs", async () => {
+			// Given a pnpm repository with a dependency seed and explicit bootstrap mode.
+			const repoRoot = await createRepository();
+			await writeFile(join(repoRoot, "pnpm-lock.yaml"), "lock\n", "utf8");
+			await mkdir(join(repoRoot, "node_modules"));
+			await writeFile(
+				join(repoRoot, ".gji.json"),
+				JSON.stringify({ dependencyBootstrap: "cow-then-repair" }),
+				"utf8",
+			);
+			const textOutput: string[] = [];
+			const jsonOutput: string[] = [];
+
+			// When both dry-run output modes inspect the bootstrap plan.
+			const textResult = await runCli(
+				["new", "--dry-run", "feature/bootstrap-preview"],
+				{
+					cwd: repoRoot,
+					stdout: (chunk) => textOutput.push(chunk),
+				},
+			);
+			const jsonResult = await runCli(
+				["new", "--json", "--dry-run", "feature/bootstrap-preview-json"],
+				{
+					cwd: repoRoot,
+					stdout: (chunk) => jsonOutput.push(chunk),
+				},
+			);
+
+			// Then users can see the repair strategy without creating a worktree.
+			expect(textResult.exitCode).toBe(0);
+			expect(textOutput.join("")).toContain(
+				"Would seed and repair node_modules with pnpm",
+			);
+			expect(jsonResult.exitCode).toBe(0);
+			expect(JSON.parse(jsonOutput.join(""))).toMatchObject({
+				dependencyBootstrap: {
+					mode: "cow-then-repair",
+					targets: [{ adapter: "pnpm", target: "node_modules" }],
+				},
+			});
 		});
 	});
 

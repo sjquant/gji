@@ -11,6 +11,7 @@ import {
 	KNOWN_CONFIG_KEYS,
 	loadConfig,
 	loadEffectiveConfig,
+	normalizeDependencyBootstrap,
 	resolveConfigString,
 	saveLocalConfig,
 	updateGlobalRepoConfigKey,
@@ -71,6 +72,28 @@ describe("syncDirs validation", () => {
 		// When the value is loaded through a local config file.
 		// Then configuration loading rejects the malformed shape.
 		expect(() => validateSyncDirsConfig("node_modules")).toThrow("array");
+	});
+});
+
+describe("dependencyBootstrap validation", () => {
+	it.each(["auto", "copy", true])("rejects unsupported mode %s", (mode) => {
+		// Given a dependency bootstrap value outside the supported explicit modes.
+		// When the value is normalized.
+		// Then configuration validation rejects the ambiguous or malformed mode.
+		expect(() => normalizeDependencyBootstrap(mode)).toThrow(
+			"dependencyBootstrap",
+		);
+	});
+
+	it("accepts off, cow-then-repair, and install-only", () => {
+		// Given the three supported dependency bootstrap policies.
+		// When each policy is normalized.
+		// Then it is preserved exactly for deterministic configuration behavior.
+		expect(normalizeDependencyBootstrap("off")).toBe("off");
+		expect(normalizeDependencyBootstrap("cow-then-repair")).toBe(
+			"cow-then-repair",
+		);
+		expect(normalizeDependencyBootstrap("install-only")).toBe("install-only");
 	});
 });
 
@@ -591,6 +614,7 @@ describe("KNOWN_CONFIG_KEYS", () => {
 	it("includes the keys used by commands", () => {
 		for (const key of [
 			"branchPrefix",
+			"dependencyBootstrap",
 			"hooks",
 			"syncFiles",
 			"syncRemote",

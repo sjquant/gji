@@ -11,8 +11,13 @@ export function createBootstrapReporter(
 		cloned: (directory) => {
 			if (json) return;
 			write(
-				`⚡ cloned ${directory.dir} (${formatBytes(directory.bytes)} → ${formatDuration(directory.ms)})${directory.installSkipped ? " — run install only if lockfile changed" : ""}\n`,
+				`⚡ cloned ${directory.dir} (${formatBytes(directory.bytes)} → ${formatDuration(directory.ms)})\n`,
 			);
+		},
+		dependency: (event) => {
+			if (json) return;
+			const target = event.target ? ` ${event.target}` : "";
+			write(`gji: ${event.state}${target} — ${event.message}\n`);
 		},
 	};
 }

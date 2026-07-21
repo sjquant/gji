@@ -288,7 +288,8 @@ No setup required. Optional config lives in:
 | `syncRemote` | remote for `gji sync` (default: `origin`) |
 | `syncDefaultBranch` | branch to rebase onto (default: remote `HEAD`) |
 | `syncFiles` | files to copy from main worktree into each new worktree; use global per-repo config for private files |
-| `syncDirs` | directories to clone with filesystem copy-on-write before sync files, installs, and hooks |
+| `syncDirs` | arbitrary directories to clone with filesystem copy-on-write before sync files |
+| `dependencyBootstrap` | dependency/build-state policy: `off`, `cow-then-repair`, or `install-only` |
 | `skipInstallPrompt` | `true` to disable the auto-install prompt permanently |
 | `installSaveTarget` | `"local"` or `"global"` — where **Always**/**Never** choices are persisted (default: `"local"`); set during `gji init <shell> --write` |
 | `hooks` | lifecycle scripts (see [Hooks](#hooks)) |
@@ -300,7 +301,8 @@ No setup required. Optional config lives in:
   "syncRemote": "upstream",
   "syncDefaultBranch": "main",
   "syncFiles": [".env.example", ".nvmrc"],
-  "syncDirs": ["node_modules", ".next"]
+  "syncDirs": [".next"],
+  "dependencyBootstrap": "cow-then-repair"
 }
 ```
 
@@ -338,17 +340,27 @@ Use `syncDirs` for large, reproducible directories that should be available imme
 }
 ```
 
-`gji new` clones these directories with APFS copy-on-write on macOS or mandatory reflinks on Linux, before `syncFiles`, install prompts, and `afterCreate` hooks. It never falls back to a slow ordinary copy. Unsupported filesystems, external symlink targets, missing sources, and existing destinations are skipped safely; failed CoW attempts are cached in `~/.config/gji/state.json` so repeated worktree creation does not keep waiting on the same unsupported filesystem.
+`gji new` clones these directories with APFS copy-on-write on macOS or mandatory reflinks on Linux, before `syncFiles`. It never falls back to a slow ordinary copy. Unsupported filesystems, external symlink targets, missing sources, and existing destinations are skipped safely; failed CoW attempts are cached in `~/.config/gji/state.json` so repeated worktree creation does not keep waiting on the same unsupported filesystem. `syncDirs` is generic: it does not know or special-case package managers.
 
-Paths are relative to the repository root. Absolute paths, `..` segments, and `.git` paths are rejected in all three config layers. For pnpm projects, the cloned `node_modules/.modules.yaml` is removed because pnpm recreates it for the new worktree.
+Paths are relative to the repository root. Absolute paths, `..` segments, and `.git` paths are rejected in all three config layers.
 
 The human output includes the cloned size and elapsed time:
 
 ```text
-⚡ cloned node_modules (2.1 GB → 1.2s) — run install only if lockfile changed
+⚡ cloned .next (2.1 GB → 1.2s)
 ```
 
-Use `gji new --dry-run` to see the directories and estimated sizes without creating anything. `gji new --json` adds a `cloned` array with each directory and its clone time. The benchmark target for a 2 GB dependency tree on supported APFS/Btrfs or XFS filesystems is under 5 seconds; benchmark your repository locally because filesystem and storage behavior determine the result.
+Use `dependencyBootstrap` when a package manager or build cache needs a reusable seed followed by authoritative repair:
+
+```json
+{
+  "dependencyBootstrap": "cow-then-repair"
+}
+```
+
+`cow-then-repair` supports Yarn (`--immutable`), pnpm (`--frozen-lockfile`), uv (`--locked`), and Cargo (`cargo check`). npm uses install-only `npm ci` because it can delete an existing dependency tree. CoW failure never triggers ordinary copying: repair runs from an empty target instead. The lifecycle is `CoW seed → syncFiles → repair/install → after-create`. A successful dependency seed is reported as `reused and repaired`, not as an install skip.
+
+Use `gji new --dry-run` to see the directories and estimated sizes without creating anything. `gji new --json` adds a `cloned` array and structured `dependencyBootstrap` events. The benchmark target for a 2 GB dependency tree on supported APFS/Btrfs or XFS filesystems is under 5 seconds; benchmark your repository locally because filesystem and storage behavior determine the result.
 
 ### Per-repo overrides in global config
 
@@ -468,7 +480,7 @@ Run `pnpm install` in the new worktree?
 
 **Always** saves `hooks.afterCreate`; **Never** writes `skipInstallPrompt: true`. Where they are saved depends on `installSaveTarget` (see [Available keys](#available-keys)) — defaults to `.gji.json`.
 
-When `syncDirs` successfully clones `node_modules`, the install prompt is skipped because dependencies are already present. Run the package manager manually if the lockfile changed.
+`syncDirs` never suppresses the install prompt. To automate dependency setup, opt into `dependencyBootstrap: "cow-then-repair"`; the adapter always runs its lockfile/build repair after `syncFiles`.
 
 ## JSON output
 

@@ -14,11 +14,18 @@ import {
 	pathExists,
 	promptForPathConflict,
 } from "./conflict.js";
+import {
+	prepareDependencyBootstrap,
+	previewDependencyBootstrap,
+} from "./dependency-bootstrap.js";
 import { type CloneDirectory, cloneDir } from "./dir-clone.js";
 import { defaultSpawnEditor, EDITORS } from "./editor.js";
 import { isHeadless } from "./headless.js";
 import { recordWorktreeUsage } from "./history.js";
-import type { InstallPromptDependencies } from "./install-prompt.js";
+import {
+	type InstallPromptDependencies,
+	runInstallCommand,
+} from "./install-prompt.js";
 import {
 	createNavigationRepository,
 	createNavigationTarget,
@@ -278,6 +285,15 @@ export function createNewCommand(
 				worktreePath,
 				config.syncDirs ?? [],
 			);
+			const dryRunDependencyBootstrap = previewDependencyBootstrap(
+				await prepareDependencyBootstrap(config.dependencyBootstrap ?? "off", {
+					currentRoot: repository.currentRoot,
+					repoRoot: repository.repoRoot,
+					runCommand: dependencies.runInstallCommand ?? runInstallCommand,
+					stderr: options.stderr,
+					worktreePath,
+				}),
+			);
 			if (options.json) {
 				const output: Record<string, unknown> = {
 					...createNavigationTarget(
@@ -291,6 +307,8 @@ export function createNewCommand(
 					dryRun: true,
 				};
 				if (dryRunSyncDirs.length > 0) output.syncDirs = dryRunSyncDirs;
+				if (dryRunDependencyBootstrap.targets.length > 0)
+					output.dependencyBootstrap = dryRunDependencyBootstrap;
 				options.stdout(`${JSON.stringify(output, null, 2)}\n`);
 			} else {
 				const resolvedEditor = options.open
@@ -300,7 +318,7 @@ export function createNewCommand(
 					? `, then open in ${resolvedEditor}`
 					: "";
 				options.stdout(
-					`Would create worktree at ${worktreePath} (branch: ${worktreeName}${openNote})\n${dryRunSyncDirs.map(({ dir, bytes }) => `Would clone ${dir} (${formatBytes(bytes)})\n`).join("")}`,
+					`Would create worktree at ${worktreePath} (branch: ${worktreeName}${openNote})\n${dryRunSyncDirs.map(({ dir, bytes }) => `Would clone ${dir} (${formatBytes(bytes)})\n`).join("")}${formatDependencyBootstrapPreview(dryRunDependencyBootstrap)}`,
 				);
 			}
 			return 0;
@@ -422,16 +440,22 @@ export function createNewCommand(
 			);
 		}
 
-		const clonedDirs = await bootstrapWorktree({
+		const bootstrap = await bootstrapWorktree({
 			branch: worktreeName,
 			cloneDirectory,
 			config,
+			currentRoot: repository.currentRoot,
 			nonInteractive: !!options.json,
 			repoRoot: repository.repoRoot,
 			reporter: createBootstrapReporter(options.stderr, !!options.json),
 			worktreePath,
 			installDependencies: dependencies,
 		});
+		if (!bootstrap.ready) {
+			return emitNewError(options, "dependency bootstrap failed", {
+				dependencyBootstrap: bootstrap.dependencyBootstrap,
+			});
+		}
 
 		if (options.json) {
 			const navigation = createNavigationTarget(
@@ -449,9 +473,14 @@ export function createNewCommand(
 						},
 					}
 				: { ...navigation };
-			if (clonedDirs.length > 0) {
-				output.cloned = clonedDirs.map(({ dir, ms }) => ({ dir, ms }));
+			if (bootstrap.clonedDirs.length > 0) {
+				output.cloned = bootstrap.clonedDirs.map(({ dir, ms }) => ({
+					dir,
+					ms,
+				}));
 			}
+			if (bootstrap.dependencyBootstrap.mode !== "off")
+				output.dependencyBootstrap = bootstrap.dependencyBootstrap;
 			options.stdout(`${JSON.stringify(output, null, 2)}\n`);
 		} else {
 			if (options.take)
@@ -922,9 +951,26 @@ async function restoreTakeStash(
 		);
 	}
 }
-function emitNewError(options: NewCommandOptions, message: string): number {
+function formatDependencyBootstrapPreview(preview: {
+	targets: readonly { adapter: string; target: string; strategy: string }[];
+}): string {
+	return preview.targets
+		.map(
+			({ adapter, target, strategy }) =>
+				`Would ${strategy === "cow-then-repair" ? "seed and repair" : "install"} ${target} with ${adapter}\n`,
+		)
+		.join("");
+}
+
+function emitNewError(
+	options: NewCommandOptions,
+	message: string,
+	details?: Record<string, unknown>,
+): number {
 	if (options.json)
-		options.stderr(`${JSON.stringify({ error: message }, null, 2)}\n`);
+		options.stderr(
+			`${JSON.stringify({ error: message, ...details }, null, 2)}\n`,
+		);
 	else options.stderr(`gji new: ${message}\n`);
 	return 1;
 }

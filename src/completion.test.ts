@@ -95,7 +95,7 @@ describe("gji completion", () => {
 		expect(stdout.join("")).toContain('branch = ($1 == "*" ? $2 : $1)');
 		expect(stdout.join("")).toContain("_values 'config action' get set unset");
 		expect(stdout.join("")).toContain(
-			"_values 'config key' branchPrefix editor hooks installSaveTarget shellIntegration skipInstallPrompt syncDirs syncDefaultBranch syncFiles syncRemote worktreePath repos",
+			"_values 'config key' branchPrefix dependencyBootstrap editor hooks installSaveTarget shellIntegration skipInstallPrompt syncDirs syncDefaultBranch syncFiles syncRemote worktreePath repos",
 		);
 		expect(stdout.join("")).toContain(`case "\${words[3]}" in`);
 		expect(stdout.join("")).toContain("get|unset)");

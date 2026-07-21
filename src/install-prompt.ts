@@ -45,10 +45,9 @@ export async function maybeRunInstallPrompt(
 	stderr: (chunk: string) => void,
 	dependencies: InstallPromptDependencies = {},
 	nonInteractive = false,
-	skipAfterClone = false,
 ): Promise<void> {
 	// Skip in non-interactive mode — no prompt can be shown.
-	if (isHeadless() || nonInteractive || skipAfterClone) {
+	if (isHeadless() || nonInteractive) {
 		return;
 	}
 
@@ -79,7 +78,7 @@ export async function maybeRunInstallPrompt(
 	}
 
 	if (choice === "yes" || choice === "always") {
-		const runner = dependencies.runInstallCommand ?? defaultRunInstallCommand;
+		const runner = dependencies.runInstallCommand ?? runInstallCommand;
 		try {
 			await runner(pm.installCommand, worktreePath, stderr);
 		} catch (error) {
@@ -145,7 +144,7 @@ export async function maybeRunInstallPrompt(
 	}
 }
 
-async function defaultRunInstallCommand(
+export async function runInstallCommand(
 	command: string,
 	cwd: string,
 	stderr: (chunk: string) => void,

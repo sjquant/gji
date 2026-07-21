@@ -17,7 +17,6 @@ import type { SyncDirectoryPlan } from "./sync-plan.js";
 export interface ClonedDirectory {
 	bytes?: number;
 	dir: string;
-	installSkipped: boolean;
 	ms: number;
 }
 
@@ -25,24 +24,29 @@ export type SyncDirectoryOutcome =
 	| { kind: "cloned"; directory: ClonedDirectory }
 	| { kind: "skipped"; dir: string; reason: string };
 
-export interface SyncDirectoryPostProcessor {
-	postProcess(
-		directory: string,
-		destination: string,
-	): Promise<{ installSkipped: boolean; warning?: string } | undefined>;
-}
-
 export interface SyncDirectoryReporter {
 	readonly emitCachedFailureWarnings: boolean;
 	readonly measureCloneSize: boolean;
 	write(message: string): void;
 	cloned(directory: ClonedDirectory): void;
+	dependency?(event: {
+		adapter: string;
+		kind: "dependency" | "build-cache";
+		state:
+			| "seeded"
+			| "repaired"
+			| "installed"
+			| "fallback"
+			| "skipped"
+			| "failed";
+		target: string;
+		message: string;
+	}): void;
 }
 
 export interface SyncDirectoryExecutionOptions {
 	cloneDirectory: CloneDirectory;
 	failureStore?: CloneFailureStore;
-	postProcessor?: SyncDirectoryPostProcessor;
 	repoRoot: string;
 	reporter: SyncDirectoryReporter;
 }
@@ -138,28 +142,9 @@ export async function executeSyncDirectoryPlan(
 		}
 
 		await failureStore.clear(options.repoRoot, entry.directory);
-		let installSkipped = false;
-		if (options.postProcessor) {
-			try {
-				const postProcess = await options.postProcessor.postProcess(
-					entry.directory,
-					entry.destination,
-				);
-				installSkipped = postProcess?.installSkipped ?? false;
-				if (postProcess?.warning) {
-					options.reporter.write(`syncDirs: ${postProcess.warning}\n`);
-				}
-			} catch (error) {
-				options.reporter.write(
-					`syncDirs: post-processing failed (${toErrorMessage(error)})\n`,
-				);
-			}
-		}
-
 		const clonedDirectory: ClonedDirectory = {
 			bytes: result.bytes,
 			dir: entry.directory,
-			installSkipped,
 			ms: result.ms,
 		};
 		const outcome = { kind: "cloned" as const, directory: clonedDirectory };

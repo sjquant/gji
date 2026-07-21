@@ -67,11 +67,12 @@ For large dependency trees, configure copy-on-write bootstrap instead of waiting
 
 ```json
 {
-  "syncDirs": ["node_modules", ".next"]
+  "syncDirs": [".next"],
+  "dependencyBootstrap": "cow-then-repair"
 }
 ```
 
-On supported macOS and Linux filesystems, `gji new` clones these directories before files, install prompts, and `afterCreate`. Unsupported filesystems are skipped without an ordinary-copy fallback. A successful `node_modules` clone skips the install prompt; use `gji new --dry-run` to inspect the estimated source sizes.
+On supported macOS and Linux filesystems, `gji new` clones configured directories before `syncFiles`. Dependency adapters then run authoritative repair before `afterCreate`: Yarn, pnpm, uv, and Cargo can reuse CoW seeds, while npm remains install-only. Unsupported filesystems never fall back to ordinary copying; they run repair/install from an empty target. Use `gji new --dry-run` to inspect the estimated source sizes and bootstrap strategy.
 
 Add an `afterCreate` hook:
 

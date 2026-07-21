@@ -15,6 +15,7 @@ export const GLOBAL_CONFIG_NAME = "config.json";
 
 export const KNOWN_CONFIG_KEYS: ReadonlySet<string> = new Set([
 	"branchPrefix",
+	"dependencyBootstrap",
 	"editor",
 	"hooks",
 	"installSaveTarget",
@@ -34,8 +35,14 @@ export const KNOWN_GLOBAL_CONFIG_KEYS: ReadonlySet<string> = new Set([
 
 export type GjiConfig = Record<string, unknown>;
 
+export type DependencyBootstrapMode =
+	| "off"
+	| "cow-then-repair"
+	| "install-only";
+
 export interface EffectiveGjiConfig extends GjiConfig {
 	branchPrefix?: string;
+	dependencyBootstrap?: DependencyBootstrapMode;
 	editor?: string;
 	hooks?: Record<string, unknown>;
 	installSaveTarget?: string;
@@ -160,7 +167,7 @@ export async function saveLocalConfig(
 	root: string,
 	config: GjiConfig,
 ): Promise<string> {
-	validateConfigSyncDirs(config);
+	validateConfigValues(config);
 	const path = join(root, CONFIG_FILE_NAME);
 
 	await writeFile(path, `${JSON.stringify(config, null, 2)}\n`, "utf8");
@@ -188,7 +195,7 @@ export async function saveGlobalConfig(
 	config: GjiConfig,
 	home: string = homedir(),
 ): Promise<string> {
-	validateConfigSyncDirs(config);
+	validateConfigValues(config);
 	const path = GLOBAL_CONFIG_FILE_PATH(home);
 
 	await mkdir(dirname(path), { recursive: true });
@@ -277,6 +284,23 @@ export function validateSyncDirsConfig(value: unknown): void {
 	normalizeSyncDirsConfig(value);
 }
 
+export function normalizeDependencyBootstrap(
+	value: unknown,
+): DependencyBootstrapMode | undefined {
+	if (value === undefined) return;
+	if (
+		value !== "off" &&
+		value !== "cow-then-repair" &&
+		value !== "install-only"
+	) {
+		throw new Error(
+			'dependencyBootstrap: expected "off", "cow-then-repair", or "install-only"',
+		);
+	}
+
+	return value;
+}
+
 export function normalizeSyncDirsConfig(
 	value: unknown,
 ): readonly string[] | undefined {
@@ -295,15 +319,16 @@ export function normalizeSyncDirsConfig(
 	});
 }
 
-function validateConfigSyncDirs(config: GjiConfig): void {
+function validateConfigValues(config: GjiConfig): void {
 	validateSyncDirsConfig(config.syncDirs);
+	normalizeDependencyBootstrap(config.dependencyBootstrap);
 
 	const repos = config.repos;
 	if (!isPlainObject(repos)) return;
 
 	for (const repoConfig of Object.values(repos)) {
 		if (isPlainObject(repoConfig)) {
-			validateSyncDirsConfig(repoConfig.syncDirs);
+			validateConfigValues(repoConfig);
 		}
 	}
 }
@@ -344,7 +369,7 @@ async function loadConfigFile(path: string): Promise<LoadedConfig> {
 	try {
 		const rawConfig = await readFile(path, "utf8");
 		const parsedConfig = JSON.parse(rawConfig) as Record<string, unknown>;
-		validateSyncDirsConfig(parsedConfig.syncDirs);
+		validateConfigValues(parsedConfig);
 
 		return {
 			config: mergeConfig(parsedConfig),
@@ -373,6 +398,11 @@ function mergeConfig(...values: Record<string, unknown>[]): GjiConfig {
 
 function toEffectiveConfig(config: GjiConfig): EffectiveGjiConfig {
 	const effective = { ...config } as EffectiveGjiConfig;
+	if (config.dependencyBootstrap !== undefined) {
+		effective.dependencyBootstrap = normalizeDependencyBootstrap(
+			config.dependencyBootstrap,
+		);
+	}
 	for (const key of [
 		"branchPrefix",
 		"editor",
