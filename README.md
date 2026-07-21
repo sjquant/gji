@@ -290,6 +290,7 @@ No setup required. Optional config lives in:
 | `syncFiles` | files to copy from main worktree into each new worktree; use global per-repo config for private files |
 | `syncDirs` | arbitrary directories to clone with filesystem copy-on-write before sync files |
 | `dependencyBootstrap` | dependency/build-state policy: `off`, `cow-then-repair`, or `install-only` |
+| `dependencyBuildCommand` | optional Cargo repair command used by `dependencyBootstrap` (default: `cargo check`) |
 | `skipInstallPrompt` | `true` to disable the auto-install prompt permanently |
 | `installSaveTarget` | `"local"` or `"global"` — where **Always**/**Never** choices are persisted (default: `"local"`); set during `gji init <shell> --write` |
 | `hooks` | lifecycle scripts (see [Hooks](#hooks)) |
@@ -358,7 +359,7 @@ Use `dependencyBootstrap` when a package manager or build cache needs a reusable
 }
 ```
 
-`cow-then-repair` supports Yarn (`--immutable`), pnpm (`--frozen-lockfile`), uv (`--locked`), and Cargo (`cargo check`). npm uses install-only `npm ci` because it can delete an existing dependency tree. CoW failure never triggers ordinary copying: repair runs from an empty target instead. The lifecycle is `CoW seed → syncFiles → repair/install → after-create`. A successful dependency seed is reported as `reused and repaired`, not as an install skip.
+`cow-then-repair` supports Yarn (`--immutable`), pnpm (`--frozen-lockfile`), uv (`--locked`), and Cargo (the configured `dependencyBuildCommand`, or `cargo check`). npm uses install-only `npm ci` because it can delete an existing dependency tree. CoW failure never triggers ordinary copying: repair runs from an empty target instead. The lifecycle is `CoW seed → syncFiles → repair/install → after-create`; a sync-file failure stops repair and hooks. A successful dependency seed is reported as `reused and repaired`, not as an install skip.
 
 Use `gji new --dry-run` to see the directories and estimated sizes without creating anything. `gji new --json` adds a `cloned` array and structured `dependencyBootstrap` events. The benchmark target for a 2 GB dependency tree on supported APFS/Btrfs or XFS filesystems is under 5 seconds; benchmark your repository locally because filesystem and storage behavior determine the result.
 

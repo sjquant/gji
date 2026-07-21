@@ -22,10 +22,7 @@ import { type CloneDirectory, cloneDir } from "./dir-clone.js";
 import { defaultSpawnEditor, EDITORS } from "./editor.js";
 import { isHeadless } from "./headless.js";
 import { recordWorktreeUsage } from "./history.js";
-import {
-	type InstallPromptDependencies,
-	runInstallCommand,
-} from "./install-prompt.js";
+import type { InstallPromptDependencies } from "./install-prompt.js";
 import {
 	createNavigationRepository,
 	createNavigationTarget,
@@ -289,8 +286,7 @@ export function createNewCommand(
 				await prepareDependencyBootstrap(config.dependencyBootstrap ?? "off", {
 					currentRoot: repository.currentRoot,
 					repoRoot: repository.repoRoot,
-					runCommand: dependencies.runInstallCommand ?? runInstallCommand,
-					stderr: options.stderr,
+					cargoBuildCommand: config.dependencyBuildCommand,
 					worktreePath,
 				}),
 			);
@@ -960,9 +956,15 @@ function formatDependencyBootstrapPreview(preview: {
 	return preview.targets
 		.map(
 			({ adapter, target, strategy }) =>
-				`Would ${strategy === "cow-then-repair" ? "seed and repair" : "install"} ${target} with ${adapter}\n`,
+				`Would ${formatBootstrapStrategy(strategy)} ${target} with ${adapter}\n`,
 		)
 		.join("");
+}
+
+function formatBootstrapStrategy(strategy: string): string {
+	if (strategy === "cow-then-repair") return "seed and repair";
+	if (strategy === "repair-only") return "repair";
+	return "install";
 }
 
 function emitNewError(

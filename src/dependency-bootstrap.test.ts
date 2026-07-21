@@ -14,8 +14,12 @@ import { describe, expect, it } from "vitest";
 import {
 	executeDependencyBootstrap,
 	prepareDependencyBootstrap,
+	previewDependencyBootstrap,
 } from "./dependency-bootstrap.js";
-import { CloneUnsupportedError } from "./dir-clone.js";
+import {
+	CloneDestinationExistsError,
+	CloneUnsupportedError,
+} from "./dir-clone.js";
 
 function createFailureStore() {
 	const failures = new Set<string>();
@@ -59,14 +63,38 @@ async function prepareNodePlan(
 
 	const plan = await prepareDependencyBootstrap(mode, {
 		repoRoot,
-		runCommand: async () => undefined,
-		stderr: () => undefined,
 		worktreePath,
 	});
 	return { repoRoot, worktreePath, plan };
 }
 
 describe("dependencyBootstrap adapters", () => {
+	it("reports npm as install-only in the effective dry-run strategy", async () => {
+		// Given an npm lockfile and cow-then-repair configuration.
+		const repoRoot = await mkdtemp(
+			join(tmpdir(), "gji-bootstrap-npm-preview-repo-"),
+		);
+		const worktreePath = await mkdtemp(
+			join(tmpdir(), "gji-bootstrap-npm-preview-worktree-"),
+		);
+		await writeFile(join(repoRoot, "package-lock.json"), "{}\n");
+
+		// When the bootstrap plan is previewed.
+		const plan = await prepareDependencyBootstrap("cow-then-repair", {
+			repoRoot,
+			worktreePath,
+		});
+
+		// Then the preview describes the same install-only behavior as execution.
+		expect(previewDependencyBootstrap(plan).targets).toEqual([
+			expect.objectContaining({
+				adapter: "npm",
+				seedable: false,
+				strategy: "install-only",
+			}),
+		]);
+	});
+
 	it("seeds node_modules with CoW and always runs the frozen pnpm repair", async () => {
 		// Given a pnpm source with a reusable dependency tree and a fresh worktree.
 		const { repoRoot, worktreePath, plan } =
@@ -118,8 +146,6 @@ describe("dependencyBootstrap adapters", () => {
 		await writeFile(join(repoRoot, "package-lock.json"), "{}\n");
 		const plan = await prepareDependencyBootstrap("cow-then-repair", {
 			repoRoot,
-			runCommand: async () => undefined,
-			stderr: () => undefined,
 			worktreePath,
 		});
 		const reporter = createReporter();
@@ -182,6 +208,36 @@ describe("dependencyBootstrap adapters", () => {
 		void worktreePath;
 	});
 
+	it("preserves a destination that appears during CoW seeding", async () => {
+		// Given a fresh target that another process publishes during the clone race.
+		const { repoRoot, worktreePath, plan } =
+			await prepareNodePlan("cow-then-repair");
+		const reporter = createReporter();
+
+		// When the cloner reports that the destination appeared after creating it.
+		const result = await executeDependencyBootstrap(plan, {
+			cloneDirectory: async (_source, destination) => {
+				await mkdir(destination, { recursive: true });
+				await writeFile(join(destination, "published.txt"), "keep\n");
+				throw new CloneDestinationExistsError(destination);
+			},
+			failureStore: createFailureStore(),
+			repoRoot,
+			reporter,
+			runCommand: async () => undefined,
+		});
+
+		// Then repair can use the published target without deleting it.
+		expect(result.ready).toBe(true);
+		await expect(
+			readFile(join(worktreePath, "node_modules", "published.txt"), "utf8"),
+		).resolves.toBe("keep\n");
+		expect(result.events.map(({ state }) => state)).toEqual([
+			"skipped",
+			"repaired",
+		]);
+	});
+
 	it("removes a failed seed before retrying clean and preserves no partial clone", async () => {
 		// Given a source whose first repair fails after a successful seed.
 		const { repoRoot, worktreePath, plan } =
@@ -231,8 +287,6 @@ describe("dependencyBootstrap adapters", () => {
 		await writeFile(join(worktreePath, "node_modules", "keep.txt"), "keep\n");
 		const plan = await prepareDependencyBootstrap("cow-then-repair", {
 			repoRoot,
-			runCommand: async () => undefined,
-			stderr: () => undefined,
 			worktreePath,
 		});
 		const reporter = createReporter();
@@ -268,8 +322,6 @@ describe("dependencyBootstrap adapters", () => {
 		await symlink(external, join(repoRoot, "node_modules"));
 		const plan = await prepareDependencyBootstrap("cow-then-repair", {
 			repoRoot,
-			runCommand: async () => undefined,
-			stderr: () => undefined,
 			worktreePath,
 		});
 		const reporter = createReporter();
@@ -305,8 +357,6 @@ describe("dependencyBootstrap adapters", () => {
 		const plan = await prepareDependencyBootstrap("cow-then-repair", {
 			checkUvRuntime: async () => true,
 			repoRoot,
-			runCommand: async () => undefined,
-			stderr: () => undefined,
 			worktreePath,
 		});
 		const commands: string[] = [];
@@ -347,8 +397,6 @@ describe("dependencyBootstrap adapters", () => {
 		const plan = await prepareDependencyBootstrap("cow-then-repair", {
 			checkUvRuntime: async () => false,
 			repoRoot,
-			runCommand: async () => undefined,
-			stderr: () => undefined,
 			worktreePath,
 		});
 		let cloneCalled = false;
@@ -384,8 +432,6 @@ describe("dependencyBootstrap adapters", () => {
 		await mkdir(join(repoRoot, "target", "debug"), { recursive: true });
 		const plan = await prepareDependencyBootstrap("cow-then-repair", {
 			repoRoot,
-			runCommand: async () => undefined,
-			stderr: () => undefined,
 			worktreePath,
 		});
 		const commands: string[] = [];
@@ -409,6 +455,29 @@ describe("dependencyBootstrap adapters", () => {
 		expect(commands).toEqual(["cargo check"]);
 		expect(result.events[0]?.kind).toBe("build-cache");
 		expect(result.events.at(-1)?.state).toBe("repaired");
+	});
+
+	it("uses a configured Cargo repair command", async () => {
+		// Given a Cargo lockfile and a repository-specific build repair command.
+		const repoRoot = await mkdtemp(
+			join(tmpdir(), "gji-bootstrap-cargo-command-repo-"),
+		);
+		const worktreePath = await mkdtemp(
+			join(tmpdir(), "gji-bootstrap-cargo-command-worktree-"),
+		);
+		await writeFile(join(repoRoot, "Cargo.lock"), "version = 3\n");
+
+		// When the bootstrap plan is prepared with the configured command.
+		const plan = await prepareDependencyBootstrap("cow-then-repair", {
+			cargoBuildCommand: "cargo check --workspace",
+			repoRoot,
+			worktreePath,
+		});
+
+		// Then Cargo uses the configured repair command in the plan.
+		expect(plan.targets[0]?.target.repairCommand).toBe(
+			"cargo check --workspace",
+		);
 	});
 });
 

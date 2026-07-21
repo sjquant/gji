@@ -33,4 +33,28 @@ describe("FileCloneFailureStore", () => {
 			"syncDirs",
 		);
 	});
+
+	it("keeps scoped dependency failures separate", async () => {
+		// Given an isolated state directory with one scoped CoW failure.
+		const root = await mkdtemp(join(tmpdir(), "gji-state-scoped-"));
+		process.env.GJI_CONFIG_DIR = root;
+		const store = new FileCloneFailureStore();
+		await store.cache("/repo", "node_modules", "unsupported", "dependency-a");
+
+		// When two bootstrap scopes query the same logical directory.
+		const sameScope = await store.isCached(
+			"/repo",
+			"node_modules",
+			"dependency-a",
+		);
+		const differentScope = await store.isCached(
+			"/repo",
+			"node_modules",
+			"dependency-b",
+		);
+
+		// Then a failure from one source/filesystem scope does not suppress another.
+		expect(sameScope).toBe(true);
+		expect(differentScope).toBe(false);
+	});
 });

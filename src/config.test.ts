@@ -614,6 +614,7 @@ describe("KNOWN_CONFIG_KEYS", () => {
 	it("includes the keys used by commands", () => {
 		for (const key of [
 			"branchPrefix",
+			"dependencyBuildCommand",
 			"dependencyBootstrap",
 			"hooks",
 			"syncFiles",

@@ -1,10 +1,14 @@
+import type {
+	BootstrapEvent,
+	DependencyBootstrapReporter,
+} from "./dependency-bootstrap.js";
 import type { SyncDirectoryReporter } from "./sync-directories.js";
 
 export function createBootstrapReporter(
 	write: (chunk: string) => void,
 	json: boolean,
 	measureCloneSize = false,
-): SyncDirectoryReporter {
+): SyncDirectoryReporter & DependencyBootstrapReporter {
 	return {
 		emitCachedFailureWarnings: !json,
 		measureCloneSize: measureCloneSize && !json,
@@ -19,7 +23,7 @@ export function createBootstrapReporter(
 			if (json) return;
 			write(`gji: skipped ${directory.dir} — ${directory.reason}\n`);
 		},
-		dependency: (event) => {
+		dependency: (event: BootstrapEvent) => {
 			if (json) return;
 			const target = event.target ? ` ${event.target}` : "";
 			write(`gji: ${event.state}${target} — ${event.message}\n`);

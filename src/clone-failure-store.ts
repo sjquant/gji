@@ -5,6 +5,7 @@ import {
 	readFile,
 	rename,
 	rm,
+	stat,
 	writeFile,
 } from "node:fs/promises";
 import { homedir } from "node:os";
@@ -26,20 +27,34 @@ interface CloneFailureState {
 }
 
 export interface CloneFailureStore {
-	isCached(repoRoot: string, directory: string): Promise<boolean>;
-	cache(repoRoot: string, directory: string, reason: string): Promise<void>;
-	clear(repoRoot: string, directory: string): Promise<void>;
+	isCached(
+		repoRoot: string,
+		directory: string,
+		scope?: string,
+	): Promise<boolean>;
+	cache(
+		repoRoot: string,
+		directory: string,
+		reason: string,
+		scope?: string,
+	): Promise<void>;
+	clear(repoRoot: string, directory: string, scope?: string): Promise<void>;
 }
 
 export class FileCloneFailureStore implements CloneFailureStore {
 	private updateQueue = Promise.resolve();
 
-	async isCached(repoRoot: string, directory: string): Promise<boolean> {
+	async isCached(
+		repoRoot: string,
+		directory: string,
+		scope?: string,
+	): Promise<boolean> {
 		const state = await this.readState();
 		const repoState = state.syncDirs?.[repoRoot];
-		if (!repoState || !Object.hasOwn(repoState, directory)) return false;
+		const key = failureKey(directory, scope);
+		if (!repoState || !Object.hasOwn(repoState, key)) return false;
 
-		const failure = repoState[directory];
+		const failure = repoState[key];
 		return (
 			isPlainObject(failure) &&
 			typeof failure.failedAt === "number" &&
@@ -51,29 +66,36 @@ export class FileCloneFailureStore implements CloneFailureStore {
 		repoRoot: string,
 		directory: string,
 		reason: string,
+		scope?: string,
 	): Promise<void> {
 		await this.update(async () => {
 			const state = await this.readState();
 			const syncDirs = state.syncDirs ?? {};
 			const repoState = syncDirs[repoRoot] ?? {};
 
+			const key = failureKey(directory, scope);
 			syncDirs[repoRoot] = {
 				...repoState,
-				[directory]: { failedAt: Date.now(), reason },
+				[key]: { failedAt: Date.now(), reason },
 			};
 
 			await this.writeState({ ...state, syncDirs });
 		});
 	}
 
-	async clear(repoRoot: string, directory: string): Promise<void> {
+	async clear(
+		repoRoot: string,
+		directory: string,
+		scope?: string,
+	): Promise<void> {
 		await this.update(async () => {
 			const state = await this.readState();
 			const repoState = state.syncDirs?.[repoRoot];
-			if (!repoState || !Object.hasOwn(repoState, directory)) return;
+			const key = failureKey(directory, scope);
+			if (!repoState || !Object.hasOwn(repoState, key)) return;
 
 			const nextRepoState = { ...repoState };
-			delete nextRepoState[directory];
+			delete nextRepoState[key];
 			const syncDirs = { ...state.syncDirs };
 			if (Object.keys(nextRepoState).length === 0) delete syncDirs[repoRoot];
 			else syncDirs[repoRoot] = nextRepoState;
@@ -140,6 +162,31 @@ export class FileCloneFailureStore implements CloneFailureStore {
 
 export const defaultCloneFailureStore: CloneFailureStore =
 	new FileCloneFailureStore();
+
+export async function cloneFailureScope(
+	source: string,
+	destination: string,
+): Promise<string> {
+	const sourcePath = resolve(source);
+	const destinationParent = resolve(dirname(destination));
+	const [sourceDevice, destinationDevice] = await Promise.all([
+		readDevice(sourcePath),
+		readDevice(destinationParent),
+	]);
+	return JSON.stringify([sourcePath, sourceDevice, destinationDevice]);
+}
+
+async function readDevice(path: string): Promise<number | undefined> {
+	try {
+		return (await stat(path)).dev;
+	} catch {
+		return undefined;
+	}
+}
+
+function failureKey(directory: string, scope?: string): string {
+	return scope === undefined ? directory : JSON.stringify([scope, directory]);
+}
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);

@@ -15,6 +15,7 @@ export const GLOBAL_CONFIG_NAME = "config.json";
 
 export const KNOWN_CONFIG_KEYS: ReadonlySet<string> = new Set([
 	"branchPrefix",
+	"dependencyBuildCommand",
 	"dependencyBootstrap",
 	"editor",
 	"hooks",
@@ -42,6 +43,7 @@ export type DependencyBootstrapMode =
 
 export interface EffectiveGjiConfig extends GjiConfig {
 	branchPrefix?: string;
+	dependencyBuildCommand?: string;
 	dependencyBootstrap?: DependencyBootstrapMode;
 	editor?: string;
 	hooks?: Record<string, unknown>;
@@ -405,6 +407,7 @@ function toEffectiveConfig(config: GjiConfig): EffectiveGjiConfig {
 	}
 	for (const key of [
 		"branchPrefix",
+		"dependencyBuildCommand",
 		"editor",
 		"installSaveTarget",
 		"shellIntegration",

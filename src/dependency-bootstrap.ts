@@ -2,17 +2,21 @@ import { execFile } from "node:child_process";
 import { access, lstat, readFile, realpath, rm } from "node:fs/promises";
 import { join, relative, resolve, sep } from "node:path";
 import { promisify } from "node:util";
+
 import {
 	type CloneFailureStore,
+	cloneFailureScope,
 	defaultCloneFailureStore,
 } from "./clone-failure-store.js";
 import type { DependencyBootstrapMode } from "./config.js";
 import {
 	type CloneDirectory,
 	cloneDir,
+	isCloneDestinationExistsError,
+	isCloneInProgressError,
 	isCloneUnsupportedError,
 } from "./dir-clone.js";
-import type { SyncDirectoryReporter } from "./sync-directories.js";
+import { runInstallCommand } from "./install-prompt.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -24,6 +28,10 @@ export type BootstrapState =
 	| "fallback"
 	| "skipped"
 	| "failed";
+export type BootstrapStrategy =
+	| "cow-then-repair"
+	| "repair-only"
+	| "install-only";
 
 export type BootstrapCommandRunner = (
 	command: string,
@@ -31,13 +39,14 @@ export type BootstrapCommandRunner = (
 	stderr: (chunk: string) => void,
 ) => Promise<void>;
 
-export interface BootstrapContext {
-	repoRoot: string;
+export interface BootstrapPreparationContext {
 	sourceRoot: string;
 	worktreePath: string;
+}
+
+export interface BootstrapExecutionContext {
 	runCommand: BootstrapCommandRunner;
 	stderr: (chunk: string) => void;
-	checkUvRuntime?: (target: BootstrapTarget) => Promise<boolean>;
 }
 
 export interface BootstrapTarget {
@@ -51,16 +60,17 @@ export interface BootstrapTarget {
 	repairCommand: string;
 	repairState: "repaired" | "installed";
 	existingBeforeBootstrap: boolean;
-	runCommand: BootstrapCommandRunner;
-	stderr: (chunk: string) => void;
 }
 
 export interface BootstrapAdapter {
 	readonly kind: BootstrapKind;
 	readonly name: string;
-	detect(context: BootstrapContext): Promise<BootstrapTarget | null>;
+	detect(context: BootstrapPreparationContext): Promise<BootstrapTarget | null>;
 	seedPath(target: BootstrapTarget): string;
-	repair(target: BootstrapTarget): Promise<void>;
+	repair(
+		target: BootstrapTarget,
+		context: BootstrapExecutionContext,
+	): Promise<void>;
 	canSeed(target: BootstrapTarget): Promise<boolean>;
 }
 
@@ -72,6 +82,7 @@ export interface DependencyBootstrapPlan {
 export interface PlannedBootstrapTarget {
 	adapter: BootstrapAdapter;
 	target: BootstrapTarget;
+	seedable: boolean;
 }
 
 export interface BootstrapEvent {
@@ -80,6 +91,11 @@ export interface BootstrapEvent {
 	state: BootstrapState;
 	target: string;
 	message: string;
+}
+
+export interface DependencyBootstrapReporter {
+	readonly measureCloneSize: boolean;
+	dependency(event: BootstrapEvent): void;
 }
 
 export interface DependencyBootstrapReport {
@@ -92,7 +108,8 @@ export interface DependencyBootstrapDependencies {
 	cloneDirectory?: CloneDirectory;
 	failureStore?: CloneFailureStore;
 	runCommand?: BootstrapCommandRunner;
-	checkUvRuntime?: (target: BootstrapTarget) => Promise<boolean>;
+	stderr?: (chunk: string) => void;
+	seededDirectories?: readonly string[];
 }
 
 export interface DependencyBootstrapPreview {
@@ -102,18 +119,26 @@ export interface DependencyBootstrapPreview {
 		kind: BootstrapKind;
 		target: string;
 		repairCommand: string;
-		strategy: "cow-then-repair" | "install-only";
+		seedable: boolean;
+		strategy: BootstrapStrategy;
 	}[];
 }
 
 export async function prepareDependencyBootstrap(
 	mode: DependencyBootstrapMode,
-	context: Omit<BootstrapContext, "sourceRoot"> & { currentRoot?: string },
+	context: {
+		repoRoot: string;
+		currentRoot?: string;
+		worktreePath: string;
+		checkUvRuntime?: (target: BootstrapTarget) => Promise<boolean>;
+		cargoBuildCommand?: string;
+	},
 ): Promise<DependencyBootstrapPlan> {
 	if (mode === "off") return { mode, targets: [] };
 
 	const adapters = createBootstrapAdapters(
 		context.checkUvRuntime ?? defaultCheckUvRuntime,
+		context.cargoBuildCommand,
 	);
 	const sourceRoots: string[] = [];
 	for (const sourceRoot of uniquePaths([
@@ -127,22 +152,28 @@ export async function prepareDependencyBootstrap(
 	const targets: PlannedBootstrapTarget[] = [];
 
 	for (const adapter of adapters) {
-		let firstCandidate: BootstrapTarget | null = null;
+		let fallback: PlannedBootstrapTarget | undefined;
+		let selected: PlannedBootstrapTarget | undefined;
+
 		for (const sourceRoot of sourceRoots) {
-			const target = await adapter.detect({ ...context, sourceRoot });
+			const target = await adapter.detect({
+				sourceRoot,
+				worktreePath: context.worktreePath,
+			});
 			if (!target) continue;
-			firstCandidate ??= target;
-			if (mode === "install-only" || (await adapter.canSeed(target))) {
-				targets.push({ adapter, target });
+
+			const seedable =
+				mode !== "install-only" && (await adapter.canSeed(target));
+			const candidate = { adapter, target, seedable };
+			fallback ??= candidate;
+			if (mode === "install-only" || seedable) {
+				selected = candidate;
 				break;
 			}
 		}
-		if (
-			firstCandidate &&
-			!targets.some(({ adapter: selected }) => selected === adapter)
-		) {
-			targets.push({ adapter, target: firstCandidate });
-		}
+
+		const plannedTarget = selected ?? fallback;
+		if (plannedTarget) targets.push(plannedTarget);
 	}
 
 	return { mode, targets };
@@ -153,13 +184,13 @@ export function previewDependencyBootstrap(
 ): DependencyBootstrapPreview {
 	return {
 		mode: plan.mode,
-		targets: plan.targets.map(({ adapter, target }) => ({
+		targets: plan.targets.map(({ adapter, target, seedable }) => ({
 			adapter: adapter.name,
 			kind: adapter.kind,
 			target: target.relativePath,
 			repairCommand: target.repairCommand,
-			strategy:
-				plan.mode === "install-only" ? "install-only" : "cow-then-repair",
+			seedable,
+			strategy: bootstrapStrategy(plan.mode, target, seedable),
 		})),
 	};
 }
@@ -168,7 +199,7 @@ export async function executeDependencyBootstrap(
 	plan: DependencyBootstrapPlan,
 	options: DependencyBootstrapDependencies & {
 		repoRoot: string;
-		reporter: SyncDirectoryReporter;
+		reporter: DependencyBootstrapReporter;
 	},
 ): Promise<DependencyBootstrapReport> {
 	if (plan.mode === "off") return { mode: plan.mode, ready: true, events: [] };
@@ -176,6 +207,11 @@ export async function executeDependencyBootstrap(
 	const events: BootstrapEvent[] = [];
 	const failureStore = options.failureStore ?? defaultCloneFailureStore;
 	const cloneDirectory = options.cloneDirectory ?? cloneDir;
+	const execution: BootstrapExecutionContext = {
+		runCommand: options.runCommand ?? runInstallCommand,
+		stderr: options.stderr ?? (() => undefined),
+	};
+	const seededDirectories = new Set(options.seededDirectories ?? []);
 
 	if (plan.targets.length === 0) {
 		recordBootstrapEvent(events, options.reporter, {
@@ -188,14 +224,16 @@ export async function executeDependencyBootstrap(
 		return { mode: plan.mode, ready: true, events };
 	}
 
-	for (const { adapter, target } of plan.targets) {
-		if (options.runCommand) target.runCommand = options.runCommand;
+	for (const { adapter, target, seedable } of plan.targets) {
 		await executeBootstrapTarget(
 			adapter,
 			target,
+			seedable,
 			plan.mode,
 			cloneDirectory,
 			failureStore,
+			execution,
+			seededDirectories.has(target.relativePath),
 			events,
 			options.reporter,
 			options.repoRoot,
@@ -212,19 +250,36 @@ export async function executeDependencyBootstrap(
 async function executeBootstrapTarget(
 	adapter: BootstrapAdapter,
 	target: BootstrapTarget,
+	seedable: boolean,
 	mode: DependencyBootstrapMode,
 	cloneDirectory: CloneDirectory,
 	failureStore: CloneFailureStore,
+	execution: BootstrapExecutionContext,
+	seededBySyncDirs: boolean,
 	events: BootstrapEvent[],
-	reporter: SyncDirectoryReporter,
+	reporter: DependencyBootstrapReporter,
 	repoRoot: string,
 ): Promise<void> {
 	if (mode === "install-only") {
-		await repairTarget(adapter, target, false, events, reporter);
+		await repairTarget(
+			adapter,
+			target,
+			execution,
+			false,
+			target.existingBeforeBootstrap ? "preserve" : "empty",
+			events,
+			reporter,
+		);
 		return;
 	}
 
 	let seeded = false;
+	const failureScope = seedable
+		? await cloneFailureScope(adapter.seedPath(target), target.targetPath)
+		: undefined;
+	let ownership: BootstrapTargetOwnership = target.existingBeforeBootstrap
+		? "preserve"
+		: "empty";
 	if (target.existingBeforeBootstrap) {
 		recordBootstrapEvent(events, reporter, {
 			adapter: adapter.name,
@@ -233,16 +288,42 @@ async function executeBootstrapTarget(
 			target: target.relativePath,
 			message: "target already existed; using it as the repair input",
 		});
+	} else if (seededBySyncDirs && (await pathExists(target.targetPath))) {
+		if (seedable) {
+			seeded = true;
+			ownership = "syncDirs";
+			recordBootstrapEvent(events, reporter, {
+				adapter: adapter.name,
+				kind: adapter.kind,
+				state: "seeded",
+				target: target.relativePath,
+				message: "reusing a seed created by syncDirs",
+			});
+		} else {
+			ownership = "preserve";
+			recordBootstrapEvent(events, reporter, {
+				adapter: adapter.name,
+				kind: adapter.kind,
+				state: "fallback",
+				target: target.relativePath,
+				message:
+					"syncDirs created a generic target; this adapter uses repair without CoW",
+			});
+		}
 	} else if (await pathExists(target.targetPath)) {
-		seeded = true;
+		ownership = "preserve";
 		recordBootstrapEvent(events, reporter, {
 			adapter: adapter.name,
 			kind: adapter.kind,
-			state: "seeded",
+			state: "skipped",
 			target: target.relativePath,
-			message: "reusing a seed created by syncDirs",
+			message:
+				"target appeared during bootstrap; preserving it as the repair input",
 		});
-	} else if (await failureStore.isCached(repoRoot, target.relativePath)) {
+	} else if (
+		seedable &&
+		(await failureStore.isCached(repoRoot, target.relativePath, failureScope))
+	) {
 		recordBootstrapEvent(events, reporter, {
 			adapter: adapter.name,
 			kind: adapter.kind,
@@ -250,13 +331,14 @@ async function executeBootstrapTarget(
 			target: target.relativePath,
 			message: "previous CoW failure is cached; repairing from an empty target",
 		});
-	} else if (await adapter.canSeed(target)) {
+	} else if (seedable) {
 		try {
 			await cloneDirectory(adapter.seedPath(target), target.targetPath, {
 				measureBytes: reporter.measureCloneSize,
 			});
-			await failureStore.clear(repoRoot, target.relativePath);
+			await failureStore.clear(repoRoot, target.relativePath, failureScope);
 			seeded = true;
+			ownership = "adapter";
 			recordBootstrapEvent(events, reporter, {
 				adapter: adapter.name,
 				kind: adapter.kind,
@@ -265,14 +347,46 @@ async function executeBootstrapTarget(
 				message: "seeded with copy-on-write",
 			});
 		} catch (error) {
+			if (isCloneDestinationExistsError(error)) {
+				ownership = "preserve";
+				recordBootstrapEvent(events, reporter, {
+					adapter: adapter.name,
+					kind: adapter.kind,
+					state: "skipped",
+					target: target.relativePath,
+					message:
+						"target appeared during CoW seeding; preserving it as the repair input",
+				});
+				await repairTarget(
+					adapter,
+					target,
+					execution,
+					false,
+					ownership,
+					events,
+					reporter,
+				);
+				return;
+			}
+			if (isCloneInProgressError(error)) {
+				recordBootstrapFailure(
+					events,
+					reporter,
+					adapter,
+					target,
+					`CoW seed is already in progress: ${toErrorMessage(error)}`,
+				);
+				return;
+			}
 			if (isCloneUnsupportedError(error)) {
 				await failureStore.cache(
 					repoRoot,
 					target.relativePath,
 					toErrorMessage(error),
+					failureScope,
 				);
 			}
-			await removeCreatedTarget(target, true);
+			await removeTarget(target);
 			recordBootstrapEvent(events, reporter, {
 				adapter: adapter.name,
 				kind: adapter.kind,
@@ -291,18 +405,31 @@ async function executeBootstrapTarget(
 		});
 	}
 
-	await repairTarget(adapter, target, seeded, events, reporter);
+	await repairTarget(
+		adapter,
+		target,
+		execution,
+		seeded,
+		ownership,
+		events,
+		reporter,
+	);
 }
+
+type BootstrapTargetOwnership = "adapter" | "syncDirs" | "empty" | "preserve";
 
 async function repairTarget(
 	adapter: BootstrapAdapter,
 	target: BootstrapTarget,
+	execution: BootstrapExecutionContext,
 	seeded: boolean,
+	ownership: BootstrapTargetOwnership,
 	events: BootstrapEvent[],
-	reporter: SyncDirectoryReporter,
+	reporter: DependencyBootstrapReporter,
 ): Promise<void> {
+	const presentBeforeRepair = await pathExists(target.targetPath);
 	try {
-		await adapter.repair(target);
+		await adapter.repair(target, execution);
 		recordBootstrapEvent(events, reporter, {
 			adapter: adapter.name,
 			kind: adapter.kind,
@@ -313,29 +440,19 @@ async function repairTarget(
 				: "installed or repaired from a clean target",
 		});
 	} catch (firstError) {
-		if (target.existingBeforeBootstrap) {
-			recordBootstrapEvent(events, reporter, {
-				adapter: adapter.name,
-				kind: adapter.kind,
-				state: "failed",
-				target: target.relativePath,
-				message: `repair failed: ${toErrorMessage(firstError)}`,
-			});
-			return;
-		}
-		if (!seeded) {
-			await removeCreatedTarget(target, true);
-			recordBootstrapEvent(events, reporter, {
-				adapter: adapter.name,
-				kind: adapter.kind,
-				state: "failed",
-				target: target.relativePath,
-				message: `repair failed: ${toErrorMessage(firstError)}`,
-			});
+		if (ownership !== "adapter" && ownership !== "syncDirs") {
+			if (!presentBeforeRepair) await removeTarget(target);
+			recordBootstrapFailure(
+				events,
+				reporter,
+				adapter,
+				target,
+				`repair failed: ${toErrorMessage(firstError)}`,
+			);
 			return;
 		}
 
-		await removeCreatedTarget(target, true);
+		await removeTarget(target);
 		recordBootstrapEvent(events, reporter, {
 			adapter: adapter.name,
 			kind: adapter.kind,
@@ -344,8 +461,9 @@ async function repairTarget(
 			message: `seed repair failed; removed the seed and retrying clean (${toErrorMessage(firstError)})`,
 		});
 
+		const presentBeforeRetry = await pathExists(target.targetPath);
 		try {
-			await adapter.repair(target);
+			await adapter.repair(target, execution);
 			recordBootstrapEvent(events, reporter, {
 				adapter: adapter.name,
 				kind: adapter.kind,
@@ -354,95 +472,135 @@ async function repairTarget(
 				message: "installed or repaired from a clean target",
 			});
 		} catch (secondError) {
-			await removeCreatedTarget(target, true);
-			recordBootstrapEvent(events, reporter, {
-				adapter: adapter.name,
-				kind: adapter.kind,
-				state: "failed",
-				target: target.relativePath,
-				message: `clean repair failed: ${toErrorMessage(secondError)}`,
-			});
+			if (!presentBeforeRetry) await removeTarget(target);
+			recordBootstrapFailure(
+				events,
+				reporter,
+				adapter,
+				target,
+				`clean repair failed: ${toErrorMessage(secondError)}`,
+			);
 		}
 	}
 }
 
+function recordBootstrapFailure(
+	events: BootstrapEvent[],
+	reporter: DependencyBootstrapReporter,
+	adapter: BootstrapAdapter,
+	target: BootstrapTarget,
+	message: string,
+): void {
+	recordBootstrapEvent(events, reporter, {
+		adapter: adapter.name,
+		kind: adapter.kind,
+		state: "failed",
+		target: target.relativePath,
+		message,
+	});
+}
+
 function recordBootstrapEvent(
 	events: BootstrapEvent[],
-	reporter: SyncDirectoryReporter,
+	reporter: DependencyBootstrapReporter,
 	event: BootstrapEvent,
 ): void {
 	events.push(event);
-	reporter.dependency?.(event);
+	reporter.dependency(event);
 }
 
-async function removeCreatedTarget(
+async function removeTarget(target: BootstrapTarget): Promise<void> {
+	if (!target.existingBeforeBootstrap) {
+		await rm(target.targetPath, { force: true, recursive: true });
+	}
+}
+
+function bootstrapStrategy(
+	mode: DependencyBootstrapMode,
 	target: BootstrapTarget,
-	createdByBootstrap: boolean,
-): Promise<void> {
-	if (target.existingBeforeBootstrap || !createdByBootstrap) return;
-	await rm(target.targetPath, { force: true, recursive: true });
+	seedable: boolean,
+): BootstrapStrategy {
+	if (mode === "install-only" || target.repairState === "installed") {
+		return "install-only";
+	}
+	return seedable ? "cow-then-repair" : "repair-only";
 }
 
 function createBootstrapAdapters(
-	checkUvRuntime: ((target: BootstrapTarget) => Promise<boolean>) | undefined,
+	checkUvRuntime: (target: BootstrapTarget) => Promise<boolean>,
+	cargoBuildCommand?: string,
 ): readonly BootstrapAdapter[] {
 	return [
-		new LockfileBootstrapAdapter(
-			"pnpm",
-			"dependency",
-			"pnpm-lock.yaml",
-			"pnpm install --frozen-lockfile",
-			{
-				beforeRepair: async (target) => {
-					if (!target.existingBeforeBootstrap) {
-						await rm(join(target.targetPath, ".modules.yaml"), {
-							force: true,
-						});
-					}
-				},
+		new LockfileBootstrapAdapter({
+			name: "pnpm",
+			kind: "dependency",
+			lockfile: "pnpm-lock.yaml",
+			relativePath: "node_modules",
+			repairCommand: "pnpm install --frozen-lockfile",
+			beforeRepair: async (target) => {
+				if (!target.existingBeforeBootstrap) {
+					await rm(join(target.targetPath, ".modules.yaml"), {
+						force: true,
+					});
+				}
 			},
-		),
-		new LockfileBootstrapAdapter(
-			"yarn",
-			"dependency",
-			"yarn.lock",
-			"yarn install --immutable",
-		),
-		new LockfileBootstrapAdapter(
-			"npm",
-			"dependency",
-			"package-lock.json",
-			"npm ci",
-			{
-				canSeed: async () => false,
-				repairCommand: (target) =>
-					target.existingBeforeBootstrap ? "npm install" : "npm ci",
-				repairState: "installed",
-			},
-		),
-		new LockfileBootstrapAdapter(
-			"uv",
-			"dependency",
-			"uv.lock",
-			"uv sync --locked",
-			{
-				canSeed: checkUvRuntime,
-			},
-		),
-		new LockfileBootstrapAdapter(
-			"cargo",
-			"build-cache",
-			"Cargo.lock",
-			"cargo check",
-		),
+		}),
+		new LockfileBootstrapAdapter({
+			name: "yarn",
+			kind: "dependency",
+			lockfile: "yarn.lock",
+			relativePath: "node_modules",
+			repairCommand: "yarn install --immutable",
+		}),
+		new LockfileBootstrapAdapter({
+			name: "npm",
+			kind: "dependency",
+			lockfile: "package-lock.json",
+			relativePath: "node_modules",
+			repairCommand: "npm ci",
+			seedPolicy: "never",
+			repairCommandOverride: (target) =>
+				target.existingBeforeBootstrap ? "npm install" : "npm ci",
+			repairState: "installed",
+		}),
+		new LockfileBootstrapAdapter({
+			name: "uv",
+			kind: "dependency",
+			lockfile: "uv.lock",
+			relativePath: ".venv",
+			repairCommand: "uv sync --locked",
+			canSeedOverride: checkUvRuntime,
+		}),
+		new LockfileBootstrapAdapter({
+			name: "cargo",
+			kind: "build-cache",
+			lockfile: "Cargo.lock",
+			relativePath: "target",
+			repairCommand: cargoBuildCommand?.trim() || "cargo check",
+		}),
 	];
+}
+
+interface LockfileBootstrapAdapterSpec {
+	name: string;
+	kind: BootstrapKind;
+	lockfile: string;
+	relativePath: string;
+	repairCommand: string;
+	seedPolicy?: "always" | "never";
+	canSeedOverride?: (target: BootstrapTarget) => Promise<boolean>;
+	beforeRepair?: (target: BootstrapTarget) => Promise<void>;
+	repairCommandOverride?: (target: BootstrapTarget) => string;
+	repairState?: "repaired" | "installed";
 }
 
 class LockfileBootstrapAdapter implements BootstrapAdapter {
 	readonly kind: BootstrapKind;
 	readonly name: string;
 	private readonly lockfile: string;
+	private readonly relativePath: string;
 	private readonly defaultRepairCommand: string;
+	private readonly seedPolicy: "always" | "never";
 	private readonly canSeedOverride?: (
 		target: BootstrapTarget,
 	) => Promise<boolean>;
@@ -450,66 +608,44 @@ class LockfileBootstrapAdapter implements BootstrapAdapter {
 	private readonly repairCommandOverride?: (target: BootstrapTarget) => string;
 	private readonly repairState: "repaired" | "installed";
 
-	constructor(
-		name: string,
-		kind: BootstrapKind,
-		lockfile: string,
-		repairCommand: string,
-		options: {
-			canSeed?: (target: BootstrapTarget) => Promise<boolean>;
-			beforeRepair?: (target: BootstrapTarget) => Promise<void>;
-			repairCommand?: (target: BootstrapTarget) => string;
-			repairState?: "repaired" | "installed";
-		} = {},
-	) {
-		this.name = name;
-		this.kind = kind;
-		this.lockfile = lockfile;
-		this.defaultRepairCommand = repairCommand;
-		this.canSeedOverride = options.canSeed;
-		this.beforeRepair = options.beforeRepair;
-		this.repairCommandOverride = options.repairCommand;
-		this.repairState = options.repairState ?? "repaired";
+	constructor(spec: LockfileBootstrapAdapterSpec) {
+		this.name = spec.name;
+		this.kind = spec.kind;
+		this.lockfile = spec.lockfile;
+		this.relativePath = spec.relativePath;
+		this.defaultRepairCommand = spec.repairCommand;
+		this.seedPolicy = spec.seedPolicy ?? "always";
+		this.canSeedOverride = spec.canSeedOverride;
+		this.beforeRepair = spec.beforeRepair;
+		this.repairCommandOverride = spec.repairCommandOverride;
+		this.repairState = spec.repairState ?? "repaired";
 	}
 
-	async detect(context: BootstrapContext): Promise<BootstrapTarget | null> {
+	async detect(
+		context: BootstrapPreparationContext,
+	): Promise<BootstrapTarget | null> {
 		if (!(await pathExists(join(context.sourceRoot, this.lockfile))))
 			return null;
-		const relativePath =
-			this.name === "cargo"
-				? "target"
-				: this.name === "uv"
-					? ".venv"
-					: "node_modules";
-		const targetPath = join(context.worktreePath, relativePath);
 
-		return {
+		const sourcePath = join(context.sourceRoot, this.relativePath);
+		const targetPath = join(context.worktreePath, this.relativePath);
+		const target = {
 			adapter: this.name,
 			kind: this.kind,
-			relativePath,
+			relativePath: this.relativePath,
 			sourceRoot: context.sourceRoot,
 			worktreePath: context.worktreePath,
-			sourcePath: join(context.sourceRoot, relativePath),
+			sourcePath,
 			targetPath,
-			repairCommand:
-				this.repairCommandOverride?.({
-					adapter: this.name,
-					kind: this.kind,
-					relativePath,
-					sourceRoot: context.sourceRoot,
-					worktreePath: context.worktreePath,
-					sourcePath: join(context.sourceRoot, relativePath),
-					targetPath,
-					repairCommand: this.defaultRepairCommand,
-					repairState: this.repairState,
-					existingBeforeBootstrap: await pathExists(targetPath),
-					runCommand: context.runCommand,
-					stderr: context.stderr,
-				}) ?? this.defaultRepairCommand,
+			repairCommand: this.defaultRepairCommand,
 			repairState: this.repairState,
 			existingBeforeBootstrap: await pathExists(targetPath),
-			runCommand: context.runCommand,
-			stderr: context.stderr,
+		};
+
+		return {
+			...target,
+			repairCommand:
+				this.repairCommandOverride?.(target) ?? target.repairCommand,
 		};
 	}
 
@@ -517,23 +653,22 @@ class LockfileBootstrapAdapter implements BootstrapAdapter {
 		return target.sourcePath;
 	}
 
-	async repair(target: BootstrapTarget): Promise<void> {
+	async repair(
+		target: BootstrapTarget,
+		context: BootstrapExecutionContext,
+	): Promise<void> {
 		await this.beforeRepair?.(target);
-		await target.runCommand(
+		await context.runCommand(
 			target.repairCommand,
 			target.worktreePath,
-			target.stderr,
+			context.stderr,
 		);
 	}
 
 	async canSeed(target: BootstrapTarget): Promise<boolean> {
-		if (this.canSeedOverride) {
-			return (
-				(await safeSourceDirectory(target)) &&
-				(await this.canSeedOverride(target))
-			);
-		}
-		return safeSourceDirectory(target);
+		if (this.seedPolicy === "never") return false;
+		if (!(await safeSourceDirectory(target))) return false;
+		return (await this.canSeedOverride?.(target)) ?? true;
 	}
 }
 
@@ -560,9 +695,23 @@ async function defaultCheckUvRuntime(
 		);
 		const expected = config.match(/^version\s*=\s*(\d+\.\d+)/mu)?.[1];
 		if (!expected) return false;
-		const { stdout, stderr } = await execFileAsync("python3", ["--version"]);
-		const actual = `${stdout}${stderr}`.match(/Python\s+(\d+\.\d+)/u)?.[1];
-		return actual === expected;
+
+		const sourceInterpreter = join(
+			target.sourcePath,
+			process.platform === "win32" ? "Scripts/python.exe" : "bin/python",
+		);
+		const fingerprintScript =
+			"import platform, sys; print(f'{sys.version_info.major}.{sys.version_info.minor}|{platform.machine()}|{sys.implementation.cache_tag}')";
+		const [source, current] = await Promise.all([
+			execFileAsync(sourceInterpreter, ["-c", fingerprintScript]),
+			execFileAsync("python3", ["-c", fingerprintScript]),
+		]);
+		const sourceFingerprint = source.stdout.trim();
+		const currentFingerprint = current.stdout.trim();
+		return (
+			sourceFingerprint === currentFingerprint &&
+			sourceFingerprint.startsWith(`${expected}|`)
+		);
 	} catch {
 		return false;
 	}

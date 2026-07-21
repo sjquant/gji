@@ -649,14 +649,17 @@ describe("gji new", () => {
 			);
 		});
 
-		it("emits a warning for an invalid sync pattern but does not abort", async () => {
+		it("fails closed when an invalid sync pattern prevents dependency setup", async () => {
 			// Given a repo with an absolute-path pattern in syncFiles (which syncFiles rejects).
 			const repoRoot = await createRepository();
 			const branchName = "feature/sync-invalid";
 			const worktreePath = resolveWorktreePath(repoRoot, branchName);
 			await writeFile(
 				join(repoRoot, ".gji.json"),
-				JSON.stringify({ syncFiles: ["/etc/passwd"] }),
+				JSON.stringify({
+					syncFiles: ["/etc/passwd"],
+					hooks: { "after-create": "touch after-create-ran" },
+				}),
 				"utf8",
 			);
 			const stderr: string[] = [];
@@ -669,11 +672,14 @@ describe("gji new", () => {
 				stdout: () => undefined,
 			});
 
-			// Then the worktree is still created and a warning is emitted for the bad pattern.
-			expect(result).toBe(0);
+			// Then the worktree is created but setup stops before install or after-create.
+			expect(result).toBe(1);
 			await expect(pathExists(worktreePath)).resolves.toBe(true);
 			expect(stderr.join("")).toContain("Warning:");
 			expect(stderr.join("")).toContain("/etc/passwd");
+			await expect(
+				pathExists(join(worktreePath, "after-create-ran")),
+			).resolves.toBe(false);
 		});
 
 		it("local syncFiles config overrides global (no array merging)", async () => {
@@ -1380,6 +1386,49 @@ describe("gji new", () => {
 				dependencyBootstrap: {
 					mode: "cow-then-repair",
 					targets: [{ adapter: "pnpm", target: "node_modules" }],
+				},
+			});
+		});
+
+		it("previews npm as install-only instead of promising a CoW seed", async () => {
+			// Given an npm repository with cow-then-repair configured.
+			const repoRoot = await createRepository();
+			await writeFile(join(repoRoot, "package-lock.json"), "{}\n", "utf8");
+			await writeFile(
+				join(repoRoot, ".gji.json"),
+				JSON.stringify({ dependencyBootstrap: "cow-then-repair" }),
+				"utf8",
+			);
+			const textOutput: string[] = [];
+			const jsonOutput: string[] = [];
+
+			// When both dry-run output modes inspect the npm bootstrap plan.
+			const textResult = await runCli(
+				["new", "--dry-run", "feature/npm-preview"],
+				{
+					cwd: repoRoot,
+					stdout: (chunk) => textOutput.push(chunk),
+				},
+			);
+			const jsonResult = await runCli(
+				["new", "--json", "--dry-run", "feature/npm-preview-json"],
+				{
+					cwd: repoRoot,
+					stdout: (chunk) => jsonOutput.push(chunk),
+				},
+			);
+
+			// Then both interfaces expose install-only behavior.
+			expect(textResult.exitCode).toBe(0);
+			expect(textOutput.join("")).toContain(
+				"Would install node_modules with npm",
+			);
+			expect(jsonResult.exitCode).toBe(0);
+			expect(JSON.parse(jsonOutput.join(""))).toMatchObject({
+				dependencyBootstrap: {
+					targets: [
+						{ adapter: "npm", seedable: false, strategy: "install-only" },
+					],
 				},
 			});
 		});

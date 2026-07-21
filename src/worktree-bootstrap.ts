@@ -1,8 +1,10 @@
 import { basename } from "node:path";
 
-import type { EffectiveGjiConfig } from "./config.js";
+import type { DependencyBootstrapMode, EffectiveGjiConfig } from "./config.js";
 import {
+	type BootstrapEvent,
 	type DependencyBootstrapReport,
+	type DependencyBootstrapReporter,
 	executeDependencyBootstrap,
 	prepareDependencyBootstrap,
 } from "./dependency-bootstrap.js";
@@ -31,7 +33,7 @@ export interface WorktreeBootstrapOptions {
 	installDependencies?: InstallPromptDependencies;
 	nonInteractive: boolean;
 	repoRoot: string;
-	reporter: SyncDirectoryReporter;
+	reporter: SyncDirectoryReporter & DependencyBootstrapReporter;
 	worktreePath: string;
 }
 
@@ -49,9 +51,7 @@ export async function bootstrapWorktree(
 	const dependencyPlan = await prepareDependencyBootstrap(dependencyMode, {
 		currentRoot: options.currentRoot,
 		repoRoot: options.repoRoot,
-		runCommand:
-			options.installDependencies?.runInstallCommand ?? runInstallCommand,
-		stderr: options.reporter.write,
+		cargoBuildCommand: options.config.dependencyBuildCommand,
 		worktreePath: options.worktreePath,
 	});
 	const syncPlan = await prepareSyncDirectoryPlan(
@@ -73,23 +73,39 @@ export async function bootstrapWorktree(
 			: [],
 	);
 
+	const syncFileFailures: BootstrapEvent[] = [];
 	for (const pattern of options.config.syncFiles ?? []) {
 		try {
 			await syncFiles(options.repoRoot, options.worktreePath, [pattern]);
 		} catch (error) {
-			options.reporter.write(
-				`Warning: failed to sync file "${pattern}": ${toErrorMessage(error)}\n`,
-			);
+			const message = `failed to sync file "${pattern}": ${toErrorMessage(error)}`;
+			options.reporter.write(`Warning: ${message}\n`);
+			syncFileFailures.push({
+				adapter: "syncFiles",
+				kind: "dependency",
+				state: "failed",
+				target: pattern,
+				message,
+			});
 		}
 	}
 
-	const dependencyBootstrap = await executeDependencyBootstrap(dependencyPlan, {
-		cloneDirectory: options.cloneDirectory,
-		repoRoot: options.repoRoot,
-		reporter: options.reporter,
-		runCommand:
-			options.installDependencies?.runInstallCommand ?? runInstallCommand,
-	});
+	const dependencyBootstrap =
+		syncFileFailures.length > 0
+			? reportSyncFileFailure(
+					dependencyMode,
+					syncFileFailures,
+					options.reporter,
+				)
+			: await executeDependencyBootstrap(dependencyPlan, {
+					cloneDirectory: options.cloneDirectory,
+					repoRoot: options.repoRoot,
+					reporter: options.reporter,
+					stderr: options.reporter.write,
+					seededDirectories: clonedDirs.map(({ dir }) => dir),
+					runCommand:
+						options.installDependencies?.runInstallCommand ?? runInstallCommand,
+				});
 
 	if (dependencyMode === "off") {
 		await maybeRunInstallPrompt(
@@ -124,6 +140,15 @@ export async function bootstrapWorktree(
 	);
 
 	return { clonedDirs, dependencyBootstrap, ready: true, skippedDirs };
+}
+
+function reportSyncFileFailure(
+	mode: DependencyBootstrapMode,
+	events: readonly BootstrapEvent[],
+	reporter: DependencyBootstrapReporter,
+): DependencyBootstrapReport {
+	for (const event of events) reporter.dependency(event);
+	return { mode, ready: false, events };
 }
 
 function toErrorMessage(error: unknown): string {

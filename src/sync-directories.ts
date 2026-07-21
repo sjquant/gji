@@ -1,6 +1,7 @@
 import { lstat } from "node:fs/promises";
 import {
 	type CloneFailureStore,
+	cloneFailureScope,
 	defaultCloneFailureStore,
 } from "./clone-failure-store.js";
 import type {
@@ -31,19 +32,6 @@ export interface SyncDirectoryReporter {
 	write(message: string): void;
 	cloned(directory: ClonedDirectory): void;
 	skipped?(directory: { dir: string; reason: string }): void;
-	dependency?(event: {
-		adapter: string;
-		kind: "dependency" | "build-cache";
-		state:
-			| "seeded"
-			| "repaired"
-			| "installed"
-			| "fallback"
-			| "skipped"
-			| "failed";
-		target: string;
-		message: string;
-	}): void;
 }
 
 export interface SyncDirectoryExecutionOptions {
@@ -101,7 +89,16 @@ export async function executeSyncDirectoryPlan(
 			continue;
 		}
 
-		if (await failureStore.isCached(options.repoRoot, entry.directory)) {
+		const failureScope = entry.source
+			? await cloneFailureScope(entry.source, entry.destination)
+			: undefined;
+		if (
+			await failureStore.isCached(
+				options.repoRoot,
+				entry.directory,
+				failureScope,
+			)
+		) {
 			if (
 				options.reporter.emitCachedFailureWarnings ||
 				options.reporter.skipped
@@ -158,7 +155,12 @@ export async function executeSyncDirectoryPlan(
 
 			const reason = toErrorMessage(error);
 			if (isCloneUnsupportedError(error)) {
-				await failureStore.cache(options.repoRoot, entry.directory, reason);
+				await failureStore.cache(
+					options.repoRoot,
+					entry.directory,
+					reason,
+					failureScope,
+				);
 				options.reporter.write(
 					`syncDirs: filesystem doesn't support copy-on-write (${reason}), skipped ${entry.directory}\n`,
 				);
@@ -171,7 +173,7 @@ export async function executeSyncDirectoryPlan(
 			continue;
 		}
 
-		await failureStore.clear(options.repoRoot, entry.directory);
+		await failureStore.clear(options.repoRoot, entry.directory, failureScope);
 		const clonedDirectory: ClonedDirectory = {
 			bytes: result.bytes,
 			dir: entry.directory,
