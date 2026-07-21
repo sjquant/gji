@@ -1,5 +1,7 @@
 import { execFile } from "node:child_process";
+import { constants } from "node:fs";
 import {
+	cp,
 	lstat,
 	mkdir,
 	mkdtemp,
@@ -24,6 +26,10 @@ interface CloneFailure {
 	reason: string;
 }
 
+const CLONE_FAILURE_TTL_MS = 24 * 60 * 60 * 1000;
+const CLONE_LOCK_TTL_MS = 24 * 60 * 60 * 1000;
+const CLONE_LOCK_SUFFIX = ".gji-clone-lock";
+
 interface GjiState {
 	[key: string]: unknown;
 	syncDirs?: Record<string, Record<string, CloneFailure>>;
@@ -37,6 +43,7 @@ export interface CloneDirResult {
 export interface CloneDirOptions {
 	platform?: NodeJS.Platform;
 	runCommand?: (command: string, args: string[]) => Promise<void>;
+	copyDirectory?: (source: string, destination: string) => Promise<void>;
 }
 
 export type CloneDirectory = (
@@ -49,11 +56,10 @@ export async function cloneDir(
 	destination: string,
 	options: CloneDirOptions = {},
 ): Promise<CloneDirResult> {
-	const strategy = cloneStrategy(options.platform ?? process.platform);
-	if (!strategy) {
-		throw new Error(
-			`copy-on-write cloning is not supported on ${options.platform ?? process.platform}`,
-		);
+	const platform = options.platform ?? process.platform;
+	const strategy = cloneStrategy(platform);
+	if (!isClonePlatformSupported(platform)) {
+		throw new CloneUnsupportedError(`platform ${platform} has no CoW strategy`);
 	}
 
 	const sourcePath = await realpath(source);
@@ -65,18 +71,39 @@ export async function cloneDir(
 		throw new CloneDestinationExistsError(destination);
 	}
 
-	const bytes = await directorySize(sourcePath);
 	const startedAt = Date.now();
 	const parent = dirname(destination);
 	await mkdir(parent, { recursive: true });
-	const temporaryRoot = await mkdtemp(
-		join(parent, `.${basename(destination)}.gji-clone-`),
-	);
-	const temporaryDestination = join(temporaryRoot, basename(destination));
+	const lockPath = `${destination}${CLONE_LOCK_SUFFIX}`;
+	await acquireCloneLock(lockPath, destination);
 
+	let temporaryRoot: string | undefined;
 	try {
-		const runCommand = options.runCommand ?? runCloneCommand;
-		await runCommand("cp", strategy(sourcePath, temporaryDestination));
+		temporaryRoot = await mkdtemp(
+			join(parent, `.${basename(destination)}.gji-clone-`),
+		);
+		const temporaryDestination = join(temporaryRoot, basename(destination));
+		const copyDirectory =
+			options.copyDirectory ??
+			(platformIsDarwin(platform)
+				? runNativeCloneDirectory
+				: async (source, target) => {
+						if (!strategy) {
+							throw new CloneUnsupportedError(
+								`platform ${platform} has no CoW strategy`,
+							);
+						}
+						const runCommand = options.runCommand ?? runCloneCommand;
+						await runCommand("cp", strategy(source, target));
+					});
+		try {
+			await copyDirectory(sourcePath, temporaryDestination);
+		} catch (error) {
+			if (isUnsupportedCloneError(error)) {
+				throw new CloneUnsupportedError(toErrorMessage(error));
+			}
+			throw error;
+		}
 
 		if (await pathExists(destination)) {
 			throw new CloneDestinationExistsError(destination);
@@ -84,10 +111,27 @@ export async function cloneDir(
 
 		await rename(temporaryDestination, destination);
 	} finally {
-		await rm(temporaryRoot, { force: true, recursive: true });
+		if (temporaryRoot) {
+			await rm(temporaryRoot, { force: true, recursive: true });
+		}
+		await rm(lockPath, { force: true, recursive: true });
 	}
 
+	const bytes = await estimateCloneBytes(sourcePath);
 	return { bytes, ms: Date.now() - startedAt };
+}
+
+async function runNativeCloneDirectory(
+	source: string,
+	destination: string,
+): Promise<void> {
+	await cp(source, destination, {
+		errorOnExist: true,
+		force: false,
+		mode: constants.COPYFILE_FICLONE_FORCE,
+		preserveTimestamps: true,
+		recursive: true,
+	});
 }
 
 export class CloneDestinationExistsError extends Error {
@@ -99,10 +143,25 @@ export class CloneDestinationExistsError extends Error {
 	}
 }
 
+export class CloneUnsupportedError extends Error {
+	readonly code = "GJI_CLONE_UNSUPPORTED";
+
+	constructor(reason: string) {
+		super(`copy-on-write cloning is not supported: ${reason}`);
+		this.name = "CloneUnsupportedError";
+	}
+}
+
 export function isCloneDestinationExistsError(
 	error: unknown,
 ): error is CloneDestinationExistsError {
 	return error instanceof CloneDestinationExistsError;
+}
+
+export function isCloneUnsupportedError(error: unknown): boolean {
+	return (
+		error instanceof CloneUnsupportedError || isUnsupportedCloneError(error)
+	);
 }
 
 export async function isCloneFailureCached(
@@ -111,7 +170,14 @@ export async function isCloneFailureCached(
 ): Promise<boolean> {
 	const state = await readState();
 	const repoState = state.syncDirs?.[repoRoot];
-	return repoState?.[directory] !== undefined;
+	if (!repoState || !Object.hasOwn(repoState, directory)) return false;
+
+	const failure = repoState[directory];
+	return (
+		isPlainObject(failure) &&
+		typeof failure.failedAt === "number" &&
+		Date.now() - failure.failedAt < CLONE_FAILURE_TTL_MS
+	);
 }
 
 export async function cacheCloneFailure(
@@ -137,7 +203,7 @@ export async function clearCloneFailure(
 ): Promise<void> {
 	const state = await readState();
 	const repoState = state.syncDirs?.[repoRoot];
-	if (!repoState?.[directory]) return;
+	if (!repoState || !Object.hasOwn(repoState, directory)) return;
 
 	const nextRepoState = { ...repoState };
 	delete nextRepoState[directory];
@@ -164,10 +230,6 @@ export async function directorySize(path: string): Promise<number> {
 export function cloneStrategy(
 	platform: NodeJS.Platform,
 ): ((source: string, destination: string) => string[]) | null {
-	if (platform === "darwin") {
-		return (source, destination) => ["-Rc", source, destination];
-	}
-
 	if (platform === "linux") {
 		return (source, destination) => [
 			"-a",
@@ -180,8 +242,34 @@ export function cloneStrategy(
 	return null;
 }
 
+export function isClonePlatformSupported(platform: NodeJS.Platform): boolean {
+	return platform === "darwin" || platform === "linux";
+}
+
+async function estimateCloneBytes(path: string): Promise<number> {
+	const args =
+		process.platform === "darwin"
+			? ["-A", "-B", "1", "-s", path]
+			: ["--apparent-size", "--block-size=1", "-s", path];
+
+	try {
+		const { stdout } = await execFileAsync("du", args);
+		const bytes = Number.parseInt(stdout.trim().split(/\s+/u)[0] ?? "", 10);
+		return Number.isFinite(bytes) ? bytes : 0;
+	} catch {
+		return 0;
+	}
+}
+
 async function runCloneCommand(command: string, args: string[]): Promise<void> {
-	await execFileAsync(command, args);
+	try {
+		await execFileAsync(command, args);
+	} catch (error) {
+		if (isUnsupportedCloneError(error)) {
+			throw new CloneUnsupportedError(toErrorMessage(error));
+		}
+		throw error;
+	}
 }
 
 async function readState(): Promise<GjiState> {
@@ -236,4 +324,60 @@ function isNotFoundError(error: unknown): boolean {
 		"code" in error &&
 		(error as NodeJS.ErrnoException).code === "ENOENT"
 	);
+}
+
+function isAlreadyExistsError(error: unknown): boolean {
+	return (
+		error instanceof Error &&
+		"code" in error &&
+		(error as NodeJS.ErrnoException).code === "EEXIST"
+	);
+}
+
+async function acquireCloneLock(
+	lockPath: string,
+	destination: string,
+): Promise<void> {
+	try {
+		await mkdir(lockPath);
+		return;
+	} catch (error) {
+		if (!isAlreadyExistsError(error)) throw error;
+	}
+
+	try {
+		const lockStats = await lstat(lockPath);
+		if (Date.now() - lockStats.mtimeMs >= CLONE_LOCK_TTL_MS) {
+			await rm(lockPath, { force: true, recursive: true });
+			await mkdir(lockPath);
+			return;
+		}
+	} catch (error) {
+		if (!isNotFoundError(error)) throw error;
+	}
+
+	throw new CloneDestinationExistsError(destination);
+}
+
+function isUnsupportedCloneError(error: unknown): boolean {
+	if (!(error instanceof Error)) return false;
+
+	const code = "code" in error ? (error as NodeJS.ErrnoException).code : "";
+	if (
+		["EINVAL", "ENOSYS", "ENOTSUP", "EOPNOTSUPP", "EXDEV"].includes(code ?? "")
+	) {
+		return true;
+	}
+
+	return /clonefile|reflink|unsupported|operation not supported|not supported/iu.test(
+		error.message,
+	);
+}
+
+function toErrorMessage(error: unknown): string {
+	return error instanceof Error ? error.message : String(error);
+}
+
+function platformIsDarwin(platform: NodeJS.Platform): boolean {
+	return platform === "darwin";
 }

@@ -101,6 +101,28 @@ describe("gji config", () => {
 			fetchDepth: parseConfigValue("2"),
 		});
 	});
+
+	it("rejects unsafe syncDirs before writing global config", async () => {
+		// Given an isolated home directory and an unsafe syncDirs value.
+		const home = await mkdtemp(join(tmpdir(), "gji-home-"));
+		const cwd = await mkdtemp(join(tmpdir(), "gji-cwd-"));
+		const stderr: string[] = [];
+		process.env.HOME = home;
+
+		// When gji config attempts to persist a parent traversal.
+		const result = await runCli(
+			["config", "set", "syncDirs", '["../escape"]'],
+			{
+				cwd,
+				stderr: (chunk) => stderr.push(chunk),
+			},
+		);
+
+		// Then the command rejects the value and leaves no config behind.
+		expect(result.exitCode).toBe(1);
+		expect(stderr.join("")).toContain("'..' segments");
+		await expect(readGlobalConfig(home)).rejects.toThrow();
+	});
 });
 
 async function readGlobalConfig(

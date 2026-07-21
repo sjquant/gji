@@ -146,6 +146,7 @@ export async function saveLocalConfig(
 	root: string,
 	config: GjiConfig,
 ): Promise<string> {
+	validateConfigSyncDirs(config);
 	const path = join(root, CONFIG_FILE_NAME);
 
 	await writeFile(path, `${JSON.stringify(config, null, 2)}\n`, "utf8");
@@ -173,6 +174,7 @@ export async function saveGlobalConfig(
 	config: GjiConfig,
 	home: string = homedir(),
 ): Promise<string> {
+	validateConfigSyncDirs(config);
 	const path = GLOBAL_CONFIG_FILE_PATH(home);
 
 	await mkdir(dirname(path), { recursive: true });
@@ -273,6 +275,19 @@ export function validateSyncDirsConfig(value: unknown): void {
 	}
 }
 
+function validateConfigSyncDirs(config: GjiConfig): void {
+	validateSyncDirsConfig(config.syncDirs);
+
+	const repos = config.repos;
+	if (!isPlainObject(repos)) return;
+
+	for (const repoConfig of Object.values(repos)) {
+		if (isPlainObject(repoConfig)) {
+			validateSyncDirsConfig(repoConfig.syncDirs);
+		}
+	}
+}
+
 export function validateSyncDirPattern(pattern: string): string {
 	if (
 		pattern.length === 0 ||
@@ -331,10 +346,7 @@ async function loadConfigFile(path: string): Promise<LoadedConfig> {
 
 function mergeConfig(...values: Record<string, unknown>[]): GjiConfig {
 	return values.reduce<GjiConfig>(
-		(config, value) => ({
-			...config,
-			...value,
-		}),
+		(config, value) => Object.assign(config, value),
 		{ ...DEFAULT_CONFIG },
 	);
 }

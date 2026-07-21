@@ -1022,6 +1022,7 @@ function attachCommandActions(
 				action: "set",
 				cwd: options.cwd,
 				key,
+				stderr: options.stderr,
 				stdout: options.stdout,
 				value,
 			});

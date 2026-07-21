@@ -554,6 +554,50 @@ describe("gji pr", () => {
 			return repoRoot;
 		}
 
+		it("reports syncDirs in PR dry-run text and JSON output", async () => {
+			// Given a PR repository with an available but untracked CoW source.
+			const repoRoot = await setupPrRepo("2018");
+			await mkdir(join(repoRoot, "node_modules"));
+			await writeFile(join(repoRoot, "node_modules", "ready.txt"), "ready\n");
+			await writeFile(
+				join(repoRoot, ".gji.json"),
+				JSON.stringify({ syncDirs: ["node_modules"] }),
+				"utf8",
+			);
+			const textOutput: string[] = [];
+			const jsonOutput: string[] = [];
+			const runPrCmd = createPrCommand();
+
+			// When gji pr performs text and JSON dry-runs.
+			const textResult = await runPrCmd({
+				cwd: repoRoot,
+				dryRun: true,
+				number: "2018",
+				stderr: () => undefined,
+				stdout: (chunk) => textOutput.push(chunk),
+			});
+			const jsonResult = await runPrCmd({
+				cwd: repoRoot,
+				dryRun: true,
+				json: true,
+				number: "2018",
+				stderr: () => undefined,
+				stdout: (chunk) => jsonOutput.push(chunk),
+			});
+
+			// Then both output modes describe the clone without creating a worktree.
+			expect(textResult).toBe(0);
+			expect(textOutput.join("")).toContain("Would clone node_modules");
+			expect(jsonResult).toBe(0);
+			expect(JSON.parse(jsonOutput.join(""))).toMatchObject({
+				dryRun: true,
+				syncDirs: [{ dir: "node_modules" }],
+			});
+			await expect(
+				pathExists(resolveWorktreePath(repoRoot, "pr/2018")),
+			).resolves.toBe(false);
+		});
+
 		it("clones syncDirs before the PR install prompt", async () => {
 			// Given a PR repository with a configured node_modules directory.
 			const repoRoot = await setupPrRepo("2017");
@@ -569,6 +613,7 @@ describe("gji pr", () => {
 				"utf8",
 			);
 			let promptCalled = false;
+			const stdout: string[] = [];
 			const runPrCmd = createPrCommand({
 				cloneDir: async (_source, destination) => {
 					await mkdir(destination, { recursive: true });
@@ -585,9 +630,10 @@ describe("gji pr", () => {
 			// When gji pr creates the review worktree.
 			const result = await runPrCmd({
 				cwd: repoRoot,
+				json: true,
 				number: "2017",
 				stderr: () => undefined,
-				stdout: () => undefined,
+				stdout: (chunk) => stdout.push(chunk),
 			});
 
 			// Then the cloned directory is available and the install prompt is skipped.
@@ -603,6 +649,11 @@ describe("gji pr", () => {
 					"utf8",
 				),
 			).resolves.toBe("ready\n");
+			expect(JSON.parse(stdout.join(""))).toMatchObject({
+				branch: "pr/2017",
+				path: resolveWorktreePath(repoRoot, "pr/2017"),
+				cloned: [{ dir: "node_modules", ms: 4 }],
+			});
 		});
 
 		it('runs install once and does not persist anything when "yes" is chosen', async () => {

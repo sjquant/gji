@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { mkdir } from "node:fs/promises";
-import { basename, dirname } from "node:path";
+import { dirname } from "node:path";
 import { promisify } from "node:util";
 
 import {
@@ -14,21 +14,16 @@ import {
 	promptForPathConflict,
 } from "./conflict.js";
 import type { CloneDirectory } from "./dir-clone.js";
-import { syncFiles } from "./file-sync.js";
 import { isHeadless } from "./headless.js";
 import { recordWorktreeUsage } from "./history.js";
-import { extractHooks, runHook } from "./hooks.js";
-import {
-	type InstallPromptDependencies,
-	maybeRunInstallPrompt,
-} from "./install-prompt.js";
+import type { InstallPromptDependencies } from "./install-prompt.js";
 import {
 	createNavigationRepository,
 	createNavigationTarget,
 } from "./navigation-output.js";
-import { estimateSyncDirs, syncConfiguredDirs } from "./new.js";
 import { detectRepository, resolveWorktreePath } from "./repo.js";
 import { writeShellOutput } from "./shell-handoff.js";
+import { bootstrapWorktree, estimateSyncDirs } from "./worktree-bootstrap.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -206,54 +201,16 @@ export function createPrCommand(
 
 		await execFileAsync("git", worktreeArgs, { cwd: repository.repoRoot });
 
-		const clonedDirs = await syncConfiguredDirs(
-			repository.repoRoot,
-			worktreePath,
+		const clonedDirs = await bootstrapWorktree({
+			branch: branchName,
+			cloneDirectory: dependencies.cloneDir,
 			config,
-			options.stderr,
-			!!options.json,
-			dependencies.cloneDir,
-		);
-
-		// Sync files from main worktree before afterCreate so synced files are available to install scripts.
-		const syncPatterns = Array.isArray(config.syncFiles)
-			? (config.syncFiles as unknown[]).filter(
-					(p): p is string => typeof p === "string",
-				)
-			: [];
-		for (const pattern of syncPatterns) {
-			try {
-				await syncFiles(repository.repoRoot, worktreePath, [pattern]);
-			} catch (error) {
-				options.stderr(
-					`Warning: failed to sync file "${pattern}": ${error instanceof Error ? error.message : String(error)}\n`,
-				);
-			}
-		}
-
-		await maybeRunInstallPrompt(
+			json: options.json,
+			repoRoot: repository.repoRoot,
+			stderr: options.stderr,
 			worktreePath,
-			repository.repoRoot,
-			config,
-			options.stderr,
-			dependencies,
-			!!options.json,
-			clonedDirs.some(
-				({ dir, installSkipped }) => dir === "node_modules" && installSkipped,
-			),
-		);
-
-		const hooks = extractHooks(config);
-		await runHook(
-			hooks["after-create"],
-			worktreePath,
-			{
-				branch: branchName,
-				path: worktreePath,
-				repo: basename(repository.repoRoot),
-			},
-			options.stderr,
-		);
+			installDependencies: dependencies,
+		});
 
 		if (options.json) {
 			const output: Record<string, unknown> = {

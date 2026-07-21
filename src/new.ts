@@ -1,14 +1,6 @@
 import { execFile } from "node:child_process";
-import { access, lstat, mkdir, realpath, unlink } from "node:fs/promises";
-import {
-	basename,
-	dirname,
-	isAbsolute,
-	join,
-	relative,
-	resolve,
-	sep,
-} from "node:path";
+import { access, mkdir } from "node:fs/promises";
+import { dirname, resolve } from "node:path";
 import { promisify } from "node:util";
 import { isCancel, text } from "@clack/prompts";
 
@@ -16,43 +8,28 @@ import {
 	type GjiConfig,
 	loadEffectiveConfig,
 	resolveConfigString,
-	validateSyncDirPattern,
 } from "./config.js";
 import {
 	type PathConflictChoice,
 	pathExists,
 	promptForPathConflict,
 } from "./conflict.js";
-import {
-	type CloneDirectory,
-	type CloneDirResult,
-	cacheCloneFailure,
-	clearCloneFailure,
-	cloneDir,
-	directorySize,
-	isCloneDestinationExistsError,
-	isCloneFailureCached,
-} from "./dir-clone.js";
+import { type CloneDirectory, cloneDir } from "./dir-clone.js";
 import { defaultSpawnEditor, EDITORS } from "./editor.js";
-import { syncFiles } from "./file-sync.js";
 import { isHeadless } from "./headless.js";
 import { recordWorktreeUsage } from "./history.js";
-import { extractHooks, runHook } from "./hooks.js";
-import {
-	type InstallPromptDependencies,
-	maybeRunInstallPrompt,
-} from "./install-prompt.js";
+import type { InstallPromptDependencies } from "./install-prompt.js";
 import {
 	createNavigationRepository,
 	createNavigationTarget,
 } from "./navigation-output.js";
-import { detectPackageManager } from "./package-manager.js";
 import {
 	detectRepository,
 	resolveWorktreePath,
 	validateBranchName,
 } from "./repo.js";
 import { writeShellOutput } from "./shell-handoff.js";
+import { bootstrapWorktree, estimateSyncDirs } from "./worktree-bootstrap.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -89,21 +66,6 @@ export interface NewCommandDependencies extends InstallPromptDependencies {
 	spawnEditor: (cli: string, args: string[]) => Promise<void>;
 }
 
-export interface SyncDirEstimate {
-	bytes: number;
-	dir: string;
-}
-
-interface ClonedDir extends SyncDirEstimate {
-	installSkipped: boolean;
-	ms: number;
-}
-
-type SyncDirSource =
-	| { path: string; warning?: undefined }
-	| { path?: undefined; warning: string }
-	| null;
-
 export function createNewCommand(
 	dependencies: Partial<NewCommandDependencies> = {},
 ): (options: NewCommandOptions) => Promise<number> {
@@ -139,7 +101,10 @@ export function createNewCommand(
 				options.json ? undefined : options.stderr,
 			);
 		} catch (error) {
-			return emitNewError(options, toErrorMessage(error));
+			return emitNewError(
+				options,
+				error instanceof Error ? error.message : String(error),
+			);
 		}
 		const usesGeneratedDetachedName =
 			options.detached && options.branch === undefined;
@@ -276,10 +241,6 @@ export function createNewCommand(
 			}
 		}
 
-		const dryRunSyncDirs = options.dryRun
-			? await estimateSyncDirs(repository.repoRoot, worktreePath, config)
-			: [];
-
 		if (options.dryRun) {
 			if (options.take) {
 				const changedFiles = await listTakeFiles(options.cwd);
@@ -311,6 +272,11 @@ export function createNewCommand(
 				}
 				return 0;
 			}
+			const dryRunSyncDirs = await estimateSyncDirs(
+				repository.repoRoot,
+				worktreePath,
+				config,
+			);
 			if (options.json) {
 				const output: Record<string, unknown> = {
 					...createNavigationTarget(
@@ -455,54 +421,16 @@ export function createNewCommand(
 			);
 		}
 
-		const clonedDirs = await syncConfiguredDirs(
-			repository.repoRoot,
-			worktreePath,
-			config,
-			options.stderr,
-			!!options.json,
+		const clonedDirs = await bootstrapWorktree({
+			branch: worktreeName,
 			cloneDirectory,
-		);
-
-		// Sync files from main worktree before afterCreate so synced files are available to install scripts.
-		const syncPatterns = Array.isArray(config.syncFiles)
-			? (config.syncFiles as unknown[]).filter(
-					(p): p is string => typeof p === "string",
-				)
-			: [];
-		for (const pattern of syncPatterns) {
-			try {
-				await syncFiles(repository.repoRoot, worktreePath, [pattern]);
-			} catch (error) {
-				options.stderr(
-					`Warning: failed to sync file "${pattern}": ${error instanceof Error ? error.message : String(error)}\n`,
-				);
-			}
-		}
-
-		await maybeRunInstallPrompt(
-			worktreePath,
-			repository.repoRoot,
 			config,
-			options.stderr,
-			dependencies,
-			!!options.json,
-			clonedDirs.some(
-				({ dir, installSkipped }) => dir === "node_modules" && installSkipped,
-			),
-		);
-
-		const hooks = extractHooks(config);
-		await runHook(
-			hooks["after-create"],
+			json: options.json,
+			repoRoot: repository.repoRoot,
+			stderr: options.stderr,
 			worktreePath,
-			{
-				branch: worktreeName,
-				path: worktreePath,
-				repo: basename(repository.repoRoot),
-			},
-			options.stderr,
-		);
+			installDependencies: dependencies,
+		});
 
 		if (options.json) {
 			const navigation = createNavigationTarget(
@@ -683,175 +611,6 @@ function applyConfiguredBranchPrefix(
 	return `${branchPrefix}${branch}`;
 }
 
-export async function estimateSyncDirs(
-	repoRoot: string,
-	worktreePath: string,
-	config: GjiConfig,
-): Promise<SyncDirEstimate[]> {
-	const estimates: SyncDirEstimate[] = [];
-	for (const directory of configuredSyncDirs(config)) {
-		if (await pathExists(join(worktreePath, directory))) continue;
-
-		let source: SyncDirSource;
-		try {
-			source = await resolveSyncDirSource(repoRoot, directory);
-		} catch {
-			continue;
-		}
-		if (!source?.path) continue;
-
-		try {
-			estimates.push({
-				bytes: await directorySize(source.path),
-				dir: directory,
-			});
-		} catch {
-			// A dry-run is informational; an unreadable source is omitted.
-		}
-	}
-
-	return estimates;
-}
-
-export async function syncConfiguredDirs(
-	repoRoot: string,
-	worktreePath: string,
-	config: GjiConfig,
-	stderr: (chunk: string) => void,
-	json: boolean,
-	cloneDirectory: CloneDirectory = cloneDir,
-): Promise<ClonedDir[]> {
-	const directories = configuredSyncDirs(config);
-	if (directories.length === 0) return [];
-
-	const isPnpm = directories.includes("node_modules")
-		? (await detectPackageManager(repoRoot))?.name === "pnpm"
-		: false;
-	const cloned: ClonedDir[] = [];
-
-	for (const directory of directories) {
-		const destination = join(worktreePath, directory);
-		if (await pathExists(destination)) continue;
-
-		let source: SyncDirSource;
-		try {
-			source = await resolveSyncDirSource(repoRoot, directory);
-		} catch (error) {
-			stderr(
-				`syncDirs: could not inspect ${directory}: ${toErrorMessage(error)}, skipped ${directory}\n`,
-			);
-			continue;
-		}
-		if (!source) continue;
-		if (!source.path) {
-			stderr(`syncDirs: ${source.warning}, skipped ${directory}\n`);
-			continue;
-		}
-
-		if (await isCloneFailureCached(repoRoot, directory)) {
-			if (!json) {
-				stderr(
-					`syncDirs: previous copy-on-write failure cached, skipped ${directory}\n`,
-				);
-			}
-			continue;
-		}
-
-		let result: CloneDirResult;
-		try {
-			result = await cloneDirectory(source.path, destination);
-		} catch (error) {
-			if (isCloneDestinationExistsError(error)) continue;
-
-			const reason = toErrorMessage(error);
-			await cacheCloneFailure(repoRoot, directory, reason);
-			stderr(
-				`syncDirs: filesystem doesn't support copy-on-write (${reason}), skipped ${directory}\n`,
-			);
-			continue;
-		}
-
-		await clearCloneFailure(repoRoot, directory);
-		let installSkipped = false;
-		if (directory === "node_modules" && isPnpm) {
-			try {
-				await unlink(join(destination, ".modules.yaml"));
-				installSkipped = true;
-			} catch (error) {
-				if (isNotFoundError(error)) {
-					installSkipped = true;
-				} else {
-					stderr(
-						`syncDirs: could not remove pnpm .modules.yaml: ${toErrorMessage(error)}\n`,
-					);
-				}
-			}
-		} else if (directory === "node_modules") {
-			installSkipped = true;
-		}
-
-		const clonedDir = {
-			bytes: result.bytes,
-			dir: directory,
-			installSkipped,
-			ms: result.ms,
-		};
-		cloned.push(clonedDir);
-		if (!json) {
-			stderr(
-				`⚡ cloned ${directory} (${formatBytes(result.bytes)} → ${formatDuration(result.ms)})${installSkipped ? " — run install only if lockfile changed" : ""}\n`,
-			);
-		}
-	}
-
-	return cloned;
-}
-
-function configuredSyncDirs(config: GjiConfig): string[] {
-	if (!Array.isArray(config.syncDirs)) return [];
-
-	return config.syncDirs
-		.filter((value): value is string => typeof value === "string")
-		.map(validateSyncDirPattern);
-}
-
-async function resolveSyncDirSource(
-	repoRoot: string,
-	directory: string,
-): Promise<SyncDirSource> {
-	const source = join(repoRoot, directory);
-	let resolvedSource: string;
-	try {
-		resolvedSource = await realpath(source);
-	} catch (error) {
-		if (isNotFoundError(error)) return null;
-		throw error;
-	}
-
-	if (!isPathInside(repoRoot, resolvedSource)) {
-		return {
-			warning: `source symlink resolves outside the repository (${resolvedSource})`,
-		};
-	}
-
-	const stats = await lstat(resolvedSource);
-	if (!stats.isDirectory()) {
-		return { warning: "source is not a directory" };
-	}
-
-	return { path: resolvedSource };
-}
-
-function isPathInside(parent: string, child: string): boolean {
-	const relativePath = relative(resolve(parent), resolve(child));
-	return (
-		relativePath === "" ||
-		(!isAbsolute(relativePath) &&
-			relativePath !== ".." &&
-			!relativePath.startsWith(`..${sep}`))
-	);
-}
-
 function formatBytes(bytes: number): string {
 	if (bytes < 1024) return `${bytes} B`;
 	const units = ["KB", "MB", "GB", "TB"];
@@ -862,22 +621,6 @@ function formatBytes(bytes: number): string {
 		unit += 1;
 	}
 	return `${value.toFixed(value >= 10 ? 0 : 1)} ${units[unit]}`;
-}
-
-function formatDuration(ms: number): string {
-	return `${(ms / 1000).toFixed(1)}s`;
-}
-
-function isNotFoundError(error: unknown): boolean {
-	return (
-		error instanceof Error &&
-		"code" in error &&
-		(error as NodeJS.ErrnoException).code === "ENOENT"
-	);
-}
-
-function toErrorMessage(error: unknown): string {
-	return error instanceof Error ? error.message : String(error);
 }
 
 async function resolveUniqueDetachedWorktreePath(
