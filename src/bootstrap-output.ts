@@ -3,16 +3,21 @@ import type { SyncDirectoryReporter } from "./sync-directories.js";
 export function createBootstrapReporter(
 	write: (chunk: string) => void,
 	json: boolean,
+	measureCloneSize = false,
 ): SyncDirectoryReporter {
 	return {
 		emitCachedFailureWarnings: !json,
-		measureCloneSize: !json,
+		measureCloneSize: measureCloneSize && !json,
 		write,
 		cloned: (directory) => {
 			if (json) return;
 			write(
 				`⚡ cloned ${directory.dir} (${formatBytes(directory.bytes)} → ${formatDuration(directory.ms)})\n`,
 			);
+		},
+		skipped: (directory) => {
+			if (json) return;
+			write(`gji: skipped ${directory.dir} — ${directory.reason}\n`);
 		},
 		dependency: (event) => {
 			if (json) return;

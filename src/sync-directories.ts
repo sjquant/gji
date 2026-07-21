@@ -10,6 +10,7 @@ import type {
 } from "./dir-clone.js";
 import {
 	isCloneDestinationExistsError,
+	isCloneInProgressError,
 	isCloneUnsupportedError,
 } from "./dir-clone.js";
 import type { SyncDirectoryPlan } from "./sync-plan.js";
@@ -29,6 +30,7 @@ export interface SyncDirectoryReporter {
 	readonly measureCloneSize: boolean;
 	write(message: string): void;
 	cloned(directory: ClonedDirectory): void;
+	skipped?(directory: { dir: string; reason: string }): void;
 	dependency?(event: {
 		adapter: string;
 		kind: "dependency" | "build-cache";
@@ -59,46 +61,69 @@ export async function executeSyncDirectoryPlan(
 	const outcomes: SyncDirectoryOutcome[] = [];
 
 	for (const entry of plan) {
-		if (await pathExists(entry.destination)) {
-			outcomes.push({
-				kind: "skipped",
-				dir: entry.directory,
-				reason: "destination already exists",
-			});
+		if (entry.destinationWarning) {
+			recordSkipped(
+				outcomes,
+				options.reporter,
+				entry.directory,
+				entry.destinationWarning,
+			);
+			continue;
+		}
+
+		const destinationState = await inspectDestination(entry.destination);
+		if (destinationState === "exists") {
+			recordSkipped(
+				outcomes,
+				options.reporter,
+				entry.directory,
+				"destination already exists",
+			);
+			continue;
+		}
+		if (destinationState === "blocked") {
+			const reason = "destination has a non-directory ancestor";
+			recordSkipped(outcomes, options.reporter, entry.directory, reason);
 			continue;
 		}
 
 		if (entry.warning) {
-			options.reporter.write(
-				`syncDirs: ${entry.warning}, skipped ${entry.directory}\n`,
-			);
-			outcomes.push({
-				kind: "skipped",
-				dir: entry.directory,
-				reason: entry.warning,
-			});
+			recordSkipped(outcomes, options.reporter, entry.directory, entry.warning);
 			continue;
 		}
 		if (!entry.source) {
-			outcomes.push({
-				kind: "skipped",
-				dir: entry.directory,
-				reason: "source does not exist",
-			});
+			recordSkipped(
+				outcomes,
+				options.reporter,
+				entry.directory,
+				"source does not exist",
+			);
 			continue;
 		}
 
 		if (await failureStore.isCached(options.repoRoot, entry.directory)) {
-			if (options.reporter.emitCachedFailureWarnings) {
+			if (
+				options.reporter.emitCachedFailureWarnings ||
+				options.reporter.skipped
+			) {
+				recordSkipped(
+					outcomes,
+					options.reporter,
+					entry.directory,
+					"copy-on-write failure cached",
+				);
+			} else {
 				options.reporter.write(
 					`syncDirs: previous copy-on-write failure cached, skipped ${entry.directory}\n`,
 				);
+				recordSkipped(
+					outcomes,
+					options.reporter,
+					entry.directory,
+					"copy-on-write failure cached",
+					false,
+				);
 			}
-			outcomes.push({
-				kind: "skipped",
-				dir: entry.directory,
-				reason: "copy-on-write failure cached",
-			});
 			continue;
 		}
 
@@ -114,11 +139,20 @@ export async function executeSyncDirectoryPlan(
 			);
 		} catch (error) {
 			if (isCloneDestinationExistsError(error)) {
-				outcomes.push({
-					kind: "skipped",
-					dir: entry.directory,
-					reason: "destination already exists",
-				});
+				recordSkipped(
+					outcomes,
+					options.reporter,
+					entry.directory,
+					"destination already exists",
+				);
+				continue;
+			}
+			if (isCloneInProgressError(error)) {
+				const reason = "copy-on-write clone already in progress";
+				options.reporter.write(
+					`syncDirs: ${reason}, skipped ${entry.directory}\n`,
+				);
+				recordSkipped(outcomes, options.reporter, entry.directory, reason);
 				continue;
 			}
 
@@ -133,11 +167,7 @@ export async function executeSyncDirectoryPlan(
 					`syncDirs: clone failed (${reason}), skipped ${entry.directory}\n`,
 				);
 			}
-			outcomes.push({
-				kind: "skipped",
-				dir: entry.directory,
-				reason,
-			});
+			recordSkipped(outcomes, options.reporter, entry.directory, reason, false);
 			continue;
 		}
 
@@ -155,12 +185,29 @@ export async function executeSyncDirectoryPlan(
 	return outcomes;
 }
 
-async function pathExists(path: string): Promise<boolean> {
+function recordSkipped(
+	outcomes: SyncDirectoryOutcome[],
+	reporter: SyncDirectoryReporter,
+	dir: string,
+	reason: string,
+	notify = true,
+): void {
+	outcomes.push({ kind: "skipped", dir, reason });
+	if (notify) {
+		if (reporter.skipped) reporter.skipped({ dir, reason });
+		else reporter.write(`syncDirs: ${reason}, skipped ${dir}\n`);
+	}
+}
+
+async function inspectDestination(
+	path: string,
+): Promise<"exists" | "missing" | "blocked"> {
 	try {
 		await lstat(path);
-		return true;
+		return "exists";
 	} catch (error) {
-		if (isNotFoundError(error)) return false;
+		if (isNotFoundError(error)) return "missing";
+		if (isNotDirectoryError(error)) return "blocked";
 		throw error;
 	}
 }
@@ -170,6 +217,14 @@ function isNotFoundError(error: unknown): boolean {
 		error instanceof Error &&
 		"code" in error &&
 		(error as NodeJS.ErrnoException).code === "ENOENT"
+	);
+}
+
+function isNotDirectoryError(error: unknown): boolean {
+	return (
+		error instanceof Error &&
+		"code" in error &&
+		(error as NodeJS.ErrnoException).code === "ENOTDIR"
 	);
 }
 

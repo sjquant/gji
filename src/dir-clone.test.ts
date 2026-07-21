@@ -7,6 +7,7 @@ import { describe, expect, it } from "vitest";
 import {
 	cloneDir,
 	isCloneDestinationExistsError,
+	isCloneInProgressError,
 	isCloneUnsupportedError,
 } from "./dir-clone.js";
 
@@ -144,6 +145,25 @@ describe("cloneDir", () => {
 
 		// Then no destination is created.
 		await expect(readdir(root)).resolves.toEqual(["source"]);
+	});
+
+	it("reports an active clone lock separately from a real destination conflict", async () => {
+		// Given a fresh clone lock for an absent destination.
+		const root = await mkdtemp(join(tmpdir(), "gji-dir-clone-lock-"));
+		const source = join(root, "source");
+		const destination = join(root, "destination");
+		await mkdir(source);
+		await mkdir(`${destination}.gji-clone-lock`);
+
+		// When another clone attempts the same destination.
+		const error = await cloneDir(source, destination, {
+			platform: "linux",
+		}).catch((caught) => caught);
+
+		// Then the caller can report an active operation instead of pretending the destination exists.
+		expect(isCloneInProgressError(error)).toBe(true);
+		expect(isCloneDestinationExistsError(error)).toBe(false);
+		await expect(readdir(root)).resolves.toContain("source");
 	});
 
 	it("never falls back to an ordinary copy on the default platform", async () => {

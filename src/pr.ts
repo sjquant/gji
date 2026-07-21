@@ -241,7 +241,10 @@ export function createPrCommand(
 			installDependencies: dependencies,
 		});
 		if (!bootstrap.ready) {
-			const details = { dependencyBootstrap: bootstrap.dependencyBootstrap };
+			const details = {
+				dependencyBootstrap: bootstrap.dependencyBootstrap,
+				skipped: bootstrap.skippedDirs,
+			};
 			if (options.json) {
 				options.stderr(
 					`${JSON.stringify({ error: "dependency bootstrap failed", ...details }, null, 2)}\n`,
@@ -266,6 +269,8 @@ export function createPrCommand(
 					ms,
 				}));
 			}
+			if (bootstrap.skippedDirs.length > 0)
+				output.skipped = bootstrap.skippedDirs;
 			if (bootstrap.dependencyBootstrap.mode !== "off")
 				output.dependencyBootstrap = bootstrap.dependencyBootstrap;
 			options.stdout(`${JSON.stringify(output, null, 2)}\n`);

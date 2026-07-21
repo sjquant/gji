@@ -1019,6 +1019,32 @@ describe("gji new", () => {
 			});
 		});
 
+		it("reports skipped generic syncDirs outcomes in JSON output", async () => {
+			// Given a configured directory whose source does not exist.
+			const repoRoot = await createRepository();
+			await writeFile(
+				join(repoRoot, ".gji.json"),
+				JSON.stringify({ syncDirs: ["missing-cache"] }),
+				"utf8",
+			);
+			const stdout: string[] = [];
+
+			// When gji new emits machine-readable bootstrap output.
+			const result = await createNewCommand()({
+				branch: "feature/bootstrap-skipped-json",
+				cwd: repoRoot,
+				json: true,
+				stderr: () => undefined,
+				stdout: (chunk) => stdout.push(chunk),
+			});
+
+			// Then automation can distinguish a skipped configured directory from a successful clone.
+			expect(result).toBe(0);
+			expect(JSON.parse(stdout.join(""))).toMatchObject({
+				skipped: [{ dir: "missing-cache", reason: "source does not exist" }],
+			});
+		});
+
 		it("cleans partial clones and caches the failure for later worktrees", async () => {
 			// Given a repository and an isolated state directory.
 			const repoRoot = await createRepository();
@@ -1189,6 +1215,37 @@ describe("gji new", () => {
 			expect(result).toBe(0);
 			expect(cloneCalled).toBe(false);
 			expect(stderr.join("")).toContain("source is not a directory");
+		});
+
+		it("skips a destination whose ancestor is a file", async () => {
+			// Given a branch that already contains a file where a sync directory ancestor is needed.
+			const repoRoot = await createRepository();
+			await commitFile(repoRoot, "cache", "file\n", "Add file ancestor");
+			await writeFile(
+				join(repoRoot, ".gji.json"),
+				JSON.stringify({ syncDirs: ["cache/nested"] }),
+				"utf8",
+			);
+			let cloneCalled = false;
+			const stderr: string[] = [];
+
+			// When gji new prepares the blocked destination.
+			const result = await createNewCommand({
+				cloneDir: async () => {
+					cloneCalled = true;
+					return { ms: 1 };
+				},
+			})({
+				branch: "feature/destination-file",
+				cwd: repoRoot,
+				stderr: (chunk) => stderr.push(chunk),
+				stdout: () => undefined,
+			});
+
+			// Then creation continues without attempting an unsafe clone.
+			expect(result).toBe(0);
+			expect(cloneCalled).toBe(false);
+			expect(stderr.join("")).toContain("non-directory ancestor");
 		});
 
 		it("does not let a generic node_modules clone skip the npm install prompt", async () => {

@@ -344,10 +344,10 @@ Use `syncDirs` for large, reproducible directories that should be available imme
 
 Paths are relative to the repository root. Absolute paths, `..` segments, and `.git` paths are rejected in all three config layers.
 
-The human output includes the cloned size and elapsed time:
+The human output includes clone timing; dry-run can provide source-size estimates:
 
 ```text
-⚡ cloned .next (2.1 GB → 1.2s)
+⚡ cloned .next (size unavailable → 1.2s)
 ```
 
 Use `dependencyBootstrap` when a package manager or build cache needs a reusable seed followed by authoritative repair:

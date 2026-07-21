@@ -39,6 +39,7 @@ export interface WorktreeBootstrapResult {
 	clonedDirs: readonly ClonedDirectory[];
 	dependencyBootstrap: DependencyBootstrapReport;
 	ready: boolean;
+	skippedDirs: readonly { dir: string; reason: string }[];
 }
 
 export async function bootstrapWorktree(
@@ -65,6 +66,11 @@ export async function bootstrapWorktree(
 	});
 	const clonedDirs = outcomes.flatMap((outcome) =>
 		outcome.kind === "cloned" ? [outcome.directory] : [],
+	);
+	const skippedDirs = outcomes.flatMap((outcome) =>
+		outcome.kind === "skipped"
+			? [{ dir: outcome.dir, reason: outcome.reason }]
+			: [],
 	);
 
 	for (const pattern of options.config.syncFiles ?? []) {
@@ -101,6 +107,7 @@ export async function bootstrapWorktree(
 			clonedDirs,
 			dependencyBootstrap,
 			ready: false,
+			skippedDirs,
 		};
 	}
 
@@ -116,7 +123,7 @@ export async function bootstrapWorktree(
 		options.reporter.write,
 	);
 
-	return { clonedDirs, dependencyBootstrap, ready: true };
+	return { clonedDirs, dependencyBootstrap, ready: true, skippedDirs };
 }
 
 function toErrorMessage(error: unknown): string {

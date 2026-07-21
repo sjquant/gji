@@ -142,6 +142,15 @@ export class CloneUnsupportedError extends Error {
 	}
 }
 
+export class CloneInProgressError extends Error {
+	readonly code = "GJI_CLONE_IN_PROGRESS";
+
+	constructor(destination: string) {
+		super(`copy-on-write clone already in progress: ${destination}`);
+		this.name = "CloneInProgressError";
+	}
+}
+
 export function isCloneDestinationExistsError(
 	error: unknown,
 ): error is CloneDestinationExistsError {
@@ -152,6 +161,12 @@ export function isCloneUnsupportedError(error: unknown): boolean {
 	return (
 		error instanceof CloneUnsupportedError || isUnsupportedCloneError(error)
 	);
+}
+
+export function isCloneInProgressError(
+	error: unknown,
+): error is CloneInProgressError {
+	return error instanceof CloneInProgressError;
 }
 
 export async function directorySize(path: string): Promise<number> {
@@ -253,7 +268,7 @@ async function acquireCloneLock(
 		if (!isNotFoundError(error)) throw error;
 	}
 
-	throw new CloneDestinationExistsError(destination);
+	throw new CloneInProgressError(destination);
 }
 
 function isUnsupportedCloneError(error: unknown): boolean {

@@ -454,6 +454,7 @@ export function createNewCommand(
 		if (!bootstrap.ready) {
 			return emitNewError(options, "dependency bootstrap failed", {
 				dependencyBootstrap: bootstrap.dependencyBootstrap,
+				skipped: bootstrap.skippedDirs,
 			});
 		}
 
@@ -479,6 +480,8 @@ export function createNewCommand(
 					ms,
 				}));
 			}
+			if (bootstrap.skippedDirs.length > 0)
+				output.skipped = bootstrap.skippedDirs;
 			if (bootstrap.dependencyBootstrap.mode !== "off")
 				output.dependencyBootstrap = bootstrap.dependencyBootstrap;
 			options.stdout(`${JSON.stringify(output, null, 2)}\n`);
