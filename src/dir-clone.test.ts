@@ -114,6 +114,26 @@ describe("cloneDir", () => {
 		expect((await readdir(root)).sort()).toEqual(["source"]);
 	});
 
+	it("reports the logical source size in bytes", async () => {
+		// Given a source directory containing a file whose size is not a filesystem block multiple.
+		const root = await mkdtemp(join(tmpdir(), "gji-dir-clone-size-"));
+		const source = join(root, "source");
+		const destination = join(root, "destination");
+		await mkdir(source);
+		await writeFile(join(source, "data.bin"), "x".repeat(2000), "utf8");
+
+		// When cloneDir completes a successful copy-on-write clone.
+		const result = await cloneDir(source, destination, {
+			platform: "linux",
+			runCommand: async (_command, args) => {
+				await mkdir(args.at(-1) as string);
+			},
+		});
+
+		// Then the reported size is the exact logical byte count, not filesystem blocks.
+		expect(result.bytes).toBe(2000);
+	});
+
 	it("does not invoke the copy command when the destination already exists", async () => {
 		// Given an existing destination and a valid source directory.
 		const root = await mkdtemp(join(tmpdir(), "gji-dir-clone-"));

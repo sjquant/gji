@@ -763,6 +763,57 @@ describe("gji new", () => {
 			expect(stderr.join("")).toContain("cloned node_modules");
 		});
 
+		it("clones overlapping syncDirs from the ancestor outward", async () => {
+			// Given nested configured directories whose ancestor contains both source entries.
+			const repoRoot = await createRepository();
+			const branchName = "feature/cow-overlap";
+			const sourceRoot = join(repoRoot, "foo");
+			await mkdir(join(sourceRoot, "bar"), { recursive: true });
+			await writeFile(join(sourceRoot, "sibling.txt"), "sibling\n", "utf8");
+			await writeFile(join(sourceRoot, "bar", "leaf.txt"), "leaf\n", "utf8");
+			await writeFile(
+				join(repoRoot, ".gji.json"),
+				JSON.stringify({ syncDirs: ["foo/bar", "foo"] }),
+				"utf8",
+			);
+			const cloneDirectories: string[] = [];
+
+			// When gji new bootstraps the worktree with an injected CoW cloner.
+			const result = await createNewCommand({
+				cloneDir: async (source, destination) => {
+					cloneDirectories.push(source.slice(repoRoot.length + 1));
+					await mkdir(join(destination, "bar"), { recursive: true });
+					await writeFile(
+						join(destination, "sibling.txt"),
+						"sibling\n",
+						"utf8",
+					);
+					await writeFile(
+						join(destination, "bar", "leaf.txt"),
+						"leaf\n",
+						"utf8",
+					);
+					return { bytes: 13, ms: 1 };
+				},
+			})({
+				branch: branchName,
+				cwd: repoRoot,
+				stderr: () => undefined,
+				stdout: () => undefined,
+			});
+
+			// Then the ancestor supplies the full tree without a partial nested clone.
+			expect(result).toBe(0);
+			expect(cloneDirectories).toEqual(["foo"]);
+			const worktreePath = resolveWorktreePath(repoRoot, branchName);
+			await expect(
+				readFile(join(worktreePath, "foo", "sibling.txt"), "utf8"),
+			).resolves.toBe("sibling\n");
+			await expect(
+				readFile(join(worktreePath, "foo", "bar", "leaf.txt"), "utf8"),
+			).resolves.toBe("leaf\n");
+		});
+
 		it("removes pnpm metadata and skips the install prompt after cloning node_modules", async () => {
 			// Given a pnpm repository whose cloned node_modules contains absolute-path metadata.
 			const repoRoot = await createRepository();

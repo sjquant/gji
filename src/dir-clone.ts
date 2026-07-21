@@ -247,15 +247,8 @@ export function isClonePlatformSupported(platform: NodeJS.Platform): boolean {
 }
 
 async function estimateCloneBytes(path: string): Promise<number> {
-	const args =
-		process.platform === "darwin"
-			? ["-A", "-B", "1", "-s", path]
-			: ["--apparent-size", "--block-size=1", "-s", path];
-
 	try {
-		const { stdout } = await execFileAsync("du", args);
-		const bytes = Number.parseInt(stdout.trim().split(/\s+/u)[0] ?? "", 10);
-		return Number.isFinite(bytes) ? bytes : 0;
+		return await directorySize(path);
 	} catch {
 		return 0;
 	}

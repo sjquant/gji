@@ -235,9 +235,14 @@ type SyncDirSource =
 function configuredSyncDirs(config: GjiConfig): string[] {
 	if (!Array.isArray(config.syncDirs)) return [];
 
-	return config.syncDirs
+	const directories = config.syncDirs
 		.filter((value): value is string => typeof value === "string")
 		.map(validateSyncDirPattern);
+
+	return directories.sort(
+		(left, right) =>
+			left.split(/[\\/]+/u).length - right.split(/[\\/]+/u).length,
+	);
 }
 
 async function resolveSyncDirSource(
