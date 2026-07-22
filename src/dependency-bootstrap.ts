@@ -42,6 +42,7 @@ export interface BootstrapPreparationContext {
 export interface BootstrapExecutionContext {
 	runCommand: BootstrapCommandRunner;
 	stderr: (chunk: string) => void;
+	stdout: (chunk: string) => void;
 }
 
 export interface BootstrapTarget {
@@ -106,6 +107,7 @@ export interface DependencyBootstrapDependencies {
 	failureStore?: CloneFailureStore;
 	runCommand?: BootstrapCommandRunner;
 	stderr?: (chunk: string) => void;
+	stdout?: (chunk: string) => void;
 	seededDirectories?: readonly string[];
 }
 
@@ -213,6 +215,7 @@ export async function executeDependencyBootstrap(
 	const execution: BootstrapExecutionContext = {
 		runCommand: options.runCommand ?? runCommand,
 		stderr: options.stderr ?? (() => undefined),
+		stdout: options.stdout ?? ((chunk) => process.stdout.write(chunk)),
 	};
 	const seededDirectories = new Set(options.seededDirectories ?? []);
 
@@ -452,19 +455,32 @@ async function repairTarget(
 		});
 	} catch (firstError) {
 		if (ownership !== "adapter" && ownership !== "syncDirs") {
-			if (!presentBeforeRepair) await removeTarget(target);
+			const cleanupError = !presentBeforeRepair
+				? await tryRemoveTarget(target)
+				: undefined;
 			recordBootstrapFailure(
 				events,
 				reporter,
 				adapter,
 				target,
-				`repair failed: ${toErrorMessage(firstError)}`,
+				formatRepairFailure(firstError, cleanupError),
 				"repair-failed",
 			);
 			return;
 		}
 
-		await removeTarget(target);
+		const cleanupError = await tryRemoveTarget(target);
+		if (cleanupError) {
+			recordBootstrapFailure(
+				events,
+				reporter,
+				adapter,
+				target,
+				formatRepairFailure(firstError, cleanupError),
+				"repair-cleanup-failed",
+			);
+			return;
+		}
 		recordBootstrapEvent(events, reporter, {
 			adapter: adapter.name,
 			kind: adapter.kind,
@@ -486,13 +502,15 @@ async function repairTarget(
 				message: "installed or repaired from a clean target",
 			});
 		} catch (secondError) {
-			if (!presentBeforeRetry) await removeTarget(target);
+			const cleanupError = !presentBeforeRetry
+				? await tryRemoveTarget(target)
+				: undefined;
 			recordBootstrapFailure(
 				events,
 				reporter,
 				adapter,
 				target,
-				`clean repair failed: ${toErrorMessage(secondError)}`,
+				formatRepairFailure(secondError, cleanupError),
 				"repair-failed",
 			);
 		}
@@ -530,6 +548,25 @@ async function removeTarget(target: BootstrapTarget): Promise<void> {
 	if (!target.existingBeforeBootstrap) {
 		await rm(target.targetPath, { force: true, recursive: true });
 	}
+}
+
+async function tryRemoveTarget(
+	target: BootstrapTarget,
+): Promise<string | undefined> {
+	try {
+		await removeTarget(target);
+		return undefined;
+	} catch (error) {
+		return toErrorMessage(error);
+	}
+}
+
+function formatRepairFailure(
+	error: unknown,
+	cleanupError: string | undefined,
+): string {
+	const message = `repair failed: ${toErrorMessage(error)}`;
+	return cleanupError ? `${message}; cleanup failed: ${cleanupError}` : message;
 }
 
 function bootstrapStrategy(
@@ -679,6 +716,7 @@ class LockfileBootstrapAdapter implements BootstrapAdapter {
 			target.repairCommand,
 			target.worktreePath,
 			context.stderr,
+			context.stdout,
 		);
 	}
 

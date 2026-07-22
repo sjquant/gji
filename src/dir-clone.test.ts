@@ -4,6 +4,7 @@ import {
 	readdir,
 	readFile,
 	rm,
+	symlink,
 	utimes,
 	writeFile,
 } from "node:fs/promises";
@@ -161,6 +162,31 @@ describe("cloneDir", () => {
 		await expect(readFile(join(destination, "sentinel"), "utf8")).resolves.toBe(
 			"keep\n",
 		);
+	});
+
+	it("rejects a destination with a symbolic-link ancestor", async () => {
+		// Given a source and a destination parent that points outside the worktree.
+		const root = await mkdtemp(join(tmpdir(), "gji-dir-clone-link-"));
+		const source = join(root, "source");
+		const external = await mkdtemp(join(tmpdir(), "gji-dir-clone-external-"));
+		const destinationParent = join(root, "worktree", "cache");
+		const destination = join(destinationParent, "packages");
+		await mkdir(source);
+		await mkdir(join(root, "worktree"));
+		await symlink(external, destinationParent);
+
+		// When cloneDir is asked to create a nested destination.
+		const error = await cloneDir(source, destination, {
+			platform: "linux",
+			runCommand: async () => undefined,
+		}).catch((caught) => caught);
+
+		// Then it refuses to follow the link and leaves the external directory untouched.
+		expect(error).toHaveProperty(
+			"message",
+			expect.stringContaining("symbolic-link"),
+		);
+		expect(await readdir(external)).toEqual([]);
 	});
 
 	it("skips unsupported filesystems without creating a destination", async () => {

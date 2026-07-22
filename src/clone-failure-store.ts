@@ -14,7 +14,9 @@ import { dirname, join, resolve } from "node:path";
 import { GLOBAL_CONFIG_DIRECTORY } from "./config.js";
 
 const STATE_FILE_NAME = "state.json";
+const STATE_LOCK_SUFFIX = ".lock";
 const CLONE_FAILURE_TTL_MS = 24 * 60 * 60 * 1000;
+const STATE_LOCK_TTL_MS = 30 * 1000;
 
 interface CloneFailure {
 	failedAt: number;
@@ -105,12 +107,31 @@ export class FileCloneFailureStore implements CloneFailureStore {
 	}
 
 	private async update(operation: () => Promise<void>): Promise<void> {
-		const next = this.updateQueue.then(operation, operation);
+		const next = this.updateQueue.then(
+			() => this.withStateLock(operation),
+			() => this.withStateLock(operation),
+		);
 		this.updateQueue = next.then(
 			() => undefined,
 			() => undefined,
 		);
 		await next;
+	}
+
+	private async withStateLock(operation: () => Promise<void>): Promise<void> {
+		const lockPath = `${this.stateFilePath()}${STATE_LOCK_SUFFIX}`;
+		const locked = await acquireStateLock(lockPath);
+		if (!locked) {
+			await operation();
+			return;
+		}
+		try {
+			await operation();
+		} finally {
+			await rm(lockPath, { force: true, recursive: true }).catch(
+				() => undefined,
+			);
+		}
 	}
 
 	private async readState(): Promise<CloneFailureState> {
@@ -160,6 +181,28 @@ export class FileCloneFailureStore implements CloneFailureStore {
 	}
 }
 
+async function acquireStateLock(lockPath: string): Promise<boolean> {
+	for (let attempt = 0; attempt < 200; attempt += 1) {
+		try {
+			await mkdir(lockPath);
+			return true;
+		} catch (error) {
+			if (!isErrorCode(error, "EEXIST")) return false;
+			try {
+				const lockStats = await stat(lockPath);
+				if (Date.now() - lockStats.mtimeMs >= STATE_LOCK_TTL_MS) {
+					await rm(lockPath, { force: true, recursive: true });
+					continue;
+				}
+			} catch (lockError) {
+				if (!isErrorCode(lockError, "ENOENT")) return false;
+			}
+			await new Promise((resolve) => setTimeout(resolve, 25));
+		}
+	}
+	return false;
+}
+
 export const defaultCloneFailureStore: CloneFailureStore =
 	new FileCloneFailureStore();
 
@@ -190,4 +233,8 @@ function failureKey(directory: string, scope?: string): string {
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isErrorCode(error: unknown, code: string): boolean {
+	return error instanceof Error && "code" in error && error.code === code;
 }

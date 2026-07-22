@@ -4,14 +4,24 @@ export type CommandRunner = (
 	command: string,
 	cwd: string,
 	stderr: (chunk: string) => void,
+	stdout?: (chunk: string) => void,
 ) => Promise<void>;
 
-export const runCommand: CommandRunner = async (command, cwd, stderr) => {
+export const runCommand: CommandRunner = async (
+	command,
+	cwd,
+	stderr,
+	stdout = (chunk) => process.stdout.write(chunk),
+) => {
 	await new Promise<void>((resolve, reject) => {
 		const child = spawn(command, {
 			cwd,
 			shell: true,
-			stdio: ["ignore", "inherit", "pipe"],
+			stdio: ["ignore", "pipe", "pipe"],
+		});
+
+		(child.stdout as NodeJS.ReadableStream).on("data", (chunk: Buffer) => {
+			stdout(chunk.toString());
 		});
 
 		(child.stderr as NodeJS.ReadableStream).on("data", (chunk: Buffer) => {

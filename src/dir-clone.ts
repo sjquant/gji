@@ -70,6 +70,7 @@ export async function cloneDir(
 
 	const startedAt = Date.now();
 	const parent = dirname(destination);
+	await assertSafeDestinationParent(parent);
 	await mkdir(parent, { recursive: true });
 	const lockPath = `${destination}${CLONE_LOCK_SUFFIX}`;
 	const lockToken = await acquireCloneLock(lockPath, destination);
@@ -106,10 +107,18 @@ export async function cloneDir(
 		await publishCloneContents(temporaryDestination, destination);
 	} finally {
 		stopLockHeartbeat();
-		if (temporaryRoot) {
-			await rm(temporaryRoot, { force: true, recursive: true });
+		try {
+			if (temporaryRoot) {
+				await rm(temporaryRoot, { force: true, recursive: true });
+			}
+		} catch {
+			// Cleanup is best effort and must not mask the clone result.
 		}
-		await releaseCloneLock(lockPath, lockToken);
+		try {
+			await releaseCloneLock(lockPath, lockToken);
+		} catch {
+			// A stale lock is reclaimed on a later attempt.
+		}
 	}
 
 	const bytes =
@@ -181,16 +190,20 @@ export async function directorySize(path: string): Promise<number> {
 	const stats = await lstat(path);
 	if (!stats.isDirectory()) return stats.size;
 
-	const entries = await readdir(path, { withFileTypes: true });
-	let nextIndex = 0;
+	const pending = [path];
 	let total = 0;
-	const workerCount = Math.min(8, entries.length);
+	const workerCount = 8;
 	await Promise.all(
 		Array.from({ length: workerCount }, async () => {
-			while (nextIndex < entries.length) {
-				const entry = entries[nextIndex];
-				nextIndex += 1;
-				total += await directorySize(join(path, entry.name));
+			while (pending.length > 0) {
+				const current = pending.pop();
+				if (!current) continue;
+				const entries = await readdir(current, { withFileTypes: true });
+				for (const entry of entries) {
+					const entryPath = join(current, entry.name);
+					if (entry.isDirectory()) pending.push(entryPath);
+					else total += (await lstat(entryPath)).size;
+				}
 			}
 		}),
 	);
@@ -303,30 +316,33 @@ async function publishCloneContents(
 	destination: string,
 ): Promise<void> {
 	try {
-		await mkdir(destination);
+		await rename(temporaryDestination, destination);
 	} catch (error) {
-		if (isAlreadyExistsError(error)) {
+		if (isAlreadyExistsError(error) || isDirectoryNotEmptyError(error)) {
 			throw new CloneDestinationExistsError(destination);
 		}
 		throw error;
 	}
+}
 
-	try {
-		const entries = await readdir(temporaryDestination, {
-			withFileTypes: true,
-		});
-		for (const entry of entries) {
-			await rename(
-				join(temporaryDestination, entry.name),
-				join(destination, entry.name),
-			);
+async function assertSafeDestinationParent(parent: string): Promise<void> {
+	let current = parent;
+	while (true) {
+		try {
+			const stats = await lstat(current);
+			if (stats.isSymbolicLink()) {
+				throw new Error(`destination has a symbolic-link ancestor: ${current}`);
+			}
+			if (!stats.isDirectory()) {
+				throw new Error(`destination has a non-directory ancestor: ${current}`);
+			}
+			return;
+		} catch (error) {
+			if (!isNotFoundError(error)) throw error;
+			const next = dirname(current);
+			if (next === current) return;
+			current = next;
 		}
-	} catch (error) {
-		await rm(destination, { force: true, recursive: true });
-		if (isAlreadyExistsError(error)) {
-			throw new CloneDestinationExistsError(destination);
-		}
-		throw error;
 	}
 }
 
@@ -379,6 +395,14 @@ function isUnsupportedCloneError(error: unknown): boolean {
 
 	return /clonefile|reflink|unsupported|operation not supported|not supported|invalid cross-device|cross-device/iu.test(
 		error.message,
+	);
+}
+
+function isDirectoryNotEmptyError(error: unknown): boolean {
+	return (
+		error instanceof Error &&
+		"code" in error &&
+		(error as NodeJS.ErrnoException).code === "ENOTEMPTY"
 	);
 }
 

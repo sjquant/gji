@@ -32,6 +32,7 @@ export interface WorktreeBootstrapOptions {
 	currentRoot?: string;
 	installDependencies?: InstallPromptDependencies;
 	runCommand?: BootstrapCommandRunner;
+	commandStdout?: (chunk: string) => void;
 	nonInteractive: boolean;
 	repoRoot: string;
 	reporter: SyncDirectoryReporter & DependencyBootstrapReporter;
@@ -104,6 +105,7 @@ export async function bootstrapWorktree(
 					repoRoot: options.repoRoot,
 					reporter: options.reporter,
 					stderr: options.reporter.write,
+					stdout: options.commandStdout,
 					seededDirectories: clonedDirs.map(({ dir }) => dir),
 					runCommand: options.runCommand,
 				});

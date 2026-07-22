@@ -98,4 +98,22 @@ describe("FileCloneFailureStore", () => {
 		// Then cache corruption remains advisory and does not block setup.
 		expect(cached).toBe(false);
 	});
+
+	it("preserves concurrent updates from separate store instances", async () => {
+		// Given two store instances sharing one state directory.
+		const root = await mkdtemp(join(tmpdir(), "gji-state-concurrent-"));
+		process.env.GJI_CONFIG_DIR = root;
+		const first = new FileCloneFailureStore();
+		const second = new FileCloneFailureStore();
+
+		// When both processes update different failure entries concurrently.
+		await Promise.all([
+			first.cache("/repo", "node_modules", "unsupported"),
+			second.cache("/repo", ".venv", "unsupported"),
+		]);
+
+		// Then neither update is lost.
+		await expect(first.isCached("/repo", "node_modules")).resolves.toBe(true);
+		await expect(first.isCached("/repo", ".venv")).resolves.toBe(true);
+	});
 });

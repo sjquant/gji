@@ -31,7 +31,10 @@ export async function prepareSyncDirectoryPlan(
 
 	for (const directory of normalizedDirectories) {
 		const destination = join(worktreePath, directory);
-		const destinationState = await inspectDestination(destination);
+		const destinationState = await inspectDestination(
+			worktreePath,
+			destination,
+		);
 		const destinationWasPresent = destinationState === "exists";
 		const destinationWarning =
 			destinationState === "blocked"
@@ -172,14 +175,43 @@ function isPathInside(parent: string, child: string): boolean {
 }
 
 async function inspectDestination(
+	root: string,
 	path: string,
 ): Promise<"exists" | "missing" | "blocked"> {
+	const relativePath = relative(resolve(root), resolve(path));
+	if (
+		isAbsolute(relativePath) ||
+		relativePath === ".." ||
+		relativePath.startsWith(`..${sep}`)
+	) {
+		return "blocked";
+	}
+
+	let current = resolve(root);
+	const segments = relativePath.split(sep).filter(Boolean);
+	for (const [index, segment] of segments.entries()) {
+		current = join(current, segment);
+		try {
+			const stats = await lstat(current);
+			if (index < segments.length - 1) {
+				if (stats.isSymbolicLink() || !stats.isDirectory()) return "blocked";
+			} else {
+				return "exists";
+			}
+		} catch (error) {
+			if (isNotFoundError(error)) return "missing";
+			if (isNotDirectoryError(error)) return "blocked";
+			throw error;
+		}
+	}
+
 	try {
-		await lstat(path);
-		return "exists";
+		const stats = await lstat(current);
+		return stats.isSymbolicLink() || !stats.isDirectory()
+			? "blocked"
+			: "exists";
 	} catch (error) {
 		if (isNotFoundError(error)) return "missing";
-		if (isNotDirectoryError(error)) return "blocked";
 		throw error;
 	}
 }

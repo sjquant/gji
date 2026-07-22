@@ -20,6 +20,7 @@ import {
 } from "./conflict.js";
 import { type CloneDirectory, cloneDir } from "./dir-clone.js";
 import { defaultSpawnEditor, EDITORS } from "./editor.js";
+import { formatBytes } from "./format-bytes.js";
 import { isHeadless } from "./headless.js";
 import { recordWorktreeUsage } from "./history.js";
 import type { InstallPromptDependencies } from "./install-prompt.js";
@@ -446,6 +447,7 @@ export function createNewCommand(
 			repoRoot: repository.repoRoot,
 			reporter: createBootstrapReporter(options.stderr, !!options.json),
 			runCommand: dependencies.runInstallCommand,
+			commandStdout: options.json ? () => undefined : options.stdout,
 			worktreePath,
 			installDependencies: dependencies,
 		});
@@ -641,18 +643,6 @@ function applyConfiguredBranchPrefix(
 	}
 
 	return `${branchPrefix}${branch}`;
-}
-
-function formatBytes(bytes: number): string {
-	if (bytes < 1024) return `${bytes} B`;
-	const units = ["KB", "MB", "GB", "TB"];
-	let value = bytes;
-	let unit = -1;
-	while (value >= 1024 && unit < units.length - 1) {
-		value /= 1024;
-		unit += 1;
-	}
-	return `${value.toFixed(value >= 10 ? 0 : 1)} ${units[unit]}`;
 }
 
 async function resolveUniqueDetachedWorktreePath(

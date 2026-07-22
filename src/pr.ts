@@ -232,6 +232,7 @@ export function createPrCommand(
 			repoRoot: repository.repoRoot,
 			reporter: createBootstrapReporter(options.stderr, !!options.json),
 			runCommand: dependencies.runInstallCommand,
+			commandStdout: options.json ? () => undefined : options.stdout,
 			worktreePath,
 			installDependencies: dependencies,
 		});
