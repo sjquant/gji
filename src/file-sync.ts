@@ -1,4 +1,5 @@
-import { copyFile, mkdir, stat } from "node:fs/promises";
+import { constants } from "node:fs";
+import { copyFile, lstat, mkdir, stat } from "node:fs/promises";
 import { dirname, isAbsolute, join, normalize } from "node:path";
 
 import { inspectDestination } from "./safe-destination.js";
@@ -28,9 +29,12 @@ export async function syncFiles(
 			continue;
 		}
 
-		// Skip silently if target already exists
-		const destExists = await fileExists(destPath);
-		if (destExists) {
+		// Skip ordinary existing targets, but fail closed on any symlink.
+		const existingDestination = await readDestinationEntry(destPath);
+		if (existingDestination?.isSymbolicLink()) {
+			throw new Error(`destination is a symbolic link: ${destPath}`);
+		}
+		if (existingDestination) {
 			continue;
 		}
 
@@ -47,7 +51,11 @@ export async function syncFiles(
 		if (afterCreate.kind === "unsafe") {
 			throw new Error(afterCreate.reason);
 		}
-		await copyFile(sourcePath, destPath);
+		try {
+			await copyFile(sourcePath, destPath, constants.COPYFILE_EXCL);
+		} catch (error) {
+			if (!isAlreadyExistsError(error)) throw error;
+		}
 	}
 }
 
@@ -80,10 +88,29 @@ async function fileExists(path: string): Promise<boolean> {
 	}
 }
 
+async function readDestinationEntry(
+	path: string,
+): Promise<Awaited<ReturnType<typeof lstat>> | undefined> {
+	try {
+		return await lstat(path);
+	} catch (error) {
+		if (isNotFoundError(error)) return undefined;
+		throw error;
+	}
+}
+
 function isNotFoundError(error: unknown): boolean {
 	return (
 		error instanceof Error &&
 		"code" in error &&
 		(error as NodeJS.ErrnoException).code === "ENOENT"
+	);
+}
+
+function isAlreadyExistsError(error: unknown): boolean {
+	return (
+		error instanceof Error &&
+		"code" in error &&
+		(error as NodeJS.ErrnoException).code === "EEXIST"
 	);
 }

@@ -236,7 +236,9 @@ describe("cloneDir", () => {
 		await mkdir(source);
 		const lockPath = `${destination}.gji-clone-lock`;
 		await mkdir(lockPath);
-		await utimes(lockPath, new Date(0), new Date(0));
+		const ownerPath = join(lockPath, "owner-old-owner");
+		await writeFile(ownerPath, "old-owner\n", "utf8");
+		await utimes(ownerPath, new Date(0), new Date(0));
 
 		// When a new clone takes over the abandoned lock.
 		await cloneDir(source, destination, {

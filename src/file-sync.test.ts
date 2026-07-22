@@ -131,6 +131,25 @@ describe("syncFiles", () => {
 		await expect(stat(join(outsidePath, "config.json"))).rejects.toThrow();
 	});
 
+	it("rejects a dangling symlink at the destination file", async () => {
+		// Given a source file and a dangling destination symlink pointing outside the worktree.
+		const mainRoot = await makeTmpDir();
+		const targetPath = await makeTmpDir();
+		const outsidePath = await makeTmpDir();
+		await writeFile(join(mainRoot, "config.json"), "{}", "utf8");
+		await symlink(
+			join(outsidePath, "missing.json"),
+			join(targetPath, "config.json"),
+		);
+
+		// When syncFiles processes the destination.
+		const result = syncFiles(mainRoot, targetPath, ["config.json"]);
+
+		// Then it refuses to follow the dangling symlink.
+		await expect(result).rejects.toThrow("symbolic link");
+		await expect(stat(join(outsidePath, "missing.json"))).rejects.toThrow();
+	});
+
 	it("handles an empty patterns array without error", async () => {
 		// Given
 		const mainRoot = await makeTmpDir();

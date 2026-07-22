@@ -12,6 +12,7 @@ import {
 	isCloneDestinationExistsError,
 	isCloneInProgressError,
 	isCloneUnsupportedError,
+	waitForCloneLock,
 } from "./dir-clone.js";
 import { inspectDestination } from "./safe-destination.js";
 import type { SyncDirectoryPlan } from "./sync-plan.js";
@@ -77,7 +78,6 @@ export async function executeSyncDirectoryPlan(
 			recordSkipped(outcomes, options.reporter, entry.directory, reason);
 			continue;
 		}
-
 		if (entry.warning) {
 			recordSkipped(outcomes, options.reporter, entry.directory, entry.warning);
 			continue;
@@ -125,6 +125,31 @@ export async function executeSyncDirectoryPlan(
 					false,
 				);
 			}
+			continue;
+		}
+
+		if (!(await waitForCloneLock(entry.destination))) {
+			recordSkipped(
+				outcomes,
+				options.reporter,
+				entry.directory,
+				"another clone is still in progress",
+			);
+			continue;
+		}
+		const refreshedDestinationState = await inspectDestination(
+			entry.worktreePath,
+			entry.destination,
+		);
+		if (refreshedDestinationState.kind !== "missing") {
+			recordSkipped(
+				outcomes,
+				options.reporter,
+				entry.directory,
+				refreshedDestinationState.kind === "unsafe"
+					? refreshedDestinationState.reason
+					: "destination already exists",
+			);
 			continue;
 		}
 

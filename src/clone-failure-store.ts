@@ -2,10 +2,13 @@ import { randomUUID } from "node:crypto";
 import {
 	mkdir,
 	mkdtemp,
+	readdir,
 	readFile,
 	rename,
 	rm,
+	rmdir,
 	stat,
+	unlink,
 	utimes,
 	writeFile,
 } from "node:fs/promises";
@@ -181,15 +184,24 @@ export class FileCloneFailureStore implements CloneFailureStore {
 
 async function acquireStateLock(lockPath: string): Promise<string | undefined> {
 	const lockToken = randomUUID();
+	await mkdir(dirname(lockPath), { recursive: true }).catch(() => undefined);
 	for (let attempt = 0; attempt < 200; attempt += 1) {
 		try {
 			await mkdir(lockPath);
 		} catch (error) {
 			if (!isErrorCode(error, "EEXIST")) return undefined;
 			try {
-				const lockStats = await stat(lockPath);
+				const freshnessPath = await lockFreshnessPath(lockPath);
+				const lockStats = await stat(freshnessPath);
 				if (Date.now() - lockStats.mtimeMs >= STATE_LOCK_TTL_MS) {
-					await rm(lockPath, { force: true, recursive: true });
+					const stalePath = `${lockPath}.stale-${randomUUID()}`;
+					try {
+						await rename(lockPath, stalePath);
+					} catch (renameError) {
+						if (isErrorCode(renameError, "ENOENT")) continue;
+						return undefined;
+					}
+					await rm(stalePath, { force: true, recursive: true });
 					continue;
 				}
 			} catch (lockError) {
@@ -199,9 +211,13 @@ async function acquireStateLock(lockPath: string): Promise<string | undefined> {
 			continue;
 		}
 		try {
-			await writeFile(join(lockPath, "owner"), `${lockToken}\n`, {
-				flag: "wx",
-			});
+			await writeFile(
+				join(lockPath, ownerFileName(lockToken)),
+				`${lockToken}\n`,
+				{
+					flag: "wx",
+				},
+			);
 			return lockToken;
 		} catch {
 			await rm(lockPath, { force: true, recursive: true }).catch(
@@ -211,6 +227,18 @@ async function acquireStateLock(lockPath: string): Promise<string | undefined> {
 		}
 	}
 	return undefined;
+}
+
+async function lockFreshnessPath(lockPath: string): Promise<string> {
+	try {
+		const owner = (await readdir(lockPath)).find((entry) =>
+			entry.startsWith("owner-"),
+		);
+		return owner ? join(lockPath, owner) : lockPath;
+	} catch (error) {
+		if (isErrorCode(error, "ENOENT")) throw error;
+		return lockPath;
+	}
 }
 
 function startStateLockHeartbeat(
@@ -229,11 +257,10 @@ async function refreshStateLock(
 	lockToken: string,
 ): Promise<void> {
 	try {
-		const owner = (await readFile(join(lockPath, "owner"), "utf8")).trim();
-		if (owner === lockToken) {
-			const now = new Date();
-			await utimes(lockPath, now, now);
-		}
+		const ownerPath = join(lockPath, ownerFileName(lockToken));
+		await readFile(ownerPath, "utf8");
+		const now = new Date();
+		await utimes(ownerPath, now, now);
 	} catch {
 		// The cache is advisory; a failed heartbeat must not block worktree creation.
 	}
@@ -244,13 +271,18 @@ async function releaseStateLock(
 	lockToken: string,
 ): Promise<void> {
 	try {
-		const owner = (await readFile(join(lockPath, "owner"), "utf8")).trim();
-		if (owner === lockToken) {
-			await rm(lockPath, { force: true, recursive: true });
-		}
+		const ownerPath = join(lockPath, ownerFileName(lockToken));
+		await unlink(ownerPath);
+		await rmdir(lockPath);
 	} catch (error) {
-		if (!isErrorCode(error, "ENOENT")) return;
+		if (!isErrorCode(error, "ENOENT") && !isErrorCode(error, "ENOTEMPTY")) {
+			return;
+		}
 	}
+}
+
+function ownerFileName(lockToken: string): string {
+	return `owner-${lockToken}`;
 }
 
 export const defaultCloneFailureStore: CloneFailureStore =

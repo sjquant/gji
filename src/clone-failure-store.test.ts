@@ -130,8 +130,9 @@ describe("FileCloneFailureStore", () => {
 		process.env.GJI_CONFIG_DIR = root;
 		const lockPath = join(root, "state.json.lock");
 		await mkdir(lockPath);
-		await writeFile(join(lockPath, "owner"), "old-owner\n", "utf8");
-		await utimes(lockPath, new Date(0), new Date(0));
+		const ownerPath = join(lockPath, "owner-old-owner");
+		await writeFile(ownerPath, "old-owner\n", "utf8");
+		await utimes(ownerPath, new Date(0), new Date(0));
 
 		// When a new store records a failure.
 		const store = new FileCloneFailureStore();
@@ -140,5 +141,22 @@ describe("FileCloneFailureStore", () => {
 		// Then the update succeeds and the stale lock is gone.
 		await expect(store.isCached("/repo", "node_modules")).resolves.toBe(true);
 		await expect(access(lockPath)).rejects.toMatchObject({ code: "ENOENT" });
+	});
+
+	it("creates the config directory before the first cache update", async () => {
+		// Given a configured directory that does not exist yet.
+		const root = await mkdtemp(join(tmpdir(), "gji-state-new-config-"));
+		const configDirectory = join(root, "nested", "config");
+		process.env.GJI_CONFIG_DIR = configDirectory;
+		const store = new FileCloneFailureStore();
+
+		// When the first failure is cached.
+		await store.cache("/repo", "node_modules", "unsupported");
+
+		// Then the directory and state file are created successfully.
+		await expect(store.isCached("/repo", "node_modules")).resolves.toBe(true);
+		await expect(
+			access(join(configDirectory, "state.json")),
+		).resolves.toBeUndefined();
 	});
 });
