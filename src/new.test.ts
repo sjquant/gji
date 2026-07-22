@@ -682,6 +682,45 @@ describe("gji new", () => {
 			).resolves.toBe(false);
 		});
 
+		it("does not prompt for install after syncFiles fails", async () => {
+			// Given an npm repository whose required sync file is invalid.
+			const repoRoot = await createRepository();
+			await commitFile(
+				repoRoot,
+				"package-lock.json",
+				"{}\n",
+				"Add npm lockfile",
+			);
+			await writeFile(
+				join(repoRoot, ".gji.json"),
+				JSON.stringify({ syncFiles: ["/etc/passwd"] }),
+				"utf8",
+			);
+			let promptCalled = false;
+
+			// When worktree creation encounters the sync-file failure.
+			const result = await createNewCommand({
+				detectInstallPackageManager: async () => ({
+					name: "npm",
+					installCommand: "npm install",
+				}),
+				promptForInstallChoice: async () => {
+					promptCalled = true;
+					return "yes";
+				},
+				runInstallCommand: async () => undefined,
+			})({
+				branch: "feature/sync-failure-no-prompt",
+				cwd: repoRoot,
+				stderr: () => undefined,
+				stdout: () => undefined,
+			});
+
+			// Then setup fails closed without offering a second, unsafe install path.
+			expect(result).toBe(1);
+			expect(promptCalled).toBe(false);
+		});
+
 		it("local syncFiles config overrides global (no array merging)", async () => {
 			// Given global config with syncFiles and local config with a different syncFiles.
 			const home = await mkdtemp(join(tmpdir(), "gji-home-"));
@@ -820,7 +859,7 @@ describe("gji new", () => {
 			).resolves.toBe("leaf\n");
 		});
 
-		it("repairs a CoW pnpm seed and preserves pnpm metadata", async () => {
+		it("repairs a CoW pnpm seed and regenerates pnpm metadata", async () => {
 			// Given a pnpm repository whose cloned node_modules contains absolute-path metadata.
 			const repoRoot = await createRepository();
 			const branchName = "feature/cow-pnpm";

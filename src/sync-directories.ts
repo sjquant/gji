@@ -14,6 +14,7 @@ import {
 	isCloneInProgressError,
 	isCloneUnsupportedError,
 } from "./dir-clone.js";
+import { isNotDirectoryError, isNotFoundError } from "./fs-utils.js";
 import type { SyncDirectoryPlan } from "./sync-plan.js";
 
 export interface ClonedDirectory {
@@ -89,9 +90,10 @@ export async function executeSyncDirectoryPlan(
 			continue;
 		}
 
-		const failureScope = entry.source
-			? await cloneFailureScope(entry.source, entry.destination)
-			: undefined;
+		const failureScope = await cloneFailureScope(
+			entry.source,
+			entry.destination,
+		);
 		if (
 			await failureStore.isCached(
 				options.repoRoot,
@@ -212,22 +214,6 @@ async function inspectDestination(
 		if (isNotDirectoryError(error)) return "blocked";
 		throw error;
 	}
-}
-
-function isNotFoundError(error: unknown): boolean {
-	return (
-		error instanceof Error &&
-		"code" in error &&
-		(error as NodeJS.ErrnoException).code === "ENOENT"
-	);
-}
-
-function isNotDirectoryError(error: unknown): boolean {
-	return (
-		error instanceof Error &&
-		"code" in error &&
-		(error as NodeJS.ErrnoException).code === "ENOTDIR"
-	);
 }
 
 function toErrorMessage(error: unknown): string {

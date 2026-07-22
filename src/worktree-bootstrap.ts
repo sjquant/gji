@@ -2,6 +2,7 @@ import { basename } from "node:path";
 
 import type { DependencyBootstrapMode, EffectiveGjiConfig } from "./config.js";
 import {
+	type BootstrapCommandRunner,
 	type BootstrapEvent,
 	type DependencyBootstrapReport,
 	type DependencyBootstrapReporter,
@@ -14,7 +15,6 @@ import { extractHooks, runHook } from "./hooks.js";
 import {
 	type InstallPromptDependencies,
 	maybeRunInstallPrompt,
-	runInstallCommand,
 } from "./install-prompt.js";
 import {
 	type ClonedDirectory,
@@ -31,6 +31,7 @@ export interface WorktreeBootstrapOptions {
 	config: EffectiveGjiConfig;
 	currentRoot?: string;
 	installDependencies?: InstallPromptDependencies;
+	runCommand?: BootstrapCommandRunner;
 	nonInteractive: boolean;
 	repoRoot: string;
 	reporter: SyncDirectoryReporter & DependencyBootstrapReporter;
@@ -82,7 +83,8 @@ export async function bootstrapWorktree(
 			options.reporter.write(`Warning: ${message}\n`);
 			syncFileFailures.push({
 				adapter: "syncFiles",
-				kind: "dependency",
+				kind: "sync-file",
+				reason: "sync-file-failed",
 				state: "failed",
 				target: pattern,
 				message,
@@ -103,9 +105,17 @@ export async function bootstrapWorktree(
 					reporter: options.reporter,
 					stderr: options.reporter.write,
 					seededDirectories: clonedDirs.map(({ dir }) => dir),
-					runCommand:
-						options.installDependencies?.runInstallCommand ?? runInstallCommand,
+					runCommand: options.runCommand,
 				});
+
+	if (!dependencyBootstrap.ready) {
+		return {
+			clonedDirs,
+			dependencyBootstrap,
+			ready: false,
+			skippedDirs,
+		};
+	}
 
 	if (dependencyMode === "off") {
 		await maybeRunInstallPrompt(
@@ -116,15 +126,6 @@ export async function bootstrapWorktree(
 			options.installDependencies,
 			options.nonInteractive,
 		);
-	}
-
-	if (!dependencyBootstrap.ready) {
-		return {
-			clonedDirs,
-			dependencyBootstrap,
-			ready: false,
-			skippedDirs,
-		};
 	}
 
 	const hooks = extractHooks(options.config);

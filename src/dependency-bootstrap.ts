@@ -2,12 +2,12 @@ import { execFile } from "node:child_process";
 import { access, lstat, readFile, realpath, rm } from "node:fs/promises";
 import { join, relative, resolve, sep } from "node:path";
 import { promisify } from "node:util";
-
 import {
 	type CloneFailureStore,
 	cloneFailureScope,
 	defaultCloneFailureStore,
 } from "./clone-failure-store.js";
+import { type CommandRunner, runCommand } from "./command-runner.js";
 import type { DependencyBootstrapMode } from "./config.js";
 import {
 	type CloneDirectory,
@@ -16,11 +16,10 @@ import {
 	isCloneInProgressError,
 	isCloneUnsupportedError,
 } from "./dir-clone.js";
-import { runInstallCommand } from "./install-prompt.js";
 
 const execFileAsync = promisify(execFile);
 
-export type BootstrapKind = "dependency" | "build-cache";
+export type BootstrapKind = "dependency" | "build-cache" | "sync-file";
 export type BootstrapState =
 	| "seeded"
 	| "repaired"
@@ -33,11 +32,7 @@ export type BootstrapStrategy =
 	| "repair-only"
 	| "install-only";
 
-export type BootstrapCommandRunner = (
-	command: string,
-	cwd: string,
-	stderr: (chunk: string) => void,
-) => Promise<void>;
+export type BootstrapCommandRunner = CommandRunner;
 
 export interface BootstrapPreparationContext {
 	sourceRoot: string;
@@ -65,6 +60,7 @@ export interface BootstrapTarget {
 export interface BootstrapAdapter {
 	readonly kind: BootstrapKind;
 	readonly name: string;
+	readonly relativePath: string;
 	detect(context: BootstrapPreparationContext): Promise<BootstrapTarget | null>;
 	seedPath(target: BootstrapTarget): string;
 	repair(
@@ -88,6 +84,7 @@ export interface PlannedBootstrapTarget {
 export interface BootstrapEvent {
 	adapter: string;
 	kind: BootstrapKind;
+	reason?: string;
 	state: BootstrapState;
 	target: string;
 	message: string;
@@ -150,8 +147,11 @@ export async function prepareDependencyBootstrap(
 		}
 	}
 	const targets: PlannedBootstrapTarget[] = [];
+	const plannedRelativePaths = new Set<string>();
 
 	for (const adapter of adapters) {
+		if (plannedRelativePaths.has(adapter.relativePath)) continue;
+
 		let fallback: PlannedBootstrapTarget | undefined;
 		let selected: PlannedBootstrapTarget | undefined;
 
@@ -173,7 +173,10 @@ export async function prepareDependencyBootstrap(
 		}
 
 		const plannedTarget = selected ?? fallback;
-		if (plannedTarget) targets.push(plannedTarget);
+		if (plannedTarget) {
+			targets.push(plannedTarget);
+			plannedRelativePaths.add(adapter.relativePath);
+		}
 	}
 
 	return { mode, targets };
@@ -208,7 +211,7 @@ export async function executeDependencyBootstrap(
 	const failureStore = options.failureStore ?? defaultCloneFailureStore;
 	const cloneDirectory = options.cloneDirectory ?? cloneDir;
 	const execution: BootstrapExecutionContext = {
-		runCommand: options.runCommand ?? runInstallCommand,
+		runCommand: options.runCommand ?? runCommand,
 		stderr: options.stderr ?? (() => undefined),
 	};
 	const seededDirectories = new Set(options.seededDirectories ?? []);
@@ -217,6 +220,7 @@ export async function executeDependencyBootstrap(
 		recordBootstrapEvent(events, options.reporter, {
 			adapter: "none",
 			kind: "dependency",
+			reason: "no-lockfile",
 			state: "skipped",
 			target: "",
 			message: "no supported dependency or build-state lockfile was detected",
@@ -284,6 +288,7 @@ async function executeBootstrapTarget(
 		recordBootstrapEvent(events, reporter, {
 			adapter: adapter.name,
 			kind: adapter.kind,
+			reason: "target-exists",
 			state: "skipped",
 			target: target.relativePath,
 			message: "target already existed; using it as the repair input",
@@ -295,6 +300,7 @@ async function executeBootstrapTarget(
 			recordBootstrapEvent(events, reporter, {
 				adapter: adapter.name,
 				kind: adapter.kind,
+				reason: "generic-seed",
 				state: "seeded",
 				target: target.relativePath,
 				message: "reusing a seed created by syncDirs",
@@ -304,6 +310,7 @@ async function executeBootstrapTarget(
 			recordBootstrapEvent(events, reporter, {
 				adapter: adapter.name,
 				kind: adapter.kind,
+				reason: "generic-seed",
 				state: "fallback",
 				target: target.relativePath,
 				message:
@@ -315,6 +322,7 @@ async function executeBootstrapTarget(
 		recordBootstrapEvent(events, reporter, {
 			adapter: adapter.name,
 			kind: adapter.kind,
+			reason: "destination-race",
 			state: "skipped",
 			target: target.relativePath,
 			message:
@@ -327,6 +335,7 @@ async function executeBootstrapTarget(
 		recordBootstrapEvent(events, reporter, {
 			adapter: adapter.name,
 			kind: adapter.kind,
+			reason: "cow-failure-cached",
 			state: "fallback",
 			target: target.relativePath,
 			message: "previous CoW failure is cached; repairing from an empty target",
@@ -375,6 +384,7 @@ async function executeBootstrapTarget(
 					adapter,
 					target,
 					`CoW seed is already in progress: ${toErrorMessage(error)}`,
+					"clone-in-progress",
 				);
 				return;
 			}
@@ -386,10 +396,10 @@ async function executeBootstrapTarget(
 					failureScope,
 				);
 			}
-			await removeTarget(target);
 			recordBootstrapEvent(events, reporter, {
 				adapter: adapter.name,
 				kind: adapter.kind,
+				reason: "cow-unsupported",
 				state: "fallback",
 				target: target.relativePath,
 				message: `CoW seed failed; repairing from an empty target (${toErrorMessage(error)})`,
@@ -399,6 +409,7 @@ async function executeBootstrapTarget(
 		recordBootstrapEvent(events, reporter, {
 			adapter: adapter.name,
 			kind: adapter.kind,
+			reason: "seed-unavailable",
 			state: "fallback",
 			target: target.relativePath,
 			message: "CoW seed is unavailable; repairing from an empty target",
@@ -448,6 +459,7 @@ async function repairTarget(
 				adapter,
 				target,
 				`repair failed: ${toErrorMessage(firstError)}`,
+				"repair-failed",
 			);
 			return;
 		}
@@ -456,6 +468,7 @@ async function repairTarget(
 		recordBootstrapEvent(events, reporter, {
 			adapter: adapter.name,
 			kind: adapter.kind,
+			reason: "seed-repair-failed",
 			state: "fallback",
 			target: target.relativePath,
 			message: `seed repair failed; removed the seed and retrying clean (${toErrorMessage(firstError)})`,
@@ -467,6 +480,7 @@ async function repairTarget(
 			recordBootstrapEvent(events, reporter, {
 				adapter: adapter.name,
 				kind: adapter.kind,
+				reason: "repair-retry",
 				state: target.repairState,
 				target: target.relativePath,
 				message: "installed or repaired from a clean target",
@@ -479,6 +493,7 @@ async function repairTarget(
 				adapter,
 				target,
 				`clean repair failed: ${toErrorMessage(secondError)}`,
+				"repair-failed",
 			);
 		}
 	}
@@ -490,10 +505,12 @@ function recordBootstrapFailure(
 	adapter: BootstrapAdapter,
 	target: BootstrapTarget,
 	message: string,
+	reason?: string,
 ): void {
 	recordBootstrapEvent(events, reporter, {
 		adapter: adapter.name,
 		kind: adapter.kind,
+		reason,
 		state: "failed",
 		target: target.relativePath,
 		message,
@@ -597,8 +614,8 @@ interface LockfileBootstrapAdapterSpec {
 class LockfileBootstrapAdapter implements BootstrapAdapter {
 	readonly kind: BootstrapKind;
 	readonly name: string;
+	readonly relativePath: string;
 	private readonly lockfile: string;
-	private readonly relativePath: string;
 	private readonly defaultRepairCommand: string;
 	private readonly seedPolicy: "always" | "never";
 	private readonly canSeedOverride?: (

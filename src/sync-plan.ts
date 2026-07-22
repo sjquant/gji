@@ -3,11 +3,12 @@ import { isAbsolute, join, relative, resolve, sep } from "node:path";
 
 import { validateSyncDirPattern } from "./config.js";
 import { directorySize } from "./dir-clone.js";
+import { isNotDirectoryError, isNotFoundError } from "./fs-utils.js";
 
 export interface SyncDirectoryPlan {
 	directory: string;
 	destination: string;
-	destinationExists: boolean;
+	destinationWasPresent: boolean;
 	destinationWarning?: string;
 	source?: string;
 	warning?: string;
@@ -31,7 +32,7 @@ export async function prepareSyncDirectoryPlan(
 	for (const directory of normalizedDirectories) {
 		const destination = join(worktreePath, directory);
 		const destinationState = await inspectDestination(destination);
-		const destinationExists = destinationState === "exists";
+		const destinationWasPresent = destinationState === "exists";
 		const destinationWarning =
 			destinationState === "blocked"
 				? "destination has a non-directory ancestor"
@@ -42,14 +43,14 @@ export async function prepareSyncDirectoryPlan(
 				plan.push({
 					directory,
 					destination,
-					destinationExists,
+					destinationWasPresent,
 					destinationWarning,
 				});
 			} else if ("warning" in source) {
 				plan.push({
 					directory,
 					destination,
-					destinationExists,
+					destinationWasPresent,
 					destinationWarning,
 					warning: source.warning,
 				});
@@ -57,7 +58,7 @@ export async function prepareSyncDirectoryPlan(
 				plan.push({
 					directory,
 					destination,
-					destinationExists,
+					destinationWasPresent,
 					destinationWarning,
 					source: source.path,
 				});
@@ -66,7 +67,7 @@ export async function prepareSyncDirectoryPlan(
 			plan.push({
 				directory,
 				destination,
-				destinationExists,
+				destinationWasPresent,
 				destinationWarning,
 				warning: `could not inspect ${directory}: ${toErrorMessage(error)}`,
 			});
@@ -82,7 +83,7 @@ export async function estimateSyncDirectoryPlan(
 	const estimates: SyncDirectoryEstimate[] = [];
 	for (const entry of plan) {
 		if (
-			entry.destinationExists ||
+			entry.destinationWasPresent ||
 			entry.destinationWarning ||
 			!entry.source ||
 			entry.warning ||
@@ -149,7 +150,7 @@ function isCoveredByCloneAncestor(
 	return plan.some(
 		(candidate) =>
 			candidate !== entry &&
-			!candidate.destinationExists &&
+			!candidate.destinationWasPresent &&
 			!candidate.destinationWarning &&
 			!!candidate.source &&
 			isPathInside(candidate.directory, entry.directory),
@@ -181,22 +182,6 @@ async function inspectDestination(
 		if (isNotDirectoryError(error)) return "blocked";
 		throw error;
 	}
-}
-
-function isNotFoundError(error: unknown): boolean {
-	return (
-		error instanceof Error &&
-		"code" in error &&
-		(error as NodeJS.ErrnoException).code === "ENOENT"
-	);
-}
-
-function isNotDirectoryError(error: unknown): boolean {
-	return (
-		error instanceof Error &&
-		"code" in error &&
-		(error as NodeJS.ErrnoException).code === "ENOTDIR"
-	);
 }
 
 function toErrorMessage(error: unknown): string {

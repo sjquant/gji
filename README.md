@@ -359,9 +359,9 @@ Use `dependencyBootstrap` when a package manager or build cache needs a reusable
 }
 ```
 
-`cow-then-repair` supports Yarn (`--immutable`), pnpm (`--frozen-lockfile`), uv (`--locked`), and Cargo (the configured `dependencyBuildCommand`, or `cargo check`). npm uses install-only `npm ci` because it can delete an existing dependency tree. CoW failure never triggers ordinary copying: repair runs from an empty target instead. The lifecycle is `CoW seed → syncFiles → repair/install → after-create`; a sync-file failure stops repair and hooks. A successful dependency seed is reported as `reused and repaired`, not as an install skip.
+`cow-then-repair` supports Yarn (`--immutable`), pnpm (`--frozen-lockfile`), uv (`--locked`), and Cargo (the configured `dependencyBuildCommand`, or `cargo check`). npm uses install-only `npm ci` because it can delete an existing dependency tree. CoW failure never triggers ordinary copying: repair runs from an empty target instead. The lifecycle is `CoW seed → syncFiles → repair/install → after-create`; a sync-file failure stops repair, install prompts, and hooks. A successful dependency seed is reported as `reused and repaired`, not as an install skip.
 
-Use `gji new --dry-run` to see the directories and estimated sizes without creating anything. `gji new --json` adds a `cloned` array and structured `dependencyBootstrap` events. The benchmark target for a 2 GB dependency tree on supported APFS/Btrfs or XFS filesystems is under 5 seconds; benchmark your repository locally because filesystem and storage behavior determine the result.
+Use `gji new --dry-run` to see the directories and estimated sizes without creating anything. `gji new --json` adds a `cloned` array and structured `dependencyBootstrap` events, including machine-readable reasons for skips and failures. If bootstrap fails, the JSON error includes the created worktree path; text mode prints the same path and a cleanup hint. The benchmark target for a 2 GB dependency tree on supported APFS/Btrfs or XFS filesystems is under 5 seconds; benchmark your repository locally because filesystem and storage behavior determine the result.
 
 ### Per-repo overrides in global config
 

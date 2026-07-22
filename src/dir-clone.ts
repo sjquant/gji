@@ -1,4 +1,5 @@
 import { execFile } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { constants } from "node:fs";
 import {
 	cp,
@@ -6,12 +7,21 @@ import {
 	mkdir,
 	mkdtemp,
 	readdir,
+	readFile,
 	realpath,
 	rename,
 	rm,
+	utimes,
+	writeFile,
 } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
 import { promisify } from "node:util";
+
+import {
+	isAlreadyExistsError,
+	isNotFoundError,
+	pathExists,
+} from "./fs-utils.js";
 
 const execFileAsync = promisify(execFile);
 const CLONE_LOCK_TTL_MS = 24 * 60 * 60 * 1000;
@@ -62,7 +72,8 @@ export async function cloneDir(
 	const parent = dirname(destination);
 	await mkdir(parent, { recursive: true });
 	const lockPath = `${destination}${CLONE_LOCK_SUFFIX}`;
-	await acquireCloneLock(lockPath, destination);
+	const lockToken = await acquireCloneLock(lockPath, destination);
+	const stopLockHeartbeat = startLockHeartbeat(lockPath, lockToken);
 
 	let temporaryRoot: string | undefined;
 	try {
@@ -92,16 +103,13 @@ export async function cloneDir(
 			throw error;
 		}
 
-		if (await pathExists(destination)) {
-			throw new CloneDestinationExistsError(destination);
-		}
-
-		await rename(temporaryDestination, destination);
+		await publishCloneContents(temporaryDestination, destination);
 	} finally {
+		stopLockHeartbeat();
 		if (temporaryRoot) {
 			await rm(temporaryRoot, { force: true, recursive: true });
 		}
-		await rm(lockPath, { force: true, recursive: true });
+		await releaseCloneLock(lockPath, lockToken);
 	}
 
 	const bytes =
@@ -174,10 +182,18 @@ export async function directorySize(path: string): Promise<number> {
 	if (!stats.isDirectory()) return stats.size;
 
 	const entries = await readdir(path, { withFileTypes: true });
+	let nextIndex = 0;
 	let total = 0;
-	for (const entry of entries) {
-		total += await directorySize(join(path, entry.name));
-	}
+	const workerCount = Math.min(8, entries.length);
+	await Promise.all(
+		Array.from({ length: workerCount }, async () => {
+			while (nextIndex < entries.length) {
+				const entry = entries[nextIndex];
+				nextIndex += 1;
+				total += await directorySize(join(path, entry.name));
+			}
+		}),
+	);
 
 	return total;
 }
@@ -201,11 +217,11 @@ function isClonePlatformSupported(platform: NodeJS.Platform): boolean {
 	return platform === "darwin" || platform === "linux";
 }
 
-async function estimateCloneBytes(path: string): Promise<number> {
+async function estimateCloneBytes(path: string): Promise<number | undefined> {
 	try {
 		return await directorySize(path);
 	} catch {
-		return 0;
+		return undefined;
 	}
 }
 
@@ -220,55 +236,135 @@ async function runCloneCommand(command: string, args: string[]): Promise<void> {
 	}
 }
 
-async function pathExists(path: string): Promise<boolean> {
+async function acquireCloneLock(
+	lockPath: string,
+	destination: string,
+): Promise<string> {
+	const lockToken = randomUUID();
+	for (let attempt = 0; attempt < 3; attempt += 1) {
+		try {
+			await mkdir(lockPath);
+			try {
+				await writeFile(join(lockPath, "owner"), `${lockToken}\n`, {
+					flag: "wx",
+				});
+			} catch (error) {
+				await rm(lockPath, { force: true, recursive: true });
+				throw error;
+			}
+			return lockToken;
+		} catch (error) {
+			if (!isAlreadyExistsError(error)) throw error;
+		}
+
+		let lockStats: Awaited<ReturnType<typeof lstat>>;
+		try {
+			lockStats = await lstat(lockPath);
+		} catch (error) {
+			if (isNotFoundError(error)) continue;
+			throw error;
+		}
+		if (Date.now() - lockStats.mtimeMs < CLONE_LOCK_TTL_MS) {
+			throw new CloneInProgressError(destination);
+		}
+
+		const stalePath = `${lockPath}.stale-${randomUUID()}`;
+		try {
+			await rename(lockPath, stalePath);
+		} catch (error) {
+			if (isNotFoundError(error)) continue;
+			throw error;
+		}
+
+		try {
+			await mkdir(lockPath);
+			try {
+				await writeFile(join(lockPath, "owner"), `${lockToken}\n`, {
+					flag: "wx",
+				});
+			} catch (error) {
+				await rm(lockPath, { force: true, recursive: true });
+				throw error;
+			}
+			await rm(stalePath, { force: true, recursive: true });
+			return lockToken;
+		} catch (error) {
+			await rm(stalePath, { force: true, recursive: true });
+			if (isAlreadyExistsError(error)) continue;
+			throw error;
+		}
+	}
+
+	throw new CloneInProgressError(destination);
+}
+
+async function publishCloneContents(
+	temporaryDestination: string,
+	destination: string,
+): Promise<void> {
 	try {
-		await lstat(path);
-		return true;
+		await mkdir(destination);
 	} catch (error) {
-		if (isNotFoundError(error)) return false;
+		if (isAlreadyExistsError(error)) {
+			throw new CloneDestinationExistsError(destination);
+		}
+		throw error;
+	}
+
+	try {
+		const entries = await readdir(temporaryDestination, {
+			withFileTypes: true,
+		});
+		for (const entry of entries) {
+			await rename(
+				join(temporaryDestination, entry.name),
+				join(destination, entry.name),
+			);
+		}
+	} catch (error) {
+		await rm(destination, { force: true, recursive: true });
+		if (isAlreadyExistsError(error)) {
+			throw new CloneDestinationExistsError(destination);
+		}
 		throw error;
 	}
 }
 
-function isNotFoundError(error: unknown): boolean {
-	return (
-		error instanceof Error &&
-		"code" in error &&
-		(error as NodeJS.ErrnoException).code === "ENOENT"
-	);
+function startLockHeartbeat(lockPath: string, lockToken: string): () => void {
+	const timer = setInterval(() => {
+		void refreshCloneLock(lockPath, lockToken);
+	}, CLONE_LOCK_TTL_MS / 3);
+	timer.unref?.();
+	return () => clearInterval(timer);
 }
 
-function isAlreadyExistsError(error: unknown): boolean {
-	return (
-		error instanceof Error &&
-		"code" in error &&
-		(error as NodeJS.ErrnoException).code === "EEXIST"
-	);
-}
-
-async function acquireCloneLock(
+async function refreshCloneLock(
 	lockPath: string,
-	destination: string,
+	lockToken: string,
 ): Promise<void> {
 	try {
-		await mkdir(lockPath);
-		return;
-	} catch (error) {
-		if (!isAlreadyExistsError(error)) throw error;
+		const owner = (await readFile(join(lockPath, "owner"), "utf8")).trim();
+		if (owner === lockToken) {
+			const now = new Date();
+			await utimes(lockPath, now, now);
+		}
+	} catch {
+		// Lock refresh is advisory; the owner check prevents touching a replacement lock.
 	}
+}
 
+async function releaseCloneLock(
+	lockPath: string,
+	lockToken: string,
+): Promise<void> {
 	try {
-		const lockStats = await lstat(lockPath);
-		if (Date.now() - lockStats.mtimeMs >= CLONE_LOCK_TTL_MS) {
+		const owner = (await readFile(join(lockPath, "owner"), "utf8")).trim();
+		if (owner === lockToken) {
 			await rm(lockPath, { force: true, recursive: true });
-			await mkdir(lockPath);
-			return;
 		}
 	} catch (error) {
 		if (!isNotFoundError(error)) throw error;
 	}
-
-	throw new CloneInProgressError(destination);
 }
 
 function isUnsupportedCloneError(error: unknown): boolean {
@@ -281,7 +377,7 @@ function isUnsupportedCloneError(error: unknown): boolean {
 		return true;
 	}
 
-	return /clonefile|reflink|unsupported|operation not supported|not supported/iu.test(
+	return /clonefile|reflink|unsupported|operation not supported|not supported|invalid cross-device|cross-device/iu.test(
 		error.message,
 	);
 }

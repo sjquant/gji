@@ -1,7 +1,5 @@
-import { spawn } from "node:child_process";
-
 import { isCancel, select } from "@clack/prompts";
-
+import { runCommand } from "./command-runner.js";
 import {
 	type GjiConfig,
 	loadConfig,
@@ -144,35 +142,7 @@ export async function maybeRunInstallPrompt(
 	}
 }
 
-export async function runInstallCommand(
-	command: string,
-	cwd: string,
-	stderr: (chunk: string) => void,
-): Promise<void> {
-	await new Promise<void>((resolve, reject) => {
-		const child = spawn(command, {
-			cwd,
-			shell: true,
-			stdio: ["ignore", "inherit", "pipe"],
-		});
-
-		(child.stderr as NodeJS.ReadableStream).on("data", (chunk: Buffer) => {
-			stderr(chunk.toString());
-		});
-
-		child.on("close", (code) => {
-			if (code !== 0) {
-				reject(new Error(`exited with code ${code}`));
-			} else {
-				resolve();
-			}
-		});
-
-		child.on("error", (err) => {
-			reject(err);
-		});
-	});
-}
+export const runInstallCommand = runCommand;
 
 async function defaultWriteConfigKey(
 	root: string,

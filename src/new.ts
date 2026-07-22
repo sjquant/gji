@@ -5,6 +5,10 @@ import { promisify } from "node:util";
 import { isCancel, text } from "@clack/prompts";
 import { createBootstrapReporter } from "./bootstrap-output.js";
 import {
+	createDependencyBootstrapPreview,
+	formatDependencyBootstrapPreview,
+} from "./bootstrap-preview.js";
+import {
 	type EffectiveGjiConfig,
 	loadEffectiveConfig,
 	resolveConfigString,
@@ -14,10 +18,6 @@ import {
 	pathExists,
 	promptForPathConflict,
 } from "./conflict.js";
-import {
-	prepareDependencyBootstrap,
-	previewDependencyBootstrap,
-} from "./dependency-bootstrap.js";
 import { type CloneDirectory, cloneDir } from "./dir-clone.js";
 import { defaultSpawnEditor, EDITORS } from "./editor.js";
 import { isHeadless } from "./headless.js";
@@ -282,13 +282,14 @@ export function createNewCommand(
 				worktreePath,
 				config.syncDirs ?? [],
 			);
-			const dryRunDependencyBootstrap = previewDependencyBootstrap(
-				await prepareDependencyBootstrap(config.dependencyBootstrap ?? "off", {
+			const dryRunDependencyBootstrap = await createDependencyBootstrapPreview(
+				config.dependencyBootstrap ?? "off",
+				{
 					currentRoot: repository.currentRoot,
 					repoRoot: repository.repoRoot,
 					cargoBuildCommand: config.dependencyBuildCommand,
 					worktreePath,
-				}),
+				},
 			);
 			if (options.json) {
 				const output: Record<string, unknown> = {
@@ -444,12 +445,14 @@ export function createNewCommand(
 			nonInteractive: !!options.json,
 			repoRoot: repository.repoRoot,
 			reporter: createBootstrapReporter(options.stderr, !!options.json),
+			runCommand: dependencies.runInstallCommand,
 			worktreePath,
 			installDependencies: dependencies,
 		});
 		if (!bootstrap.ready) {
 			return emitNewError(options, "dependency bootstrap failed", {
 				dependencyBootstrap: bootstrap.dependencyBootstrap,
+				path: worktreePath,
 				skipped: bootstrap.skippedDirs,
 			});
 		}
@@ -950,23 +953,6 @@ async function restoreTakeStash(
 		);
 	}
 }
-function formatDependencyBootstrapPreview(preview: {
-	targets: readonly { adapter: string; target: string; strategy: string }[];
-}): string {
-	return preview.targets
-		.map(
-			({ adapter, target, strategy }) =>
-				`Would ${formatBootstrapStrategy(strategy)} ${target} with ${adapter}\n`,
-		)
-		.join("");
-}
-
-function formatBootstrapStrategy(strategy: string): string {
-	if (strategy === "cow-then-repair") return "seed and repair";
-	if (strategy === "repair-only") return "repair";
-	return "install";
-}
-
 function emitNewError(
 	options: NewCommandOptions,
 	message: string,
@@ -976,6 +962,14 @@ function emitNewError(
 		options.stderr(
 			`${JSON.stringify({ error: message, ...details }, null, 2)}\n`,
 		);
-	else options.stderr(`gji new: ${message}\n`);
+	else {
+		const path = typeof details?.path === "string" ? details.path : undefined;
+		options.stderr(`gji new: ${message}${path ? ` at ${path}` : ""}\n`);
+		if (path) {
+			options.stderr(
+				`Hint: inspect the worktree or remove it with 'gji done ${path}' before retrying\n`,
+			);
+		}
+	}
 	return 1;
 }

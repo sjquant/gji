@@ -1,4 +1,12 @@
-import { mkdir, mkdtemp, readdir, readFile, writeFile } from "node:fs/promises";
+import {
+	mkdir,
+	mkdtemp,
+	readdir,
+	readFile,
+	rm,
+	utimes,
+	writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -131,6 +139,30 @@ describe("cloneDir", () => {
 		expect(commandCalled).toBe(false);
 	});
 
+	it("does not publish over a destination that appears during cloning", async () => {
+		// Given a destination that is created after the initial preflight check.
+		const root = await mkdtemp(join(tmpdir(), "gji-dir-clone-publish-race-"));
+		const source = join(root, "source");
+		const destination = join(root, "destination");
+		await mkdir(source);
+
+		// When another writer publishes the destination before clone publication.
+		const error = await cloneDir(source, destination, {
+			platform: "linux",
+			runCommand: async (_command, args) => {
+				await mkdir(args.at(-1) as string);
+				await mkdir(destination);
+				await writeFile(join(destination, "sentinel"), "keep\n", "utf8");
+			},
+		}).catch((caught) => caught);
+		expect(isCloneDestinationExistsError(error)).toBe(true);
+
+		// Then the appearing destination remains untouched.
+		await expect(readFile(join(destination, "sentinel"), "utf8")).resolves.toBe(
+			"keep\n",
+		);
+	});
+
 	it("skips unsupported filesystems without creating a destination", async () => {
 		// Given a source directory on an unsupported platform.
 		const root = await mkdtemp(join(tmpdir(), "gji-dir-clone-"));
@@ -164,6 +196,48 @@ describe("cloneDir", () => {
 		expect(isCloneInProgressError(error)).toBe(true);
 		expect(isCloneDestinationExistsError(error)).toBe(false);
 		await expect(readdir(root)).resolves.toContain("source");
+	});
+
+	it("reclaims an abandoned clone lock without leaving the replacement lock behind", async () => {
+		// Given an old lock for an absent destination.
+		const root = await mkdtemp(join(tmpdir(), "gji-dir-clone-stale-lock-"));
+		const source = join(root, "source");
+		const destination = join(root, "destination");
+		await mkdir(source);
+		const lockPath = `${destination}.gji-clone-lock`;
+		await mkdir(lockPath);
+		await utimes(lockPath, new Date(0), new Date(0));
+
+		// When a new clone takes over the abandoned lock.
+		await cloneDir(source, destination, {
+			platform: "linux",
+			runCommand: async (_command, args) => {
+				await mkdir(args.at(-1) as string);
+			},
+		});
+
+		// Then the clone succeeds and only its destination remains.
+		await expect(readdir(root)).resolves.toEqual(["destination", "source"]);
+	});
+
+	it("reports an unavailable size instead of a false zero", async () => {
+		// Given a clone operation whose source disappears before optional measurement.
+		const root = await mkdtemp(join(tmpdir(), "gji-dir-clone-size-error-"));
+		const source = join(root, "source");
+		const destination = join(root, "destination");
+		await mkdir(source);
+
+		// When cloning completes but size measurement cannot read the source.
+		const result = await cloneDir(source, destination, {
+			platform: "linux",
+			runCommand: async (_command, args) => {
+				await mkdir(args.at(-1) as string);
+				await rm(source, { force: true, recursive: true });
+			},
+		});
+
+		// Then the result distinguishes an unknown size from a zero-byte directory.
+		expect(result.bytes).toBeUndefined();
 	});
 
 	it("never falls back to an ordinary copy on the default platform", async () => {

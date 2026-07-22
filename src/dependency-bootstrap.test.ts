@@ -11,6 +11,7 @@ import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
+import { cloneFailureScope } from "./clone-failure-store.js";
 import {
 	executeDependencyBootstrap,
 	prepareDependencyBootstrap,
@@ -24,13 +25,18 @@ import {
 function createFailureStore() {
 	const failures = new Set<string>();
 	return {
-		isCached: async (repoRoot: string, directory: string) =>
-			failures.has(`${repoRoot}:${directory}`),
-		cache: async (repoRoot: string, directory: string) => {
-			failures.add(`${repoRoot}:${directory}`);
+		isCached: async (repoRoot: string, directory: string, scope?: string) =>
+			failures.has(`${repoRoot}:${directory}:${scope ?? ""}`),
+		cache: async (
+			repoRoot: string,
+			directory: string,
+			_reason: string,
+			scope?: string,
+		) => {
+			failures.add(`${repoRoot}:${directory}:${scope ?? ""}`);
 		},
-		clear: async (repoRoot: string, directory: string) => {
-			failures.delete(`${repoRoot}:${directory}`);
+		clear: async (repoRoot: string, directory: string, scope?: string) => {
+			failures.delete(`${repoRoot}:${directory}:${scope ?? ""}`);
 		},
 	};
 }
@@ -93,6 +99,29 @@ describe("dependencyBootstrap adapters", () => {
 				strategy: "install-only",
 			}),
 		]);
+	});
+
+	it("selects one package manager when multiple lockfiles share node_modules", async () => {
+		// Given a repository containing pnpm and npm lockfiles with one dependency target.
+		const repoRoot = await mkdtemp(
+			join(tmpdir(), "gji-bootstrap-multi-manager-repo-"),
+		);
+		const worktreePath = await mkdtemp(
+			join(tmpdir(), "gji-bootstrap-multi-manager-worktree-"),
+		);
+		await writeFile(join(repoRoot, "pnpm-lock.yaml"), "lockfileVersion: '9'\n");
+		await writeFile(join(repoRoot, "package-lock.json"), "{}\n");
+		await mkdir(join(repoRoot, "node_modules"));
+
+		// When the dependency plan is prepared.
+		const plan = await prepareDependencyBootstrap("cow-then-repair", {
+			repoRoot,
+			worktreePath,
+		});
+
+		// Then the highest-priority adapter owns node_modules exclusively.
+		expect(plan.targets).toHaveLength(1);
+		expect(plan.targets[0]?.adapter.name).toBe("pnpm");
 	});
 
 	it("seeds node_modules with CoW and always runs the frozen pnpm repair", async () => {
@@ -204,7 +233,16 @@ describe("dependencyBootstrap adapters", () => {
 			"fallback",
 			"repaired",
 		]);
-		expect(await failureStore.isCached(repoRoot, "node_modules")).toBe(true);
+		expect(
+			await failureStore.isCached(
+				repoRoot,
+				"node_modules",
+				await cloneFailureScope(
+					join(repoRoot, "node_modules"),
+					join(worktreePath, "node_modules"),
+				),
+			),
+		).toBe(true);
 		void worktreePath;
 	});
 

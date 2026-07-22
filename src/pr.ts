@@ -4,6 +4,10 @@ import { dirname } from "node:path";
 import { promisify } from "node:util";
 import { createBootstrapReporter } from "./bootstrap-output.js";
 import {
+	createDependencyBootstrapPreview,
+	formatDependencyBootstrapPreview,
+} from "./bootstrap-preview.js";
+import {
 	type EffectiveGjiConfig,
 	loadEffectiveConfig,
 	resolveConfigString,
@@ -13,10 +17,6 @@ import {
 	pathExists,
 	promptForPathConflict,
 } from "./conflict.js";
-import {
-	prepareDependencyBootstrap,
-	previewDependencyBootstrap,
-} from "./dependency-bootstrap.js";
 import type { CloneDirectory } from "./dir-clone.js";
 import { isHeadless } from "./headless.js";
 import { recordWorktreeUsage } from "./history.js";
@@ -155,16 +155,14 @@ export function createPrCommand(
 				)
 			: [];
 		const dryRunDependencyBootstrap = options.dryRun
-			? previewDependencyBootstrap(
-					await prepareDependencyBootstrap(
-						config.dependencyBootstrap ?? "off",
-						{
-							currentRoot: repository.currentRoot,
-							repoRoot: repository.repoRoot,
-							cargoBuildCommand: config.dependencyBuildCommand,
-							worktreePath,
-						},
-					),
+			? await createDependencyBootstrapPreview(
+					config.dependencyBootstrap ?? "off",
+					{
+						currentRoot: repository.currentRoot,
+						repoRoot: repository.repoRoot,
+						cargoBuildCommand: config.dependencyBuildCommand,
+						worktreePath,
+					},
 				)
 			: undefined;
 
@@ -233,12 +231,14 @@ export function createPrCommand(
 			nonInteractive: !!options.json,
 			repoRoot: repository.repoRoot,
 			reporter: createBootstrapReporter(options.stderr, !!options.json),
+			runCommand: dependencies.runInstallCommand,
 			worktreePath,
 			installDependencies: dependencies,
 		});
 		if (!bootstrap.ready) {
 			const details = {
 				dependencyBootstrap: bootstrap.dependencyBootstrap,
+				path: worktreePath,
 				skipped: bootstrap.skippedDirs,
 			};
 			if (options.json) {
@@ -246,7 +246,12 @@ export function createPrCommand(
 					`${JSON.stringify({ error: "dependency bootstrap failed", ...details }, null, 2)}\n`,
 				);
 			} else {
-				options.stderr("gji pr: dependency bootstrap failed\n");
+				options.stderr(
+					`gji pr: dependency bootstrap failed at ${worktreePath}\n`,
+				);
+				options.stderr(
+					`Hint: inspect the worktree or remove it with 'gji done ${worktreePath}' before retrying\n`,
+				);
 			}
 			return 1;
 		}
@@ -373,30 +378,4 @@ async function writeOutput(
 	outputEnv: string | undefined,
 ): Promise<void> {
 	await writeShellOutput(outputEnv ?? PR_OUTPUT_FILE_ENV, worktreePath, stdout);
-}
-
-function formatDependencyBootstrapPreview(
-	preview:
-		| {
-				targets: readonly {
-					adapter: string;
-					target: string;
-					strategy: string;
-				}[];
-		  }
-		| undefined,
-): string {
-	if (!preview) return "";
-	return preview.targets
-		.map(
-			({ adapter, target, strategy }) =>
-				`Would ${formatBootstrapStrategy(strategy)} ${target} with ${adapter}\n`,
-		)
-		.join("");
-}
-
-function formatBootstrapStrategy(strategy: string): string {
-	if (strategy === "cow-then-repair") return "seed and repair";
-	if (strategy === "repair-only") return "repair";
-	return "install";
 }

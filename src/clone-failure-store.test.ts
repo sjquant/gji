@@ -1,4 +1,4 @@
-import { mkdtemp, readFile } from "node:fs/promises";
+import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -56,5 +56,46 @@ describe("FileCloneFailureStore", () => {
 		// Then a failure from one source/filesystem scope does not suppress another.
 		expect(sameScope).toBe(true);
 		expect(differentScope).toBe(false);
+	});
+
+	it("does not reuse expired failures", async () => {
+		// Given an isolated state file containing a failure older than the cache TTL.
+		const root = await mkdtemp(join(tmpdir(), "gji-state-expired-"));
+		process.env.GJI_CONFIG_DIR = root;
+		await writeFile(
+			join(root, "state.json"),
+			JSON.stringify({
+				syncDirs: {
+					"/repo": {
+						node_modules: {
+							failedAt: Date.now() - 2 * 24 * 60 * 60 * 1000,
+							reason: "unsupported",
+						},
+					},
+				},
+			}),
+			"utf8",
+		);
+		const store = new FileCloneFailureStore();
+
+		// When the expired entry is queried.
+		const cached = await store.isCached("/repo", "node_modules");
+
+		// Then the expired failure no longer suppresses a clone attempt.
+		expect(cached).toBe(false);
+	});
+
+	it("treats malformed state as an empty cache", async () => {
+		// Given an isolated state file containing invalid JSON.
+		const root = await mkdtemp(join(tmpdir(), "gji-state-malformed-"));
+		process.env.GJI_CONFIG_DIR = root;
+		await writeFile(join(root, "state.json"), "not-json", "utf8");
+		const store = new FileCloneFailureStore();
+
+		// When the malformed cache is queried.
+		const cached = await store.isCached("/repo", "node_modules");
+
+		// Then cache corruption remains advisory and does not block setup.
+		expect(cached).toBe(false);
 	});
 });
