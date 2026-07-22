@@ -3,11 +3,13 @@ import { isAbsolute, join, relative, resolve, sep } from "node:path";
 
 import { validateSyncDirPattern } from "./config.js";
 import { directorySize } from "./dir-clone.js";
-import { isNotDirectoryError, isNotFoundError } from "./fs-utils.js";
+import { isNotFoundError } from "./fs-utils.js";
+import { inspectDestination } from "./safe-destination.js";
 
 export interface SyncDirectoryPlan {
 	directory: string;
 	destination: string;
+	worktreePath: string;
 	destinationWasPresent: boolean;
 	destinationWarning?: string;
 	source?: string;
@@ -35,17 +37,16 @@ export async function prepareSyncDirectoryPlan(
 			worktreePath,
 			destination,
 		);
-		const destinationWasPresent = destinationState === "exists";
+		const destinationWasPresent = destinationState.kind === "exists";
 		const destinationWarning =
-			destinationState === "blocked"
-				? "destination has a non-directory ancestor"
-				: undefined;
+			destinationState.kind === "unsafe" ? destinationState.reason : undefined;
 		try {
 			const source = await resolveSyncDirectorySource(repoRoot, directory);
 			if (!source) {
 				plan.push({
 					directory,
 					destination,
+					worktreePath,
 					destinationWasPresent,
 					destinationWarning,
 				});
@@ -53,6 +54,7 @@ export async function prepareSyncDirectoryPlan(
 				plan.push({
 					directory,
 					destination,
+					worktreePath,
 					destinationWasPresent,
 					destinationWarning,
 					warning: source.warning,
@@ -61,6 +63,7 @@ export async function prepareSyncDirectoryPlan(
 				plan.push({
 					directory,
 					destination,
+					worktreePath,
 					destinationWasPresent,
 					destinationWarning,
 					source: source.path,
@@ -70,6 +73,7 @@ export async function prepareSyncDirectoryPlan(
 			plan.push({
 				directory,
 				destination,
+				worktreePath,
 				destinationWasPresent,
 				destinationWarning,
 				warning: `could not inspect ${directory}: ${toErrorMessage(error)}`,
@@ -172,48 +176,6 @@ function isPathInside(parent: string, child: string): boolean {
 		relativePath !== ".." &&
 		!relativePath.startsWith(`..${sep}`)
 	);
-}
-
-async function inspectDestination(
-	root: string,
-	path: string,
-): Promise<"exists" | "missing" | "blocked"> {
-	const relativePath = relative(resolve(root), resolve(path));
-	if (
-		isAbsolute(relativePath) ||
-		relativePath === ".." ||
-		relativePath.startsWith(`..${sep}`)
-	) {
-		return "blocked";
-	}
-
-	let current = resolve(root);
-	const segments = relativePath.split(sep).filter(Boolean);
-	for (const [index, segment] of segments.entries()) {
-		current = join(current, segment);
-		try {
-			const stats = await lstat(current);
-			if (index < segments.length - 1) {
-				if (stats.isSymbolicLink() || !stats.isDirectory()) return "blocked";
-			} else {
-				return "exists";
-			}
-		} catch (error) {
-			if (isNotFoundError(error)) return "missing";
-			if (isNotDirectoryError(error)) return "blocked";
-			throw error;
-		}
-	}
-
-	try {
-		const stats = await lstat(current);
-		return stats.isSymbolicLink() || !stats.isDirectory()
-			? "blocked"
-			: "exists";
-	} catch (error) {
-		if (isNotFoundError(error)) return "missing";
-		throw error;
-	}
 }
 
 function toErrorMessage(error: unknown): string {

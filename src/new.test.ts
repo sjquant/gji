@@ -1064,6 +1064,39 @@ describe("gji new", () => {
 			});
 		});
 
+		it("suppresses dependency stderr in JSON mode", async () => {
+			// Given an install-only dependency bootstrap that writes raw command stderr.
+			const repoRoot = await createRepository();
+			await writeFile(join(repoRoot, "package-lock.json"), "{}\n", "utf8");
+			await writeFile(
+				join(repoRoot, ".gji.json"),
+				JSON.stringify({ dependencyBootstrap: "install-only" }),
+				"utf8",
+			);
+			const stdout: string[] = [];
+			const stderr: string[] = [];
+
+			// When gji new executes the command in JSON mode.
+			const result = await createNewCommand({
+				runInstallCommand: async (_command, _cwd, writeStderr) => {
+					writeStderr("raw package-manager warning\n");
+				},
+			})({
+				branch: "feature/bootstrap-json-stderr",
+				cwd: repoRoot,
+				json: true,
+				stderr: (chunk) => stderr.push(chunk),
+				stdout: (chunk) => stdout.push(chunk),
+			});
+
+			// Then stdout is valid JSON and stderr contains no raw dependency output.
+			expect(result).toBe(0);
+			expect(JSON.parse(stdout.join(""))).toMatchObject({
+				dependencyBootstrap: { ready: true },
+			});
+			expect(stderr).toEqual([]);
+		});
+
 		it("reports skipped generic syncDirs outcomes in JSON output", async () => {
 			// Given a configured directory whose source does not exist.
 			const repoRoot = await createRepository();

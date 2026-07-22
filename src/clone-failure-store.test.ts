@@ -1,4 +1,11 @@
-import { mkdtemp, readFile, writeFile } from "node:fs/promises";
+import {
+	access,
+	mkdir,
+	mkdtemp,
+	readFile,
+	utimes,
+	writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -115,5 +122,23 @@ describe("FileCloneFailureStore", () => {
 		// Then neither update is lost.
 		await expect(first.isCached("/repo", "node_modules")).resolves.toBe(true);
 		await expect(first.isCached("/repo", ".venv")).resolves.toBe(true);
+	});
+
+	it("reclaims a stale lock without deleting a replacement lock", async () => {
+		// Given a stale state lock left by an interrupted process.
+		const root = await mkdtemp(join(tmpdir(), "gji-state-stale-lock-"));
+		process.env.GJI_CONFIG_DIR = root;
+		const lockPath = join(root, "state.json.lock");
+		await mkdir(lockPath);
+		await writeFile(join(lockPath, "owner"), "old-owner\n", "utf8");
+		await utimes(lockPath, new Date(0), new Date(0));
+
+		// When a new store records a failure.
+		const store = new FileCloneFailureStore();
+		await store.cache("/repo", "node_modules", "unsupported");
+
+		// Then the update succeeds and the stale lock is gone.
+		await expect(store.isCached("/repo", "node_modules")).resolves.toBe(true);
+		await expect(access(lockPath)).rejects.toMatchObject({ code: "ENOENT" });
 	});
 });

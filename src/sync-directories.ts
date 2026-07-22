@@ -1,4 +1,3 @@
-import { lstat } from "node:fs/promises";
 import {
 	type CloneFailureStore,
 	cloneFailureScope,
@@ -14,7 +13,7 @@ import {
 	isCloneInProgressError,
 	isCloneUnsupportedError,
 } from "./dir-clone.js";
-import { isNotDirectoryError, isNotFoundError } from "./fs-utils.js";
+import { inspectDestination } from "./safe-destination.js";
 import type { SyncDirectoryPlan } from "./sync-plan.js";
 
 export interface ClonedDirectory {
@@ -60,8 +59,11 @@ export async function executeSyncDirectoryPlan(
 			continue;
 		}
 
-		const destinationState = await inspectDestination(entry.destination);
-		if (destinationState === "exists") {
+		const destinationState = await inspectDestination(
+			entry.worktreePath,
+			entry.destination,
+		);
+		if (destinationState.kind === "exists") {
 			recordSkipped(
 				outcomes,
 				options.reporter,
@@ -70,8 +72,8 @@ export async function executeSyncDirectoryPlan(
 			);
 			continue;
 		}
-		if (destinationState === "blocked") {
-			const reason = "destination has a non-directory ancestor";
+		if (destinationState.kind === "unsafe") {
+			const reason = destinationState.reason;
 			recordSkipped(outcomes, options.reporter, entry.directory, reason);
 			continue;
 		}
@@ -129,6 +131,7 @@ export async function executeSyncDirectoryPlan(
 		let result: CloneDirResult;
 		try {
 			const cloneOptions: CloneRequestOptions = {
+				destinationRoot: entry.worktreePath,
 				measureBytes: options.reporter.measureCloneSize,
 			};
 			result = await options.cloneDirectory(
@@ -200,19 +203,6 @@ function recordSkipped(
 	if (notify) {
 		if (reporter.skipped) reporter.skipped({ dir, reason });
 		else reporter.write(`syncDirs: ${reason}, skipped ${dir}\n`);
-	}
-}
-
-async function inspectDestination(
-	path: string,
-): Promise<"exists" | "missing" | "blocked"> {
-	try {
-		await lstat(path);
-		return "exists";
-	} catch (error) {
-		if (isNotFoundError(error)) return "missing";
-		if (isNotDirectoryError(error)) return "blocked";
-		throw error;
 	}
 }
 

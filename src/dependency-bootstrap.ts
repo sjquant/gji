@@ -16,6 +16,7 @@ import {
 	isCloneInProgressError,
 	isCloneUnsupportedError,
 } from "./dir-clone.js";
+import { inspectDestination } from "./safe-destination.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -267,6 +268,21 @@ async function executeBootstrapTarget(
 	reporter: DependencyBootstrapReporter,
 	repoRoot: string,
 ): Promise<void> {
+	const destinationInspection = await inspectDestination(
+		target.worktreePath,
+		target.targetPath,
+	);
+	if (destinationInspection.kind === "unsafe") {
+		recordBootstrapFailure(
+			events,
+			reporter,
+			adapter,
+			target,
+			destinationInspection.reason,
+			"destination-unsafe",
+		);
+		return;
+	}
 	if (mode === "install-only") {
 		await repairTarget(
 			adapter,
@@ -346,6 +362,7 @@ async function executeBootstrapTarget(
 	} else if (seedable) {
 		try {
 			await cloneDirectory(adapter.seedPath(target), target.targetPath, {
+				destinationRoot: target.worktreePath,
 				measureBytes: reporter.measureCloneSize,
 			});
 			await failureStore.clear(repoRoot, target.relativePath, failureScope);
@@ -683,6 +700,10 @@ class LockfileBootstrapAdapter implements BootstrapAdapter {
 
 		const sourcePath = join(context.sourceRoot, this.relativePath);
 		const targetPath = join(context.worktreePath, this.relativePath);
+		const destinationInspection = await inspectDestination(
+			context.worktreePath,
+			targetPath,
+		);
 		const target = {
 			adapter: this.name,
 			kind: this.kind,
@@ -693,7 +714,7 @@ class LockfileBootstrapAdapter implements BootstrapAdapter {
 			targetPath,
 			repairCommand: this.defaultRepairCommand,
 			repairState: this.repairState,
-			existingBeforeBootstrap: await pathExists(targetPath),
+			existingBeforeBootstrap: destinationInspection.kind === "exists",
 		};
 
 		return {

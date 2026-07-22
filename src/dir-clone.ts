@@ -6,7 +6,7 @@ import {
 	lstat,
 	mkdir,
 	mkdtemp,
-	readdir,
+	opendir,
 	readFile,
 	realpath,
 	rename,
@@ -22,10 +22,13 @@ import {
 	isNotFoundError,
 	pathExists,
 } from "./fs-utils.js";
+import { inspectDestination } from "./safe-destination.js";
 
 const execFileAsync = promisify(execFile);
 const CLONE_LOCK_TTL_MS = 24 * 60 * 60 * 1000;
 const CLONE_LOCK_SUFFIX = ".gji-clone-lock";
+const SIZE_ESTIMATE_MAX_ENTRIES = 1_000_000;
+const SIZE_ESTIMATE_MAX_MS = 5_000;
 
 export interface CloneDirResult {
 	bytes?: number;
@@ -33,6 +36,7 @@ export interface CloneDirResult {
 }
 
 export interface CloneRequestOptions {
+	destinationRoot?: string;
 	measureBytes?: boolean;
 }
 
@@ -70,8 +74,25 @@ export async function cloneDir(
 
 	const startedAt = Date.now();
 	const parent = dirname(destination);
-	await assertSafeDestinationParent(parent);
+	if (options.destinationRoot) {
+		const parentInspection = await inspectDestination(
+			options.destinationRoot,
+			parent,
+		);
+		if (parentInspection.kind === "unsafe") {
+			throw new Error(parentInspection.reason);
+		}
+	}
 	await mkdir(parent, { recursive: true });
+	if (options.destinationRoot) {
+		const parentInspection = await inspectDestination(
+			options.destinationRoot,
+			parent,
+		);
+		if (parentInspection.kind === "unsafe") {
+			throw new Error(parentInspection.reason);
+		}
+	}
 	const lockPath = `${destination}${CLONE_LOCK_SUFFIX}`;
 	const lockToken = await acquireCloneLock(lockPath, destination);
 	const stopLockHeartbeat = startLockHeartbeat(lockPath, lockToken);
@@ -192,21 +213,29 @@ export async function directorySize(path: string): Promise<number> {
 
 	const pending = [path];
 	let total = 0;
-	const workerCount = 8;
-	await Promise.all(
-		Array.from({ length: workerCount }, async () => {
-			while (pending.length > 0) {
-				const current = pending.pop();
-				if (!current) continue;
-				const entries = await readdir(current, { withFileTypes: true });
-				for (const entry of entries) {
-					const entryPath = join(current, entry.name);
-					if (entry.isDirectory()) pending.push(entryPath);
-					else total += (await lstat(entryPath)).size;
+	let entryCount = 0;
+	const startedAt = Date.now();
+	while (pending.length > 0) {
+		const current = pending.pop();
+		if (!current) continue;
+		const directory = await opendir(current);
+		try {
+			for await (const entry of directory) {
+				entryCount += 1;
+				if (
+					entryCount > SIZE_ESTIMATE_MAX_ENTRIES ||
+					Date.now() - startedAt > SIZE_ESTIMATE_MAX_MS
+				) {
+					throw new Error("directory size estimate exceeded its safety limit");
 				}
+				const entryPath = join(current, entry.name);
+				if (entry.isDirectory()) pending.push(entryPath);
+				else total += (await lstat(entryPath)).size;
 			}
-		}),
-	);
+		} finally {
+			await directory.close().catch(() => undefined);
+		}
+	}
 
 	return total;
 }
@@ -322,27 +351,6 @@ async function publishCloneContents(
 			throw new CloneDestinationExistsError(destination);
 		}
 		throw error;
-	}
-}
-
-async function assertSafeDestinationParent(parent: string): Promise<void> {
-	let current = parent;
-	while (true) {
-		try {
-			const stats = await lstat(current);
-			if (stats.isSymbolicLink()) {
-				throw new Error(`destination has a symbolic-link ancestor: ${current}`);
-			}
-			if (!stats.isDirectory()) {
-				throw new Error(`destination has a non-directory ancestor: ${current}`);
-			}
-			return;
-		} catch (error) {
-			if (!isNotFoundError(error)) throw error;
-			const next = dirname(current);
-			if (next === current) return;
-			current = next;
-		}
 	}
 }
 

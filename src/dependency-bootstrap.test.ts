@@ -383,6 +383,43 @@ describe("dependencyBootstrap adapters", () => {
 		expect(result.events[0]?.state).toBe("fallback");
 	});
 
+	it("fails safely when a dependency destination points outside the worktree", async () => {
+		// Given a dependency lockfile and an external node_modules destination.
+		const repoRoot = await mkdtemp(
+			join(tmpdir(), "gji-bootstrap-destination-repo-"),
+		);
+		const external = await mkdtemp(
+			join(tmpdir(), "gji-bootstrap-destination-external-"),
+		);
+		const worktreePath = await mkdtemp(
+			join(tmpdir(), "gji-bootstrap-destination-worktree-"),
+		);
+		await writeFile(join(repoRoot, "pnpm-lock.yaml"), "lock\n");
+		await symlink(external, join(worktreePath, "node_modules"));
+		const plan = await prepareDependencyBootstrap("cow-then-repair", {
+			repoRoot,
+			worktreePath,
+		});
+		const reporter = createReporter();
+		let repairCalled = false;
+
+		// When dependency bootstrap evaluates and executes the unsafe target.
+		const result = await executeDependencyBootstrap(plan, {
+			failureStore: createFailureStore(),
+			repoRoot,
+			reporter,
+			runCommand: async () => {
+				repairCalled = true;
+			},
+		});
+
+		// Then setup fails without invoking the repair command or touching the external directory.
+		expect(result.ready).toBe(false);
+		expect(repairCalled).toBe(false);
+		expect(result.events.at(-1)?.reason).toBe("destination-unsafe");
+		expect(await access(external)).toBeUndefined();
+	});
+
 	it("clones a compatible uv environment and repairs it with locked sync", async () => {
 		// Given a uv lockfile and a virtual environment with a compatible interpreter fingerprint.
 		const repoRoot = await mkdtemp(join(tmpdir(), "gji-bootstrap-uv-repo-"));

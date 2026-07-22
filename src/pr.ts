@@ -233,6 +233,8 @@ export function createPrCommand(
 			reporter: createBootstrapReporter(options.stderr, !!options.json),
 			runCommand: dependencies.runInstallCommand,
 			commandStdout: options.json ? () => undefined : options.stdout,
+			commandStderr: options.json ? () => undefined : options.stderr,
+			json: options.json,
 			worktreePath,
 			installDependencies: dependencies,
 		});

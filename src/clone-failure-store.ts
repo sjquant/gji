@@ -120,17 +120,12 @@ export class FileCloneFailureStore implements CloneFailureStore {
 
 	private async withStateLock(operation: () => Promise<void>): Promise<void> {
 		const lockPath = `${this.stateFilePath()}${STATE_LOCK_SUFFIX}`;
-		const locked = await acquireStateLock(lockPath);
-		if (!locked) {
-			await operation();
-			return;
-		}
+		const lockToken = await acquireStateLock(lockPath);
+		if (lockToken === undefined) return;
 		try {
 			await operation();
 		} finally {
-			await rm(lockPath, { force: true, recursive: true }).catch(
-				() => undefined,
-			);
+			await releaseStateLock(lockPath, lockToken);
 		}
 	}
 
@@ -181,13 +176,13 @@ export class FileCloneFailureStore implements CloneFailureStore {
 	}
 }
 
-async function acquireStateLock(lockPath: string): Promise<boolean> {
+async function acquireStateLock(lockPath: string): Promise<string | undefined> {
+	const lockToken = randomUUID();
 	for (let attempt = 0; attempt < 200; attempt += 1) {
 		try {
 			await mkdir(lockPath);
-			return true;
 		} catch (error) {
-			if (!isErrorCode(error, "EEXIST")) return false;
+			if (!isErrorCode(error, "EEXIST")) return undefined;
 			try {
 				const lockStats = await stat(lockPath);
 				if (Date.now() - lockStats.mtimeMs >= STATE_LOCK_TTL_MS) {
@@ -195,12 +190,38 @@ async function acquireStateLock(lockPath: string): Promise<boolean> {
 					continue;
 				}
 			} catch (lockError) {
-				if (!isErrorCode(lockError, "ENOENT")) return false;
+				if (!isErrorCode(lockError, "ENOENT")) return undefined;
 			}
 			await new Promise((resolve) => setTimeout(resolve, 25));
+			continue;
+		}
+		try {
+			await writeFile(join(lockPath, "owner"), `${lockToken}\n`, {
+				flag: "wx",
+			});
+			return lockToken;
+		} catch {
+			await rm(lockPath, { force: true, recursive: true }).catch(
+				() => undefined,
+			);
+			return undefined;
 		}
 	}
-	return false;
+	return undefined;
+}
+
+async function releaseStateLock(
+	lockPath: string,
+	lockToken: string,
+): Promise<void> {
+	try {
+		const owner = (await readFile(join(lockPath, "owner"), "utf8")).trim();
+		if (owner === lockToken) {
+			await rm(lockPath, { force: true, recursive: true });
+		}
+	} catch (error) {
+		if (!isErrorCode(error, "ENOENT")) return;
+	}
 }
 
 export const defaultCloneFailureStore: CloneFailureStore =

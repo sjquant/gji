@@ -28,11 +28,13 @@ describe("cloneDir", () => {
 		const destination = join(root, "destination");
 		await mkdir(source);
 		await writeFile(join(source, "package.json"), "{}\n", "utf8");
+		let cloneArgs: string[] = [];
 
 		// When cloneDir runs the injected platform command.
 		const result = await cloneDir(source, destination, {
 			platform: "linux",
 			runCommand: async (_command, args) => {
+				cloneArgs = args;
 				const temporaryDestination = args.at(-1) as string;
 				await mkdir(temporaryDestination);
 				await writeFile(
@@ -45,6 +47,7 @@ describe("cloneDir", () => {
 
 		// Then the final destination contains the clone and no temporary sibling remains.
 		expect(result.bytes).toBeGreaterThan(0);
+		expect(cloneArgs).toContain("--reflink=always");
 		expect(result.ms).toBeGreaterThanOrEqual(0);
 		await expect(
 			readFile(join(destination, "package.json"), "utf8"),
@@ -177,6 +180,7 @@ describe("cloneDir", () => {
 
 		// When cloneDir is asked to create a nested destination.
 		const error = await cloneDir(source, destination, {
+			destinationRoot: join(root, "worktree"),
 			platform: "linux",
 			runCommand: async () => undefined,
 		}).catch((caught) => caught);

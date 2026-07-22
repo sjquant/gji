@@ -33,6 +33,8 @@ export interface WorktreeBootstrapOptions {
 	installDependencies?: InstallPromptDependencies;
 	runCommand?: BootstrapCommandRunner;
 	commandStdout?: (chunk: string) => void;
+	commandStderr?: (chunk: string) => void;
+	json?: boolean;
 	nonInteractive: boolean;
 	repoRoot: string;
 	reporter: SyncDirectoryReporter & DependencyBootstrapReporter;
@@ -81,7 +83,7 @@ export async function bootstrapWorktree(
 			await syncFiles(options.repoRoot, options.worktreePath, [pattern]);
 		} catch (error) {
 			const message = `failed to sync file "${pattern}": ${toErrorMessage(error)}`;
-			options.reporter.write(`Warning: ${message}\n`);
+			if (!options.json) options.reporter.write(`Warning: ${message}\n`);
 			syncFileFailures.push({
 				adapter: "syncFiles",
 				kind: "sync-file",
@@ -104,7 +106,7 @@ export async function bootstrapWorktree(
 					cloneDirectory: options.cloneDirectory,
 					repoRoot: options.repoRoot,
 					reporter: options.reporter,
-					stderr: options.reporter.write,
+					stderr: options.commandStderr ?? options.reporter.write,
 					stdout: options.commandStdout,
 					seededDirectories: clonedDirs.map(({ dir }) => dir),
 					runCommand: options.runCommand,
