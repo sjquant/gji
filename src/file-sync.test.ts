@@ -1,4 +1,11 @@
-import { mkdtemp, readFile, stat, writeFile } from "node:fs/promises";
+import {
+	mkdir,
+	mkdtemp,
+	readFile,
+	stat,
+	symlink,
+	writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -105,6 +112,23 @@ describe("syncFiles", () => {
 		// Then — the ignored file is copied regardless of .gitignore
 		const content = await readFile(join(targetPath, ".env"), "utf8");
 		expect(content).toBe("SECRET=abc\n");
+	});
+
+	it("rejects a symlinked destination parent", async () => {
+		// Given a source file and a destination parent that points outside the worktree.
+		const mainRoot = await makeTmpDir();
+		const targetPath = await makeTmpDir();
+		const outsidePath = await makeTmpDir();
+		await mkdir(join(mainRoot, "nested"), { recursive: true });
+		await writeFile(join(mainRoot, "nested/config.json"), "{}", "utf8");
+		await symlink(outsidePath, join(targetPath, "nested"));
+
+		// When syncFiles processes the nested file.
+		const result = syncFiles(mainRoot, targetPath, ["nested/config.json"]);
+
+		// Then it refuses to write through the symlink.
+		await expect(result).rejects.toThrow("symbolic-link component");
+		await expect(stat(join(outsidePath, "config.json"))).rejects.toThrow();
 	});
 
 	it("handles an empty patterns array without error", async () => {

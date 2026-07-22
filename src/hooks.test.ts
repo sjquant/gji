@@ -206,6 +206,26 @@ describe("runHook", () => {
 		expect(stderr).toEqual([]);
 	});
 
+	it("forwards hook stdout through the provided callback", async () => {
+		// Given a hook that writes to stdout and separate output collectors.
+		const dir = await mkdtemp(join(tmpdir(), "gji-hooks-"));
+		const stderr: string[] = [];
+		const stdout: string[] = [];
+
+		// When runHook executes the command.
+		await runHook(
+			"printf 'hook output'",
+			dir,
+			{ path: dir, repo: "r" },
+			(chunk) => stderr.push(chunk),
+			(chunk) => stdout.push(chunk),
+		);
+
+		// Then stdout is captured separately from stderr.
+		expect(stdout.join("")).toBe("hook output");
+		expect(stderr).toEqual([]);
+	});
+
 	it("executes an argv command in the given cwd", async () => {
 		// Given a temporary directory and an argv hook that writes a marker file.
 		const dir = await mkdtemp(join(tmpdir(), "gji-hooks-"));

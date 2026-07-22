@@ -142,6 +142,9 @@ export async function bootstrapWorktree(
 			repo: basename(options.repoRoot),
 		},
 		options.reporter.write,
+		options.json
+			? () => undefined
+			: (options.commandStdout ?? ((chunk) => process.stdout.write(chunk))),
 	);
 
 	return { clonedDirs, dependencyBootstrap, ready: true, skippedDirs };

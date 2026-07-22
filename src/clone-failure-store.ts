@@ -6,6 +6,7 @@ import {
 	rename,
 	rm,
 	stat,
+	utimes,
 	writeFile,
 } from "node:fs/promises";
 import { homedir } from "node:os";
@@ -122,9 +123,11 @@ export class FileCloneFailureStore implements CloneFailureStore {
 		const lockPath = `${this.stateFilePath()}${STATE_LOCK_SUFFIX}`;
 		const lockToken = await acquireStateLock(lockPath);
 		if (lockToken === undefined) return;
+		const stopHeartbeat = startStateLockHeartbeat(lockPath, lockToken);
 		try {
 			await operation();
 		} finally {
+			stopHeartbeat();
 			await releaseStateLock(lockPath, lockToken);
 		}
 	}
@@ -208,6 +211,32 @@ async function acquireStateLock(lockPath: string): Promise<string | undefined> {
 		}
 	}
 	return undefined;
+}
+
+function startStateLockHeartbeat(
+	lockPath: string,
+	lockToken: string,
+): () => void {
+	const timer = setInterval(() => {
+		void refreshStateLock(lockPath, lockToken);
+	}, STATE_LOCK_TTL_MS / 3);
+	timer.unref?.();
+	return () => clearInterval(timer);
+}
+
+async function refreshStateLock(
+	lockPath: string,
+	lockToken: string,
+): Promise<void> {
+	try {
+		const owner = (await readFile(join(lockPath, "owner"), "utf8")).trim();
+		if (owner === lockToken) {
+			const now = new Date();
+			await utimes(lockPath, now, now);
+		}
+	} catch {
+		// The cache is advisory; a failed heartbeat must not block worktree creation.
+	}
 }
 
 async function releaseStateLock(

@@ -1,6 +1,8 @@
 import { copyFile, mkdir, stat } from "node:fs/promises";
 import { dirname, isAbsolute, join, normalize } from "node:path";
 
+import { inspectDestination } from "./safe-destination.js";
+
 /**
  * Copies files matching each pattern (relative to mainRoot) into the equivalent
  * relative path under targetPath, creating parent directories as needed.
@@ -32,7 +34,19 @@ export async function syncFiles(
 			continue;
 		}
 
-		await mkdir(dirname(destPath), { recursive: true });
+		const destinationParent = dirname(destPath);
+		const beforeCreate = await inspectDestination(
+			targetPath,
+			destinationParent,
+		);
+		if (beforeCreate.kind === "unsafe") {
+			throw new Error(beforeCreate.reason);
+		}
+		await mkdir(destinationParent, { recursive: true });
+		const afterCreate = await inspectDestination(targetPath, destinationParent);
+		if (afterCreate.kind === "unsafe") {
+			throw new Error(afterCreate.reason);
+		}
 		await copyFile(sourcePath, destPath);
 	}
 }
