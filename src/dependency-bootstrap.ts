@@ -61,6 +61,25 @@ export interface BootstrapTarget {
 	existingBeforeBootstrap: boolean;
 }
 
+export type BootstrapTargetOwnership =
+	| "adapter"
+	| "syncDirs"
+	| "empty"
+	| "preserve";
+
+export interface BootstrapRepairFailureContext {
+	target: BootstrapTarget;
+	ownership: BootstrapTargetOwnership;
+	targetExistedBeforeRepair: boolean;
+}
+
+export interface BootstrapOutputMetadata {
+	adapter: string;
+	kind: BootstrapKind;
+	target: string;
+	repairCommand: string;
+}
+
 export interface BootstrapAdapter {
 	readonly kind: BootstrapKind;
 	readonly lockfile: string;
@@ -73,6 +92,13 @@ export interface BootstrapAdapter {
 		context: BootstrapExecutionContext,
 	): Promise<void>;
 	canSeed(target: BootstrapTarget): Promise<boolean>;
+	output(target: BootstrapTarget): BootstrapOutputMetadata;
+	shouldRetryAfterRepairFailure(
+		context: BootstrapRepairFailureContext,
+	): boolean;
+	cleanupAfterRepairFailure(
+		context: BootstrapRepairFailureContext,
+	): Promise<void>;
 }
 
 export interface DependencyBootstrapPlan {
@@ -227,9 +253,9 @@ export function previewDependencyBootstrap(
 	return {
 		mode: plan.mode,
 		targets: plan.targets.map(({ adapter, target, seedable }) => ({
-			adapter: adapter.name,
+			adapter: adapter.output(target).adapter,
 			kind: adapter.kind,
-			target: target.relativePath,
+			target: adapter.output(target).target,
 			repairCommand: target.repairCommand,
 			seedable,
 			strategy: bootstrapStrategy(plan.mode, target, seedable),
@@ -484,8 +510,6 @@ async function executeBootstrapTarget(
 	);
 }
 
-type BootstrapTargetOwnership = "adapter" | "syncDirs" | "empty" | "preserve";
-
 async function repairTarget(
 	adapter: BootstrapAdapter,
 	target: BootstrapTarget,
@@ -523,22 +547,30 @@ async function repairTarget(
 				: "installed or repaired from a clean target",
 		});
 	} catch (firstError) {
-		if (ownership !== "adapter" && ownership !== "syncDirs") {
-			const cleanupError = !presentBeforeRepair
-				? await tryRemoveTarget(target)
-				: undefined;
+		const firstFailureContext = {
+			target,
+			ownership,
+			targetExistedBeforeRepair: presentBeforeRepair,
+		};
+		const cleanupError = await adapter
+			.cleanupAfterRepairFailure(firstFailureContext)
+			.then(() => undefined)
+			.catch((error) => toErrorMessage(error));
+		if (!adapter.shouldRetryAfterRepairFailure(firstFailureContext)) {
 			recordBootstrapFailure(
 				events,
 				reporter,
 				adapter,
 				target,
-				formatRepairFailure(firstError, cleanupError),
+				formatRepairFailure(
+					firstError,
+					cleanupError === undefined ? undefined : cleanupError,
+				),
 				"repair-failed",
 			);
 			return;
 		}
 
-		const cleanupError = await tryRemoveTarget(target);
 		if (cleanupError) {
 			recordBootstrapFailure(
 				events,
@@ -586,9 +618,14 @@ async function repairTarget(
 				message: "installed or repaired from a clean target",
 			});
 		} catch (secondError) {
-			const cleanupError = !presentBeforeRetry
-				? await tryRemoveTarget(target)
-				: undefined;
+			const cleanupError = await adapter
+				.cleanupAfterRepairFailure({
+					target,
+					ownership,
+					targetExistedBeforeRepair: presentBeforeRetry,
+				})
+				.then(() => undefined)
+				.catch((error) => toErrorMessage(error));
 			recordBootstrapFailure(
 				events,
 				reporter,
@@ -628,23 +665,6 @@ function recordBootstrapEvent(
 	reporter.dependency(event);
 }
 
-async function removeTarget(target: BootstrapTarget): Promise<void> {
-	if (!target.existingBeforeBootstrap) {
-		await rm(target.targetPath, { force: true, recursive: true });
-	}
-}
-
-async function tryRemoveTarget(
-	target: BootstrapTarget,
-): Promise<string | undefined> {
-	try {
-		await removeTarget(target);
-		return undefined;
-	} catch (error) {
-		return toErrorMessage(error);
-	}
-}
-
 function formatRepairFailure(
 	error: unknown,
 	cleanupError: string | undefined,
@@ -675,6 +695,7 @@ function createBootstrapAdapters(
 			lockfile: "pnpm-lock.yaml",
 			relativePath: "node_modules",
 			repairCommand: "pnpm install --frozen-lockfile",
+			shell: false,
 			beforeRepair: async (target) => {
 				if (!target.existingBeforeBootstrap) {
 					await rm(join(target.targetPath, ".modules.yaml"), {
@@ -689,6 +710,7 @@ function createBootstrapAdapters(
 			lockfile: "yarn.lock",
 			relativePath: "node_modules",
 			repairCommand: "yarn install --immutable",
+			shell: false,
 		}),
 		new LockfileBootstrapAdapter({
 			name: "npm",
@@ -696,6 +718,7 @@ function createBootstrapAdapters(
 			lockfile: "package-lock.json",
 			relativePath: "node_modules",
 			repairCommand: "npm ci",
+			shell: false,
 			seedPolicy: "never",
 			repairCommandOverride: (target) =>
 				target.existingBeforeBootstrap ? "npm install" : "npm ci",
@@ -707,6 +730,7 @@ function createBootstrapAdapters(
 			lockfile: "Gemfile.lock",
 			relativePath: "vendor/bundle",
 			repairCommand: "bundle install",
+			shell: false,
 			commandOptions: () => ({
 				env: { BUNDLE_PATH: "vendor/bundle" },
 			}),
@@ -717,6 +741,7 @@ function createBootstrapAdapters(
 			lockfile: "uv.lock",
 			relativePath: ".venv",
 			repairCommand: "uv sync --locked",
+			shell: false,
 			canSeedOverride: checkUvRuntime,
 		}),
 		new LockfileBootstrapAdapter({
@@ -725,6 +750,7 @@ function createBootstrapAdapters(
 			lockfile: "Cargo.lock",
 			relativePath: "target",
 			repairCommand: cargoBuildCommand?.trim() || "cargo check",
+			shell: cargoBuildCommand ? undefined : false,
 		}),
 	];
 }
@@ -735,6 +761,7 @@ interface LockfileBootstrapAdapterSpec {
 	lockfile: string;
 	relativePath: string;
 	repairCommand: string;
+	shell?: boolean;
 	seedPolicy?: "always" | "never";
 	canSeedOverride?: (target: BootstrapTarget) => Promise<boolean>;
 	beforeRepair?: (target: BootstrapTarget) => Promise<void>;
@@ -751,6 +778,7 @@ class LockfileBootstrapAdapter implements BootstrapAdapter {
 	readonly name: string;
 	readonly relativePath: string;
 	private readonly defaultRepairCommand: string;
+	private readonly shell?: boolean;
 	private readonly seedPolicy: "always" | "never";
 	private readonly canSeedOverride?: (
 		target: BootstrapTarget,
@@ -768,6 +796,7 @@ class LockfileBootstrapAdapter implements BootstrapAdapter {
 		this.lockfile = spec.lockfile;
 		this.relativePath = spec.relativePath;
 		this.defaultRepairCommand = spec.repairCommand;
+		this.shell = spec.shell;
 		this.seedPolicy = spec.seedPolicy ?? "always";
 		this.canSeedOverride = spec.canSeedOverride;
 		this.beforeRepair = spec.beforeRepair;
@@ -822,7 +851,10 @@ class LockfileBootstrapAdapter implements BootstrapAdapter {
 			target.worktreePath,
 			context.stderr,
 			context.stdout,
-			this.commandOptions?.(target),
+			{
+				...this.commandOptions?.(target),
+				shell: this.shell,
+			},
 		);
 	}
 
@@ -830,6 +862,36 @@ class LockfileBootstrapAdapter implements BootstrapAdapter {
 		if (this.seedPolicy === "never") return false;
 		if (!(await safeSourceDirectory(target))) return false;
 		return (await this.canSeedOverride?.(target)) ?? true;
+	}
+
+	output(target: BootstrapTarget): BootstrapOutputMetadata {
+		return {
+			adapter: this.name,
+			kind: this.kind,
+			target: target.relativePath,
+			repairCommand: target.repairCommand,
+		};
+	}
+
+	shouldRetryAfterRepairFailure(
+		context: BootstrapRepairFailureContext,
+	): boolean {
+		return context.ownership === "adapter" || context.ownership === "syncDirs";
+	}
+
+	async cleanupAfterRepairFailure(
+		context: BootstrapRepairFailureContext,
+	): Promise<void> {
+		if (context.target.existingBeforeBootstrap) {
+			return;
+		}
+		if (context.ownership === "adapter" || context.ownership === "syncDirs") {
+			await rm(context.target.targetPath, { force: true, recursive: true });
+			return;
+		}
+		if (context.ownership === "empty" && !context.targetExistedBeforeRepair) {
+			await rm(context.target.targetPath, { force: true, recursive: true });
+		}
 	}
 }
 

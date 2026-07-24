@@ -52,4 +52,22 @@ describe("runCommand", () => {
 		// Then the spawn error is surfaced to the caller.
 		await expect(result).rejects.toMatchObject({ code: "ENOENT" });
 	});
+
+	it("runs fixed adapter commands without a shell", async () => {
+		// Given a quoted executable and argument list for a fixed adapter command.
+		const stdout: string[] = [];
+		const command = `${JSON.stringify(process.execPath)} -e "process.stdout.write('ok')"`;
+
+		// When the command runner is explicitly given shell-free execution.
+		await runCommand(
+			command,
+			process.cwd(),
+			() => undefined,
+			(chunk) => stdout.push(chunk),
+			{ shell: false },
+		);
+
+		// Then the executable starts successfully without shell expansion.
+		expect(stdout.join("")).toBe("ok");
+	});
 });

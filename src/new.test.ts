@@ -722,6 +722,33 @@ describe("gji new", () => {
 			expect(promptCalled).toBe(false);
 		});
 
+		it("reports sync-file failures as structured JSON errors", async () => {
+			// Given a repository with an invalid syncFiles pattern and JSON output enabled.
+			const repoRoot = await createRepository();
+			await writeFile(
+				join(repoRoot, ".gji.json"),
+				JSON.stringify({ syncFiles: ["/etc/passwd"] }),
+				"utf8",
+			);
+			const stderr: string[] = [];
+
+			// When worktree creation stops at the sync-file stage.
+			const result = await createNewCommand()({
+				branch: "feature/sync-failure-json",
+				cwd: repoRoot,
+				json: true,
+				stderr: (chunk) => stderr.push(chunk),
+				stdout: () => undefined,
+			});
+
+			// Then the JSON error identifies the sync-file failure and no bootstrap result.
+			expect(result).toBe(1);
+			expect(JSON.parse(stderr.join(""))).toMatchObject({
+				error: "worktree bootstrap failed",
+				syncFiles: [{ adapter: "syncFiles", state: "failed" }],
+			});
+		});
+
 		it("local syncFiles config overrides global (no array merging)", async () => {
 			// Given global config with syncFiles and local config with a different syncFiles.
 			const home = await mkdtemp(join(tmpdir(), "gji-home-"));

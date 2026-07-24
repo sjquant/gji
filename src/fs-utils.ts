@@ -11,7 +11,9 @@ export async function pathExists(path: string): Promise<boolean> {
 }
 
 export function isAlreadyExistsError(error: unknown): boolean {
-	return hasErrorCode(error, "EEXIST");
+	return (
+		hasErrorCode(error, "EEXIST") || hasErrorCode(error, "ERR_FS_CP_EEXIST")
+	);
 }
 
 export function isNotDirectoryError(error: unknown): boolean {

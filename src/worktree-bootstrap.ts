@@ -128,7 +128,9 @@ export async function bootstrapWorktree(
 
 	if (
 		dependencyMode === "off" &&
-		(options.dependencyBootstrapPolicy?.source ?? "default") === "default"
+		["default", "legacy"].includes(
+			options.dependencyBootstrapPolicy?.source ?? "default",
+		)
 	) {
 		await maybeRunInstallPrompt(
 			options.worktreePath,

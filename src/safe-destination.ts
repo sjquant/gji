@@ -1,5 +1,6 @@
-import { lstat, mkdir } from "node:fs/promises";
-import { isAbsolute, relative, resolve, sep } from "node:path";
+import { constants } from "node:fs";
+import { lstat, mkdir, open } from "node:fs/promises";
+import { isAbsolute, join, relative, resolve, sep } from "node:path";
 
 import {
 	isAlreadyExistsError,
@@ -11,6 +12,46 @@ export type DestinationInspection =
 	| { kind: "missing" }
 	| { kind: "exists" }
 	| { kind: "unsafe"; reason: string };
+
+export interface OpenDestinationDirectory {
+	path: string;
+	close(): Promise<void>;
+}
+
+export async function openDestinationDirectory(
+	root: string,
+	path: string,
+): Promise<OpenDestinationDirectory> {
+	const segments = destinationSegments(root, path);
+	if (process.platform !== "linux") {
+		await ensureDestinationDirectory(root, path);
+		return { path: resolve(path), close: async () => undefined };
+	}
+	let handle = await open(root, destinationDirectoryFlags());
+
+	try {
+		for (const segment of segments) {
+			const childPath = join(fileDescriptorPath(handle.fd), segment);
+			try {
+				await mkdir(childPath);
+			} catch (error) {
+				if (!isAlreadyExistsError(error)) throw error;
+			}
+
+			const childHandle = await open(childPath, destinationDirectoryFlags());
+			await handle.close();
+			handle = childHandle;
+		}
+
+		return {
+			path: fileDescriptorPath(handle.fd),
+			close: async () => handle.close(),
+		};
+	} catch (error) {
+		await handle.close().catch(() => undefined);
+		throw error;
+	}
+}
 
 export async function inspectDestination(
 	root: string,
@@ -83,6 +124,33 @@ export async function inspectDestination(
 		if (isNotFoundError(error)) return { kind: "missing" };
 		throw error;
 	}
+}
+
+function destinationSegments(root: string, path: string): string[] {
+	const resolvedRoot = resolve(root);
+	const resolvedPath = resolve(path);
+	const distance = relative(resolvedRoot, resolvedPath);
+	if (
+		isAbsolute(distance) ||
+		distance === ".." ||
+		distance.startsWith(`..${sep}`)
+	) {
+		throw new Error("destination escapes the worktree");
+	}
+
+	return distance.split(sep).filter(Boolean);
+}
+
+function destinationDirectoryFlags(): number {
+	return constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW;
+}
+
+function fileDescriptorPath(fd: number): string {
+	if (process.platform === "linux") return `/proc/self/fd/${fd}`;
+	if (process.platform === "darwin") return `/dev/fd/${fd}`;
+	throw new Error(
+		`safe destination handles are unsupported on ${process.platform}`,
+	);
 }
 
 export async function ensureDestinationDirectory(

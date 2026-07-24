@@ -12,7 +12,6 @@ import {
 	isCloneDestinationExistsError,
 	isCloneInProgressError,
 	isCloneUnsupportedError,
-	waitForCloneLock,
 } from "./dir-clone.js";
 import { inspectDestination } from "./safe-destination.js";
 import type { SyncDirectoryPlan } from "./sync-plan.js";
@@ -128,15 +127,6 @@ export async function executeSyncDirectoryPlan(
 			continue;
 		}
 
-		if (!(await waitForCloneLock(entry.destination))) {
-			recordSkipped(
-				outcomes,
-				options.reporter,
-				entry.directory,
-				"another clone is still in progress",
-			);
-			continue;
-		}
 		const refreshedDestinationState = await inspectDestination(
 			entry.worktreePath,
 			entry.destination,

@@ -1,10 +1,19 @@
 import { constants } from "node:fs";
-import { copyFile, lstat, stat } from "node:fs/promises";
-import { dirname, isAbsolute, join, normalize } from "node:path";
+import { copyFile, lstat, realpath } from "node:fs/promises";
+import {
+	basename,
+	dirname,
+	isAbsolute,
+	join,
+	normalize,
+	relative,
+	resolve,
+	sep,
+} from "node:path";
 import { isAlreadyExistsError, isNotFoundError } from "./fs-utils.js";
 import {
-	ensureDestinationDirectory,
 	inspectDestination,
+	openDestinationDirectory,
 } from "./safe-destination.js";
 
 /**
@@ -23,14 +32,9 @@ export async function syncFiles(
 	for (const pattern of patterns) {
 		const normalized = validateSyncFilePattern(pattern);
 
-		const sourcePath = join(mainRoot, normalized);
+		const sourcePath = await resolveSyncFileSource(mainRoot, normalized);
+		if (!sourcePath) continue;
 		const destPath = join(targetPath, normalized);
-
-		// Skip silently if source does not exist
-		const sourceExists = await fileExists(sourcePath);
-		if (!sourceExists) {
-			continue;
-		}
 
 		// Skip ordinary existing targets, but fail closed on any symlink.
 		const existingDestination = await readDestinationEntry(destPath);
@@ -49,15 +53,25 @@ export async function syncFiles(
 		if (beforeCreate.kind === "unsafe") {
 			throw new Error(beforeCreate.reason);
 		}
-		await ensureDestinationDirectory(targetPath, destinationParent);
-		const afterCreate = await inspectDestination(targetPath, destinationParent);
-		if (afterCreate.kind === "unsafe") {
-			throw new Error(afterCreate.reason);
-		}
+		const safeParent = await openDestinationDirectory(
+			targetPath,
+			destinationParent,
+		);
 		try {
-			await copyFile(sourcePath, destPath, constants.COPYFILE_EXCL);
-		} catch (error) {
-			if (!isAlreadyExistsError(error)) throw error;
+			const safeDestination = join(safeParent.path, basename(destPath));
+			const safeExistingDestination =
+				await readDestinationEntry(safeDestination);
+			if (safeExistingDestination?.isSymbolicLink()) {
+				throw new Error(`destination is a symbolic link: ${destPath}`);
+			}
+			if (safeExistingDestination) continue;
+			try {
+				await copyFile(sourcePath, safeDestination, constants.COPYFILE_EXCL);
+			} catch (error) {
+				if (!isAlreadyExistsError(error)) throw error;
+			}
+		} finally {
+			await safeParent.close().catch(() => undefined);
 		}
 	}
 }
@@ -79,16 +93,35 @@ export function validateSyncFilePattern(pattern: string): string {
 	return normalized;
 }
 
-async function fileExists(path: string): Promise<boolean> {
+async function resolveSyncFileSource(
+	mainRoot: string,
+	pattern: string,
+): Promise<string | undefined> {
+	let resolvedRoot: string;
+	let resolvedSource: string;
 	try {
-		await stat(path);
-		return true;
+		[resolvedRoot, resolvedSource] = await Promise.all([
+			realpath(mainRoot),
+			realpath(join(mainRoot, pattern)),
+		]);
 	} catch (error) {
-		if (isNotFoundError(error)) {
-			return false;
-		}
+		if (isNotFoundError(error)) return undefined;
 		throw error;
 	}
+
+	if (!isPathInside(resolvedRoot, resolvedSource)) {
+		throw new Error(
+			`syncFiles: source symlink resolves outside the repository: ${resolvedSource}`,
+		);
+	}
+
+	const sourceStats = await lstat(resolvedSource);
+	if (!sourceStats.isFile()) {
+		throw new Error(
+			`syncFiles: source is not a file: ${join(mainRoot, pattern)}`,
+		);
+	}
+	return resolvedSource;
 }
 
 async function readDestinationEntry(
@@ -100,4 +133,14 @@ async function readDestinationEntry(
 		if (isNotFoundError(error)) return undefined;
 		throw error;
 	}
+}
+
+function isPathInside(root: string, candidate: string): boolean {
+	const distance = relative(resolve(root), resolve(candidate));
+	return (
+		distance === "" ||
+		(!isAbsolute(distance) &&
+			distance !== ".." &&
+			!distance.startsWith(`..${sep}`))
+	);
 }

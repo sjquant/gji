@@ -26,7 +26,7 @@ export interface DependencyBootstrapPromptDependencies {
 export interface DependencyBootstrapPolicyResolution {
 	mode: DependencyBootstrapMode;
 	prompted: boolean;
-	source: "explicit" | "prompted" | "default";
+	source: "explicit" | "prompted" | "default" | "legacy";
 }
 
 export async function resolveDependencyBootstrapPolicy(
@@ -58,13 +58,11 @@ export async function resolveDependencyBootstrapPolicy(
 		return { mode: "off", prompted: false, source: "default" };
 	}
 
-	// Keep callers that inject the legacy install prompt on the old path. The
-	// command's default dependencies use the policy prompt below.
 	if (
 		options.legacyInstallPromptConfigured &&
 		!options.dependencies?.promptForDependencyBootstrap
 	) {
-		return { mode: "off", prompted: false, source: "default" };
+		return { mode: "off", prompted: false, source: "legacy" };
 	}
 
 	let candidate: DependencyBootstrapCandidate | null;

@@ -114,6 +114,25 @@ describe("syncFiles", () => {
 		expect(content).toBe("SECRET=abc\n");
 	});
 
+	it("rejects a source symlink that escapes the main worktree", async () => {
+		// Given a configured source file whose symlink points outside the repository.
+		const mainRoot = await makeTmpDir();
+		const targetPath = await makeTmpDir();
+		const externalPath = await makeTmpDir();
+		await writeFile(join(externalPath, "secret.env"), "SECRET=external\n");
+		await symlink(
+			join(externalPath, "secret.env"),
+			join(mainRoot, ".env.local"),
+		);
+
+		// When syncFiles evaluates the source.
+		const result = syncFiles(mainRoot, targetPath, [".env.local"]);
+
+		// Then it refuses to copy external content into the new worktree.
+		await expect(result).rejects.toThrow("resolves outside the repository");
+		await expect(stat(join(targetPath, ".env.local"))).rejects.toThrow();
+	});
+
 	it("rejects a symlinked destination parent", async () => {
 		// Given a source file and a destination parent that points outside the worktree.
 		const mainRoot = await makeTmpDir();

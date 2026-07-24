@@ -1,4 +1,6 @@
+import { constants } from "node:fs";
 import {
+	copyFile,
 	mkdir,
 	mkdtemp,
 	readdir,
@@ -32,6 +34,8 @@ describe("cloneDir", () => {
 
 		// When cloneDir runs the injected platform command.
 		const result = await cloneDir(source, destination, {
+			copyFile: (sourcePath, destinationPath) =>
+				copyFile(sourcePath, destinationPath, constants.COPYFILE_EXCL),
 			platform: "linux",
 			runCommand: async (_command, args) => {
 				cloneArgs = args;
@@ -160,6 +164,39 @@ describe("cloneDir", () => {
 
 		// Then the existing destination remains empty and untouched.
 		expect(await readdir(destination)).toEqual([]);
+	});
+
+	it("does not overwrite an entry created during clone publication", async () => {
+		// Given a fake CoW clone whose destination entry appears during final publication.
+		const root = await mkdtemp(join(tmpdir(), "gji-dir-clone-no-overwrite-"));
+		const source = join(root, "source");
+		const destination = join(root, "destination");
+		await mkdir(source);
+		await writeFile(join(source, "package.json"), "new\n", "utf8");
+
+		// When publication races with a process that creates the same destination file.
+		const error = await cloneDir(source, destination, {
+			copyFile: async (sourcePath, destinationPath) => {
+				await writeFile(destinationPath, "external\n", "utf8");
+				await copyFile(sourcePath, destinationPath, constants.COPYFILE_EXCL);
+			},
+			platform: "linux",
+			runCommand: async (_command, args) => {
+				const temporaryDestination = args.at(-1) as string;
+				await mkdir(temporaryDestination);
+				await writeFile(
+					join(temporaryDestination, "package.json"),
+					"new\n",
+					"utf8",
+				);
+			},
+		}).catch((caught) => caught);
+
+		// Then the concurrent file is preserved and the clone reports a conflict.
+		expect(isCloneDestinationExistsError(error)).toBe(true);
+		await expect(
+			readFile(join(destination, "package.json"), "utf8"),
+		).resolves.toBe("external\n");
 	});
 
 	it("rejects a destination with a symbolic-link ancestor", async () => {

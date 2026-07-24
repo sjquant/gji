@@ -10,6 +10,7 @@ export type CommandRunner = (
 
 export interface CommandRunnerOptions {
 	env?: NodeJS.ProcessEnv;
+	shell?: boolean;
 }
 
 export const runCommand: CommandRunner = async (
@@ -20,10 +21,12 @@ export const runCommand: CommandRunner = async (
 	options,
 ) => {
 	await new Promise<void>((resolve, reject) => {
-		const child = spawn(command, {
+		const shell = options?.shell ?? true;
+		const [executable, args] = shell ? [command, []] : splitCommand(command);
+		const child = spawn(executable, args, {
 			cwd,
 			env: options?.env ? { ...process.env, ...options.env } : undefined,
-			shell: true,
+			shell,
 			stdio: ["ignore", "pipe", "pipe"],
 		});
 
@@ -46,3 +49,13 @@ export const runCommand: CommandRunner = async (
 		child.on("error", reject);
 	});
 };
+
+function splitCommand(command: string): [string, string[]] {
+	const tokens = command.match(/[^\s"']+|"[^"]*"|'[^']*'/gu) ?? [];
+	const [first, ...rest] = tokens;
+	if (!first) throw new Error("command must not be empty");
+	return [
+		first.replace(/^(["'])(.*)\1$/u, "$2"),
+		rest.map((token) => token.replace(/^(["'])(.*)\1$/u, "$2")),
+	];
+}

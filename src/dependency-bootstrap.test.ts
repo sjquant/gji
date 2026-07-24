@@ -279,7 +279,9 @@ describe("dependencyBootstrap adapters", () => {
 		expect(plan.targets[0]?.target.relativePath).toBe("vendor/bundle");
 		expect(result.ready).toBe(true);
 		expect(commands).toEqual(["bundle install"]);
-		expect(commandOptions).toEqual([{ env: { BUNDLE_PATH: "vendor/bundle" } }]);
+		expect(commandOptions).toEqual([
+			{ env: { BUNDLE_PATH: "vendor/bundle" }, shell: false },
+		]);
 	});
 
 	it("falls back to a clean repair when CoW is unsupported and caches the failure", async () => {
