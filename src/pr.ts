@@ -18,10 +18,12 @@ import {
 	promptForPathConflict,
 } from "./conflict.js";
 import {
+	type DependencyBootstrapPolicyResolution,
 	type DependencyBootstrapPromptDependencies,
 	resolveDependencyBootstrapPolicy,
 } from "./dependency-bootstrap-prompt.js";
 import type { CloneDirectory } from "./dir-clone.js";
+import { formatBytes } from "./format-bytes.js";
 import { isHeadless } from "./headless.js";
 import { recordWorktreeUsage } from "./history.js";
 import type { InstallPromptDependencies } from "./install-prompt.js";
@@ -156,29 +158,34 @@ export function createPrCommand(
 			return 1;
 		}
 
-		const dependencyPolicy = await resolveDependencyBootstrapPolicy(
-			{
-				currentRoot: repository.currentRoot,
-				repoRoot: repository.repoRoot,
-				worktreePath,
-			},
-			config,
-			dependencyBootstrapExplicit,
-			{
-				dependencies,
-				dryRun: options.dryRun,
-				legacyInstallPromptConfigured:
-					dependencies.promptForInstallChoice !== undefined,
-				nonInteractive: !!options.json,
-				stderr: options.stderr,
-			},
-		);
-		config = {
-			...config,
-			dependencyBootstrap: dependencyPolicy.mode,
+		let dependencyPolicy: DependencyBootstrapPolicyResolution = {
+			mode: config.dependencyBootstrap ?? "off",
+			prompted: false,
+			source: dependencyBootstrapExplicit ? "explicit" : "default",
 		};
-		const dependencyBootstrapPolicyResolved =
-			dependencyBootstrapExplicit || dependencyPolicy.prompted;
+		if (options.dryRun) {
+			dependencyPolicy = await resolveDependencyBootstrapPolicy(
+				{
+					currentRoot: repository.currentRoot,
+					repoRoot: repository.repoRoot,
+					worktreePath,
+				},
+				config,
+				dependencyBootstrapExplicit,
+				{
+					dependencies,
+					dryRun: true,
+					legacyInstallPromptConfigured:
+						dependencies.promptForInstallChoice !== undefined,
+					nonInteractive: !!options.json,
+					stderr: options.stderr,
+				},
+			);
+			config = {
+				...config,
+				dependencyBootstrap: dependencyPolicy.mode,
+			};
+		}
 
 		const dryRunSyncDirs = options.dryRun
 			? await estimateSyncDirectories(
@@ -218,7 +225,7 @@ export function createPrCommand(
 				options.stdout(`${JSON.stringify(output, null, 2)}\n`);
 			} else {
 				options.stdout(
-					`Would create worktree at ${worktreePath} (branch: ${branchName})\n${dryRunSyncDirs.map(({ dir, bytes }) => `Would clone ${dir} (${bytes} bytes)\n`).join("")}${formatDependencyBootstrapPreview(dryRunDependencyBootstrap)}`,
+					`Would create worktree at ${worktreePath} (branch: ${branchName})\n${dryRunSyncDirs.map(({ dir, bytes }) => `Would clone ${dir} (${formatBytes(bytes)})\n`).join("")}${formatDependencyBootstrapPreview(dryRunDependencyBootstrap)}`,
 				);
 			}
 			return 0;
@@ -256,11 +263,36 @@ export function createPrCommand(
 
 		await execFileAsync("git", worktreeArgs, { cwd: repository.repoRoot });
 
+		if (!dependencyBootstrapExplicit) {
+			dependencyPolicy = await resolveDependencyBootstrapPolicy(
+				{
+					currentRoot: repository.currentRoot,
+					detectionRoot: worktreePath,
+					repoRoot: repository.repoRoot,
+					worktreePath,
+				},
+				config,
+				false,
+				{
+					dependencies,
+					legacyInstallPromptConfigured:
+						dependencies.promptForInstallChoice !== undefined,
+					nonInteractive: !!options.json,
+					stderr: options.stderr,
+				},
+			);
+			config = {
+				...config,
+				dependencyBootstrap: dependencyPolicy.mode,
+			};
+		}
+
 		const bootstrap = await bootstrapWorktree({
 			branch: branchName,
 			cloneDirectory: dependencies.cloneDir,
 			config,
 			currentRoot: repository.currentRoot,
+			dependencyDetectionRoot: worktreePath,
 			nonInteractive: !!options.json,
 			repoRoot: repository.repoRoot,
 			reporter: createBootstrapReporter(options.stderr, !!options.json),
@@ -270,21 +302,22 @@ export function createPrCommand(
 			json: options.json,
 			worktreePath,
 			installDependencies: dependencies,
-			dependencyBootstrapPolicyResolved,
+			dependencyBootstrapPolicy: dependencyPolicy,
 		});
 		if (!bootstrap.ready) {
 			const details = {
 				dependencyBootstrap: bootstrap.dependencyBootstrap,
 				path: worktreePath,
 				skipped: bootstrap.skippedDirs,
+				syncFiles: bootstrap.syncFileFailures,
 			};
 			if (options.json) {
 				options.stderr(
-					`${JSON.stringify({ error: "dependency bootstrap failed", ...details }, null, 2)}\n`,
+					`${JSON.stringify({ error: "worktree bootstrap failed", ...details }, null, 2)}\n`,
 				);
 			} else {
 				options.stderr(
-					`gji pr: dependency bootstrap failed at ${worktreePath}\n`,
+					`gji pr: worktree bootstrap failed at ${worktreePath}\n`,
 				);
 				options.stderr(
 					`Hint: inspect the worktree or remove it with 'gji done ${worktreePath}' before retrying\n`,

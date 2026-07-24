@@ -176,9 +176,6 @@ export async function executeSyncDirectoryPlan(
 			}
 			if (isCloneInProgressError(error)) {
 				const reason = "copy-on-write clone already in progress";
-				options.reporter.write(
-					`syncDirs: ${reason}, skipped ${entry.directory}\n`,
-				);
 				recordSkipped(outcomes, options.reporter, entry.directory, reason);
 				continue;
 			}
@@ -191,15 +188,8 @@ export async function executeSyncDirectoryPlan(
 					reason,
 					failureScope,
 				);
-				options.reporter.write(
-					`syncDirs: filesystem doesn't support copy-on-write (${reason}), skipped ${entry.directory}\n`,
-				);
-			} else {
-				options.reporter.write(
-					`syncDirs: clone failed (${reason}), skipped ${entry.directory}\n`,
-				);
 			}
-			recordSkipped(outcomes, options.reporter, entry.directory, reason, false);
+			recordSkipped(outcomes, options.reporter, entry.directory, reason);
 			continue;
 		}
 

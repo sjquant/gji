@@ -1,8 +1,11 @@
 import { constants } from "node:fs";
-import { copyFile, lstat, mkdir, stat } from "node:fs/promises";
+import { copyFile, lstat, stat } from "node:fs/promises";
 import { dirname, isAbsolute, join, normalize } from "node:path";
-
-import { inspectDestination } from "./safe-destination.js";
+import { isAlreadyExistsError, isNotFoundError } from "./fs-utils.js";
+import {
+	ensureDestinationDirectory,
+	inspectDestination,
+} from "./safe-destination.js";
 
 /**
  * Copies files matching each pattern (relative to mainRoot) into the equivalent
@@ -46,7 +49,7 @@ export async function syncFiles(
 		if (beforeCreate.kind === "unsafe") {
 			throw new Error(beforeCreate.reason);
 		}
-		await mkdir(destinationParent, { recursive: true });
+		await ensureDestinationDirectory(targetPath, destinationParent);
 		const afterCreate = await inspectDestination(targetPath, destinationParent);
 		if (afterCreate.kind === "unsafe") {
 			throw new Error(afterCreate.reason);
@@ -97,20 +100,4 @@ async function readDestinationEntry(
 		if (isNotFoundError(error)) return undefined;
 		throw error;
 	}
-}
-
-function isNotFoundError(error: unknown): boolean {
-	return (
-		error instanceof Error &&
-		"code" in error &&
-		(error as NodeJS.ErrnoException).code === "ENOENT"
-	);
-}
-
-function isAlreadyExistsError(error: unknown): boolean {
-	return (
-		error instanceof Error &&
-		"code" in error &&
-		(error as NodeJS.ErrnoException).code === "EEXIST"
-	);
 }

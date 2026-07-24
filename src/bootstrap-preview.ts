@@ -1,5 +1,6 @@
 import type { DependencyBootstrapMode } from "./config.js";
 import {
+	type BootstrapStrategy,
 	type BootstrapTarget,
 	type DependencyBootstrapPreview,
 	prepareDependencyBootstrap,
@@ -33,8 +34,13 @@ export function formatDependencyBootstrapPreview(
 		.join("");
 }
 
-function formatBootstrapStrategy(strategy: string): string {
-	if (strategy === "cow-then-repair") return "seed and repair";
-	if (strategy === "repair-only") return "repair";
-	return "install";
+function formatBootstrapStrategy(strategy: BootstrapStrategy): string {
+	switch (strategy) {
+		case "cow-then-repair":
+			return "seed and repair";
+		case "repair-only":
+			return "repair";
+		case "install-only":
+			return "install";
+	}
 }

@@ -21,23 +21,34 @@ import {
 	CloneDestinationExistsError,
 	CloneUnsupportedError,
 } from "./dir-clone.js";
+import { addLinkedWorktree, createRepository } from "./repo.test-helpers.js";
 
 function createFailureStore() {
 	const failures = new Set<string>();
+	const calls = {
+		cache: [] as string[][],
+		clear: [] as string[][],
+		isCached: [] as string[][],
+	};
 	return {
-		isCached: async (repoRoot: string, directory: string, scope?: string) =>
-			failures.has(`${repoRoot}:${directory}:${scope ?? ""}`),
+		isCached: async (repoRoot: string, directory: string, scope?: string) => {
+			calls.isCached.push([repoRoot, directory, scope ?? ""]);
+			return failures.has(`${repoRoot}:${directory}:${scope ?? ""}`);
+		},
 		cache: async (
 			repoRoot: string,
 			directory: string,
 			_reason: string,
 			scope?: string,
 		) => {
+			calls.cache.push([repoRoot, directory, scope ?? ""]);
 			failures.add(`${repoRoot}:${directory}:${scope ?? ""}`);
 		},
 		clear: async (repoRoot: string, directory: string, scope?: string) => {
+			calls.clear.push([repoRoot, directory, scope ?? ""]);
 			failures.delete(`${repoRoot}:${directory}:${scope ?? ""}`);
 		},
+		calls,
 	};
 }
 
@@ -75,6 +86,34 @@ async function prepareNodePlan(
 }
 
 describe("dependencyBootstrap adapters", () => {
+	it("selects an eligible linked worktree as the seed source", async () => {
+		// Given a repository whose lockfile and seed exist only in the current linked worktree.
+		const repoRoot = await createRepository();
+		const currentRoot = await addLinkedWorktree(
+			repoRoot,
+			"feature/bootstrap-source",
+		);
+		const worktreePath = await mkdtemp(
+			join(tmpdir(), "gji-bootstrap-current-source-worktree-"),
+		);
+		await writeFile(
+			join(currentRoot, "pnpm-lock.yaml"),
+			"lockfileVersion: '9'\n",
+		);
+		await mkdir(join(currentRoot, "node_modules"));
+
+		// When the dependency plan is prepared with both repository roots.
+		const plan = await prepareDependencyBootstrap("cow-then-repair", {
+			currentRoot,
+			repoRoot,
+			worktreePath,
+		});
+
+		// Then the eligible current worktree supplies the CoW seed.
+		expect(plan.targets[0]?.target.sourceRoot).toBe(currentRoot);
+		expect(plan.targets[0]?.adapter.name).toBe("pnpm");
+	});
+
 	it("reports npm as install-only in the effective dry-run strategy", async () => {
 		// Given an npm lockfile and cow-then-repair configuration.
 		const repoRoot = await mkdtemp(
@@ -219,6 +258,7 @@ describe("dependencyBootstrap adapters", () => {
 			worktreePath,
 		});
 		const commands: string[] = [];
+		const commandOptions: unknown[] = [];
 		const result = await executeDependencyBootstrap(plan, {
 			cloneDirectory: async (_source, destination) => {
 				await mkdir(destination, { recursive: true });
@@ -227,8 +267,9 @@ describe("dependencyBootstrap adapters", () => {
 			failureStore: createFailureStore(),
 			repoRoot,
 			reporter: createReporter(),
-			runCommand: async (command) => {
+			runCommand: async (command, _cwd, _stderr, _stdout, options) => {
 				commands.push(command);
+				commandOptions.push(options);
 			},
 		});
 
@@ -238,6 +279,7 @@ describe("dependencyBootstrap adapters", () => {
 		expect(plan.targets[0]?.target.relativePath).toBe("vendor/bundle");
 		expect(result.ready).toBe(true);
 		expect(commands).toEqual(["bundle install"]);
+		expect(commandOptions).toEqual([{ env: { BUNDLE_PATH: "vendor/bundle" } }]);
 	});
 
 	it("falls back to a clean repair when CoW is unsupported and caches the failure", async () => {
@@ -281,6 +323,7 @@ describe("dependencyBootstrap adapters", () => {
 				),
 			),
 		).toBe(true);
+		expect(failureStore.calls.cache).toHaveLength(1);
 		void worktreePath;
 	});
 

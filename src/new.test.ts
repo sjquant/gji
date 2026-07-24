@@ -13,6 +13,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { runCli } from "./cli.js";
 import { GLOBAL_CONFIG_FILE_PATH } from "./config.js";
+import { CloneUnsupportedError } from "./dir-clone.js";
 import {
 	createNewCommand,
 	generateBranchPlaceholder,
@@ -853,6 +854,38 @@ describe("gji new", () => {
 			});
 		});
 
+		it("does not persist or repair after dependency policy cancellation", async () => {
+			// Given a pnpm repository with no explicit dependencyBootstrap policy.
+			const repoRoot = await createRepository();
+			await commitFile(
+				repoRoot,
+				"pnpm-lock.yaml",
+				"lockfileVersion: '9'\n",
+				"Add pnpm lockfile",
+			);
+			const commands: string[] = [];
+
+			// When the interactive dependency policy prompt is cancelled.
+			const result = await createNewCommand({
+				promptForDependencyBootstrap: async () => null,
+				runInstallCommand: async (command) => {
+					commands.push(command);
+				},
+			})({
+				branch: "feature/cancel-bootstrap-policy",
+				cwd: repoRoot,
+				stderr: () => undefined,
+				stdout: () => undefined,
+			});
+
+			// Then setup completes safely without persistence, repair, or a legacy prompt.
+			expect(result).toBe(0);
+			expect(commands).toEqual([]);
+			await expect(pathExists(join(repoRoot, ".gji.json"))).resolves.toBe(
+				false,
+			);
+		});
+
 		it("does not prompt when an explicit policy is configured", async () => {
 			// Given a pnpm repository with an explicit install-only local policy.
 			const repoRoot = await createRepository();
@@ -1283,6 +1316,39 @@ describe("gji new", () => {
 			expect(result).toBe(0);
 			expect(JSON.parse(stdout.join(""))).toMatchObject({
 				skipped: [{ dir: "missing-cache", reason: "source does not exist" }],
+			});
+		});
+
+		it("keeps syncDirs clone failures out of JSON stderr", async () => {
+			// Given a configured directory whose CoW operation fails.
+			const repoRoot = await createRepository();
+			await mkdir(join(repoRoot, "node_modules"));
+			await writeFile(
+				join(repoRoot, ".gji.json"),
+				JSON.stringify({ syncDirs: ["node_modules"] }),
+				"utf8",
+			);
+			const stdout: string[] = [];
+			const stderr: string[] = [];
+
+			// When gji new runs in JSON mode with an unsupported CoW result.
+			const result = await createNewCommand({
+				cloneDir: async () => {
+					throw new CloneUnsupportedError("test filesystem");
+				},
+			})({
+				branch: "feature/sync-json-failure",
+				cwd: repoRoot,
+				json: true,
+				stderr: (chunk) => stderr.push(chunk),
+				stdout: (chunk) => stdout.push(chunk),
+			});
+
+			// Then the failure is represented in JSON rather than as raw human output.
+			expect(result).toBe(0);
+			expect(stderr).toEqual([]);
+			expect(JSON.parse(stdout.join(""))).toMatchObject({
+				skipped: [{ dir: "node_modules" }],
 			});
 		});
 

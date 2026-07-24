@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { access, lstat, readFile, realpath, rm } from "node:fs/promises";
+import { lstat, readFile, realpath, rm } from "node:fs/promises";
 import { join, relative, resolve, sep } from "node:path";
 import { promisify } from "node:util";
 import {
@@ -16,6 +16,7 @@ import {
 	isCloneInProgressError,
 	isCloneUnsupportedError,
 } from "./dir-clone.js";
+import { pathExists } from "./fs-utils.js";
 import { inspectDestination } from "./safe-destination.js";
 
 const execFileAsync = promisify(execFile);
@@ -36,6 +37,7 @@ export type BootstrapStrategy =
 export type BootstrapCommandRunner = CommandRunner;
 
 export interface BootstrapPreparationContext {
+	detectionRoot?: string;
 	sourceRoot: string;
 	worktreePath: string;
 }
@@ -139,6 +141,7 @@ export async function prepareDependencyBootstrap(
 	context: {
 		repoRoot: string;
 		currentRoot?: string;
+		detectionRoot?: string;
 		worktreePath: string;
 		checkUvRuntime?: (target: BootstrapTarget) => Promise<boolean>;
 		cargoBuildCommand?: string;
@@ -170,6 +173,7 @@ export async function prepareDependencyBootstrap(
 
 		for (const sourceRoot of sourceRoots) {
 			const target = await adapter.detect({
+				detectionRoot: context.detectionRoot,
 				sourceRoot,
 				worktreePath: context.worktreePath,
 			});
@@ -198,6 +202,7 @@ export async function prepareDependencyBootstrap(
 export async function detectDependencyBootstrapCandidate(context: {
 	repoRoot: string;
 	currentRoot?: string;
+	detectionRoot?: string;
 	worktreePath: string;
 	checkUvRuntime?: (target: BootstrapTarget) => Promise<boolean>;
 	cargoBuildCommand?: string;
@@ -334,6 +339,7 @@ async function executeBootstrapTarget(
 	let ownership: BootstrapTargetOwnership = target.existingBeforeBootstrap
 		? "preserve"
 		: "empty";
+	const destinationExistsNow = destinationInspection.kind === "exists";
 	if (target.existingBeforeBootstrap) {
 		recordBootstrapEvent(events, reporter, {
 			adapter: adapter.name,
@@ -343,7 +349,7 @@ async function executeBootstrapTarget(
 			target: target.relativePath,
 			message: "target already existed; using it as the repair input",
 		});
-	} else if (seededBySyncDirs && (await pathExists(target.targetPath))) {
+	} else if (seededBySyncDirs && destinationExistsNow) {
 		if (seedable) {
 			seeded = true;
 			ownership = "syncDirs";
@@ -367,7 +373,7 @@ async function executeBootstrapTarget(
 					"syncDirs created a generic target; this adapter uses repair without CoW",
 			});
 		}
-	} else if (await pathExists(target.targetPath)) {
+	} else if (destinationExistsNow) {
 		ownership = "preserve";
 		recordBootstrapEvent(events, reporter, {
 			adapter: adapter.name,
@@ -489,7 +495,22 @@ async function repairTarget(
 	events: BootstrapEvent[],
 	reporter: DependencyBootstrapReporter,
 ): Promise<void> {
-	const presentBeforeRepair = await pathExists(target.targetPath);
+	const beforeRepairInspection = await inspectDestination(
+		target.worktreePath,
+		target.targetPath,
+	);
+	if (beforeRepairInspection.kind === "unsafe") {
+		recordBootstrapFailure(
+			events,
+			reporter,
+			adapter,
+			target,
+			beforeRepairInspection.reason,
+			"destination-unsafe",
+		);
+		return;
+	}
+	const presentBeforeRepair = beforeRepairInspection.kind === "exists";
 	try {
 		await adapter.repair(target, execution);
 		recordBootstrapEvent(events, reporter, {
@@ -538,7 +559,22 @@ async function repairTarget(
 			message: `seed repair failed; removed the seed and retrying clean (${toErrorMessage(firstError)})`,
 		});
 
-		const presentBeforeRetry = await pathExists(target.targetPath);
+		const beforeRetryInspection = await inspectDestination(
+			target.worktreePath,
+			target.targetPath,
+		);
+		if (beforeRetryInspection.kind === "unsafe") {
+			recordBootstrapFailure(
+				events,
+				reporter,
+				adapter,
+				target,
+				beforeRetryInspection.reason,
+				"destination-unsafe",
+			);
+			return;
+		}
+		const presentBeforeRetry = beforeRetryInspection.kind === "exists";
 		try {
 			await adapter.repair(target, execution);
 			recordBootstrapEvent(events, reporter, {
@@ -671,6 +707,9 @@ function createBootstrapAdapters(
 			lockfile: "Gemfile.lock",
 			relativePath: "vendor/bundle",
 			repairCommand: "bundle install",
+			commandOptions: () => ({
+				env: { BUNDLE_PATH: "vendor/bundle" },
+			}),
 		}),
 		new LockfileBootstrapAdapter({
 			name: "uv",
@@ -699,6 +738,9 @@ interface LockfileBootstrapAdapterSpec {
 	seedPolicy?: "always" | "never";
 	canSeedOverride?: (target: BootstrapTarget) => Promise<boolean>;
 	beforeRepair?: (target: BootstrapTarget) => Promise<void>;
+	commandOptions?: (
+		target: BootstrapTarget,
+	) => Parameters<BootstrapCommandRunner>[4];
 	repairCommandOverride?: (target: BootstrapTarget) => string;
 	repairState?: "repaired" | "installed";
 }
@@ -714,6 +756,9 @@ class LockfileBootstrapAdapter implements BootstrapAdapter {
 		target: BootstrapTarget,
 	) => Promise<boolean>;
 	private readonly beforeRepair?: (target: BootstrapTarget) => Promise<void>;
+	private readonly commandOptions?: (
+		target: BootstrapTarget,
+	) => Parameters<BootstrapCommandRunner>[4];
 	private readonly repairCommandOverride?: (target: BootstrapTarget) => string;
 	private readonly repairState: "repaired" | "installed";
 
@@ -726,6 +771,7 @@ class LockfileBootstrapAdapter implements BootstrapAdapter {
 		this.seedPolicy = spec.seedPolicy ?? "always";
 		this.canSeedOverride = spec.canSeedOverride;
 		this.beforeRepair = spec.beforeRepair;
+		this.commandOptions = spec.commandOptions;
 		this.repairCommandOverride = spec.repairCommandOverride;
 		this.repairState = spec.repairState ?? "repaired";
 	}
@@ -733,8 +779,8 @@ class LockfileBootstrapAdapter implements BootstrapAdapter {
 	async detect(
 		context: BootstrapPreparationContext,
 	): Promise<BootstrapTarget | null> {
-		if (!(await pathExists(join(context.sourceRoot, this.lockfile))))
-			return null;
+		const detectionRoot = context.detectionRoot ?? context.sourceRoot;
+		if (!(await pathExists(join(detectionRoot, this.lockfile)))) return null;
 
 		const sourcePath = join(context.sourceRoot, this.relativePath);
 		const targetPath = join(context.worktreePath, this.relativePath);
@@ -776,6 +822,7 @@ class LockfileBootstrapAdapter implements BootstrapAdapter {
 			target.worktreePath,
 			context.stderr,
 			context.stdout,
+			this.commandOptions?.(target),
 		);
 	}
 
@@ -863,15 +910,6 @@ function isWithin(root: string, candidate: string): boolean {
 	return (
 		distance === "" || (distance !== ".." && !distance.startsWith(`..${sep}`))
 	);
-}
-
-async function pathExists(path: string): Promise<boolean> {
-	try {
-		await access(path);
-		return true;
-	} catch {
-		return false;
-	}
 }
 
 function toErrorMessage(error: unknown): string {

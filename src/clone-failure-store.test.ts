@@ -27,6 +27,7 @@ describe("FileCloneFailureStore", () => {
 		process.env.GJI_CONFIG_DIR = root;
 		const store = new FileCloneFailureStore();
 		await store.cache("/repo", "node_modules", "unsupported");
+		await store.cache("/repo", ".venv", "unsupported");
 
 		// When cache lookups use an inherited object-property name and the cached name.
 		const inheritedNameCached = await store.isCached("/repo", "constructor");
@@ -36,9 +37,14 @@ describe("FileCloneFailureStore", () => {
 		expect(inheritedNameCached).toBe(false);
 		expect(ordinaryNameCached).toBe(true);
 		await store.clear("/repo", "node_modules");
-		await expect(readFile(join(root, "state.json"), "utf8")).resolves.toContain(
-			"syncDirs",
-		);
+		await expect(store.isCached("/repo", "node_modules")).resolves.toBe(false);
+		await expect(store.isCached("/repo", ".venv")).resolves.toBe(true);
+		const state = JSON.parse(
+			await readFile(join(root, "state.json"), "utf8"),
+		) as {
+			syncDirs: Record<string, Record<string, unknown>>;
+		};
+		expect(state.syncDirs["/repo"]).not.toHaveProperty("node_modules");
 	});
 
 	it("keeps scoped dependency failures separate", async () => {

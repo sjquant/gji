@@ -26,12 +26,14 @@ export interface DependencyBootstrapPromptDependencies {
 export interface DependencyBootstrapPolicyResolution {
 	mode: DependencyBootstrapMode;
 	prompted: boolean;
+	source: "explicit" | "prompted" | "default";
 }
 
 export async function resolveDependencyBootstrapPolicy(
 	context: {
 		repoRoot: string;
 		currentRoot?: string;
+		detectionRoot?: string;
 		worktreePath: string;
 	},
 	config: EffectiveGjiConfig,
@@ -48,11 +50,12 @@ export async function resolveDependencyBootstrapPolicy(
 		return {
 			mode: config.dependencyBootstrap ?? "off",
 			prompted: false,
+			source: "explicit",
 		};
 	}
 
 	if (options.dryRun || options.nonInteractive || isHeadless()) {
-		return { mode: "off", prompted: false };
+		return { mode: "off", prompted: false, source: "default" };
 	}
 
 	// Keep callers that inject the legacy install prompt on the old path. The
@@ -61,7 +64,7 @@ export async function resolveDependencyBootstrapPolicy(
 		options.legacyInstallPromptConfigured &&
 		!options.dependencies?.promptForDependencyBootstrap
 	) {
-		return { mode: "off", prompted: false };
+		return { mode: "off", prompted: false, source: "default" };
 	}
 
 	let candidate: DependencyBootstrapCandidate | null;
@@ -71,16 +74,17 @@ export async function resolveDependencyBootstrapPolicy(
 		options.stderr(
 			`gji: dependency setup detection failed: ${toErrorMessage(error)}\n`,
 		);
-		return { mode: "off", prompted: false };
+		return { mode: "off", prompted: false, source: "default" };
 	}
 
-	if (!candidate) return { mode: "off", prompted: false };
+	if (!candidate) return { mode: "off", prompted: false, source: "default" };
 
 	const prompt =
 		options.dependencies?.promptForDependencyBootstrap ??
 		defaultPromptForDependencyBootstrap;
 	const choice = await prompt(candidate);
-	if (choice === null) return { mode: "off", prompted: true };
+	if (choice === null)
+		return { mode: "off", prompted: true, source: "prompted" };
 	const mode = choice;
 
 	await persistDependencyBootstrapPolicy(
@@ -91,7 +95,7 @@ export async function resolveDependencyBootstrapPolicy(
 		options.stderr,
 	);
 
-	return { mode, prompted: true };
+	return { mode, prompted: true, source: "prompted" };
 }
 
 async function persistDependencyBootstrapPolicy(
@@ -129,8 +133,12 @@ async function defaultPromptForDependencyBootstrap(
 	candidate: DependencyBootstrapCandidate,
 ): Promise<DependencyBootstrapMode | null> {
 	const reuseHint = formatReuseHint(candidate);
+	const subject =
+		candidate.kind === "build-cache"
+			? "dependencies and build state"
+			: "dependencies";
 	const choice = await select({
-		message: `Set up ${candidate.adapter} dependencies for new worktrees? (${candidate.lockfile})`,
+		message: `Set up ${candidate.adapter} ${subject} for new worktrees? (${candidate.lockfile})`,
 		options: [
 			{
 				value: "cow-then-repair",

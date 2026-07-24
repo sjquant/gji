@@ -143,28 +143,23 @@ describe("cloneDir", () => {
 		expect(commandCalled).toBe(false);
 	});
 
-	it("does not publish over a destination that appears during cloning", async () => {
-		// Given a destination that is created after the initial preflight check.
+	it("does not publish over an existing empty destination", async () => {
+		// Given an empty destination that exists before the clone starts.
 		const root = await mkdtemp(join(tmpdir(), "gji-dir-clone-publish-race-"));
 		const source = join(root, "source");
 		const destination = join(root, "destination");
 		await mkdir(source);
+		await mkdir(destination);
 
-		// When another writer publishes the destination before clone publication.
+		// When cloneDir attempts to publish the clone.
 		const error = await cloneDir(source, destination, {
 			platform: "linux",
-			runCommand: async (_command, args) => {
-				await mkdir(args.at(-1) as string);
-				await mkdir(destination);
-				await writeFile(join(destination, "sentinel"), "keep\n", "utf8");
-			},
+			runCommand: async (_command, args) => mkdir(args.at(-1) as string),
 		}).catch((caught) => caught);
 		expect(isCloneDestinationExistsError(error)).toBe(true);
 
-		// Then the appearing destination remains untouched.
-		await expect(readFile(join(destination, "sentinel"), "utf8")).resolves.toBe(
-			"keep\n",
-		);
+		// Then the existing destination remains empty and untouched.
+		expect(await readdir(destination)).toEqual([]);
 	});
 
 	it("rejects a destination with a symbolic-link ancestor", async () => {

@@ -1,6 +1,6 @@
 import { basename } from "node:path";
 
-import type { DependencyBootstrapMode, EffectiveGjiConfig } from "./config.js";
+import type { EffectiveGjiConfig } from "./config.js";
 import {
 	type BootstrapCommandRunner,
 	type BootstrapEvent,
@@ -9,6 +9,7 @@ import {
 	executeDependencyBootstrap,
 	prepareDependencyBootstrap,
 } from "./dependency-bootstrap.js";
+import type { DependencyBootstrapPolicyResolution } from "./dependency-bootstrap-prompt.js";
 import { type CloneDirectory, cloneDir } from "./dir-clone.js";
 import { syncFiles } from "./file-sync.js";
 import { extractHooks, runHook } from "./hooks.js";
@@ -30,11 +31,12 @@ export interface WorktreeBootstrapOptions {
 	cloneDirectory?: CloneDirectory;
 	config: EffectiveGjiConfig;
 	currentRoot?: string;
+	dependencyDetectionRoot?: string;
 	installDependencies?: InstallPromptDependencies;
 	runCommand?: BootstrapCommandRunner;
 	commandStdout?: (chunk: string) => void;
 	commandStderr?: (chunk: string) => void;
-	dependencyBootstrapPolicyResolved?: boolean;
+	dependencyBootstrapPolicy?: DependencyBootstrapPolicyResolution;
 	json?: boolean;
 	nonInteractive: boolean;
 	repoRoot: string;
@@ -46,6 +48,7 @@ export interface WorktreeBootstrapResult {
 	clonedDirs: readonly ClonedDirectory[];
 	dependencyBootstrap: DependencyBootstrapReport;
 	ready: boolean;
+	syncFileFailures: readonly BootstrapEvent[];
 	skippedDirs: readonly { dir: string; reason: string }[];
 }
 
@@ -55,6 +58,7 @@ export async function bootstrapWorktree(
 	const dependencyMode = options.config.dependencyBootstrap ?? "off";
 	const dependencyPlan = await prepareDependencyBootstrap(dependencyMode, {
 		currentRoot: options.currentRoot,
+		detectionRoot: options.dependencyDetectionRoot,
 		repoRoot: options.repoRoot,
 		cargoBuildCommand: options.config.dependencyBuildCommand,
 		worktreePath: options.worktreePath,
@@ -96,13 +100,12 @@ export async function bootstrapWorktree(
 		}
 	}
 
+	if (syncFileFailures.length > 0) {
+		for (const event of syncFileFailures) options.reporter.dependency(event);
+	}
 	const dependencyBootstrap =
 		syncFileFailures.length > 0
-			? reportSyncFileFailure(
-					dependencyMode,
-					syncFileFailures,
-					options.reporter,
-				)
+			? { mode: dependencyMode, ready: false, events: [] }
 			: await executeDependencyBootstrap(dependencyPlan, {
 					cloneDirectory: options.cloneDirectory,
 					repoRoot: options.repoRoot,
@@ -118,11 +121,15 @@ export async function bootstrapWorktree(
 			clonedDirs,
 			dependencyBootstrap,
 			ready: false,
+			syncFileFailures,
 			skippedDirs,
 		};
 	}
 
-	if (dependencyMode === "off" && !options.dependencyBootstrapPolicyResolved) {
+	if (
+		dependencyMode === "off" &&
+		(options.dependencyBootstrapPolicy?.source ?? "default") === "default"
+	) {
 		await maybeRunInstallPrompt(
 			options.worktreePath,
 			options.repoRoot,
@@ -148,16 +155,13 @@ export async function bootstrapWorktree(
 			: (options.commandStdout ?? ((chunk) => process.stdout.write(chunk))),
 	);
 
-	return { clonedDirs, dependencyBootstrap, ready: true, skippedDirs };
-}
-
-function reportSyncFileFailure(
-	mode: DependencyBootstrapMode,
-	events: readonly BootstrapEvent[],
-	reporter: DependencyBootstrapReporter,
-): DependencyBootstrapReport {
-	for (const event of events) reporter.dependency(event);
-	return { mode, ready: false, events };
+	return {
+		clonedDirs,
+		dependencyBootstrap,
+		ready: true,
+		syncFileFailures: [],
+		skippedDirs,
+	};
 }
 
 function toErrorMessage(error: unknown): string {

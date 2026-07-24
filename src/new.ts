@@ -277,8 +277,6 @@ export function createNewCommand(
 			...config,
 			dependencyBootstrap: dependencyPolicy.mode,
 		};
-		const dependencyBootstrapPolicyResolved =
-			dependencyBootstrapExplicit || dependencyPolicy.prompted;
 
 		if (options.dryRun) {
 			if (options.take) {
@@ -485,13 +483,14 @@ export function createNewCommand(
 			json: options.json,
 			worktreePath,
 			installDependencies: dependencies,
-			dependencyBootstrapPolicyResolved,
+			dependencyBootstrapPolicy: dependencyPolicy,
 		});
 		if (!bootstrap.ready) {
-			return emitNewError(options, "dependency bootstrap failed", {
+			return emitNewError(options, "worktree bootstrap failed", {
 				dependencyBootstrap: bootstrap.dependencyBootstrap,
 				path: worktreePath,
 				skipped: bootstrap.skippedDirs,
+				syncFiles: bootstrap.syncFileFailures,
 			});
 		}
 

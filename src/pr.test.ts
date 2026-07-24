@@ -536,7 +536,10 @@ describe("gji pr", () => {
 	describe("install prompt", () => {
 		const fakePm = { name: "pnpm", installCommand: "pnpm install" };
 
-		async function setupPrRepo(prNumber: string): Promise<string> {
+		async function setupPrRepo(
+			prNumber: string,
+			extraFiles: readonly [string, string][] = [],
+		): Promise<string> {
 			const { repoRoot } = await createRepositoryWithOrigin();
 			await runGit(repoRoot, [
 				"checkout",
@@ -549,6 +552,9 @@ describe("gji pr", () => {
 				"content\n",
 				`pr ${prNumber}`,
 			);
+			for (const [path, content] of extraFiles) {
+				await commitFile(repoRoot, path, content, `pr ${prNumber} ${path}`);
+			}
 			await pushPullRequestRef(repoRoot, prNumber);
 			await runGit(repoRoot, ["checkout", "-"]);
 			return repoRoot;
@@ -658,13 +664,9 @@ describe("gji pr", () => {
 
 		it("prompts for dependency policy before bootstrapping a PR worktree", async () => {
 			// Given a PR repository whose base worktree exposes a pnpm lockfile.
-			const repoRoot = await setupPrRepo("2016");
-			await commitFile(
-				repoRoot,
-				"pnpm-lock.yaml",
-				"lockfileVersion: '9'\n",
-				"Add pnpm lockfile",
-			);
+			const repoRoot = await setupPrRepo("2016", [
+				["pnpm-lock.yaml", "lockfileVersion: '9'\n"],
+			]);
 			let prompted = false;
 			const commands: string[] = [];
 
@@ -688,6 +690,31 @@ describe("gji pr", () => {
 			expect(result).toBe(0);
 			expect(prompted).toBe(true);
 			expect(commands).toEqual(["pnpm install --frozen-lockfile"]);
+		});
+
+		it("stops before reporting success when PR dependency repair fails", async () => {
+			// Given a PR ref with a supported lockfile and a failing repair command.
+			const repoRoot = await setupPrRepo("2015", [
+				["pnpm-lock.yaml", "lockfileVersion: '9'\n"],
+			]);
+			const stderr: string[] = [];
+
+			// When gji pr bootstraps the worktree.
+			const result = await createPrCommand({
+				promptForDependencyBootstrap: async () => "install-only",
+				runInstallCommand: async () => {
+					throw new Error("repair failed");
+				},
+			})({
+				cwd: repoRoot,
+				number: "2015",
+				stderr: (chunk) => stderr.push(chunk),
+				stdout: () => undefined,
+			});
+
+			// Then the command fails and does not emit a normal navigation success.
+			expect(result).toBe(1);
+			expect(stderr.join("")).toContain("worktree bootstrap failed");
 		});
 
 		it('runs install once and does not persist anything when "yes" is chosen', async () => {

@@ -21,7 +21,10 @@ import { basename, dirname, join } from "node:path";
 import { promisify } from "node:util";
 
 import { isAlreadyExistsError, isNotFoundError } from "./fs-utils.js";
-import { inspectDestination } from "./safe-destination.js";
+import {
+	ensureDestinationDirectory,
+	inspectDestination,
+} from "./safe-destination.js";
 
 const execFileAsync = promisify(execFile);
 const CLONE_LOCK_TTL_MS = 24 * 60 * 60 * 1000;
@@ -121,7 +124,11 @@ export async function cloneDir(
 			throw new Error(parentInspection.reason);
 		}
 	}
-	await mkdir(parent, { recursive: true });
+	if (options.destinationRoot) {
+		await ensureDestinationDirectory(options.destinationRoot, parent);
+	} else {
+		await mkdir(parent, { recursive: true });
+	}
 	if (options.destinationRoot) {
 		const parentInspection = await inspectDestination(
 			options.destinationRoot,
@@ -136,7 +143,10 @@ export async function cloneDir(
 	const stopLockHeartbeat = startLockHeartbeat(lockPath, lockToken);
 
 	let temporaryRoot: string | undefined;
+	let reservationPath: string | undefined;
+	const reservationEntries: string[] = [];
 	try {
+		reservationPath = await reserveDestination(destination);
 		temporaryRoot = await mkdtemp(
 			join(parent, `.${basename(destination)}.gji-clone-`),
 		);
@@ -163,9 +173,22 @@ export async function cloneDir(
 			throw error;
 		}
 
-		await publishCloneContents(temporaryDestination, destination);
+		await publishCloneContents(
+			temporaryDestination,
+			destination,
+			reservationPath,
+			(entry) => reservationEntries.push(entry),
+		);
+		reservationPath = undefined;
 	} finally {
 		stopLockHeartbeat();
+		if (reservationPath) {
+			await cleanupReservedDestination(
+				destination,
+				reservationPath,
+				reservationEntries,
+			);
+		}
 		try {
 			if (temporaryRoot) {
 				await rm(temporaryRoot, { force: true, recursive: true });
@@ -407,14 +430,79 @@ async function lockFreshnessPath(lockPath: string): Promise<string> {
 async function publishCloneContents(
 	temporaryDestination: string,
 	destination: string,
+	reservationPath: string,
+	onEntryPublished: (entry: string) => void,
 ): Promise<void> {
+	const reservationName = basename(reservationPath);
+	const destinationEntries = await readdir(destination);
+	if (
+		destinationEntries.length !== 1 ||
+		destinationEntries[0] !== reservationName
+	) {
+		throw new CloneDestinationExistsError(destination);
+	}
+
+	const temporaryEntries = await readdir(temporaryDestination);
+	for (const entry of temporaryEntries) {
+		const destinationEntry = join(destination, entry);
+		if (await destinationExists(destinationEntry)) {
+			throw new CloneDestinationExistsError(destination);
+		}
+		try {
+			await rename(join(temporaryDestination, entry), destinationEntry);
+		} catch (error) {
+			if (isAlreadyExistsError(error)) {
+				throw new CloneDestinationExistsError(destination);
+			}
+			throw error;
+		}
+		onEntryPublished(entry);
+	}
+
+	await unlink(reservationPath);
+}
+
+async function reserveDestination(destination: string): Promise<string> {
 	try {
-		await rename(temporaryDestination, destination);
+		await mkdir(destination);
 	} catch (error) {
-		if (isAlreadyExistsError(error) || isDirectoryNotEmptyError(error)) {
+		if (isAlreadyExistsError(error)) {
 			throw new CloneDestinationExistsError(destination);
 		}
 		throw error;
+	}
+
+	const reservationPath = join(
+		destination,
+		`.gji-clone-reservation-${randomUUID()}`,
+	);
+	try {
+		await writeFile(reservationPath, "gji clone reservation\n", {
+			flag: "wx",
+		});
+		return reservationPath;
+	} catch (error) {
+		await rmdir(destination).catch(() => undefined);
+		throw error;
+	}
+}
+
+async function cleanupReservedDestination(
+	destination: string,
+	reservationPath: string,
+	reservationEntries: readonly string[],
+): Promise<void> {
+	try {
+		const entries = await readdir(destination);
+		const ownedEntries = new Set([
+			basename(reservationPath),
+			...reservationEntries,
+		]);
+		if (entries.every((entry) => ownedEntries.has(entry))) {
+			await rm(destination, { force: true, recursive: true });
+		}
+	} catch {
+		// Preserve a destination that was changed by another process.
 	}
 }
 
