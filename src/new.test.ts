@@ -763,6 +763,169 @@ describe("gji new", () => {
 	});
 
 	describe("syncDirs CoW bootstrap", () => {
+		it("prompts for policy and persists an interactive local selection", async () => {
+			// Given a pnpm repository with no explicit dependencyBootstrap policy.
+			const repoRoot = await createRepository();
+			await commitFile(
+				repoRoot,
+				"pnpm-lock.yaml",
+				"lockfileVersion: '9'\n",
+				"Add pnpm lockfile",
+			);
+			const seenCandidates: Array<{
+				adapter: string;
+				lockfile: string;
+				target: string;
+			}> = [];
+			const commands: string[] = [];
+
+			// When gji new asks for dependency setup and the user selects reuse and repair.
+			const result = await createNewCommand({
+				promptForDependencyBootstrap: async (candidate) => {
+					seenCandidates.push(candidate);
+					return "cow-then-repair";
+				},
+				runInstallCommand: async (command) => {
+					commands.push(command);
+				},
+			})({
+				branch: "feature/prompt-local-policy",
+				cwd: repoRoot,
+				stderr: () => undefined,
+				stdout: () => undefined,
+			});
+
+			// Then the tool-aware selection is persisted locally and pnpm repair runs.
+			expect(result).toBe(0);
+			expect(seenCandidates).toEqual([
+				expect.objectContaining({
+					adapter: "pnpm",
+					lockfile: "pnpm-lock.yaml",
+					target: "node_modules",
+				}),
+			]);
+			expect(commands).toEqual(["pnpm install --frozen-lockfile"]);
+			expect(
+				JSON.parse(await readFile(join(repoRoot, ".gji.json"), "utf8")),
+			).toMatchObject({ dependencyBootstrap: "cow-then-repair" });
+		});
+
+		it("persists the selected policy in the per-repo global target", async () => {
+			// Given a Ruby repository configured to save install choices globally.
+			const home = await mkdtemp(join(tmpdir(), "gji-home-"));
+			const repoRoot = await createRepository();
+			await commitFile(
+				repoRoot,
+				"Gemfile.lock",
+				"GEM\n  specs:\n",
+				"Add bundle lockfile",
+			);
+			process.env.HOME = home;
+			const globalConfigPath = GLOBAL_CONFIG_FILE_PATH(home);
+			await mkdir(dirname(globalConfigPath), { recursive: true });
+			await writeFile(
+				globalConfigPath,
+				JSON.stringify({ installSaveTarget: "global" }),
+				"utf8",
+			);
+
+			// When gji new selects skip dependency setup.
+			const result = await createNewCommand({
+				promptForDependencyBootstrap: async () => "off",
+			})({
+				branch: "feature/prompt-global-policy",
+				cwd: repoRoot,
+				stderr: () => undefined,
+				stdout: () => undefined,
+			});
+
+			// Then the local file is untouched and the per-repo global policy is saved.
+			expect(result).toBe(0);
+			await expect(pathExists(join(repoRoot, ".gji.json"))).resolves.toBe(
+				false,
+			);
+			expect(
+				JSON.parse(await readFile(globalConfigPath, "utf8")),
+			).toMatchObject({
+				repos: {
+					[repoRoot]: { dependencyBootstrap: "off" },
+				},
+			});
+		});
+
+		it("does not prompt when an explicit policy is configured", async () => {
+			// Given a pnpm repository with an explicit install-only local policy.
+			const repoRoot = await createRepository();
+			await commitFile(
+				repoRoot,
+				"pnpm-lock.yaml",
+				"lockfileVersion: '9'\n",
+				"Add pnpm lockfile",
+			);
+			await writeFile(
+				join(repoRoot, ".gji.json"),
+				JSON.stringify({ dependencyBootstrap: "install-only" }),
+				"utf8",
+			);
+			let promptCalled = false;
+			const commands: string[] = [];
+
+			// When gji new creates the worktree with a prompt that must never be reached.
+			const result = await createNewCommand({
+				promptForDependencyBootstrap: async () => {
+					promptCalled = true;
+					throw new Error("explicit policy must suppress prompt");
+				},
+				runInstallCommand: async (command) => {
+					commands.push(command);
+				},
+			})({
+				branch: "feature/explicit-policy",
+				cwd: repoRoot,
+				stderr: () => undefined,
+				stdout: () => undefined,
+			});
+
+			// Then the configured policy wins without prompting and runs its deterministic command.
+			expect(result).toBe(0);
+			expect(promptCalled).toBe(false);
+			expect(commands).toEqual(["pnpm install --frozen-lockfile"]);
+		});
+
+		it("keeps the safe off default and never prompts in JSON mode", async () => {
+			// Given a supported pnpm lockfile but no explicit policy.
+			const repoRoot = await createRepository();
+			await commitFile(
+				repoRoot,
+				"pnpm-lock.yaml",
+				"lockfileVersion: '9'\n",
+				"Add pnpm lockfile",
+			);
+			let promptCalled = false;
+			const stdout: string[] = [];
+
+			// When gji new runs in JSON mode.
+			const result = await createNewCommand({
+				promptForDependencyBootstrap: async () => {
+					promptCalled = true;
+					throw new Error("JSON mode must not prompt");
+				},
+			})({
+				branch: "feature/json-policy-default",
+				cwd: repoRoot,
+				json: true,
+				stderr: () => undefined,
+				stdout: (chunk) => stdout.push(chunk),
+			});
+
+			// Then no policy is executed or persisted and the JSON result remains valid.
+			expect(result).toBe(0);
+			expect(promptCalled).toBe(false);
+			expect(JSON.parse(stdout.join(""))).not.toHaveProperty(
+				"dependencyBootstrap",
+			);
+		});
+
 		it("clones configured directories before sync files and after-create", async () => {
 			// Given a repository with a CoW directory, a sync file, and an after-create hook.
 			const repoRoot = await createRepository();

@@ -11,6 +11,7 @@ import {
 	KNOWN_CONFIG_KEYS,
 	loadConfig,
 	loadEffectiveConfig,
+	loadEffectiveConfigResult,
 	normalizeDependencyBootstrap,
 	resolveConfigString,
 	saveLocalConfig,
@@ -271,6 +272,51 @@ describe("updateLocalConfigKey", () => {
 });
 
 describe("loadEffectiveConfig – per-repo global config", () => {
+	it("tracks explicit bootstrap policy across all config layers", async () => {
+		// Given global, per-repo global, and local policies with local precedence.
+		const home = await mkdtemp(join(tmpdir(), "gji-home-"));
+		const repoRoot = await mkdtemp(join(tmpdir(), "gji-repo-"));
+		const globalConfigPath = GLOBAL_CONFIG_FILE_PATH(home);
+		process.env.HOME = home;
+
+		await mkdir(dirname(globalConfigPath), { recursive: true });
+		await writeFile(
+			globalConfigPath,
+			JSON.stringify({
+				dependencyBootstrap: "off",
+				repos: {
+					[repoRoot]: { dependencyBootstrap: "install-only" },
+				},
+			}),
+			"utf8",
+		);
+		await writeFile(
+			join(repoRoot, CONFIG_FILE_NAME),
+			JSON.stringify({ dependencyBootstrap: "cow-then-repair" }),
+			"utf8",
+		);
+
+		// When the effective config is resolved.
+		const result = await loadEffectiveConfigResult(repoRoot, home);
+
+		// Then local precedence is preserved and prompting is disabled because a layer was explicit.
+		expect(result.config.dependencyBootstrap).toBe("cow-then-repair");
+		expect(result.dependencyBootstrapExplicit).toBe(true);
+	});
+
+	it("defaults bootstrap provenance to implicit when no layer configures it", async () => {
+		// Given a repository with no dependencyBootstrap key in any config layer.
+		const home = await mkdtemp(join(tmpdir(), "gji-home-"));
+		const repoRoot = await mkdtemp(join(tmpdir(), "gji-repo-"));
+
+		// When the effective config is resolved.
+		const result = await loadEffectiveConfigResult(repoRoot, home);
+
+		// Then the safe default remains off and the command may offer the interactive policy prompt.
+		expect(result.config.dependencyBootstrap).toBeUndefined();
+		expect(result.dependencyBootstrapExplicit).toBe(false);
+	});
+
 	it("applies per-repo global config when the repo path matches", async () => {
 		// Given a global config that has a repos entry keyed by the repo root.
 		const home = await mkdtemp(join(tmpdir(), "gji-home-"));

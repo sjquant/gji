@@ -61,6 +61,7 @@ export interface BootstrapTarget {
 
 export interface BootstrapAdapter {
 	readonly kind: BootstrapKind;
+	readonly lockfile: string;
 	readonly name: string;
 	readonly relativePath: string;
 	detect(context: BootstrapPreparationContext): Promise<BootstrapTarget | null>;
@@ -124,6 +125,15 @@ export interface DependencyBootstrapPreview {
 	}[];
 }
 
+export interface DependencyBootstrapCandidate {
+	adapter: string;
+	kind: BootstrapKind;
+	lockfile: string;
+	target: string;
+	repairCommand: string;
+	seedable: boolean;
+}
+
 export async function prepareDependencyBootstrap(
 	mode: DependencyBootstrapMode,
 	context: {
@@ -183,6 +193,27 @@ export async function prepareDependencyBootstrap(
 	}
 
 	return { mode, targets };
+}
+
+export async function detectDependencyBootstrapCandidate(context: {
+	repoRoot: string;
+	currentRoot?: string;
+	worktreePath: string;
+	checkUvRuntime?: (target: BootstrapTarget) => Promise<boolean>;
+	cargoBuildCommand?: string;
+}): Promise<DependencyBootstrapCandidate | null> {
+	const plan = await prepareDependencyBootstrap("cow-then-repair", context);
+	const planned = plan.targets[0];
+	if (!planned) return null;
+
+	return {
+		adapter: planned.adapter.name,
+		kind: planned.adapter.kind,
+		lockfile: planned.adapter.lockfile,
+		target: planned.target.relativePath,
+		repairCommand: planned.target.repairCommand,
+		seedable: planned.seedable,
+	};
 }
 
 export function previewDependencyBootstrap(
@@ -635,6 +666,13 @@ function createBootstrapAdapters(
 			repairState: "installed",
 		}),
 		new LockfileBootstrapAdapter({
+			name: "bundler",
+			kind: "dependency",
+			lockfile: "Gemfile.lock",
+			relativePath: "vendor/bundle",
+			repairCommand: "bundle install",
+		}),
+		new LockfileBootstrapAdapter({
 			name: "uv",
 			kind: "dependency",
 			lockfile: "uv.lock",
@@ -667,9 +705,9 @@ interface LockfileBootstrapAdapterSpec {
 
 class LockfileBootstrapAdapter implements BootstrapAdapter {
 	readonly kind: BootstrapKind;
+	readonly lockfile: string;
 	readonly name: string;
 	readonly relativePath: string;
-	private readonly lockfile: string;
 	private readonly defaultRepairCommand: string;
 	private readonly seedPolicy: "always" | "never";
 	private readonly canSeedOverride?: (

@@ -63,6 +63,11 @@ export interface LoadedConfig {
 	path: string;
 }
 
+export interface EffectiveConfigResult {
+	config: EffectiveGjiConfig;
+	dependencyBootstrapExplicit: boolean;
+}
+
 export const DEFAULT_CONFIG: GjiConfig = Object.freeze({});
 
 export async function loadConfig(root: string): Promise<LoadedConfig> {
@@ -76,6 +81,14 @@ export async function loadEffectiveConfig(
 	home: string = homedir(),
 	onWarning?: (message: string) => void,
 ): Promise<EffectiveGjiConfig> {
+	return (await loadEffectiveConfigResult(root, home, onWarning)).config;
+}
+
+export async function loadEffectiveConfigResult(
+	root: string,
+	home: string = homedir(),
+	onWarning?: (message: string) => void,
+): Promise<EffectiveConfigResult> {
 	const [globalConfig, localConfig] = await Promise.all([
 		loadGlobalConfig(home),
 		loadConfig(root),
@@ -156,7 +169,13 @@ export async function loadEffectiveConfig(
 		merged.hooks = { ...globalHooks, ...perRepoHooks, ...localHooks };
 	}
 
-	return toEffectiveConfig(merged);
+	return {
+		config: toEffectiveConfig(merged),
+		dependencyBootstrapExplicit:
+			Object.hasOwn(globalBase, "dependencyBootstrap") ||
+			Object.hasOwn(perRepoConfig, "dependencyBootstrap") ||
+			Object.hasOwn(localConfig.config, "dependencyBootstrap"),
+	};
 }
 
 export async function loadGlobalConfig(

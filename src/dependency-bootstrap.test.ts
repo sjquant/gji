@@ -202,6 +202,44 @@ describe("dependencyBootstrap adapters", () => {
 		expect(result.events.at(-1)?.state).toBe("installed");
 	});
 
+	it("seeds only project-local Bundler state and repairs it deterministically", async () => {
+		// Given a Ruby project with a locked bundle and a project-local vendor/bundle tree.
+		const repoRoot = await mkdtemp(
+			join(tmpdir(), "gji-bootstrap-bundler-repo-"),
+		);
+		const worktreePath = await mkdtemp(
+			join(tmpdir(), "gji-bootstrap-bundler-worktree-"),
+		);
+		await writeFile(join(repoRoot, "Gemfile.lock"), "GEM\n  specs:\n");
+		await mkdir(join(repoRoot, "vendor", "bundle"), { recursive: true });
+
+		// When the Bundler adapter is planned and executed with an injected CoW runner.
+		const plan = await prepareDependencyBootstrap("cow-then-repair", {
+			repoRoot,
+			worktreePath,
+		});
+		const commands: string[] = [];
+		const result = await executeDependencyBootstrap(plan, {
+			cloneDirectory: async (_source, destination) => {
+				await mkdir(destination, { recursive: true });
+				return { ms: 1 };
+			},
+			failureStore: createFailureStore(),
+			repoRoot,
+			reporter: createReporter(),
+			runCommand: async (command) => {
+				commands.push(command);
+			},
+		});
+
+		// Then only vendor/bundle is seeded and bundle install repairs the worktree.
+		expect(plan.targets).toHaveLength(1);
+		expect(plan.targets[0]?.adapter.name).toBe("bundler");
+		expect(plan.targets[0]?.target.relativePath).toBe("vendor/bundle");
+		expect(result.ready).toBe(true);
+		expect(commands).toEqual(["bundle install"]);
+	});
+
 	it("falls back to a clean repair when CoW is unsupported and caches the failure", async () => {
 		// Given a pnpm source whose filesystem rejects CoW.
 		const { repoRoot, worktreePath, plan } =

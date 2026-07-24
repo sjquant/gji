@@ -34,6 +34,7 @@ export interface WorktreeBootstrapOptions {
 	runCommand?: BootstrapCommandRunner;
 	commandStdout?: (chunk: string) => void;
 	commandStderr?: (chunk: string) => void;
+	dependencyBootstrapPolicyResolved?: boolean;
 	json?: boolean;
 	nonInteractive: boolean;
 	repoRoot: string;
@@ -121,7 +122,7 @@ export async function bootstrapWorktree(
 		};
 	}
 
-	if (dependencyMode === "off") {
+	if (dependencyMode === "off" && !options.dependencyBootstrapPolicyResolved) {
 		await maybeRunInstallPrompt(
 			options.worktreePath,
 			options.repoRoot,

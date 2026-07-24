@@ -9,7 +9,7 @@ import {
 } from "./bootstrap-preview.js";
 import {
 	type EffectiveGjiConfig,
-	loadEffectiveConfig,
+	loadEffectiveConfigResult,
 	resolveConfigString,
 } from "./config.js";
 import {
@@ -17,6 +17,10 @@ import {
 	pathExists,
 	promptForPathConflict,
 } from "./conflict.js";
+import {
+	type DependencyBootstrapPromptDependencies,
+	resolveDependencyBootstrapPolicy,
+} from "./dependency-bootstrap-prompt.js";
 import type { CloneDirectory } from "./dir-clone.js";
 import { isHeadless } from "./headless.js";
 import { recordWorktreeUsage } from "./history.js";
@@ -46,7 +50,9 @@ export interface PrCommandOptions {
 	stdout: (chunk: string) => void;
 }
 
-export interface PrCommandDependencies extends InstallPromptDependencies {
+export interface PrCommandDependencies
+	extends InstallPromptDependencies,
+		DependencyBootstrapPromptDependencies {
 	cloneDir?: CloneDirectory;
 	promptForPathConflict: (path: string) => Promise<PathConflictChoice>;
 }
@@ -89,12 +95,15 @@ export function createPrCommand(
 
 		const repository = await detectRepository(options.cwd);
 		let config: EffectiveGjiConfig;
+		let dependencyBootstrapExplicit: boolean;
 		try {
-			config = await loadEffectiveConfig(
+			const loaded = await loadEffectiveConfigResult(
 				repository.repoRoot,
 				undefined,
 				options.json ? undefined : options.stderr,
 			);
+			config = loaded.config;
+			dependencyBootstrapExplicit = loaded.dependencyBootstrapExplicit;
 		} catch (error) {
 			const message = error instanceof Error ? error.message : String(error);
 			if (options.json) {
@@ -146,6 +155,30 @@ export function createPrCommand(
 			);
 			return 1;
 		}
+
+		const dependencyPolicy = await resolveDependencyBootstrapPolicy(
+			{
+				currentRoot: repository.currentRoot,
+				repoRoot: repository.repoRoot,
+				worktreePath,
+			},
+			config,
+			dependencyBootstrapExplicit,
+			{
+				dependencies,
+				dryRun: options.dryRun,
+				legacyInstallPromptConfigured:
+					dependencies.promptForInstallChoice !== undefined,
+				nonInteractive: !!options.json,
+				stderr: options.stderr,
+			},
+		);
+		config = {
+			...config,
+			dependencyBootstrap: dependencyPolicy.mode,
+		};
+		const dependencyBootstrapPolicyResolved =
+			dependencyBootstrapExplicit || dependencyPolicy.prompted;
 
 		const dryRunSyncDirs = options.dryRun
 			? await estimateSyncDirectories(
@@ -237,6 +270,7 @@ export function createPrCommand(
 			json: options.json,
 			worktreePath,
 			installDependencies: dependencies,
+			dependencyBootstrapPolicyResolved,
 		});
 		if (!bootstrap.ready) {
 			const details = {

@@ -10,7 +10,7 @@ import {
 } from "./bootstrap-preview.js";
 import {
 	type EffectiveGjiConfig,
-	loadEffectiveConfig,
+	loadEffectiveConfigResult,
 	resolveConfigString,
 } from "./config.js";
 import {
@@ -18,6 +18,10 @@ import {
 	pathExists,
 	promptForPathConflict,
 } from "./conflict.js";
+import {
+	type DependencyBootstrapPromptDependencies,
+	resolveDependencyBootstrapPolicy,
+} from "./dependency-bootstrap-prompt.js";
 import { type CloneDirectory, cloneDir } from "./dir-clone.js";
 import { defaultSpawnEditor, EDITORS } from "./editor.js";
 import { formatBytes } from "./format-bytes.js";
@@ -64,7 +68,9 @@ export interface NewCommandOptions {
 	stdout: (chunk: string) => void;
 }
 
-export interface NewCommandDependencies extends InstallPromptDependencies {
+export interface NewCommandDependencies
+	extends InstallPromptDependencies,
+		DependencyBootstrapPromptDependencies {
 	cloneDir: CloneDirectory;
 	createBranchPlaceholder: () => string;
 	promptForBranch: (placeholder: string) => Promise<string | null>;
@@ -100,12 +106,15 @@ export function createNewCommand(
 
 		const repository = await detectRepository(options.cwd);
 		let config: EffectiveGjiConfig;
+		let dependencyBootstrapExplicit: boolean;
 		try {
-			config = await loadEffectiveConfig(
+			const loaded = await loadEffectiveConfigResult(
 				repository.repoRoot,
 				undefined,
 				options.json ? undefined : options.stderr,
 			);
+			config = loaded.config;
+			dependencyBootstrapExplicit = loaded.dependencyBootstrapExplicit;
 		} catch (error) {
 			return emitNewError(
 				options,
@@ -246,6 +255,30 @@ export function createNewCommand(
 				return 1;
 			}
 		}
+
+		const dependencyPolicy = await resolveDependencyBootstrapPolicy(
+			{
+				currentRoot: repository.currentRoot,
+				repoRoot: repository.repoRoot,
+				worktreePath,
+			},
+			config,
+			dependencyBootstrapExplicit,
+			{
+				dependencies,
+				dryRun: options.dryRun,
+				legacyInstallPromptConfigured:
+					dependencies.promptForInstallChoice !== undefined,
+				nonInteractive: !!options.json,
+				stderr: options.stderr,
+			},
+		);
+		config = {
+			...config,
+			dependencyBootstrap: dependencyPolicy.mode,
+		};
+		const dependencyBootstrapPolicyResolved =
+			dependencyBootstrapExplicit || dependencyPolicy.prompted;
 
 		if (options.dryRun) {
 			if (options.take) {
@@ -452,6 +485,7 @@ export function createNewCommand(
 			json: options.json,
 			worktreePath,
 			installDependencies: dependencies,
+			dependencyBootstrapPolicyResolved,
 		});
 		if (!bootstrap.ready) {
 			return emitNewError(options, "dependency bootstrap failed", {

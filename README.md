@@ -292,7 +292,7 @@ No setup required. Optional config lives in:
 | `dependencyBootstrap` | dependency/build-state policy: `off`, `cow-then-repair`, or `install-only` |
 | `dependencyBuildCommand` | optional Cargo repair command used by `dependencyBootstrap` (default: `cargo check`) |
 | `skipInstallPrompt` | `true` to disable the auto-install prompt permanently |
-| `installSaveTarget` | `"local"` or `"global"` — where **Always**/**Never** choices are persisted (default: `"local"`); set during `gji init <shell> --write` |
+| `installSaveTarget` | `"local"` or `"global"` — where dependency policy and legacy **Always**/**Never** choices are persisted (default: `"local"`); set during `gji init <shell> --write` |
 | `hooks` | lifecycle scripts (see [Hooks](#hooks)) |
 | `repos` | per-repo overrides inside the global config (see below) |
 
@@ -333,11 +333,11 @@ This stores:
 
 ### Instant directory bootstrap
 
-Use `syncDirs` for large, reproducible directories that should be available immediately in each new worktree:
+Use `syncDirs` for advanced, arbitrary directories that should be available immediately in each new worktree. Dependency adapters discover their own project-local targets, so you do not need to list `node_modules`, `.venv`, or `target` here:
 
 ```json
 {
-  "syncDirs": ["node_modules", ".next"]
+  "syncDirs": [".next", ".cache"]
 }
 ```
 
@@ -359,7 +359,11 @@ Use `dependencyBootstrap` when a package manager or build cache needs a reusable
 }
 ```
 
-`cow-then-repair` supports Yarn (`--immutable`), pnpm (`--frozen-lockfile`), uv (`--locked`), and Cargo (the configured `dependencyBuildCommand`, or `cargo check`). npm uses install-only `npm ci` because it can delete an existing dependency tree. CoW failure never triggers ordinary copying: repair runs from an empty target instead. The lifecycle is `CoW seed → syncFiles → repair/install → after-create`; a sync-file failure stops repair, install prompts, and hooks. A successful dependency seed is reported as `reused and repaired`, not as an install skip.
+`cow-then-repair` supports pnpm (`node_modules` + `pnpm install --frozen-lockfile`), Yarn (`node_modules` + `yarn install --immutable`), uv (`.venv` + `uv sync --locked`), Cargo (`target` + the configured `dependencyBuildCommand`, or `cargo check`), and Bundler (`vendor/bundle` + `bundle install`). npm is install-only (`npm ci`) because it can delete an existing dependency tree; it never seeds `node_modules`. Only project-local targets are eligible, so global Ruby gems and package-manager caches are never cloned. CoW failure never triggers ordinary copying: repair runs from an empty target instead. The lifecycle is `CoW seed → syncFiles → repair/install → after-create`; a sync-file failure stops repair, install prompts, and hooks. A successful dependency seed is reported as `reused and repaired`, not as an install skip.
+
+When a supported lockfile is detected and no `dependencyBootstrap` policy is configured, interactive `gji new` and `gji pr` ask which policy to persist: **Reuse and repair (recommended)**, **Install fresh each time**, or **Skip dependency setup**. The prompt explains the detected tool—for example, pnpm reuses local `node_modules` through CoW and then runs `pnpm install --frozen-lockfile`. The choice is saved locally or in the per-repo global config according to `installSaveTarget`. Headless, JSON, and dry-run commands never prompt and retain the safe `off` default.
+
+Ecosystems dominated by global caches, such as Gradle, Maven, and Go, are not seeded until a safe project-local target and deterministic repair rule are available. Future adapters can add Composer, Poetry/PDM, Mix, Dart/Flutter, or .NET without changing `syncDirs`.
 
 Use `gji new --dry-run` to see the directories and estimated sizes without creating anything. `gji new --json` adds a `cloned` array and structured `dependencyBootstrap` events, including machine-readable reasons for skips and failures. If bootstrap fails, the JSON error includes the created worktree path; text mode prints the same path and a cleanup hint. The benchmark target for a 2 GB dependency tree on supported APFS/Btrfs or XFS filesystems is under 5 seconds; benchmark your repository locally because filesystem and storage behavior determine the result.
 
@@ -469,7 +473,9 @@ This is useful after cloning on a new machine, recovering a broken worktree, or 
 
 ## Install prompt
 
-When `gji new` or `gji pr` creates a worktree, `gji` detects the project's package manager from its lockfile and offers to run the install command:
+For supported lockfiles, the dependency policy prompt above is the primary setup choice. Keep `after-create` hooks for project-specific work such as `pnpm run generate`, code generation, local-service setup, or environment-specific commands; hooks are not a second dependency-bootstrap configuration.
+
+Projects without a supported dependency adapter can still use the legacy one-shot install prompt:
 
 ```
 Run `pnpm install` in the new worktree?
@@ -481,7 +487,7 @@ Run `pnpm install` in the new worktree?
 
 **Always** saves `hooks.afterCreate`; **Never** writes `skipInstallPrompt: true`. Where they are saved depends on `installSaveTarget` (see [Available keys](#available-keys)) — defaults to `.gji.json`.
 
-`syncDirs` never suppresses the install prompt. To automate dependency setup, opt into `dependencyBootstrap: "cow-then-repair"`; the adapter always runs its lockfile/build repair after `syncFiles`.
+`syncDirs` remains generic and never suppresses installation or repair. To automate supported dependency/build setup, use `dependencyBootstrap`; the adapter always runs its lockfile/build repair after `syncFiles`. Explicit policies in global defaults, per-repo global config, or `.gji.json` always win over prompting.
 
 ## JSON output
 

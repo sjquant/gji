@@ -656,6 +656,40 @@ describe("gji pr", () => {
 			});
 		});
 
+		it("prompts for dependency policy before bootstrapping a PR worktree", async () => {
+			// Given a PR repository whose base worktree exposes a pnpm lockfile.
+			const repoRoot = await setupPrRepo("2016");
+			await commitFile(
+				repoRoot,
+				"pnpm-lock.yaml",
+				"lockfileVersion: '9'\n",
+				"Add pnpm lockfile",
+			);
+			let prompted = false;
+			const commands: string[] = [];
+
+			// When gji pr selects install-only from the interactive policy prompt.
+			const result = await createPrCommand({
+				promptForDependencyBootstrap: async (candidate) => {
+					prompted = candidate.adapter === "pnpm";
+					return "install-only";
+				},
+				runInstallCommand: async (command) => {
+					commands.push(command);
+				},
+			})({
+				cwd: repoRoot,
+				number: "2016",
+				stderr: () => undefined,
+				stdout: () => undefined,
+			});
+
+			// Then the PR command persists the policy and runs the frozen pnpm repair.
+			expect(result).toBe(0);
+			expect(prompted).toBe(true);
+			expect(commands).toEqual(["pnpm install --frozen-lockfile"]);
+		});
+
 		it('runs install once and does not persist anything when "yes" is chosen', async () => {
 			// Given a PR repo with a detected package manager and a "yes" prompt choice.
 			const repoRoot = await setupPrRepo("2001");
