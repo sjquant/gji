@@ -343,8 +343,6 @@ Use `syncDirs` for large, reproducible directories that should be available imme
 
 `gji new` clones these directories with APFS copy-on-write on macOS or mandatory reflinks on Linux, before `syncFiles`. It never falls back to a slow ordinary copy. Unsupported filesystems, external symlink targets, missing sources, and existing destinations are skipped safely; failed CoW attempts are cached in `~/.config/gji/state.json` so repeated worktree creation does not keep waiting on the same unsupported filesystem. `syncDirs` is generic: it does not know or special-case package managers.
 
-See [destination safety](docs/destination-safety.md) for the filesystem safety scope and limitations.
-
 Paths are relative to the repository root. Absolute paths, `..` segments, and `.git` paths are rejected in all three config layers.
 
 The human output includes clone timing; dry-run can provide source-size estimates:
