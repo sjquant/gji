@@ -131,6 +131,10 @@ function subcommandManPage(cmd) {
 	out += `.SH SYNOPSIS\n${synopsisTokens.join(" ")}\n`;
 
 	out += `.SH DESCRIPTION\n${esc(desc)}\n`;
+	if (cmd.name() === "new" || cmd.name() === "pr") {
+		out += `.SH BOOTSTRAP_POLICY\n${esc("dependencyBuildCommand overrides Cargo's default cargo check. Supported lockfiles trigger an interactive dependencyBootstrap choice when no explicit policy exists; the choice is saved according to installSaveTarget. JSON and headless modes never prompt and keep off. npm is always install-only, and sync-file failures stop dependency repair, install prompts, and after-create hooks. JSON bootstrap events include structured reasons, and failed setup reports the created worktree path.\n")}\n`;
+		out += `.SH BOOTSTRAP\n${esc("syncDirs performs generic copy-on-write directory seeding before syncFiles. It never falls back to ordinary copying and never suppresses installation or repair. Set dependencyBootstrap to off, cow-then-repair, or install-only to enable deterministic project-local package-manager or build-cache repair. The lifecycle is CoW seed, syncFiles, repair or install, then after-create. CoW failures fall back to repair from an empty target; partial clones are removed and existing targets are never deleted. Bundler uses vendor/bundle only; global gem stores and caches are not cloned.\n")}\n`;
+	}
 
 	out += optionsSection(cmd);
 

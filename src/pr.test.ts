@@ -536,7 +536,10 @@ describe("gji pr", () => {
 	describe("install prompt", () => {
 		const fakePm = { name: "pnpm", installCommand: "pnpm install" };
 
-		async function setupPrRepo(prNumber: string): Promise<string> {
+		async function setupPrRepo(
+			prNumber: string,
+			extraFiles: readonly [string, string][] = [],
+		): Promise<string> {
 			const { repoRoot } = await createRepositoryWithOrigin();
 			await runGit(repoRoot, [
 				"checkout",
@@ -549,10 +552,170 @@ describe("gji pr", () => {
 				"content\n",
 				`pr ${prNumber}`,
 			);
+			for (const [path, content] of extraFiles) {
+				await commitFile(repoRoot, path, content, `pr ${prNumber} ${path}`);
+			}
 			await pushPullRequestRef(repoRoot, prNumber);
 			await runGit(repoRoot, ["checkout", "-"]);
 			return repoRoot;
 		}
+
+		it("reports syncDirs in PR dry-run text and JSON output", async () => {
+			// Given a PR repository with an available but untracked CoW source.
+			const repoRoot = await setupPrRepo("2018");
+			await mkdir(join(repoRoot, "node_modules"));
+			await writeFile(join(repoRoot, "node_modules", "ready.txt"), "ready\n");
+			await writeFile(
+				join(repoRoot, ".gji.json"),
+				JSON.stringify({ syncDirs: ["node_modules"] }),
+				"utf8",
+			);
+			const textOutput: string[] = [];
+			const jsonOutput: string[] = [];
+			const runPrCmd = createPrCommand();
+
+			// When gji pr performs text and JSON dry-runs.
+			const textResult = await runPrCmd({
+				cwd: repoRoot,
+				dryRun: true,
+				number: "2018",
+				stderr: () => undefined,
+				stdout: (chunk) => textOutput.push(chunk),
+			});
+			const jsonResult = await runPrCmd({
+				cwd: repoRoot,
+				dryRun: true,
+				json: true,
+				number: "2018",
+				stderr: () => undefined,
+				stdout: (chunk) => jsonOutput.push(chunk),
+			});
+
+			// Then both output modes describe the clone without creating a worktree.
+			expect(textResult).toBe(0);
+			expect(textOutput.join("")).toContain("Would clone node_modules");
+			expect(jsonResult).toBe(0);
+			expect(JSON.parse(jsonOutput.join(""))).toMatchObject({
+				dryRun: true,
+				syncDirs: [{ dir: "node_modules" }],
+			});
+			await expect(
+				pathExists(resolveWorktreePath(repoRoot, "pr/2018")),
+			).resolves.toBe(false);
+		});
+
+		it("clones syncDirs before the PR install prompt", async () => {
+			// Given a PR repository with a configured node_modules directory.
+			const repoRoot = await setupPrRepo("2017");
+			await mkdir(join(repoRoot, "node_modules"));
+			await writeFile(
+				join(repoRoot, "node_modules", "ready.txt"),
+				"ready\n",
+				"utf8",
+			);
+			await writeFile(
+				join(repoRoot, ".gji.json"),
+				JSON.stringify({ syncDirs: ["node_modules"] }),
+				"utf8",
+			);
+			let promptCalled = false;
+			const stdout: string[] = [];
+			const runPrCmd = createPrCommand({
+				cloneDir: async (_source, destination) => {
+					await mkdir(destination, { recursive: true });
+					await writeFile(join(destination, "ready.txt"), "ready\n", "utf8");
+					return { bytes: 6, ms: 4 };
+				},
+				detectInstallPackageManager: async () => fakePm,
+				promptForInstallChoice: async () => {
+					promptCalled = true;
+					return "yes";
+				},
+			});
+
+			// When gji pr creates the review worktree.
+			const result = await runPrCmd({
+				cwd: repoRoot,
+				json: true,
+				number: "2017",
+				stderr: () => undefined,
+				stdout: (chunk) => stdout.push(chunk),
+			});
+
+			// Then the cloned directory is available and the install prompt is skipped.
+			expect(result).toBe(0);
+			expect(promptCalled).toBe(false);
+			await expect(
+				readFile(
+					join(
+						resolveWorktreePath(repoRoot, "pr/2017"),
+						"node_modules",
+						"ready.txt",
+					),
+					"utf8",
+				),
+			).resolves.toBe("ready\n");
+			expect(JSON.parse(stdout.join(""))).toMatchObject({
+				branch: "pr/2017",
+				path: resolveWorktreePath(repoRoot, "pr/2017"),
+				cloned: [{ dir: "node_modules", ms: 4 }],
+			});
+		});
+
+		it("prompts for dependency policy before bootstrapping a PR worktree", async () => {
+			// Given a PR repository whose base worktree exposes a pnpm lockfile.
+			const repoRoot = await setupPrRepo("2016", [
+				["pnpm-lock.yaml", "lockfileVersion: '9'\n"],
+			]);
+			let prompted = false;
+			const commands: string[] = [];
+
+			// When gji pr selects install-only from the interactive policy prompt.
+			const result = await createPrCommand({
+				promptForDependencyBootstrap: async (candidate) => {
+					prompted = candidate.adapter === "pnpm";
+					return "install-only";
+				},
+				runInstallCommand: async (command) => {
+					commands.push(command);
+				},
+			})({
+				cwd: repoRoot,
+				number: "2016",
+				stderr: () => undefined,
+				stdout: () => undefined,
+			});
+
+			// Then the PR command persists the policy and runs the frozen pnpm repair.
+			expect(result).toBe(0);
+			expect(prompted).toBe(true);
+			expect(commands).toEqual(["pnpm install --frozen-lockfile"]);
+		});
+
+		it("stops before reporting success when PR dependency repair fails", async () => {
+			// Given a PR ref with a supported lockfile and a failing repair command.
+			const repoRoot = await setupPrRepo("2015", [
+				["pnpm-lock.yaml", "lockfileVersion: '9'\n"],
+			]);
+			const stderr: string[] = [];
+
+			// When gji pr bootstraps the worktree.
+			const result = await createPrCommand({
+				promptForDependencyBootstrap: async () => "install-only",
+				runInstallCommand: async () => {
+					throw new Error("repair failed");
+				},
+			})({
+				cwd: repoRoot,
+				number: "2015",
+				stderr: (chunk) => stderr.push(chunk),
+				stdout: () => undefined,
+			});
+
+			// Then the command fails and does not emit a normal navigation success.
+			expect(result).toBe(1);
+			expect(stderr.join("")).toContain("worktree bootstrap failed");
+		});
 
 		it('runs install once and does not persist anything when "yes" is chosen', async () => {
 			// Given a PR repo with a detected package manager and a "yes" prompt choice.

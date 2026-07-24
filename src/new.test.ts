@@ -1,4 +1,11 @@
-import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import {
+	mkdir,
+	mkdtemp,
+	readFile,
+	rm,
+	symlink,
+	writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 
@@ -6,6 +13,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { runCli } from "./cli.js";
 import { GLOBAL_CONFIG_FILE_PATH } from "./config.js";
+import { CloneUnsupportedError } from "./dir-clone.js";
 import {
 	createNewCommand,
 	generateBranchPlaceholder,
@@ -22,14 +30,14 @@ import {
 } from "./repo.test-helpers.js";
 
 const originalHome = process.env.HOME;
+const originalConfigDir = process.env.GJI_CONFIG_DIR;
 
 afterEach(() => {
 	if (originalHome === undefined) {
 		delete process.env.HOME;
-		return;
-	}
-
-	process.env.HOME = originalHome;
+	} else process.env.HOME = originalHome;
+	if (originalConfigDir === undefined) delete process.env.GJI_CONFIG_DIR;
+	else process.env.GJI_CONFIG_DIR = originalConfigDir;
 });
 
 describe("gji new", () => {
@@ -642,14 +650,17 @@ describe("gji new", () => {
 			);
 		});
 
-		it("emits a warning for an invalid sync pattern but does not abort", async () => {
+		it("fails closed when an invalid sync pattern prevents dependency setup", async () => {
 			// Given a repo with an absolute-path pattern in syncFiles (which syncFiles rejects).
 			const repoRoot = await createRepository();
 			const branchName = "feature/sync-invalid";
 			const worktreePath = resolveWorktreePath(repoRoot, branchName);
 			await writeFile(
 				join(repoRoot, ".gji.json"),
-				JSON.stringify({ syncFiles: ["/etc/passwd"] }),
+				JSON.stringify({
+					syncFiles: ["/etc/passwd"],
+					hooks: { "after-create": "touch after-create-ran" },
+				}),
 				"utf8",
 			);
 			const stderr: string[] = [];
@@ -662,11 +673,80 @@ describe("gji new", () => {
 				stdout: () => undefined,
 			});
 
-			// Then the worktree is still created and a warning is emitted for the bad pattern.
-			expect(result).toBe(0);
+			// Then the worktree is created but setup stops before install or after-create.
+			expect(result).toBe(1);
 			await expect(pathExists(worktreePath)).resolves.toBe(true);
 			expect(stderr.join("")).toContain("Warning:");
 			expect(stderr.join("")).toContain("/etc/passwd");
+			await expect(
+				pathExists(join(worktreePath, "after-create-ran")),
+			).resolves.toBe(false);
+		});
+
+		it("does not prompt for install after syncFiles fails", async () => {
+			// Given an npm repository whose required sync file is invalid.
+			const repoRoot = await createRepository();
+			await commitFile(
+				repoRoot,
+				"package-lock.json",
+				"{}\n",
+				"Add npm lockfile",
+			);
+			await writeFile(
+				join(repoRoot, ".gji.json"),
+				JSON.stringify({ syncFiles: ["/etc/passwd"] }),
+				"utf8",
+			);
+			let promptCalled = false;
+
+			// When worktree creation encounters the sync-file failure.
+			const result = await createNewCommand({
+				detectInstallPackageManager: async () => ({
+					name: "npm",
+					installCommand: "npm install",
+				}),
+				promptForInstallChoice: async () => {
+					promptCalled = true;
+					return "yes";
+				},
+				runInstallCommand: async () => undefined,
+			})({
+				branch: "feature/sync-failure-no-prompt",
+				cwd: repoRoot,
+				stderr: () => undefined,
+				stdout: () => undefined,
+			});
+
+			// Then setup fails closed without offering a second, unsafe install path.
+			expect(result).toBe(1);
+			expect(promptCalled).toBe(false);
+		});
+
+		it("reports sync-file failures as structured JSON errors", async () => {
+			// Given a repository with an invalid syncFiles pattern and JSON output enabled.
+			const repoRoot = await createRepository();
+			await writeFile(
+				join(repoRoot, ".gji.json"),
+				JSON.stringify({ syncFiles: ["/etc/passwd"] }),
+				"utf8",
+			);
+			const stderr: string[] = [];
+
+			// When worktree creation stops at the sync-file stage.
+			const result = await createNewCommand()({
+				branch: "feature/sync-failure-json",
+				cwd: repoRoot,
+				json: true,
+				stderr: (chunk) => stderr.push(chunk),
+				stdout: () => undefined,
+			});
+
+			// Then the JSON error identifies the sync-file failure and no bootstrap result.
+			expect(result).toBe(1);
+			expect(JSON.parse(stderr.join(""))).toMatchObject({
+				error: "worktree bootstrap failed",
+				syncFiles: [{ adapter: "syncFiles", state: "failed" }],
+			});
 		});
 
 		it("local syncFiles config overrides global (no array merging)", async () => {
@@ -707,6 +787,978 @@ describe("gji new", () => {
 			await expect(
 				pathExists(join(worktreePath, "global-file.txt")),
 			).resolves.toBe(false);
+		});
+	});
+
+	describe("syncDirs CoW bootstrap", () => {
+		it("prompts for policy and persists an interactive local selection", async () => {
+			// Given a pnpm repository with no explicit dependencyBootstrap policy.
+			const repoRoot = await createRepository();
+			await commitFile(
+				repoRoot,
+				"pnpm-lock.yaml",
+				"lockfileVersion: '9'\n",
+				"Add pnpm lockfile",
+			);
+			const seenCandidates: Array<{
+				adapter: string;
+				lockfile: string;
+				target: string;
+			}> = [];
+			const commands: string[] = [];
+
+			// When gji new asks for dependency setup and the user selects reuse and repair.
+			const result = await createNewCommand({
+				promptForDependencyBootstrap: async (candidate) => {
+					seenCandidates.push(candidate);
+					return "cow-then-repair";
+				},
+				runInstallCommand: async (command) => {
+					commands.push(command);
+				},
+			})({
+				branch: "feature/prompt-local-policy",
+				cwd: repoRoot,
+				stderr: () => undefined,
+				stdout: () => undefined,
+			});
+
+			// Then the tool-aware selection is persisted locally and pnpm repair runs.
+			expect(result).toBe(0);
+			expect(seenCandidates).toEqual([
+				expect.objectContaining({
+					adapter: "pnpm",
+					lockfile: "pnpm-lock.yaml",
+					target: "node_modules",
+				}),
+			]);
+			expect(commands).toEqual(["pnpm install --frozen-lockfile"]);
+			expect(
+				JSON.parse(await readFile(join(repoRoot, ".gji.json"), "utf8")),
+			).toMatchObject({ dependencyBootstrap: "cow-then-repair" });
+		});
+
+		it("persists the selected policy in the per-repo global target", async () => {
+			// Given a Ruby repository configured to save install choices globally.
+			const home = await mkdtemp(join(tmpdir(), "gji-home-"));
+			const repoRoot = await createRepository();
+			await commitFile(
+				repoRoot,
+				"Gemfile.lock",
+				"GEM\n  specs:\n",
+				"Add bundle lockfile",
+			);
+			process.env.HOME = home;
+			const globalConfigPath = GLOBAL_CONFIG_FILE_PATH(home);
+			await mkdir(dirname(globalConfigPath), { recursive: true });
+			await writeFile(
+				globalConfigPath,
+				JSON.stringify({ installSaveTarget: "global" }),
+				"utf8",
+			);
+
+			// When gji new selects skip dependency setup.
+			const result = await createNewCommand({
+				promptForDependencyBootstrap: async () => "off",
+			})({
+				branch: "feature/prompt-global-policy",
+				cwd: repoRoot,
+				stderr: () => undefined,
+				stdout: () => undefined,
+			});
+
+			// Then the local file is untouched and the per-repo global policy is saved.
+			expect(result).toBe(0);
+			await expect(pathExists(join(repoRoot, ".gji.json"))).resolves.toBe(
+				false,
+			);
+			expect(
+				JSON.parse(await readFile(globalConfigPath, "utf8")),
+			).toMatchObject({
+				repos: {
+					[repoRoot]: { dependencyBootstrap: "off" },
+				},
+			});
+		});
+
+		it("does not persist or repair after dependency policy cancellation", async () => {
+			// Given a pnpm repository with no explicit dependencyBootstrap policy.
+			const repoRoot = await createRepository();
+			await commitFile(
+				repoRoot,
+				"pnpm-lock.yaml",
+				"lockfileVersion: '9'\n",
+				"Add pnpm lockfile",
+			);
+			const commands: string[] = [];
+
+			// When the interactive dependency policy prompt is cancelled.
+			const result = await createNewCommand({
+				promptForDependencyBootstrap: async () => null,
+				runInstallCommand: async (command) => {
+					commands.push(command);
+				},
+			})({
+				branch: "feature/cancel-bootstrap-policy",
+				cwd: repoRoot,
+				stderr: () => undefined,
+				stdout: () => undefined,
+			});
+
+			// Then setup completes safely without persistence, repair, or a legacy prompt.
+			expect(result).toBe(0);
+			expect(commands).toEqual([]);
+			await expect(pathExists(join(repoRoot, ".gji.json"))).resolves.toBe(
+				false,
+			);
+		});
+
+		it("does not prompt when an explicit policy is configured", async () => {
+			// Given a pnpm repository with an explicit install-only local policy.
+			const repoRoot = await createRepository();
+			await commitFile(
+				repoRoot,
+				"pnpm-lock.yaml",
+				"lockfileVersion: '9'\n",
+				"Add pnpm lockfile",
+			);
+			await writeFile(
+				join(repoRoot, ".gji.json"),
+				JSON.stringify({ dependencyBootstrap: "install-only" }),
+				"utf8",
+			);
+			let promptCalled = false;
+			const commands: string[] = [];
+
+			// When gji new creates the worktree with a prompt that must never be reached.
+			const result = await createNewCommand({
+				promptForDependencyBootstrap: async () => {
+					promptCalled = true;
+					throw new Error("explicit policy must suppress prompt");
+				},
+				runInstallCommand: async (command) => {
+					commands.push(command);
+				},
+			})({
+				branch: "feature/explicit-policy",
+				cwd: repoRoot,
+				stderr: () => undefined,
+				stdout: () => undefined,
+			});
+
+			// Then the configured policy wins without prompting and runs its deterministic command.
+			expect(result).toBe(0);
+			expect(promptCalled).toBe(false);
+			expect(commands).toEqual(["pnpm install --frozen-lockfile"]);
+		});
+
+		it("keeps the safe off default and never prompts in JSON mode", async () => {
+			// Given a supported pnpm lockfile but no explicit policy.
+			const repoRoot = await createRepository();
+			await commitFile(
+				repoRoot,
+				"pnpm-lock.yaml",
+				"lockfileVersion: '9'\n",
+				"Add pnpm lockfile",
+			);
+			let promptCalled = false;
+			const stdout: string[] = [];
+
+			// When gji new runs in JSON mode.
+			const result = await createNewCommand({
+				promptForDependencyBootstrap: async () => {
+					promptCalled = true;
+					throw new Error("JSON mode must not prompt");
+				},
+			})({
+				branch: "feature/json-policy-default",
+				cwd: repoRoot,
+				json: true,
+				stderr: () => undefined,
+				stdout: (chunk) => stdout.push(chunk),
+			});
+
+			// Then no policy is executed or persisted and the JSON result remains valid.
+			expect(result).toBe(0);
+			expect(promptCalled).toBe(false);
+			expect(JSON.parse(stdout.join(""))).not.toHaveProperty(
+				"dependencyBootstrap",
+			);
+		});
+
+		it("clones configured directories before sync files and after-create", async () => {
+			// Given a repository with a CoW directory, a sync file, and an after-create hook.
+			const repoRoot = await createRepository();
+			const home = await mkdtemp(join(tmpdir(), "gji-home-"));
+			const branchName = "feature/cow-order";
+			const worktreePath = resolveWorktreePath(repoRoot, branchName);
+			const marker = join(worktreePath, "bootstrap-order.txt");
+			await mkdir(join(repoRoot, "node_modules"));
+			await writeFile(join(repoRoot, "node_modules", "ready.txt"), "ready\n");
+			await writeFile(join(repoRoot, ".env.local"), "TOKEN=abc\n");
+			await writeFile(
+				join(repoRoot, ".gji.json"),
+				JSON.stringify({
+					syncDirs: ["node_modules"],
+					syncFiles: [".env.local"],
+					hooks: {
+						"after-create": `test -f node_modules/ready.txt && test -f .env.local && touch "${marker}"`,
+					},
+				}),
+				"utf8",
+			);
+			process.env.HOME = home;
+
+			// When gji new runs with an injected successful CoW cloner.
+			const runNew = createNewCommand({
+				cloneDir: async (_source, destination) => {
+					await mkdir(destination, { recursive: true });
+					await writeFile(join(destination, "ready.txt"), "ready\n");
+					return { bytes: 6, ms: 12 };
+				},
+			});
+			const stderr: string[] = [];
+			const result = await runNew({
+				branch: branchName,
+				cwd: repoRoot,
+				stderr: (chunk) => stderr.push(chunk),
+				stdout: () => undefined,
+			});
+
+			// Then the clone and file sync are complete before the hook runs.
+			expect(result).toBe(0);
+			await expect(readFile(marker, "utf8")).resolves.toBe("");
+			expect(stderr.join("")).toContain("cloned node_modules");
+		});
+
+		it("clones overlapping syncDirs from the ancestor outward", async () => {
+			// Given nested configured directories whose ancestor contains both source entries.
+			const repoRoot = await createRepository();
+			const branchName = "feature/cow-overlap";
+			const sourceRoot = join(repoRoot, "foo");
+			await mkdir(join(sourceRoot, "bar"), { recursive: true });
+			await writeFile(join(sourceRoot, "sibling.txt"), "sibling\n", "utf8");
+			await writeFile(join(sourceRoot, "bar", "leaf.txt"), "leaf\n", "utf8");
+			await writeFile(
+				join(repoRoot, ".gji.json"),
+				JSON.stringify({ syncDirs: ["foo/bar", "foo"] }),
+				"utf8",
+			);
+			const cloneDirectories: string[] = [];
+
+			// When gji new bootstraps the worktree with an injected CoW cloner.
+			const result = await createNewCommand({
+				cloneDir: async (source, destination) => {
+					cloneDirectories.push(source.slice(repoRoot.length + 1));
+					await mkdir(join(destination, "bar"), { recursive: true });
+					await writeFile(
+						join(destination, "sibling.txt"),
+						"sibling\n",
+						"utf8",
+					);
+					await writeFile(
+						join(destination, "bar", "leaf.txt"),
+						"leaf\n",
+						"utf8",
+					);
+					return { bytes: 13, ms: 1 };
+				},
+			})({
+				branch: branchName,
+				cwd: repoRoot,
+				stderr: () => undefined,
+				stdout: () => undefined,
+			});
+
+			// Then the ancestor supplies the full tree without a partial nested clone.
+			expect(result).toBe(0);
+			expect(cloneDirectories).toEqual(["foo"]);
+			const worktreePath = resolveWorktreePath(repoRoot, branchName);
+			await expect(
+				readFile(join(worktreePath, "foo", "sibling.txt"), "utf8"),
+			).resolves.toBe("sibling\n");
+			await expect(
+				readFile(join(worktreePath, "foo", "bar", "leaf.txt"), "utf8"),
+			).resolves.toBe("leaf\n");
+		});
+
+		it("repairs a CoW pnpm seed and regenerates pnpm metadata", async () => {
+			// Given a pnpm repository whose cloned node_modules contains absolute-path metadata.
+			const repoRoot = await createRepository();
+			const branchName = "feature/cow-pnpm";
+			await writeFile(
+				join(repoRoot, "pnpm-lock.yaml"),
+				"lockfileVersion: '9'\n",
+			);
+			await mkdir(join(repoRoot, "node_modules"));
+			await writeFile(
+				join(repoRoot, "node_modules", ".modules.yaml"),
+				"store-dir: /main\n",
+			);
+			await writeFile(
+				join(repoRoot, ".npmrc"),
+				"registry=https://example.test\n",
+			);
+			await writeFile(
+				join(repoRoot, ".gji.json"),
+				JSON.stringify({
+					dependencyBootstrap: "cow-then-repair",
+					syncDirs: ["node_modules"],
+					syncFiles: [".npmrc"],
+					hooks: { "after-create": "touch after-create-ran" },
+				}),
+				"utf8",
+			);
+			let promptCalled = false;
+			const installCommands: string[] = [];
+
+			// When gji new clones the directory and supplies install dependencies.
+			const runNew = createNewCommand({
+				cloneDir: async (_source, destination) => {
+					await mkdir(destination, { recursive: true });
+					await writeFile(
+						join(destination, ".modules.yaml"),
+						"store-dir: /main\n",
+					);
+					return { bytes: 20, ms: 20 };
+				},
+				detectInstallPackageManager: async () => ({
+					name: "pnpm",
+					installCommand: "pnpm install",
+				}),
+				promptForInstallChoice: async () => {
+					promptCalled = true;
+					return "yes";
+				},
+				runInstallCommand: async (command) => {
+					installCommands.push(command);
+					await expect(
+						readFile(
+							join(resolveWorktreePath(repoRoot, branchName), ".npmrc"),
+							"utf8",
+						),
+					).resolves.toBe("registry=https://example.test\n");
+					await writeFile(
+						join(
+							resolveWorktreePath(repoRoot, branchName),
+							"node_modules",
+							".modules.yaml",
+						),
+						"regenerated\n",
+					);
+				},
+			});
+			const result = await runNew({
+				branch: branchName,
+				cwd: repoRoot,
+				stderr: () => undefined,
+				stdout: () => undefined,
+			});
+
+			// Then the adapter repairs the seed without using the interactive prompt.
+			expect(result).toBe(0);
+			expect(promptCalled).toBe(false);
+			expect(installCommands).toEqual(["pnpm install --frozen-lockfile"]);
+			await expect(
+				readFile(
+					join(
+						resolveWorktreePath(repoRoot, branchName),
+						"node_modules",
+						".modules.yaml",
+					),
+					"utf8",
+				),
+			).resolves.toBe("regenerated\n");
+			await expect(
+				readFile(
+					join(resolveWorktreePath(repoRoot, branchName), "after-create-ran"),
+					"utf8",
+				),
+			).resolves.toBe("");
+		});
+
+		it("reports cloned directories in JSON output", async () => {
+			// Given a repository with one configured CoW directory.
+			const repoRoot = await createRepository();
+			await mkdir(join(repoRoot, "node_modules"));
+			await writeFile(
+				join(repoRoot, ".gji.json"),
+				JSON.stringify({ syncDirs: ["node_modules"] }),
+				"utf8",
+			);
+			const stdout: string[] = [];
+			let measureBytes: boolean | undefined;
+
+			// When gji new runs in JSON mode with a successful cloner.
+			const result = await createNewCommand({
+				cloneDir: async (_source, destination, options) => {
+					measureBytes = options?.measureBytes;
+					await mkdir(destination, { recursive: true });
+					return { bytes: 42, ms: 7 };
+				},
+			})({
+				branch: "feature/cow-json",
+				cwd: repoRoot,
+				json: true,
+				stderr: () => undefined,
+				stdout: (chunk) => stdout.push(chunk),
+			});
+
+			// Then stdout remains one parseable JSON document with clone timing.
+			expect(result).toBe(0);
+			expect(measureBytes).toBe(false);
+			expect(JSON.parse(stdout.join(""))).toMatchObject({
+				cloned: [{ dir: "node_modules", ms: 7 }],
+			});
+		});
+
+		it("does not run after-create when dependency repair fails", async () => {
+			// Given a dependency bootstrap configuration whose repair command fails.
+			const repoRoot = await createRepository();
+			await commitFile(
+				repoRoot,
+				"pnpm-lock.yaml",
+				"lockfileVersion: '9'\n",
+				"Add pnpm lockfile",
+			);
+			await writeFile(
+				join(repoRoot, ".gji.json"),
+				JSON.stringify({
+					dependencyBootstrap: "cow-then-repair",
+					hooks: { "after-create": "touch after-create-ran" },
+				}),
+				"utf8",
+			);
+
+			// When gji new cannot complete the authoritative dependency repair.
+			const result = await createNewCommand({
+				runInstallCommand: async () => {
+					throw new Error("repair failed");
+				},
+			})({
+				branch: "feature/repair-failure",
+				cwd: repoRoot,
+				stderr: () => undefined,
+				stdout: () => undefined,
+			});
+
+			// Then the command fails closed and the after-create hook never runs.
+			expect(result).toBe(1);
+			await expect(
+				readFile(
+					join(
+						resolveWorktreePath(repoRoot, "feature/repair-failure"),
+						"after-create-ran",
+					),
+				),
+			).rejects.toThrow();
+		});
+
+		it("reports dependency bootstrap states in JSON output", async () => {
+			// Given a repository with an explicit install-only dependency policy.
+			const repoRoot = await createRepository();
+			await writeFile(join(repoRoot, "package-lock.json"), "{}\n", "utf8");
+			await writeFile(
+				join(repoRoot, ".gji.json"),
+				JSON.stringify({ dependencyBootstrap: "install-only" }),
+				"utf8",
+			);
+			const stdout: string[] = [];
+
+			// When gji new runs headlessly with a structured output request.
+			const result = await createNewCommand({
+				runInstallCommand: async () => undefined,
+			})({
+				branch: "feature/bootstrap-json",
+				cwd: repoRoot,
+				json: true,
+				stderr: () => undefined,
+				stdout: (chunk) => stdout.push(chunk),
+			});
+
+			// Then JSON exposes the adapter, install state, and successful readiness.
+			expect(result).toBe(0);
+			expect(JSON.parse(stdout.join(""))).toMatchObject({
+				dependencyBootstrap: {
+					mode: "install-only",
+					ready: true,
+					events: [{ adapter: "npm", state: "installed" }],
+				},
+			});
+		});
+
+		it("suppresses dependency stderr in JSON mode", async () => {
+			// Given an install-only dependency bootstrap that writes raw command stderr.
+			const repoRoot = await createRepository();
+			await writeFile(join(repoRoot, "package-lock.json"), "{}\n", "utf8");
+			await writeFile(
+				join(repoRoot, ".gji.json"),
+				JSON.stringify({ dependencyBootstrap: "install-only" }),
+				"utf8",
+			);
+			const stdout: string[] = [];
+			const stderr: string[] = [];
+
+			// When gji new executes the command in JSON mode.
+			const result = await createNewCommand({
+				runInstallCommand: async (_command, _cwd, writeStderr) => {
+					writeStderr("raw package-manager warning\n");
+				},
+			})({
+				branch: "feature/bootstrap-json-stderr",
+				cwd: repoRoot,
+				json: true,
+				stderr: (chunk) => stderr.push(chunk),
+				stdout: (chunk) => stdout.push(chunk),
+			});
+
+			// Then stdout is valid JSON and stderr contains no raw dependency output.
+			expect(result).toBe(0);
+			expect(JSON.parse(stdout.join(""))).toMatchObject({
+				dependencyBootstrap: { ready: true },
+			});
+			expect(stderr).toEqual([]);
+		});
+
+		it("reports skipped generic syncDirs outcomes in JSON output", async () => {
+			// Given a configured directory whose source does not exist.
+			const repoRoot = await createRepository();
+			await writeFile(
+				join(repoRoot, ".gji.json"),
+				JSON.stringify({ syncDirs: ["missing-cache"] }),
+				"utf8",
+			);
+			const stdout: string[] = [];
+
+			// When gji new emits machine-readable bootstrap output.
+			const result = await createNewCommand()({
+				branch: "feature/bootstrap-skipped-json",
+				cwd: repoRoot,
+				json: true,
+				stderr: () => undefined,
+				stdout: (chunk) => stdout.push(chunk),
+			});
+
+			// Then automation can distinguish a skipped configured directory from a successful clone.
+			expect(result).toBe(0);
+			expect(JSON.parse(stdout.join(""))).toMatchObject({
+				skipped: [{ dir: "missing-cache", reason: "source does not exist" }],
+			});
+		});
+
+		it("keeps syncDirs clone failures out of JSON stderr", async () => {
+			// Given a configured directory whose CoW operation fails.
+			const repoRoot = await createRepository();
+			await mkdir(join(repoRoot, "node_modules"));
+			await writeFile(
+				join(repoRoot, ".gji.json"),
+				JSON.stringify({ syncDirs: ["node_modules"] }),
+				"utf8",
+			);
+			const stdout: string[] = [];
+			const stderr: string[] = [];
+
+			// When gji new runs in JSON mode with an unsupported CoW result.
+			const result = await createNewCommand({
+				cloneDir: async () => {
+					throw new CloneUnsupportedError("test filesystem");
+				},
+			})({
+				branch: "feature/sync-json-failure",
+				cwd: repoRoot,
+				json: true,
+				stderr: (chunk) => stderr.push(chunk),
+				stdout: (chunk) => stdout.push(chunk),
+			});
+
+			// Then the failure is represented in JSON rather than as raw human output.
+			expect(result).toBe(0);
+			expect(stderr).toEqual([]);
+			expect(JSON.parse(stdout.join(""))).toMatchObject({
+				skipped: [{ dir: "node_modules" }],
+			});
+		});
+
+		it("cleans partial clones and caches the failure for later worktrees", async () => {
+			// Given a repository and an isolated state directory.
+			const repoRoot = await createRepository();
+			const configDir = await mkdtemp(join(tmpdir(), "gji-config-"));
+			process.env.GJI_CONFIG_DIR = configDir;
+			await mkdir(join(repoRoot, "node_modules"));
+			await writeFile(
+				join(repoRoot, ".gji.json"),
+				JSON.stringify({ syncDirs: ["node_modules"] }),
+				"utf8",
+			);
+			let cloneCalls = 0;
+			const runNew = createNewCommand({
+				cloneDir: async (_source, destination) => {
+					cloneCalls += 1;
+					await mkdir(destination, { recursive: true });
+					await writeFile(join(destination, "partial.txt"), "partial\n");
+					await rm(destination, { force: true, recursive: true });
+					throw new Error("reflink unsupported");
+				},
+			});
+
+			// When two worktrees are created after the first CoW attempt fails.
+			const first = await runNew({
+				branch: "feature/cow-failure-one",
+				cwd: repoRoot,
+				stderr: () => undefined,
+				stdout: () => undefined,
+			});
+			const second = await runNew({
+				branch: "feature/cow-failure-two",
+				cwd: repoRoot,
+				stderr: () => undefined,
+				stdout: () => undefined,
+			});
+
+			// Then neither partial directory remains and the cached failure suppresses retry.
+			expect(first).toBe(0);
+			expect(second).toBe(0);
+			expect(cloneCalls).toBe(1);
+			await expect(
+				readFile(join(configDir, "state.json"), "utf8"),
+			).resolves.toContain("node_modules");
+			await expect(
+				readFile(
+					join(
+						resolveWorktreePath(repoRoot, "feature/cow-failure-one"),
+						"node_modules",
+						"partial.txt",
+					),
+				),
+			).rejects.toThrow();
+		});
+
+		it("does not permanently cache operational clone failures", async () => {
+			// Given a repository whose CoW attempt fails for a transient permission error.
+			const repoRoot = await createRepository();
+			const configDir = await mkdtemp(join(tmpdir(), "gji-config-"));
+			process.env.GJI_CONFIG_DIR = configDir;
+			await mkdir(join(repoRoot, "node_modules"));
+			await writeFile(
+				join(repoRoot, ".gji.json"),
+				JSON.stringify({ syncDirs: ["node_modules"] }),
+				"utf8",
+			);
+			let cloneCalls = 0;
+			const runNew = createNewCommand({
+				cloneDir: async () => {
+					cloneCalls += 1;
+					throw new Error("permission denied");
+				},
+			});
+
+			// When two worktrees are created after the operational failure.
+			const first = await runNew({
+				branch: "feature/cow-operational-one",
+				cwd: repoRoot,
+				stderr: () => undefined,
+				stdout: () => undefined,
+			});
+			const second = await runNew({
+				branch: "feature/cow-operational-two",
+				cwd: repoRoot,
+				stderr: () => undefined,
+				stdout: () => undefined,
+			});
+
+			// Then both creations succeed and the transient error is retried rather than cached.
+			expect(first).toBe(0);
+			expect(second).toBe(0);
+			expect(cloneCalls).toBe(2);
+			await expect(pathExists(join(configDir, "state.json"))).resolves.toBe(
+				false,
+			);
+		});
+
+		it("skips a sync directory whose symlink points outside the repository", async () => {
+			// Given a node_modules symlink whose target is outside the repository.
+			const repoRoot = await createRepository();
+			const outsideRoot = await mkdtemp(join(tmpdir(), "gji-outside-"));
+			await mkdir(join(outsideRoot, "node_modules"));
+			await symlink(
+				join(outsideRoot, "node_modules"),
+				join(repoRoot, "node_modules"),
+			);
+			await writeFile(
+				join(repoRoot, ".gji.json"),
+				JSON.stringify({ syncDirs: ["node_modules"] }),
+				"utf8",
+			);
+			let cloneCalled = false;
+			const stderr: string[] = [];
+
+			// When gji new examines the configured source.
+			const result = await createNewCommand({
+				cloneDir: async () => {
+					cloneCalled = true;
+					return { bytes: 0, ms: 0 };
+				},
+			})({
+				branch: "feature/cow-symlink",
+				cwd: repoRoot,
+				stderr: (chunk) => stderr.push(chunk),
+				stdout: () => undefined,
+			});
+
+			// Then creation succeeds without copying data outside the repository.
+			expect(result).toBe(0);
+			expect(cloneCalled).toBe(false);
+			expect(stderr.join("")).toContain("outside the repository");
+		});
+
+		it("skips missing, non-directory, and already checked-out sources safely", async () => {
+			// Given configured sources covering missing, file, and existing target paths.
+			const repoRoot = await createRepository();
+			await writeFile(join(repoRoot, "file-target"), "file\n", "utf8");
+			await mkdir(join(repoRoot, "existing-dir"));
+			await commitFile(
+				repoRoot,
+				"existing-dir/ready.txt",
+				"ready\n",
+				"Add existing directory source",
+			);
+			await writeFile(
+				join(repoRoot, ".gji.json"),
+				JSON.stringify({
+					syncDirs: ["missing-dir", "file-target", "existing-dir"],
+				}),
+				"utf8",
+			);
+			const stderr: string[] = [];
+			let cloneCalled = false;
+
+			// When gji new examines each configured source.
+			const result = await createNewCommand({
+				cloneDir: async () => {
+					cloneCalled = true;
+					return { bytes: 0, ms: 0 };
+				},
+			})({
+				branch: "feature/cow-skips",
+				cwd: repoRoot,
+				stderr: (chunk) => stderr.push(chunk),
+				stdout: () => undefined,
+			});
+
+			// Then creation succeeds without invoking CoW or overwriting the checked-out directory.
+			expect(result).toBe(0);
+			expect(cloneCalled).toBe(false);
+			expect(stderr.join("")).toContain("source is not a directory");
+		});
+
+		it("skips a destination whose ancestor is a file", async () => {
+			// Given a branch that already contains a file where a sync directory ancestor is needed.
+			const repoRoot = await createRepository();
+			await commitFile(repoRoot, "cache", "file\n", "Add file ancestor");
+			await writeFile(
+				join(repoRoot, ".gji.json"),
+				JSON.stringify({ syncDirs: ["cache/nested"] }),
+				"utf8",
+			);
+			let cloneCalled = false;
+			const stderr: string[] = [];
+
+			// When gji new prepares the blocked destination.
+			const result = await createNewCommand({
+				cloneDir: async () => {
+					cloneCalled = true;
+					return { ms: 1 };
+				},
+			})({
+				branch: "feature/destination-file",
+				cwd: repoRoot,
+				stderr: (chunk) => stderr.push(chunk),
+				stdout: () => undefined,
+			});
+
+			// Then creation continues without attempting an unsafe clone.
+			expect(result).toBe(0);
+			expect(cloneCalled).toBe(false);
+			expect(stderr.join("")).toContain("non-directory ancestor");
+		});
+
+		it("does not let a generic node_modules clone skip the npm install prompt", async () => {
+			// Given an npm repository with a configured node_modules directory.
+			const repoRoot = await createRepository();
+			await commitFile(
+				repoRoot,
+				"package-lock.json",
+				"{}\n",
+				"Add npm lockfile",
+			);
+			await mkdir(join(repoRoot, "node_modules"));
+			await writeFile(
+				join(repoRoot, ".gji.json"),
+				JSON.stringify({ syncDirs: ["node_modules"] }),
+				"utf8",
+			);
+			let promptCalled = false;
+
+			// When gji new clones dependencies and an install manager is available.
+			const result = await createNewCommand({
+				cloneDir: async (_source, destination) => {
+					await mkdir(destination, { recursive: true });
+					return { bytes: 1, ms: 1 };
+				},
+				detectInstallPackageManager: async () => ({
+					name: "npm",
+					installCommand: "npm install",
+				}),
+				promptForInstallChoice: async () => {
+					promptCalled = true;
+					return "yes";
+				},
+			})({
+				branch: "feature/cow-npm",
+				cwd: repoRoot,
+				stderr: () => undefined,
+				stdout: () => undefined,
+			});
+
+			// Then syncDirs remains generic and the normal prompt still runs.
+			expect(result).toBe(0);
+			expect(promptCalled).toBe(true);
+		});
+
+		it("emits a JSON error and does not create a worktree for invalid syncDirs", async () => {
+			// Given a repository with an unsafe local syncDirs configuration.
+			const repoRoot = await createRepository();
+			await writeFile(
+				join(repoRoot, ".gji.json"),
+				JSON.stringify({ syncDirs: ["../escape"] }),
+				"utf8",
+			);
+			const stderr: string[] = [];
+
+			// When gji new runs in JSON mode.
+			const result = await runCli(["new", "--json", "feature/cow-invalid"], {
+				cwd: repoRoot,
+				stderr: (chunk) => stderr.push(chunk),
+			});
+
+			// Then it reports structured validation failure before creating a worktree.
+			expect(result.exitCode).toBe(1);
+			expect(JSON.parse(stderr.join(""))).toMatchObject({
+				error: expect.stringContaining("'..' segments"),
+			});
+			await expect(
+				pathExists(resolveWorktreePath(repoRoot, "feature/cow-invalid")),
+			).resolves.toBe(false);
+		});
+
+		it("lists CoW directories and their estimated size in dry-run mode", async () => {
+			// Given a repository with a configured directory that has one file.
+			const repoRoot = await createRepository();
+			const source = join(repoRoot, "node_modules");
+			await mkdir(source);
+			await writeFile(join(source, "ready.txt"), "ready\n", "utf8");
+			await writeFile(
+				join(repoRoot, ".gji.json"),
+				JSON.stringify({ syncDirs: ["node_modules"] }),
+				"utf8",
+			);
+			const stdout: string[] = [];
+
+			// When gji new runs without executing Git or clone operations.
+			const result = await runCli(["new", "--dry-run", "feature/cow-dry-run"], {
+				cwd: repoRoot,
+				stdout: (chunk) => stdout.push(chunk),
+			});
+
+			// Then the output names the directory and reports its expected size.
+			expect(result.exitCode).toBe(0);
+			expect(stdout.join("")).toContain("Would clone node_modules (6 B)");
+		});
+
+		it("previews dependency bootstrap strategy in text and JSON dry-runs", async () => {
+			// Given a pnpm repository with a dependency seed and explicit bootstrap mode.
+			const repoRoot = await createRepository();
+			await writeFile(join(repoRoot, "pnpm-lock.yaml"), "lock\n", "utf8");
+			await mkdir(join(repoRoot, "node_modules"));
+			await writeFile(
+				join(repoRoot, ".gji.json"),
+				JSON.stringify({ dependencyBootstrap: "cow-then-repair" }),
+				"utf8",
+			);
+			const textOutput: string[] = [];
+			const jsonOutput: string[] = [];
+
+			// When both dry-run output modes inspect the bootstrap plan.
+			const textResult = await runCli(
+				["new", "--dry-run", "feature/bootstrap-preview"],
+				{
+					cwd: repoRoot,
+					stdout: (chunk) => textOutput.push(chunk),
+				},
+			);
+			const jsonResult = await runCli(
+				["new", "--json", "--dry-run", "feature/bootstrap-preview-json"],
+				{
+					cwd: repoRoot,
+					stdout: (chunk) => jsonOutput.push(chunk),
+				},
+			);
+
+			// Then users can see the repair strategy without creating a worktree.
+			expect(textResult.exitCode).toBe(0);
+			expect(textOutput.join("")).toContain(
+				"Would seed and repair node_modules with pnpm",
+			);
+			expect(jsonResult.exitCode).toBe(0);
+			expect(JSON.parse(jsonOutput.join(""))).toMatchObject({
+				dependencyBootstrap: {
+					mode: "cow-then-repair",
+					targets: [{ adapter: "pnpm", target: "node_modules" }],
+				},
+			});
+		});
+
+		it("previews npm as install-only instead of promising a CoW seed", async () => {
+			// Given an npm repository with cow-then-repair configured.
+			const repoRoot = await createRepository();
+			await writeFile(join(repoRoot, "package-lock.json"), "{}\n", "utf8");
+			await writeFile(
+				join(repoRoot, ".gji.json"),
+				JSON.stringify({ dependencyBootstrap: "cow-then-repair" }),
+				"utf8",
+			);
+			const textOutput: string[] = [];
+			const jsonOutput: string[] = [];
+
+			// When both dry-run output modes inspect the npm bootstrap plan.
+			const textResult = await runCli(
+				["new", "--dry-run", "feature/npm-preview"],
+				{
+					cwd: repoRoot,
+					stdout: (chunk) => textOutput.push(chunk),
+				},
+			);
+			const jsonResult = await runCli(
+				["new", "--json", "--dry-run", "feature/npm-preview-json"],
+				{
+					cwd: repoRoot,
+					stdout: (chunk) => jsonOutput.push(chunk),
+				},
+			);
+
+			// Then both interfaces expose install-only behavior.
+			expect(textResult.exitCode).toBe(0);
+			expect(textOutput.join("")).toContain(
+				"Would install node_modules with npm",
+			);
+			expect(jsonResult.exitCode).toBe(0);
+			expect(JSON.parse(jsonOutput.join(""))).toMatchObject({
+				dependencyBootstrap: {
+					targets: [
+						{ adapter: "npm", seedable: false, strategy: "install-only" },
+					],
+				},
+			});
 		});
 	});
 

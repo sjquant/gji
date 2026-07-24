@@ -1,4 +1,11 @@
-import { mkdtemp, readFile, stat, writeFile } from "node:fs/promises";
+import {
+	mkdir,
+	mkdtemp,
+	readFile,
+	stat,
+	symlink,
+	writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -105,6 +112,61 @@ describe("syncFiles", () => {
 		// Then — the ignored file is copied regardless of .gitignore
 		const content = await readFile(join(targetPath, ".env"), "utf8");
 		expect(content).toBe("SECRET=abc\n");
+	});
+
+	it("rejects a source symlink that escapes the main worktree", async () => {
+		// Given a configured source file whose symlink points outside the repository.
+		const mainRoot = await makeTmpDir();
+		const targetPath = await makeTmpDir();
+		const externalPath = await makeTmpDir();
+		await writeFile(join(externalPath, "secret.env"), "SECRET=external\n");
+		await symlink(
+			join(externalPath, "secret.env"),
+			join(mainRoot, ".env.local"),
+		);
+
+		// When syncFiles evaluates the source.
+		const result = syncFiles(mainRoot, targetPath, [".env.local"]);
+
+		// Then it refuses to copy external content into the new worktree.
+		await expect(result).rejects.toThrow("resolves outside the repository");
+		await expect(stat(join(targetPath, ".env.local"))).rejects.toThrow();
+	});
+
+	it("rejects a symlinked destination parent", async () => {
+		// Given a source file and a destination parent that points outside the worktree.
+		const mainRoot = await makeTmpDir();
+		const targetPath = await makeTmpDir();
+		const outsidePath = await makeTmpDir();
+		await mkdir(join(mainRoot, "nested"), { recursive: true });
+		await writeFile(join(mainRoot, "nested/config.json"), "{}", "utf8");
+		await symlink(outsidePath, join(targetPath, "nested"));
+
+		// When syncFiles processes the nested file.
+		const result = syncFiles(mainRoot, targetPath, ["nested/config.json"]);
+
+		// Then it refuses to write through the symlink.
+		await expect(result).rejects.toThrow("symbolic-link component");
+		await expect(stat(join(outsidePath, "config.json"))).rejects.toThrow();
+	});
+
+	it("rejects a dangling symlink at the destination file", async () => {
+		// Given a source file and a dangling destination symlink pointing outside the worktree.
+		const mainRoot = await makeTmpDir();
+		const targetPath = await makeTmpDir();
+		const outsidePath = await makeTmpDir();
+		await writeFile(join(mainRoot, "config.json"), "{}", "utf8");
+		await symlink(
+			join(outsidePath, "missing.json"),
+			join(targetPath, "config.json"),
+		);
+
+		// When syncFiles processes the destination.
+		const result = syncFiles(mainRoot, targetPath, ["config.json"]);
+
+		// Then it refuses to follow the dangling symlink.
+		await expect(result).rejects.toThrow("symbolic link");
+		await expect(stat(join(outsidePath, "missing.json"))).rejects.toThrow();
 	});
 
 	it("handles an empty patterns array without error", async () => {
