@@ -33,6 +33,7 @@ import {
 
 const originalHome = process.env.HOME;
 const originalConfigDir = process.env.GJI_CONFIG_DIR;
+const originalHeadless = process.env.GJI_NO_TUI;
 
 afterEach(() => {
 	if (originalHome === undefined) {
@@ -40,6 +41,8 @@ afterEach(() => {
 	} else process.env.HOME = originalHome;
 	if (originalConfigDir === undefined) delete process.env.GJI_CONFIG_DIR;
 	else process.env.GJI_CONFIG_DIR = originalConfigDir;
+	if (originalHeadless === undefined) delete process.env.GJI_NO_TUI;
+	else process.env.GJI_NO_TUI = originalHeadless;
 });
 
 describe("gji new", () => {
@@ -98,6 +101,11 @@ describe("gji new", () => {
 		const repoRoot = await createRepositoryWithOrigin().then(
 			({ repoRoot }) => repoRoot,
 		);
+		await writeFile(
+			join(repoRoot, ".gji.json"),
+			JSON.stringify({ syncRemote: "origin" }),
+			"utf8",
+		);
 		await runGit(repoRoot, [
 			"remote",
 			"set-url",
@@ -128,6 +136,203 @@ describe("gji new", () => {
 		await expect(
 			pathExists(resolveWorktreePath(repoRoot, "feature/abort-stale-base")),
 		).resolves.toBe(false);
+	});
+
+	it("continues from the cached remote base after a failed refresh", async () => {
+		// Given a configured remote with a cached tracking ref that cannot be fetched.
+		const repoRoot = await createRepositoryWithOrigin().then(
+			({ repoRoot }) => repoRoot,
+		);
+		const baseBranch = await currentBranch(repoRoot);
+		await writeFile(
+			join(repoRoot, ".gji.json"),
+			JSON.stringify({ syncRemote: "origin", syncDefaultBranch: baseBranch }),
+			"utf8",
+		);
+		await runGit(repoRoot, [
+			"remote",
+			"set-url",
+			"origin",
+			"/missing/origin.git",
+		]);
+		const stderr: string[] = [];
+		const runNew = createNewCommand({
+			promptForFetchFailure: async () => true,
+		});
+
+		// When gji new continues after the failed refresh.
+		const result = await runNew({
+			branch: "feature/cached-base",
+			cwd: repoRoot,
+			stderr: (chunk) => stderr.push(chunk),
+			stdout: () => undefined,
+		});
+
+		// Then it creates the branch from the cached remote tracking ref.
+		expect(result).toBe(0);
+		expect(stderr.join("")).toContain("Continuing with the cached origin/");
+	});
+
+	it("continues from local HEAD when no cached remote base exists", async () => {
+		// Given a configured remote with no cached tracking ref and an unreachable URL.
+		const repoRoot = await createRepositoryWithOrigin().then(
+			({ repoRoot }) => repoRoot,
+		);
+		const baseBranch = await currentBranch(repoRoot);
+		await writeFile(
+			join(repoRoot, ".gji.json"),
+			JSON.stringify({ syncRemote: "origin", syncDefaultBranch: baseBranch }),
+			"utf8",
+		);
+		await runGit(repoRoot, [
+			"remote",
+			"set-url",
+			"origin",
+			"/missing/origin.git",
+		]);
+		await runGit(repoRoot, [
+			"update-ref",
+			"-d",
+			`refs/remotes/origin/${baseBranch}`,
+		]);
+		const stderr: string[] = [];
+		const runNew = createNewCommand({
+			promptForFetchFailure: async () => true,
+		});
+
+		// When gji new continues after the failed refresh.
+		const result = await runNew({
+			branch: "feature/local-head-fallback",
+			cwd: repoRoot,
+			stderr: (chunk) => stderr.push(chunk),
+			stdout: () => undefined,
+		});
+
+		// Then it creates the branch from local HEAD and reports that fallback.
+		expect(result).toBe(0);
+		expect(stderr.join("")).toContain(
+			"Continuing from the local repository HEAD.",
+		);
+	});
+
+	it("fails with structured JSON when the remote refresh fails", async () => {
+		// Given a configured remote with an unreachable URL.
+		const repoRoot = await createRepositoryWithOrigin().then(
+			({ repoRoot }) => repoRoot,
+		);
+		await writeFile(
+			join(repoRoot, ".gji.json"),
+			JSON.stringify({ syncRemote: "origin" }),
+			"utf8",
+		);
+		await runGit(repoRoot, [
+			"remote",
+			"set-url",
+			"origin",
+			"/missing/origin.git",
+		]);
+		const stderr: string[] = [];
+		const runNew = createNewCommand({
+			promptForFetchFailure: async () => {
+				throw new Error("prompt should not run in JSON mode");
+			},
+		});
+
+		// When gji new runs in JSON mode.
+		const result = await runNew({
+			branch: "feature/json-fetch-failure",
+			cwd: repoRoot,
+			json: true,
+			stderr: (chunk) => stderr.push(chunk),
+			stdout: () => undefined,
+		});
+
+		// Then it exits without creating a worktree and emits structured error JSON.
+		expect(result).toBe(1);
+		expect(JSON.parse(stderr.join(""))).toMatchObject({
+			error: expect.stringContaining("Could not refresh"),
+		});
+		await expect(
+			pathExists(resolveWorktreePath(repoRoot, "feature/json-fetch-failure")),
+		).resolves.toBe(false);
+	});
+
+	it("fails without prompting in headless mode when the remote refresh fails", async () => {
+		// Given a configured remote with an unreachable URL and headless mode enabled.
+		const repoRoot = await createRepositoryWithOrigin().then(
+			({ repoRoot }) => repoRoot,
+		);
+		await writeFile(
+			join(repoRoot, ".gji.json"),
+			JSON.stringify({ syncRemote: "origin" }),
+			"utf8",
+		);
+		await runGit(repoRoot, [
+			"remote",
+			"set-url",
+			"origin",
+			"/missing/origin.git",
+		]);
+		process.env.GJI_NO_TUI = "1";
+		const stderr: string[] = [];
+		const runNew = createNewCommand({
+			promptForFetchFailure: async () => {
+				throw new Error("prompt should not run in headless mode");
+			},
+		});
+
+		// When gji new runs in headless mode.
+		const result = await runNew({
+			branch: "feature/headless-fetch-failure",
+			cwd: repoRoot,
+			stderr: (chunk) => stderr.push(chunk),
+			stdout: () => undefined,
+		});
+
+		// Then it exits with a clear error and does not create a worktree.
+		expect(result).toBe(1);
+		expect(stderr.join("")).toContain("Could not refresh");
+		await expect(
+			pathExists(
+				resolveWorktreePath(repoRoot, "feature/headless-fetch-failure"),
+			),
+		).resolves.toBe(false);
+	});
+
+	it("uses configured remote and default branch when refreshing the base", async () => {
+		// Given a repository with a configured non-default remote and base branch.
+		const { originRoot, repoRoot } = await createRepositoryWithOrigin();
+		const baseBranch = await currentBranch(repoRoot);
+		await runGit(repoRoot, ["remote", "add", "upstream", originRoot]);
+		await writeFile(
+			join(repoRoot, ".gji.json"),
+			JSON.stringify({ syncRemote: "upstream", syncDefaultBranch: baseBranch }),
+			"utf8",
+		);
+		const remoteClone = await cloneRepository(originRoot);
+		await commitFile(
+			remoteClone,
+			"configured-base.txt",
+			"from configured base\n",
+			"Advance configured base branch",
+		);
+		await runGit(remoteClone, ["push", "origin", "HEAD"]);
+
+		// When gji new creates a branch with the configured remote base.
+		const result = await runCli(["new", "feature/configured-base"], {
+			cwd: repoRoot,
+		});
+
+		// Then it starts from the configured remote branch.
+		expect(result.exitCode).toBe(0);
+		await expect(
+			pathExists(
+				join(
+					resolveWorktreePath(repoRoot, "feature/configured-base"),
+					"configured-base.txt",
+				),
+			),
+		).resolves.toBe(true);
 	});
 
 	it("creates a branch and linked worktree from the repository root", async () => {

@@ -25,7 +25,7 @@ import {
 import { type CloneDirectory, cloneDir } from "./dir-clone.js";
 import { defaultSpawnEditor, EDITORS } from "./editor.js";
 import { formatBytes } from "./format-bytes.js";
-import { resolveRemoteDefaultBranch, runGit } from "./git.js";
+import { resolveRemoteBase, runGit } from "./git.js";
 import { isHeadless } from "./headless.js";
 import { recordWorktreeUsage } from "./history.js";
 import type { InstallPromptDependencies } from "./install-prompt.js";
@@ -581,25 +581,19 @@ async function resolveFreshBaseRef(
 	promptForFetchFailure: (message: string) => Promise<boolean>,
 ): Promise<string | null> {
 	const remote = resolveConfigString(config, "syncRemote") ?? "origin";
-	let baseBranch = resolveConfigString(config, "syncDefaultBranch");
-	if (!(await remoteExists(repoRoot, remote))) return "HEAD";
+	const configuredRemote = resolveConfigString(config, "syncRemote");
+	const baseBranch = resolveConfigString(config, "syncDefaultBranch");
+	if (!configuredRemote && !(await remoteExists(repoRoot, remote)))
+		return "HEAD";
 
 	try {
-		if (!baseBranch) {
-			const discoveredBaseBranch = await resolveRemoteDefaultBranch(
-				repoRoot,
-				remote,
-			);
-			if (!discoveredBaseBranch)
-				throw new Error("the remote default branch is unknown");
-			baseBranch = discoveredBaseBranch;
-		}
-		if (!baseBranch) throw new Error("the remote default branch is unknown");
-		await runGit(repoRoot, ["fetch", "--prune", remote, baseBranch]);
-		return `${remote}/${baseBranch}`;
+		const remoteBase = await resolveRemoteBase(repoRoot, remote, baseBranch);
+		if (!remoteBase) throw new Error("the remote default branch is unknown");
+		await runGit(repoRoot, ["fetch", "--prune", remote, remoteBase.branch]);
+		return remoteBase.ref;
 	} catch (error) {
 		const detail = error instanceof Error ? error.message : String(error);
-		const message = `Could not refresh ${remote}/${baseBranch ?? "main"}: ${detail}`;
+		const message = `Could not refresh ${remote}: ${detail}`;
 		if (options.json || isHeadless()) {
 			emitNewError(
 				options,

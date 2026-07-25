@@ -11,6 +11,11 @@ export interface WorktreeHealth {
 	status: "clean" | "dirty";
 }
 
+export interface RemoteBase {
+	branch: string;
+	ref: string;
+}
+
 export async function runGit(cwd: string, args: string[]): Promise<string> {
 	try {
 		const { stdout } = await execFileAsync("git", args, { cwd });
@@ -79,6 +84,23 @@ export async function resolveRemoteDefaultBranch(
 	const match = /^ref: refs\/heads\/(.+)\tHEAD$/.exec(refLine);
 
 	return match?.[1] ?? null;
+}
+
+export async function resolveRemoteBase(
+	cwd: string,
+	remote: string,
+	configuredBranch?: string,
+): Promise<RemoteBase | null> {
+	await runGit(cwd, ["remote", "get-url", remote]);
+	const branch =
+		configuredBranch ?? (await resolveRemoteDefaultBranch(cwd, remote));
+
+	if (!branch) return null;
+
+	return {
+		branch,
+		ref: `${remote}/${branch}`,
+	};
 }
 
 export async function readBranchLastCommitTimestamp(
