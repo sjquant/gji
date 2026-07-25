@@ -140,13 +140,21 @@ describe("gji new", () => {
 
 	it("continues from the cached remote base after a failed refresh", async () => {
 		// Given a configured remote with a cached tracking ref that cannot be fetched.
-		const repoRoot = await createRepositoryWithOrigin().then(
-			({ repoRoot }) => repoRoot,
-		);
+		const { originRoot, repoRoot } = await createRepositoryWithOrigin();
 		const baseBranch = await currentBranch(repoRoot);
+		const remoteClone = await cloneRepository(originRoot);
+		await commitFile(
+			remoteClone,
+			"cached-only.txt",
+			"from cached remote\n",
+			"Advance cached remote base",
+		);
+		await runGit(remoteClone, ["push", "origin", "HEAD"]);
+		await runGit(repoRoot, ["fetch", "origin", baseBranch]);
+		await runGit(repoRoot, ["remote", "set-head", "origin", "--auto"]);
 		await writeFile(
 			join(repoRoot, ".gji.json"),
-			JSON.stringify({ syncRemote: "origin", syncDefaultBranch: baseBranch }),
+			JSON.stringify({ syncRemote: "origin" }),
 			"utf8",
 		);
 		await runGit(repoRoot, [
@@ -171,6 +179,14 @@ describe("gji new", () => {
 		// Then it creates the branch from the cached remote tracking ref.
 		expect(result).toBe(0);
 		expect(stderr.join("")).toContain("Continuing with the cached origin/");
+		await expect(
+			pathExists(
+				join(
+					resolveWorktreePath(repoRoot, "feature/cached-base"),
+					"cached-only.txt",
+				),
+			),
+		).resolves.toBe(true);
 	});
 
 	it("continues from local HEAD when no cached remote base exists", async () => {
@@ -195,6 +211,12 @@ describe("gji new", () => {
 			"-d",
 			`refs/remotes/origin/${baseBranch}`,
 		]);
+		await commitFile(
+			repoRoot,
+			"local-head-only.txt",
+			"from local HEAD\n",
+			"Advance local HEAD",
+		);
 		const stderr: string[] = [];
 		const runNew = createNewCommand({
 			promptForFetchFailure: async () => true,
@@ -213,6 +235,14 @@ describe("gji new", () => {
 		expect(stderr.join("")).toContain(
 			"Continuing from the local repository HEAD.",
 		);
+		await expect(
+			pathExists(
+				join(
+					resolveWorktreePath(repoRoot, "feature/local-head-fallback"),
+					"local-head-only.txt",
+				),
+			),
+		).resolves.toBe(true);
 	});
 
 	it("fails with structured JSON when the remote refresh fails", async () => {

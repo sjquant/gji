@@ -91,9 +91,22 @@ export async function resolveRemoteBase(
 	remote: string,
 	configuredBranch?: string,
 ): Promise<RemoteBase | null> {
-	await runGit(cwd, ["remote", "get-url", remote]);
-	const branch =
-		configuredBranch ?? (await resolveRemoteDefaultBranch(cwd, remote));
+	try {
+		await runGit(cwd, ["remote", "get-url", remote]);
+	} catch {
+		return null;
+	}
+	let branch = configuredBranch;
+	if (!branch) {
+		try {
+			const discoveredBranch = await resolveRemoteDefaultBranch(cwd, remote);
+			branch =
+				discoveredBranch ??
+				(await resolveCachedRemoteDefaultBranch(cwd, remote));
+		} catch {
+			branch = await resolveCachedRemoteDefaultBranch(cwd, remote);
+		}
+	}
 
 	if (!branch) return null;
 
@@ -101,6 +114,32 @@ export async function resolveRemoteBase(
 		branch,
 		ref: `${remote}/${branch}`,
 	};
+}
+
+async function resolveCachedRemoteDefaultBranch(
+	cwd: string,
+	remote: string,
+): Promise<string | undefined> {
+	try {
+		const ref = await runGit(cwd, [
+			"symbolic-ref",
+			"--short",
+			`refs/remotes/${remote}/HEAD`,
+		]);
+		const prefix = `${remote}/`;
+		return ref.startsWith(prefix) ? ref.slice(prefix.length) : undefined;
+	} catch {
+		try {
+			const refs = await runGit(cwd, [
+				"for-each-ref",
+				"--format=%(refname:strip=3)",
+				`refs/remotes/${remote}`,
+			]);
+			return refs.split("\n").find((ref) => ref !== "HEAD");
+		} catch {
+			return undefined;
+		}
+	}
 }
 
 export async function readBranchLastCommitTimestamp(

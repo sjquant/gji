@@ -582,13 +582,15 @@ async function resolveFreshBaseRef(
 ): Promise<string | null> {
 	const remote = resolveConfigString(config, "syncRemote") ?? "origin";
 	const configuredRemote = resolveConfigString(config, "syncRemote");
-	const baseBranch = resolveConfigString(config, "syncDefaultBranch");
-	if (!configuredRemote && !(await remoteExists(repoRoot, remote)))
-		return "HEAD";
+	let baseBranch = resolveConfigString(config, "syncDefaultBranch");
 
 	try {
 		const remoteBase = await resolveRemoteBase(repoRoot, remote, baseBranch);
-		if (!remoteBase) throw new Error("the remote default branch is unknown");
+		if (!remoteBase) {
+			if (!configuredRemote) return "HEAD";
+			throw new Error("the remote default branch is unknown");
+		}
+		baseBranch = remoteBase.branch;
 		await runGit(repoRoot, ["fetch", "--prune", remote, remoteBase.branch]);
 		return remoteBase.ref;
 	} catch (error) {
@@ -635,18 +637,6 @@ async function defaultPromptForFetchFailure(message: string): Promise<boolean> {
 async function localRefExists(repoRoot: string, ref: string): Promise<boolean> {
 	try {
 		await runGit(repoRoot, ["rev-parse", "--verify", "--quiet", ref]);
-		return true;
-	} catch {
-		return false;
-	}
-}
-
-async function remoteExists(
-	repoRoot: string,
-	remote: string,
-): Promise<boolean> {
-	try {
-		await runGit(repoRoot, ["remote", "get-url", remote]);
 		return true;
 	} catch {
 		return false;
