@@ -8,6 +8,7 @@ import { HISTORY_FILE_PATH } from "./history.js";
 import { createRemoveCommand } from "./remove.js";
 import {
 	addLinkedWorktree,
+	addSubmoduleToRepository,
 	commitFile,
 	createRepository,
 	pathExists,
@@ -15,6 +16,35 @@ import {
 } from "./repo.test-helpers.js";
 
 describe("gji remove", () => {
+	it("force-removes a worktree with an initialized submodule", async () => {
+		// Given a linked worktree with an initialized submodule.
+		const repoRoot = await createRepository();
+		await addSubmoduleToRepository(repoRoot);
+		const branch = "feature/remove-submodule";
+		const worktreePath = await addLinkedWorktree(repoRoot, branch);
+		await runGit(worktreePath, [
+			"-c",
+			"protocol.file.allow=always",
+			"submodule",
+			"update",
+			"--init",
+		]);
+
+		// When gji remove runs with force.
+		const result = await createRemoveCommand()({
+			branch,
+			cwd: repoRoot,
+			force: true,
+			stderr: () => undefined,
+			stdout: () => undefined,
+		});
+
+		// Then it removes the worktree and its branch.
+		expect(result).toBe(0);
+		await expect(pathExists(worktreePath)).resolves.toBe(false);
+		await expect(branchExists(repoRoot, branch)).resolves.toBe(false);
+	});
+
 	it("removes a branch worktree, deletes the branch, and prints the repo root", async () => {
 		// Given a repository root with a linked branch worktree to remove.
 		const repoRoot = await createRepository();

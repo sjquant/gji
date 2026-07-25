@@ -8,6 +8,7 @@ import { createCleanCommand } from "./clean.js";
 import { HISTORY_FILE_PATH } from "./history.js";
 import {
 	addLinkedWorktree,
+	addSubmoduleToRepository,
 	commitFile,
 	createRepository,
 	createRepositoryWithOrigin,
@@ -16,6 +17,37 @@ import {
 } from "./repo.test-helpers.js";
 
 describe("gji clean", () => {
+	it("force-cleans a stale worktree with an initialized submodule", async () => {
+		// Given a stale linked worktree with an initialized submodule.
+		const { repoRoot } = await createRepositoryWithOrigin();
+		await addSubmoduleToRepository(repoRoot);
+		await runGit(repoRoot, ["push", "origin", "HEAD"]);
+		const branch = "feature/clean-stale-submodule";
+		const worktreePath = await addRemoteTrackedWorktree(repoRoot, branch);
+		await runGit(worktreePath, [
+			"-c",
+			"protocol.file.allow=always",
+			"submodule",
+			"update",
+			"--init",
+		]);
+		await deleteRemoteBranch(repoRoot, branch);
+
+		// When gji clean --stale --force runs.
+		const result = await createCleanCommand()({
+			cwd: repoRoot,
+			force: true,
+			stale: true,
+			stderr: () => undefined,
+			stdout: () => undefined,
+		});
+
+		// Then it removes the worktree and its branch.
+		expect(result).toBe(0);
+		await expect(pathExists(worktreePath)).resolves.toBe(false);
+		await expect(branchExists(repoRoot, branch)).resolves.toBe(false);
+	});
+
 	it("removes selected branch-backed and detached worktrees and prints the repo root", async () => {
 		// Given a repository root with branch-backed and detached linked worktrees.
 		const repoRoot = await createRepository();

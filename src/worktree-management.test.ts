@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
 	addLinkedWorktree,
+	addSubmoduleToRepository,
 	createRepository,
 	pathExists,
 	runGit,
@@ -14,16 +15,7 @@ describe("worktree management", () => {
 	it("force-removes a worktree with initialized submodules", async () => {
 		// Given a linked worktree with an initialized submodule.
 		const repoRoot = await createRepository();
-		const submoduleRoot = await createRepository();
-		await runGit(repoRoot, [
-			"-c",
-			"protocol.file.allow=always",
-			"submodule",
-			"add",
-			submoduleRoot,
-			"vendor/submodule",
-		]);
-		await runGit(repoRoot, ["commit", "-am", "add submodule"]);
+		await addSubmoduleToRepository(repoRoot);
 		const branch = "feature/initialized-submodule";
 		const worktreePath = await addLinkedWorktree(repoRoot, branch);
 		await runGit(worktreePath, [

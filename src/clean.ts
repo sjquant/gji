@@ -22,6 +22,7 @@ import {
 	forceDeleteBranch,
 	forceRemoveWorktree,
 	isBranchUnmergedError,
+	isSubmoduleWorktreeRemovalError,
 	isWorktreeDeletionError,
 	isWorktreeForceRemovalError,
 	loadLinkedWorktrees,
@@ -229,7 +230,11 @@ export function createCleanCommand(
 					continue;
 				}
 
-				if (options.stale && !isWorktreeDeletionError(error)) {
+				if (
+					options.stale &&
+					!isWorktreeDeletionError(error) &&
+					!isSubmoduleWorktreeRemovalError(error)
+				) {
 					options.stderr(
 						`Skipped ${worktree.path}: no longer a safe stale cleanup candidate\n`,
 					);

@@ -143,7 +143,7 @@ export async function runDoneCommand(
 				);
 			}
 			const choice = await confirm({
-				message: `worktree ${target.path} contains uncommitted changes that cannot be undone. Force remove?`,
+				message: `worktree ${target.path} contains files or initialized submodules that cannot be undone. Force remove?`,
 				active: "Yes",
 				inactive: "No",
 				initialValue: false,
