@@ -16,7 +16,7 @@ image: /img/social-card.png
 
 | Command | What it does |
 | --- | --- |
-| `gji new [branch] [--from-current] [--detached] [--take] [--copy] [--force] [--open] [--editor <cli>] [--dry-run] [--json]` | Create a branch and worktree, optionally carrying uncommitted changes. |
+| `gji new [branch] [--from-current] [--detached] [--take] [--copy] [--force] [--open] [--editor <cli>] [--dry-run] [--json]` | Create a branch and worktree, optionally carrying uncommitted changes and CoW-bootstrap configured directories. |
 | `gji done [branch] [--force] [--keep-branch] [--json]` | Safely finish a linked worktree and return. |
 | `gji undo [id] [--list] [--json]` | Restore a journaled cleanup without overwriting work. |
 | `gji pr <ref> [--json]` | Fetch a pull request ref and open it in a dedicated worktree. |
@@ -206,3 +206,5 @@ Several commands support `--json` so shell scripts and tools can consume structu
 - `gji go --json`
 
 `gji clean --stale` limits cleanup to clean branch worktrees whose upstream is gone and whose branch is already merged into the configured or remote default branch.
+
+When `syncDirs` is configured, `gji new` clones each available arbitrary directory with filesystem copy-on-write before syncing files. It remains generic and never suppresses installation or repair. When a supported lockfile is detected without an explicit `dependencyBootstrap` policy, interactive `gji new` and `gji pr` offer **Reuse and repair**, **Install fresh each time**, or **Skip dependency setup**, and persist the choice using `installSaveTarget`. JSON, headless, and dry-run modes never prompt. Opt into `dependencyBootstrap` for deterministic project-local package-manager/build-cache repair after `syncFiles`; unsupported filesystems fall back to install/repair without ordinary copying. Keep `after-create` hooks for project-specific commands such as generation and local-service setup. JSON bootstrap events include structured reasons, and failed setup reports the created worktree path for recovery. See the [configuration guide](./configuration#instant-directory-bootstrap) for validation, adapter behavior, JSON output, and dry-run behavior.

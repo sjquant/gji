@@ -208,7 +208,9 @@ async function maybeRegisterCurrentRepo(cwd: string): Promise<void> {
 function registerCommands(program: Command): void {
 	program
 		.command("new [branch]")
-		.description("create a new branch or detached linked worktree")
+		.description(
+			"create a new branch or detached linked worktree and CoW-bootstrap configured directories",
+		)
 		.option(
 			"-f, --force",
 			"remove and recreate the worktree if the target path already exists",
@@ -1020,6 +1022,7 @@ function attachCommandActions(
 				action: "set",
 				cwd: options.cwd,
 				key,
+				stderr: options.stderr,
 				stdout: options.stdout,
 				value,
 			});

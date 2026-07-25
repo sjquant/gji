@@ -19,15 +19,16 @@ export async function runHook(
 	cwd: string,
 	context: HookContext,
 	stderr: (chunk: string) => void,
+	stdout: (chunk: string) => void = (chunk) => process.stdout.write(chunk),
 ): Promise<void> {
 	if (!hookCmd) return;
 
 	if (Array.isArray(hookCmd)) {
-		await runArgvHook(hookCmd, cwd, context, stderr);
+		await runArgvHook(hookCmd, cwd, context, stderr, stdout);
 		return;
 	}
 
-	await runShellHook(hookCmd, cwd, context, stderr);
+	await runShellHook(hookCmd, cwd, context, stderr, stdout);
 }
 
 async function runArgvHook(
@@ -35,6 +36,7 @@ async function runArgvHook(
 	cwd: string,
 	context: HookContext,
 	stderr: (chunk: string) => void,
+	stdout: (chunk: string) => void,
 ): Promise<void> {
 	const [command, ...args] = hookCmd.map((arg) => interpolate(arg, context));
 	if (!command) {
@@ -46,8 +48,12 @@ async function runArgvHook(
 		const child = spawn(command, args, {
 			cwd,
 			shell: false,
-			stdio: ["ignore", "inherit", "pipe"],
+			stdio: ["ignore", "pipe", "pipe"],
 			env: hookEnvironment(context),
+		});
+
+		(child.stdout as NodeJS.ReadableStream).on("data", (chunk: Buffer) => {
+			stdout(chunk.toString());
 		});
 
 		(child.stderr as NodeJS.ReadableStream).on("data", (chunk: Buffer) => {
@@ -75,6 +81,7 @@ async function runShellHook(
 	cwd: string,
 	context: HookContext,
 	stderr: (chunk: string) => void,
+	stdout: (chunk: string) => void,
 ): Promise<void> {
 	const interpolated = interpolate(hookCmd, context);
 
@@ -82,8 +89,12 @@ async function runShellHook(
 		const child = spawn(interpolated, {
 			cwd,
 			shell: true,
-			stdio: ["ignore", "inherit", "pipe"],
+			stdio: ["ignore", "pipe", "pipe"],
 			env: hookEnvironment(context),
+		});
+
+		(child.stdout as NodeJS.ReadableStream).on("data", (chunk: Buffer) => {
+			stdout(chunk.toString());
 		});
 
 		(child.stderr as NodeJS.ReadableStream).on("data", (chunk: Buffer) => {

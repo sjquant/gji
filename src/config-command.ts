@@ -9,6 +9,7 @@ export interface ConfigCommandOptions {
 	action?: string;
 	cwd: string;
 	key?: string;
+	stderr?: (chunk: string) => void;
 	stdout: (chunk: string) => void;
 	value?: string;
 }
@@ -33,10 +34,17 @@ export async function runConfigCommand(
 		}
 		case "set":
 			if (options.key && options.value !== undefined) {
-				await updateGlobalConfigKey(
-					options.key,
-					parseConfigValue(options.value),
-				);
+				try {
+					await updateGlobalConfigKey(
+						options.key,
+						parseConfigValue(options.value),
+					);
+				} catch (error) {
+					options.stderr?.(
+						`gji config: ${error instanceof Error ? error.message : String(error)}\n`,
+					);
+					return 1;
+				}
 				return 0;
 			}
 			break;

@@ -63,6 +63,17 @@ gji sync-files add .env.local .npmrc
 
 `gji` stores that list in your global per-repo config and copies the files before setup hooks run.
 
+For large dependency trees, configure copy-on-write bootstrap instead of waiting for a full install:
+
+```json
+{
+  "syncDirs": [".next"],
+  "dependencyBootstrap": "cow-then-repair"
+}
+```
+
+On supported macOS and Linux filesystems, `gji new` clones configured directories before `syncFiles`. Dependency adapters then run authoritative repair before `afterCreate`: Yarn, pnpm, uv, and Cargo can reuse CoW seeds, while npm remains install-only. Unsupported filesystems never fall back to ordinary copying; they run repair/install from an empty target. Use `gji new --dry-run` to inspect the estimated source sizes and bootstrap strategy.
+
 Add an `afterCreate` hook:
 
 ```json
