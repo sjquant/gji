@@ -48,15 +48,14 @@ export async function forceRemoveWorktree(
 	worktreePath: string,
 ): Promise<void> {
 	try {
-		await execFileAsync(
-			"git",
-			["worktree", "remove", "--force", worktreePath],
-			{
-				cwd: repoRoot,
-				env: GIT_ENV,
-			},
-		);
+		await removeWorktreeWithForce(repoRoot, worktreePath);
 	} catch (error) {
+		if (isSubmoduleWorktreeRemovalError(error)) {
+			await deinitializeSubmodules(worktreePath);
+			await removeWorktreeWithForce(repoRoot, worktreePath);
+			return;
+		}
+
 		const worktreeIsStillRegistered = (await listWorktrees(repoRoot)).some(
 			(worktree) => worktree.path === worktreePath,
 		);
@@ -66,6 +65,23 @@ export async function forceRemoveWorktree(
 
 		await rm(worktreePath, { force: true, recursive: true });
 	}
+}
+
+async function removeWorktreeWithForce(
+	repoRoot: string,
+	worktreePath: string,
+): Promise<void> {
+	await execFileAsync("git", ["worktree", "remove", "--force", worktreePath], {
+		cwd: repoRoot,
+		env: GIT_ENV,
+	});
+}
+
+async function deinitializeSubmodules(worktreePath: string): Promise<void> {
+	await execFileAsync("git", ["submodule", "deinit", "--force", "--all"], {
+		cwd: worktreePath,
+		env: GIT_ENV,
+	});
 }
 
 export async function deleteBranch(
@@ -95,7 +111,17 @@ export function isWorktreeForceRemovalError(error: unknown): boolean {
 
 	return (
 		error.stderr.includes("contains modified or untracked files") ||
+		isSubmoduleWorktreeRemovalError(error) ||
 		isWorktreeDeletionError(error)
+	);
+}
+
+export function isSubmoduleWorktreeRemovalError(error: unknown): boolean {
+	return (
+		hasStderr(error) &&
+		error.stderr.includes(
+			"working trees containing submodules cannot be moved or removed",
+		)
 	);
 }
 

@@ -26,6 +26,22 @@ export async function createRepository(): Promise<string> {
 	return realpath(repoRoot);
 }
 
+export async function addSubmoduleToRepository(
+	repoRoot: string,
+): Promise<void> {
+	const submoduleRoot = await createRepository();
+
+	await runGit(repoRoot, [
+		"-c",
+		"protocol.file.allow=always",
+		"submodule",
+		"add",
+		submoduleRoot,
+		"vendor/submodule",
+	]);
+	await runGit(repoRoot, ["commit", "-am", "add submodule"]);
+}
+
 export async function createRepositoryWithOrigin(): Promise<{
 	originRoot: string;
 	repoRoot: string;
