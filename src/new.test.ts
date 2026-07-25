@@ -22,8 +22,10 @@ import {
 import { resolveWorktreePath } from "./repo.js";
 import {
 	addLinkedWorktree,
+	cloneRepository,
 	commitFile,
 	createRepository,
+	createRepositoryWithOrigin,
 	currentBranch,
 	pathExists,
 	runGit,
@@ -41,6 +43,93 @@ afterEach(() => {
 });
 
 describe("gji new", () => {
+	it("creates a new branch from the freshly fetched remote default branch", async () => {
+		// Given a repository whose remote default branch advanced beyond its local checkout.
+		const { originRoot, repoRoot } = await createRepositoryWithOrigin();
+		const remoteClone = await cloneRepository(originRoot);
+		await commitFile(
+			remoteClone,
+			"remote-only.txt",
+			"from remote\n",
+			"Advance remote default branch",
+		);
+		await runGit(remoteClone, ["push", "origin", "HEAD"]);
+		const newWorktreePath = resolveWorktreePath(repoRoot, "feature/fresh-base");
+
+		// When gji creates a normal new worktree.
+		const result = await runCli(["new", "feature/fresh-base"], {
+			cwd: repoRoot,
+		});
+
+		// Then the new branch contains the latest remote commit.
+		expect(result.exitCode).toBe(0);
+		await expect(
+			pathExists(join(newWorktreePath, "remote-only.txt")),
+		).resolves.toBe(true);
+	});
+
+	it("skips the remote refresh when --no-fetch is provided", async () => {
+		// Given a repository whose remote default branch advanced beyond its local checkout.
+		const { originRoot, repoRoot } = await createRepositoryWithOrigin();
+		const remoteClone = await cloneRepository(originRoot);
+		await commitFile(
+			remoteClone,
+			"remote-only.txt",
+			"from remote\n",
+			"Advance remote default branch",
+		);
+		await runGit(remoteClone, ["push", "origin", "HEAD"]);
+		const newWorktreePath = resolveWorktreePath(repoRoot, "feature/local-base");
+
+		// When gji creates a new worktree with fetching disabled.
+		const result = await runCli(["new", "--no-fetch", "feature/local-base"], {
+			cwd: repoRoot,
+		});
+
+		// Then the new branch retains the previous local HEAD behavior.
+		expect(result.exitCode).toBe(0);
+		await expect(
+			pathExists(join(newWorktreePath, "remote-only.txt")),
+		).resolves.toBe(false);
+	});
+
+	it("asks whether to abort when refreshing the remote base fails", async () => {
+		// Given a repository with an unreachable configured remote.
+		const repoRoot = await createRepositoryWithOrigin().then(
+			({ repoRoot }) => repoRoot,
+		);
+		await runGit(repoRoot, [
+			"remote",
+			"set-url",
+			"origin",
+			"/missing/origin.git",
+		]);
+		const stderr: string[] = [];
+		let prompted = false;
+		const runNew = createNewCommand({
+			promptForFetchFailure: async () => {
+				prompted = true;
+				return false;
+			},
+		});
+
+		// When gji new cannot refresh the configured remote.
+		const result = await runNew({
+			branch: "feature/abort-stale-base",
+			cwd: repoRoot,
+			stderr: (chunk) => stderr.push(chunk),
+			stdout: () => undefined,
+		});
+
+		// Then it asks for confirmation and aborts without creating a worktree.
+		expect(result).toBe(1);
+		expect(prompted).toBe(true);
+		expect(stderr.join("")).toContain("Aborted");
+		await expect(
+			pathExists(resolveWorktreePath(repoRoot, "feature/abort-stale-base")),
+		).resolves.toBe(false);
+	});
+
 	it("creates a branch and linked worktree from the repository root", async () => {
 		// Given a repository root and a new branch name.
 		const repoRoot = await createRepository();

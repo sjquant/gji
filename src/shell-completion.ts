@@ -158,7 +158,7 @@ _gji_completion() {
 
   case "$command_name" in
     new)
-      COMPREPLY=( $(compgen -W "--detached --from-current --take --copy --force --open --editor --dry-run --json --help" -- "$cur") )
+      COMPREPLY=( $(compgen -W "--detached --from-current --no-fetch --take --copy --force --open --editor --dry-run --json --help" -- "$cur") )
       ;;
     done)
       COMPREPLY=( $(compgen -W "--force --keep-branch --json --help" -- "$cur") )
@@ -575,7 +575,7 @@ fi
 
 case "\${words[2]}" in
   new)
-    _arguments '--detached[create a detached worktree without a branch]' '--from-current[base the new branch on the current worktree instead of the main worktree]' '--take[move current uncommitted changes into the new worktree]' '--copy[copy current uncommitted changes instead of moving them (requires --take)]' '--force[remove and recreate the worktree if the target path already exists]' '--open[open the new worktree in an editor after creation]' '--editor[editor CLI to use with --open (code, cursor, zed, …)]:editor:' '--dry-run[show what would be created without executing any git commands or writing files]' '--json[emit JSON on success or error instead of human-readable output]' '2:branch: '
+    _arguments '--detached[create a detached worktree without a branch]' '--from-current[base the new branch on the current worktree instead of the main worktree]' '--no-fetch[skip refreshing the remote default branch before creating the new branch]' '--take[move current uncommitted changes into the new worktree]' '--copy[copy current uncommitted changes instead of moving them (requires --take)]' '--force[remove and recreate the worktree if the target path already exists]' '--open[open the new worktree in an editor after creation]' '--editor[editor CLI to use with --open (code, cursor, zed, …)]:editor:' '--dry-run[show what would be created without executing any git commands or writing files]' '--json[emit JSON on success or error instead of human-readable output]' '2:branch: '
     ;;
   done)
     _arguments '--force[remove dirty or unmerged worktrees without prompting]' '--keep-branch[remove the worktree but preserve its branch]' '--json[emit JSON on success or error instead of human-readable output]' '2:branch: '

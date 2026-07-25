@@ -220,6 +220,10 @@ function registerCommands(program: Command): void {
 			"--from-current",
 			"base the new branch on the current worktree instead of the main worktree (cannot be combined with --detached)",
 		)
+		.option(
+			"--no-fetch",
+			"skip refreshing the remote default branch before creating the new branch",
+		)
 		.option("--take", "move current uncommitted changes into the new worktree")
 		.option(
 			"--copy",
@@ -491,6 +495,7 @@ function attachCommandActions(
 					editor?: string;
 					fromCurrent?: boolean;
 					force?: boolean;
+					fetch?: boolean;
 					json?: boolean;
 					open?: boolean;
 					take?: boolean;
@@ -505,6 +510,7 @@ function attachCommandActions(
 					editor: commandOptions.editor,
 					fromCurrent: commandOptions.fromCurrent,
 					force: commandOptions.force,
+					noFetch: commandOptions.fetch === false,
 					json: commandOptions.json,
 					open: commandOptions.open,
 					take: commandOptions.take,
