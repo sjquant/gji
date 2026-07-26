@@ -11,6 +11,11 @@ export interface WorktreeHealth {
 	status: "clean" | "dirty";
 }
 
+export interface RemoteBase {
+	branch: string;
+	ref: string;
+}
+
 export async function runGit(cwd: string, args: string[]): Promise<string> {
 	try {
 		const { stdout } = await execFileAsync("git", args, { cwd });
@@ -79,6 +84,62 @@ export async function resolveRemoteDefaultBranch(
 	const match = /^ref: refs\/heads\/(.+)\tHEAD$/.exec(refLine);
 
 	return match?.[1] ?? null;
+}
+
+export async function resolveRemoteBase(
+	cwd: string,
+	remote: string,
+	configuredBranch?: string,
+): Promise<RemoteBase | null> {
+	try {
+		await runGit(cwd, ["remote", "get-url", remote]);
+	} catch {
+		return null;
+	}
+	let branch = configuredBranch;
+	if (!branch) {
+		try {
+			const discoveredBranch = await resolveRemoteDefaultBranch(cwd, remote);
+			branch =
+				discoveredBranch ??
+				(await resolveCachedRemoteDefaultBranch(cwd, remote));
+		} catch {
+			branch = await resolveCachedRemoteDefaultBranch(cwd, remote);
+		}
+	}
+
+	if (!branch) return null;
+
+	return {
+		branch,
+		ref: `${remote}/${branch}`,
+	};
+}
+
+async function resolveCachedRemoteDefaultBranch(
+	cwd: string,
+	remote: string,
+): Promise<string | undefined> {
+	try {
+		const ref = await runGit(cwd, [
+			"symbolic-ref",
+			"--short",
+			`refs/remotes/${remote}/HEAD`,
+		]);
+		const prefix = `${remote}/`;
+		return ref.startsWith(prefix) ? ref.slice(prefix.length) : undefined;
+	} catch {
+		try {
+			const refs = await runGit(cwd, [
+				"for-each-ref",
+				"--format=%(refname:strip=3)",
+				`refs/remotes/${remote}`,
+			]);
+			return refs.split("\n").find((ref) => ref !== "HEAD");
+		} catch {
+			return undefined;
+		}
+	}
 }
 
 export async function readBranchLastCommitTimestamp(

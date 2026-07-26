@@ -1,5 +1,10 @@
 import { loadEffectiveConfig } from "./config.js";
-import { isDirtyWorktree, resolveRemoteDefaultBranch, runGit } from "./git.js";
+import {
+	isDirtyWorktree,
+	type RemoteBase,
+	resolveRemoteBase,
+	runGit,
+} from "./git.js";
 import { comparePaths } from "./paths.js";
 import { detectRepository, listWorktrees, type WorktreeEntry } from "./repo.js";
 
@@ -23,11 +28,13 @@ export async function runSyncCommand(
 	const worktrees = await listWorktrees(options.cwd);
 	const remote = resolveConfiguredString(config.syncRemote) ?? "origin";
 
-	let defaultBranch: string | null;
+	let remoteBase: RemoteBase | null;
 	try {
-		defaultBranch =
-			resolveConfiguredString(config.syncDefaultBranch) ??
-			(await resolveRemoteDefaultBranch(repository.repoRoot, remote));
+		remoteBase = await resolveRemoteBase(
+			repository.repoRoot,
+			remote,
+			resolveConfiguredString(config.syncDefaultBranch) ?? undefined,
+		);
 	} catch {
 		emitError(options, `Unable to reach remote '${remote}'`);
 		if (!options.json) {
@@ -38,7 +45,7 @@ export async function runSyncCommand(
 		return 1;
 	}
 
-	if (!defaultBranch) {
+	if (!remoteBase) {
 		emitError(options, "Unable to determine the default branch for sync.");
 		if (!options.json) {
 			options.stderr(
@@ -84,14 +91,10 @@ export async function runSyncCommand(
 	const updatedWorktrees: WorktreeEntry[] = [];
 
 	for (const worktree of targetWorktrees) {
-		if (worktree.branch === defaultBranch) {
-			await runGit(worktree.path, [
-				"merge",
-				"--ff-only",
-				`${remote}/${defaultBranch}`,
-			]);
+		if (worktree.branch === remoteBase.branch) {
+			await runGit(worktree.path, ["merge", "--ff-only", remoteBase.ref]);
 		} else {
-			await runGit(worktree.path, ["rebase", `${remote}/${defaultBranch}`]);
+			await runGit(worktree.path, ["rebase", remoteBase.ref]);
 		}
 
 		updatedWorktrees.push(worktree);

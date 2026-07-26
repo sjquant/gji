@@ -2,7 +2,7 @@ import { execFile } from "node:child_process";
 import { access, mkdir } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { promisify } from "node:util";
-import { isCancel, text } from "@clack/prompts";
+import { confirm, isCancel, text } from "@clack/prompts";
 import { createBootstrapReporter } from "./bootstrap-output.js";
 import {
 	createDependencyBootstrapPreview,
@@ -25,6 +25,7 @@ import {
 import { type CloneDirectory, cloneDir } from "./dir-clone.js";
 import { defaultSpawnEditor, EDITORS } from "./editor.js";
 import { formatBytes } from "./format-bytes.js";
+import { resolveRemoteBase, runGit } from "./git.js";
 import { isHeadless } from "./headless.js";
 import { recordWorktreeUsage } from "./history.js";
 import type { InstallPromptDependencies } from "./install-prompt.js";
@@ -58,6 +59,7 @@ export interface NewCommandOptions {
 	editor?: string;
 	fromCurrent?: boolean;
 	force?: boolean;
+	noFetch?: boolean;
 	json?: boolean;
 	mode?: NewWorktreeMode;
 	open?: boolean;
@@ -74,6 +76,7 @@ export interface NewCommandDependencies
 	cloneDir: CloneDirectory;
 	createBranchPlaceholder: () => string;
 	promptForBranch: (placeholder: string) => Promise<string | null>;
+	promptForFetchFailure: (message: string) => Promise<boolean>;
 	promptForPathConflict: (path: string) => Promise<PathConflictChoice>;
 	spawnEditor: (cli: string, args: string[]) => Promise<void>;
 }
@@ -86,6 +89,8 @@ export function createNewCommand(
 	const cloneDirectory = dependencies.cloneDir ?? cloneDir;
 	const promptForBranch =
 		dependencies.promptForBranch ?? defaultPromptForBranch;
+	const promptForFetchFailure =
+		dependencies.promptForFetchFailure ?? defaultPromptForFetchFailure;
 	const prompt = dependencies.promptForPathConflict ?? promptForPathConflict;
 	const spawnEditor = dependencies.spawnEditor ?? defaultSpawnEditor;
 
@@ -384,6 +389,27 @@ export function createNewCommand(
 			options.stderr(
 				`Warning: submodule changes are not transferred: ${submoduleFiles.join(", ")}\n`,
 			);
+		const existingLocalBranch = await localBranchExists(
+			repository.repoRoot,
+			worktreeName,
+		);
+		const shouldRefreshBase =
+			!options.noFetch &&
+			!options.detached &&
+			!options.fromCurrent &&
+			!options.take &&
+			options.mode !== "track" &&
+			options.mode !== "checkout" &&
+			!existingLocalBranch;
+		const freshBaseRef = shouldRefreshBase
+			? await resolveFreshBaseRef(
+					repository.repoRoot,
+					config,
+					options,
+					promptForFetchFailure,
+				)
+			: undefined;
+		if (freshBaseRef === null) return 1;
 		let stashSha: string | null = null;
 		if (options.take) {
 			try {
@@ -419,8 +445,7 @@ export function createNewCommand(
 						worktreePath,
 						`${options.remote ?? "origin"}/${worktreeName}`,
 					]
-				: options.mode === "checkout" ||
-						(await localBranchExists(repository.repoRoot, worktreeName))
+				: options.mode === "checkout" || existingLocalBranch
 					? ["worktree", "add", worktreePath, worktreeName]
 					: [
 							"worktree",
@@ -432,7 +457,9 @@ export function createNewCommand(
 								? [takeStartPoint]
 								: startPoint
 									? [startPoint]
-									: []),
+									: freshBaseRef
+										? [freshBaseRef]
+										: []),
 						];
 		try {
 			await execFileAsync("git", gitArgs, { cwd: repository.repoRoot });
@@ -546,6 +573,75 @@ export function createNewCommand(
 }
 
 export const runNewCommand = createNewCommand();
+
+async function resolveFreshBaseRef(
+	repoRoot: string,
+	config: EffectiveGjiConfig,
+	options: NewCommandOptions,
+	promptForFetchFailure: (message: string) => Promise<boolean>,
+): Promise<string | null> {
+	const remote = resolveConfigString(config, "syncRemote") ?? "origin";
+	const configuredRemote = resolveConfigString(config, "syncRemote");
+	let baseBranch = resolveConfigString(config, "syncDefaultBranch");
+
+	try {
+		const remoteBase = await resolveRemoteBase(repoRoot, remote, baseBranch);
+		if (!remoteBase) {
+			if (!configuredRemote) return "HEAD";
+			throw new Error("the remote default branch is unknown");
+		}
+		baseBranch = remoteBase.branch;
+		await runGit(repoRoot, ["fetch", "--prune", remote, remoteBase.branch]);
+		return remoteBase.ref;
+	} catch (error) {
+		const detail = error instanceof Error ? error.message : String(error);
+		const message = `Could not refresh ${remote}: ${detail}`;
+		if (options.json || isHeadless()) {
+			emitNewError(
+				options,
+				`${message}. Use --no-fetch to create from the local repository HEAD.`,
+			);
+			return null;
+		}
+
+		const continueWithoutRefresh = await promptForFetchFailure(message);
+		if (!continueWithoutRefresh) {
+			options.stderr("Aborted\n");
+			return null;
+		}
+
+		if (
+			baseBranch &&
+			(await localRefExists(repoRoot, `refs/remotes/${remote}/${baseBranch}`))
+		) {
+			options.stderr(`Continuing with the cached ${remote}/${baseBranch}.\n`);
+			return `${remote}/${baseBranch}`;
+		}
+
+		options.stderr("Continuing from the local repository HEAD.\n");
+		return "HEAD";
+	}
+}
+
+async function defaultPromptForFetchFailure(message: string): Promise<boolean> {
+	const choice = await confirm({
+		active: "Continue",
+		inactive: "Abort",
+		initialValue: false,
+		message: `${message}. Continue without refreshing the remote base?`,
+	});
+
+	return !isCancel(choice) && choice;
+}
+
+async function localRefExists(repoRoot: string, ref: string): Promise<boolean> {
+	try {
+		await runGit(repoRoot, ["rev-parse", "--verify", "--quiet", ref]);
+		return true;
+	} catch {
+		return false;
+	}
+}
 
 export function generateBranchPlaceholder(
 	random: () => number = Math.random,
