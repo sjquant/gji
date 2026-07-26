@@ -401,6 +401,7 @@ interface PromptPiece {
 	ellipsize: (value: string, maxLength: number) => string;
 	max: number;
 	min: number;
+	removablePriority?: number;
 	value: string;
 }
 
@@ -833,6 +834,7 @@ class SearchablePrompt {
 					ellipsize: middleEllipsize,
 					max: 18,
 					min: 6,
+					removablePriority: entry.worktree.task === null ? undefined : 1,
 					value: entry.worktree.repoName,
 				},
 				{
@@ -848,6 +850,7 @@ class SearchablePrompt {
 								ellipsize: middleEllipsize,
 								max: 30,
 								min: 10,
+								removablePriority: entry.worktree.task === null ? undefined : 0,
 								value: entry.worktree.metadata,
 							},
 						]),
@@ -865,6 +868,7 @@ class SearchablePrompt {
 					ellipsize: startEllipsize,
 					max: 36,
 					min: 12,
+					removablePriority: entry.worktree.task === null ? undefined : 2,
 					value: entry.worktree.path,
 				},
 			],
@@ -1171,6 +1175,24 @@ function windowPromptEntries(
 	return window;
 }
 
+function findPromptPieceToRemove(
+	pieces: PromptPiece[],
+	fallbackIndex: number,
+): number {
+	let candidate = fallbackIndex;
+	let priority = Infinity;
+
+	for (let index = 0; index < pieces.length; index += 1) {
+		const piecePriority = pieces[index].removablePriority;
+		if (piecePriority !== undefined && piecePriority < priority) {
+			candidate = index;
+			priority = piecePriority;
+		}
+	}
+
+	return candidate;
+}
+
 function fitPromptPieces(pieces: PromptPiece[], width: number): string {
 	const separator = " · ";
 	let visiblePieces = pieces.filter((piece) => piece.value.length > 0);
@@ -1181,8 +1203,10 @@ function fitPromptPieces(pieces: PromptPiece[], width: number): string {
 		visiblePieces.length > 1 &&
 		available < minimumPieceLength(visiblePieces)
 	) {
-		const removableIndex =
-			visiblePieces.length === 4 ? 2 : visiblePieces.length - 2;
+		const removableIndex = findPromptPieceToRemove(
+			visiblePieces,
+			visiblePieces.length === 4 ? 2 : visiblePieces.length - 2,
+		);
 		visiblePieces = visiblePieces.filter(
 			(_, index) => index !== removableIndex,
 		);

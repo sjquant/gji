@@ -384,6 +384,33 @@ describe("worktree picker search", () => {
 		expect(rendered).not.toContain(selectedPath);
 	});
 
+	it("keeps task text visible when a picker row is narrow", async () => {
+		// Given a narrow picker with a task-bearing worktree that is not active.
+		const { input, output } = createPromptIO();
+		output.columns = 36;
+		const choice = promptForSingleWorktree(
+			"Choose a worktree",
+			[
+				worktreeEntry("feature/current", "/repo/current"),
+				{
+					...worktreeEntry("feature/task", "/repo/task"),
+					task: "task-visible-summary",
+				},
+			],
+			{ input, output },
+		);
+		await nextTick();
+
+		// When the picker renders its initial rows.
+		const rendered = stripVTControlCharacters(output.text());
+
+		// Then the task remains visible even after lower-priority context is removed.
+		expect(rendered).toContain("task-vis");
+
+		input.write("\u001b");
+		await expect(choice).resolves.toBeNull();
+	});
+
 	it("ellipsizes wide glyph labels by terminal display width", async () => {
 		// Given a narrow picker with wide glyphs in branch and path text.
 		const { input, output } = createPromptIO();
