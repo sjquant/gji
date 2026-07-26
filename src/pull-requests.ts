@@ -9,6 +9,7 @@ export type PullRequestForge = "bitbucket" | "github" | "gitlab";
 export interface PullRequestInfo {
 	number: number;
 	sourceBranch: string;
+	title?: string;
 	url: string;
 }
 
@@ -302,7 +303,7 @@ function providerCliCommand(
 						"view",
 						String(query.number),
 						"--json",
-						"number,url,headRefName,state",
+						"number,url,headRefName,title,state",
 						"--repo",
 						coordinate,
 					],
@@ -317,7 +318,7 @@ function providerCliCommand(
 					"open",
 					...(query.kind === "branch" ? ["--head", sourceBranch] : []),
 					"--json",
-					"number,url,headRefName,state",
+					"number,url,headRefName,title,state",
 					"--limit",
 					"100",
 					"--repo",
@@ -477,6 +478,7 @@ function normalizePullRequest(
 				? value.links.html.href
 				: undefined),
 	);
+	const title = stringValue(value.title);
 	const state = stringValue(value.state)?.toLowerCase();
 	if (number === null || url === null) return null;
 	if (query.kind !== "number" && sourceBranch === null) return null;
@@ -486,6 +488,7 @@ function normalizePullRequest(
 	return {
 		number,
 		sourceBranch: sourceBranch ?? "",
+		...(title === null ? {} : { title }),
 		url,
 	};
 }

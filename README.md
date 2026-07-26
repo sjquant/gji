@@ -100,7 +100,9 @@ gji pr open --select                # choose a PR from any linked worktree
 gji pr open feature/auth-refactor   # open the PR for a branch
 gji pr open '#1234'                 # open an open PR directly
 
-# see what's open
+# discover what's open
+gji                                 # repository/worktree discovery hub
+gji --json                          # dashboard-ready hub data
 gji status
 
 # jump between worktrees
@@ -115,6 +117,8 @@ gji open feature/dark-mode --editor code
 # finish a worktree when done
 gji done feature/dark-mode
 ```
+
+Run bare `gji` for a repository hub showing registered repositories, active worktrees, tasks, health, and discovered pull requests. Use `gji --json` when a dashboard, prompt, or shell script needs the same data as structured output.
 
 Interactive worktree pickers show a worktree's task summary when one is set. Press `/` to search branch, path, PR, or task text; long task summaries are shortened to fit the terminal.
 
@@ -255,6 +259,7 @@ path=$(gji root --print)
 | `gji status [--json]` | repo overview, worktree health, ahead/behind |
 | `gji task [description] [--clear] [--json]` | show, set, or clear the current worktree task |
 | `gji ls [--compact] [--json]` | list active worktrees |
+| `gji [--json]` | repository hub with worktrees, tasks, health, and PR metadata |
 | `gji sync [--all]` | fetch and rebase worktrees onto default branch |
 | `gji sync-files [list\|add\|remove] [paths...]` | manage local files copied into new worktrees |
 | `gji clean [--stale] [--force] [--dry-run] [--json]` | interactively prune linked worktrees |

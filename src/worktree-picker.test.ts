@@ -38,6 +38,7 @@ describe("worktree picker search", () => {
 					{
 						number: 12,
 						sourceBranch,
+						title: "Fix review filters",
 						url: "https://example.com/pull/12",
 					},
 				],
@@ -49,8 +50,8 @@ describe("worktree picker search", () => {
 			output,
 		});
 
-		// When the user searches by the second PR number.
-		input.write("/#12\r");
+		// When the user searches by text from the second PR title.
+		input.write("/filters\r");
 
 		// Then the PR badge is sorted, rendered, and searchable without changing the path value.
 		await expect(choice).resolves.toBe(repoRoot);
@@ -59,7 +60,9 @@ describe("worktree picker search", () => {
 			"https://example.com/pull/12",
 			"https://example.com/pull/34",
 		]);
-		expect(output.text()).toContain("feature/review (#12, #34)");
+		expect(entries[0].pullRequestTitles).toEqual(["Fix review filters", ""]);
+		expect(output.text()).toContain("feature/review");
+		expect(output.text()).toContain("#34");
 	});
 
 	it("renders and searches a worktree task while safely truncating its row", async () => {

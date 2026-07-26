@@ -11,6 +11,7 @@ import { runDoneCommand } from "./done.js";
 import { runGoCommand } from "./go.js";
 import { isHeadless } from "./headless.js";
 import { runHistoryCommand } from "./history-command.js";
+import { type HubCommandDependencies, runHubCommand } from "./hub.js";
 import { runInitCommand } from "./init.js";
 import { runLsCommand } from "./ls.js";
 import { runNewCommand } from "./new.js";
@@ -40,6 +41,7 @@ interface PackageMetadata {
 export interface RunCliOptions {
 	cwd?: string;
 	prOpenDependencies?: Partial<PrOpenCommandDependencies>;
+	hubDependencies?: Partial<HubCommandDependencies>;
 	stderr?: (chunk: string) => void;
 	stdout?: (chunk: string) => void;
 }
@@ -114,10 +116,17 @@ export async function runCli(
 	});
 	program.exitOverride();
 
-	if (argv.length === 0) {
-		program.outputHelp();
-
-		return { exitCode: 0 };
+	if (argv.length === 0 || (argv.length === 1 && argv[0] === "--json")) {
+		const exitCode = await runHubCommand(
+			{
+				cwd,
+				json: argv[0] === "--json",
+				stderr,
+				stdout,
+			},
+			options.hubDependencies,
+		);
+		return { exitCode };
 	}
 
 	try {

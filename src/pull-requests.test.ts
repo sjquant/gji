@@ -100,6 +100,7 @@ describe("pull request lookup", () => {
 						headRefName: "feature/search",
 						number: 34,
 						state: "OPEN",
+						title: "Add search support",
 						url: "https://github.com/octo/widgets/pull/34",
 					},
 					{
@@ -125,6 +126,7 @@ describe("pull request lookup", () => {
 		expect(pullRequests.map((pullRequest) => pullRequest.number)).toEqual([
 			12, 34,
 		]);
+		expect(pullRequests[1]?.title).toBe("Add search support");
 	});
 
 	it("falls back to the public API after a CLI failure", async () => {

@@ -151,7 +151,7 @@ _gji_completion() {
   cur="\${COMP_WORDS[COMP_CWORD]:-}"
 
   if [ "$COMP_CWORD" -eq 1 ]; then
-    COMPREPLY=( $(compgen -W "${topLevelCommands}" -- "$cur") )
+		COMPREPLY=( $(compgen -W "${topLevelCommands} --json --help" -- "$cur") )
     return 0
   fi
 
@@ -488,6 +488,8 @@ complete -c gji -n '__fish_seen_subcommand_from remove rm' -a '(__gji_worktree_b
 
 ${hookLines}
 
+complete -c gji -n '__fish_use_subcommand' -l json -d 'emit the repository hub as JSON'
+
 complete -c gji -n '__fish_seen_subcommand_from warp' -l print -d 'print the resolved worktree path without changing directory'
 complete -c gji -n '__fish_seen_subcommand_from warp' -l json -d 'emit JSON on success or error instead of human-readable output'
 
@@ -571,6 +573,7 @@ local -a command_entries worktree_branches
 
 command_entries=(
   ${commandLines}
+  '--json:emit the repository hub as JSON'
 )
 
 if (( CURRENT == 2 )); then

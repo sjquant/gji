@@ -27,6 +27,7 @@ export interface WorktreePromptEntry extends WorktreeEntry {
 	label: string;
 	metadata?: string | null;
 	pullRequestNumbers?: number[];
+	pullRequestTitles?: string[];
 	pullRequestUrls?: string[];
 	repoName: string;
 	task?: string | null;
@@ -341,6 +342,7 @@ function buildSearchableWorktreeEntry(
 			branch: formatWorktreeBranchLabel(
 				worktree.branch,
 				worktree.pullRequestNumbers,
+				worktree.pullRequestTitles,
 			),
 			metadata,
 			path: worktree.path,
@@ -1323,6 +1325,7 @@ function buildPromptSearchText(worktree: WorktreePromptEntry): string {
 		worktree.task ?? "",
 		`${worktree.repoName}/${worktree.branch ?? "detached"}`,
 		...(worktree.pullRequestNumbers ?? []).map((number) => `#${number}`),
+		...(worktree.pullRequestTitles ?? []),
 		...(worktree.pullRequestUrls ?? []),
 	]
 		.join(" ")
@@ -1357,6 +1360,7 @@ function buildWorktreePromptEntry(
 	const branch = formatWorktreeBranchLabel(
 		source.worktree.branch,
 		pullRequests.map((pullRequest) => pullRequest.number),
+		pullRequests.map((pullRequest) => pullRequest.title ?? ""),
 	);
 	const badges = buildStatusBadges(info);
 	const recency = formatPromptRecency(
@@ -1390,6 +1394,9 @@ function buildWorktreePromptEntry(
 		lastActivityTimestamp,
 		metadata,
 		pullRequestNumbers: pullRequests.map((pullRequest) => pullRequest.number),
+		pullRequestTitles: pullRequests.map(
+			(pullRequest) => pullRequest.title ?? "",
+		),
 		pullRequestUrls: pullRequests.map((pullRequest) => pullRequest.url),
 		repoName: source.repoName,
 		task: info.task,
@@ -1490,11 +1497,19 @@ function sortSourcePullRequests(
 export function formatWorktreeBranchLabel(
 	branch: string | null,
 	pullRequestNumbers: number[] = [],
+	pullRequestTitles: string[] = [],
 ): string {
 	const branchLabel = branch ?? "(detached)";
 	if (pullRequestNumbers.length === 0) return branchLabel;
 
-	return `${branchLabel} (${pullRequestNumbers.map((number) => `#${number}`).join(", ")})`;
+	return `${branchLabel} (${pullRequestNumbers
+		.map((number, index) => {
+			const title = pullRequestTitles[index];
+			return title === undefined || title.length === 0
+				? `#${number}`
+				: `#${number} ${title}`;
+		})
+		.join(", ")})`;
 }
 
 function buildStatusBadges(info: WorktreeInfo): string[] {
