@@ -17,6 +17,7 @@ import {
 	type InstallPromptDependencies,
 	maybeRunInstallPrompt,
 } from "./install-prompt.js";
+import { assignWorktreeSlot } from "./slots.js";
 import {
 	type ClonedDirectory,
 	executeSyncDirectoryPlan,
@@ -143,6 +144,7 @@ export async function bootstrapWorktree(
 	}
 
 	const hooks = extractHooks(options.config);
+	const slot = await assignWorktreeSlot(options.repoRoot, options.worktreePath);
 	await runHook(
 		hooks["after-create"],
 		options.worktreePath,
@@ -150,6 +152,7 @@ export async function bootstrapWorktree(
 			branch: options.branch,
 			path: options.worktreePath,
 			repo: basename(options.repoRoot),
+			slot,
 		},
 		options.reporter.write,
 		options.json

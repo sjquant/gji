@@ -7,6 +7,7 @@ import { isHeadless } from "./headless.js";
 import { extractHooks, runHook } from "./hooks.js";
 import type { WorktreeEntry } from "./repo.js";
 import { writeShellOutput } from "./shell-handoff.js";
+import { releaseWorktreeSlot } from "./slots.js";
 import { finalizeUndoOperation, recordUndoOperation } from "./undo.js";
 import {
 	deleteBranch,
@@ -209,6 +210,7 @@ export function createRemoveCommand(
 			}
 		}
 		await finalizeUndoOperation(journal, [worktree]);
+		await releaseWorktreeSlot(worktree.path);
 
 		if (worktree.branch) {
 			try {

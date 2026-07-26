@@ -1,6 +1,8 @@
 import { readWorktreeHealth, type WorktreeHealth } from "./git.js";
 import { comparePaths } from "./paths.js";
 import { detectRepository, listWorktrees, type WorktreeEntry } from "./repo.js";
+import { getWorktreeSlot } from "./slots.js";
+import { readTask } from "./task.js";
 
 export interface StatusCommandOptions {
 	cwd: string;
@@ -12,7 +14,9 @@ interface WorktreeStatusRow {
 	branch: string | null;
 	current: boolean;
 	path: string;
+	slot: number | null;
 	status: "clean" | "dirty";
+	task: string | null;
 	upstream: UpstreamState;
 }
 
@@ -103,13 +107,19 @@ export function formatStatusJson(
 async function buildStatusRow(
 	worktree: WorktreeEntry,
 ): Promise<WorktreeStatusRow> {
-	const health = await readWorktreeHealth(worktree.path);
+	const [health, slot, task] = await Promise.all([
+		readWorktreeHealth(worktree.path),
+		getWorktreeSlot(worktree.path),
+		readTask(worktree.path),
+	]);
 
 	return {
 		branch: worktree.branch,
 		current: worktree.isCurrent,
 		path: worktree.path,
+		slot,
 		status: health.status,
+		task: task?.task ?? null,
 		upstream: buildUpstreamState(worktree.branch, health),
 	};
 }

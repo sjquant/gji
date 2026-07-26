@@ -28,6 +28,7 @@ import { runHookCommand } from "./run-hook.js";
 import { runStatusCommand } from "./status.js";
 import { runSyncCommand } from "./sync.js";
 import { runSyncFilesCommand } from "./sync-files-command.js";
+import { runTaskCommand } from "./task-command.js";
 import { runUndoCommand } from "./undo.js";
 import { runWarpCommand } from "./warp.js";
 
@@ -225,6 +226,7 @@ function registerCommands(program: Command): void {
 			"skip refreshing the remote default branch before creating the new branch",
 		)
 		.option("--take", "move current uncommitted changes into the new worktree")
+		.option("--task <description>", "record the purpose of the new worktree")
 		.option(
 			"--copy",
 			"copy current uncommitted changes instead of moving them (requires --take)",
@@ -343,6 +345,7 @@ function registerCommands(program: Command): void {
 		.description("resolve and jump to a worktree path")
 		.option("--root", "navigate to the main repository root")
 		.option("--print", "print the resolved worktree path explicitly")
+		.option("--quiet", "suppress the context card")
 		.option("--json", "emit JSON for an existing worktree destination")
 		.action(notImplemented("go"));
 
@@ -357,6 +360,13 @@ function registerCommands(program: Command): void {
 		.description("summarize repository and worktree health")
 		.option("--json", "print repository and worktree health as JSON")
 		.action(notImplemented("status"));
+
+	program
+		.command("task [task]")
+		.description("show or update the current worktree task")
+		.option("--clear", "clear the current worktree task")
+		.option("--json", "emit task metadata as JSON")
+		.action(notImplemented("task"));
 
 	program
 		.command("sync")
@@ -499,6 +509,7 @@ function attachCommandActions(
 					json?: boolean;
 					open?: boolean;
 					take?: boolean;
+					task?: string;
 				},
 			) => {
 				const exitCode = await runNewCommand({
@@ -514,6 +525,7 @@ function attachCommandActions(
 					json: commandOptions.json,
 					open: commandOptions.open,
 					take: commandOptions.take,
+					task: commandOptions.task,
 				});
 
 				if (exitCode !== 0) {
@@ -740,13 +752,19 @@ function attachCommandActions(
 		?.action(
 			async (
 				branch: string | undefined,
-				commandOptions: { json?: boolean; print?: boolean; root?: boolean },
+				commandOptions: {
+					json?: boolean;
+					print?: boolean;
+					quiet?: boolean;
+					root?: boolean;
+				},
 			) => {
 				const exitCode = await runGoCommand({
 					branch,
 					cwd: options.cwd,
 					json: commandOptions.json,
 					print: commandOptions.print,
+					quiet: commandOptions.quiet,
 					root: commandOptions.root,
 					stderr: options.stderr,
 					stdout: options.stdout,
@@ -785,6 +803,25 @@ function attachCommandActions(
 				throw commanderExit(exitCode);
 			}
 		});
+
+	program.commands
+		.find((command) => command.name() === "task")
+		?.action(
+			async (
+				task: string | undefined,
+				commandOptions: { clear?: boolean; json?: boolean },
+			) => {
+				const exitCode = await runTaskCommand({
+					clear: commandOptions.clear,
+					cwd: options.cwd,
+					json: commandOptions.json,
+					stderr: options.stderr,
+					task,
+					stdout: options.stdout,
+				});
+				if (exitCode !== 0) throw commanderExit(exitCode);
+			},
+		);
 
 	program.commands
 		.find((command) => command.name() === "sync")

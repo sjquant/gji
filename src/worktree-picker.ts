@@ -136,7 +136,9 @@ function createUnhydratedWorktreeInfo(worktree: WorktreeEntry): WorktreeInfo {
 	return {
 		...worktree,
 		lastCommitTimestamp: null,
+		slot: null,
 		status: "unknown",
+		task: null,
 		upstream: { kind: "unknown" },
 	};
 }

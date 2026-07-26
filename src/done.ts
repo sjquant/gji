@@ -12,6 +12,7 @@ import { loadHistory } from "./history.js";
 import { extractHooks, runHook } from "./hooks.js";
 import { detectRepository, listWorktrees } from "./repo.js";
 import { writeShellOutput } from "./shell-handoff.js";
+import { releaseWorktreeSlot } from "./slots.js";
 import { finalizeUndoOperation, recordUndoOperation } from "./undo.js";
 import {
 	deleteBranch,
@@ -192,6 +193,7 @@ export async function runDoneCommand(
 		}
 	}
 	await finalizeUndoOperation(journal, [target]);
+	await releaseWorktreeSlot(target.path);
 	await runGit(repository.repoRoot, ["worktree", "prune"]).catch(
 		() => undefined,
 	);

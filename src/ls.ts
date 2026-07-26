@@ -46,6 +46,7 @@ export function formatDetailedWorktreeTable(worktrees: WorktreeInfo[]): string {
 		lastCommit: formatLastCommit(worktree.lastCommitTimestamp),
 		path: worktree.path,
 		status: worktree.status,
+		task: worktree.task,
 		upstream: formatUpstreamState(worktree.upstream),
 	}));
 	const branchWidth = Math.max(
@@ -64,6 +65,11 @@ export function formatDetailedWorktreeTable(worktrees: WorktreeInfo[]): string {
 		"LAST".length,
 		...rows.map((row) => row.lastCommit.length),
 	);
+	const hasTasks = rows.some((row) => row.task !== null);
+	const taskWidth = Math.max(
+		"TASK".length,
+		...rows.map((row) => row.task?.slice(0, 40).length ?? 0),
+	);
 	const lines = [
 		"  " +
 			"BRANCH".padEnd(branchWidth, " ") +
@@ -73,6 +79,7 @@ export function formatDetailedWorktreeTable(worktrees: WorktreeInfo[]): string {
 			"UPSTREAM".padEnd(upstreamWidth, " ") +
 			" " +
 			"LAST".padEnd(lastCommitWidth, " ") +
+			(hasTasks ? " " + "TASK".padEnd(taskWidth, " ") : "") +
 			" PATH",
 	];
 
@@ -82,7 +89,11 @@ export function formatDetailedWorktreeTable(worktrees: WorktreeInfo[]): string {
 				`${row.branch.padEnd(branchWidth, " ")} ` +
 				`${row.status.padEnd(statusWidth, " ")} ` +
 				`${row.upstream.padEnd(upstreamWidth, " ")} ` +
-				`${row.lastCommit.padEnd(lastCommitWidth, " ")} ` +
+				`${row.lastCommit.padEnd(lastCommitWidth, " ")}` +
+				(hasTasks
+					? ` ${(row.task?.slice(0, 40) ?? "").padEnd(taskWidth, " ")}`
+					: "") +
+				" " +
 				row.path,
 		);
 	}

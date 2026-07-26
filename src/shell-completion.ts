@@ -32,6 +32,7 @@ const TOP_LEVEL_COMMANDS = [
 	{ name: "jump", description: "alias of go" },
 	{ name: "root", description: "print the main repository root path" },
 	{ name: "status", description: "summarize repository and worktree health" },
+	{ name: "task", description: "show or update the current worktree task" },
 	{ name: "sync", description: "fetch and update one or all worktrees" },
 	{
 		name: "sync-files",
@@ -158,7 +159,7 @@ _gji_completion() {
 
   case "$command_name" in
     new)
-      COMPREPLY=( $(compgen -W "--detached --from-current --no-fetch --take --copy --force --open --editor --dry-run --json --help" -- "$cur") )
+				COMPREPLY=( $(compgen -W "--detached --from-current --no-fetch --take --copy --task --force --open --editor --dry-run --json --help" -- "$cur") )
       ;;
     done)
       COMPREPLY=( $(compgen -W "--force --keep-branch --json --help" -- "$cur") )
@@ -416,6 +417,7 @@ complete -c gji -n '__fish_seen_subcommand_from new' -l detached -d 'create a de
 complete -c gji -n '__fish_seen_subcommand_from new' -l from-current -d 'base the new branch on the current worktree instead of the main worktree'
 complete -c gji -n '__fish_seen_subcommand_from new' -l take -d 'move current uncommitted changes into the new worktree'
 complete -c gji -n '__fish_seen_subcommand_from new' -l copy -d 'copy current uncommitted changes instead of moving them (requires --take)'
+complete -c gji -n '__fish_seen_subcommand_from new' -l task -r -d 'record the purpose of the new worktree'
 complete -c gji -n '__fish_seen_subcommand_from new' -l force -d 'remove and recreate the worktree if the target path already exists'
 complete -c gji -n '__fish_seen_subcommand_from new' -l open -d 'open the new worktree in an editor after creation'
 complete -c gji -n '__fish_seen_subcommand_from new' -l editor -r -d 'editor CLI to use with --open (code, cursor, zed, …)'
@@ -453,11 +455,14 @@ complete -c gji -n '__fish_seen_subcommand_from open' -a '(__gji_worktree_branch
 complete -c gji -n '__fish_seen_subcommand_from go jump' -l print -d 'print the resolved worktree path explicitly'
 complete -c gji -n '__fish_seen_subcommand_from go jump' -l root -d 'navigate to the main repository root'
 complete -c gji -n '__fish_seen_subcommand_from go jump' -l json -d 'emit JSON for an existing worktree destination'
+complete -c gji -n '__fish_seen_subcommand_from go jump' -l quiet -d 'suppress the context card'
 complete -c gji -n '__fish_seen_subcommand_from go jump' -a '(__gji_worktree_branches)' -d 'worktree branch'
 
 complete -c gji -n '__fish_seen_subcommand_from root' -l print -d 'print the resolved repository root path explicitly'
 
 complete -c gji -n '__fish_seen_subcommand_from status' -l json -d 'print repository and worktree health as JSON'
+complete -c gji -n '__fish_seen_subcommand_from task' -l clear -d 'clear the current worktree task'
+complete -c gji -n '__fish_seen_subcommand_from task' -l json -d 'emit task metadata as JSON'
 
 complete -c gji -n '__fish_seen_subcommand_from sync' -l all -d 'sync every worktree in the repository'
 complete -c gji -n '__fish_seen_subcommand_from sync' -l json -d 'emit JSON on success or error instead of human-readable output'
@@ -575,7 +580,7 @@ fi
 
 case "\${words[2]}" in
   new)
-    _arguments '--detached[create a detached worktree without a branch]' '--from-current[base the new branch on the current worktree instead of the main worktree]' '--no-fetch[skip refreshing the remote default branch before creating the new branch]' '--take[move current uncommitted changes into the new worktree]' '--copy[copy current uncommitted changes instead of moving them (requires --take)]' '--force[remove and recreate the worktree if the target path already exists]' '--open[open the new worktree in an editor after creation]' '--editor[editor CLI to use with --open (code, cursor, zed, …)]:editor:' '--dry-run[show what would be created without executing any git commands or writing files]' '--json[emit JSON on success or error instead of human-readable output]' '2:branch: '
+    _arguments '--detached[create a detached worktree without a branch]' '--from-current[base the new branch on the current worktree instead of the main worktree]' '--no-fetch[skip refreshing the remote default branch before creating the new branch]' '--take[move current uncommitted changes into the new worktree]' '--copy[copy current uncommitted changes instead of moving them (requires --take)]' '--task[record the purpose of the new worktree]:description:' '--force[remove and recreate the worktree if the target path already exists]' '--open[open the new worktree in an editor after creation]' '--editor[editor CLI to use with --open (code, cursor, zed, …)]:editor:' '--dry-run[show what would be created without executing any git commands or writing files]' '--json[emit JSON on success or error instead of human-readable output]' '2:branch: '
     ;;
   done)
     _arguments '--force[remove dirty or unmerged worktrees without prompting]' '--keep-branch[remove the worktree but preserve its branch]' '--json[emit JSON on success or error instead of human-readable output]' '2:branch: '

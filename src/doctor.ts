@@ -29,6 +29,7 @@ import {
 	resolveCompletionPath,
 	resolveShellConfigPath,
 } from "./shell-setup.js";
+import { loadSlots } from "./slots.js";
 
 const execFileAsync = promisify(execFile);
 const MINIMUM_GIT_VERSION = { major: 2, minor: 17 };
@@ -182,8 +183,33 @@ async function collectDoctorInspection(
 			await checkWorktreeBase(repository, effectiveConfig, home),
 			registry.check,
 			await checkEditor(effectiveConfig),
+			await checkOrphanSlots(home),
 		],
 		missingRegistryPaths: registry.missingPaths,
+	};
+}
+
+async function checkOrphanSlots(home: string): Promise<DoctorCheck> {
+	const slots = await loadSlots(home);
+	const missing = (
+		await Promise.all(
+			Object.keys(slots).map(async (path) => {
+				try {
+					await access(path);
+					return false;
+				} catch {
+					return true;
+				}
+			}),
+		)
+	).filter(Boolean).length;
+	return {
+		id: "slots",
+		message:
+			missing === 0
+				? "worktree slots healthy"
+				: `${missing} orphaned worktree slot${missing === 1 ? "" : "s"}`,
+		status: "ok",
 	};
 }
 

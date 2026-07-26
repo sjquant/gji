@@ -12,6 +12,7 @@ export interface HookContext {
 	branch?: string;
 	path: string;
 	repo: string;
+	slot?: number | null;
 }
 
 export async function runHook(
@@ -121,6 +122,9 @@ function hookEnvironment(context: HookContext): NodeJS.ProcessEnv {
 		GJI_BRANCH: context.branch ?? "",
 		GJI_PATH: context.path,
 		GJI_REPO: context.repo,
+		...(context.slot === null || context.slot === undefined
+			? {}
+			: { GJI_SLOT: String(context.slot) }),
 	};
 }
 
@@ -132,7 +136,13 @@ export function interpolate(template: string, context: HookContext): string {
 	return template
 		.replace(/\{\{branch\}\}/g, context.branch ?? "")
 		.replace(/\{\{path\}\}/g, context.path)
-		.replace(/\{\{repo\}\}/g, context.repo);
+		.replace(/\{\{repo\}\}/g, context.repo)
+		.replace(
+			/\{\{slot\}\}/g,
+			context.slot === null || context.slot === undefined
+				? ""
+				: String(context.slot),
+		);
 }
 
 export function extractHooks(config: Record<string, unknown>): GjiHooks {
