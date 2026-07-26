@@ -3,6 +3,7 @@ import { stripVTControlCharacters } from "node:util";
 
 import { describe, expect, it } from "vitest";
 import { addLinkedWorktree, createRepository } from "./repo.test-helpers.js";
+import { writeTask } from "./task.js";
 import {
 	buildWorktreePromptEntries,
 	promptForMultipleWorktrees,
@@ -59,6 +60,45 @@ describe("worktree picker search", () => {
 			"https://example.com/pull/34",
 		]);
 		expect(output.text()).toContain("feature/review (#12, #34)");
+	});
+
+	it("renders and searches a worktree task while safely truncating its row", async () => {
+		// Given a worktree with a long task summary.
+		const repoRoot = await createRepository();
+		const task =
+			"Fix the login redirect after the session expires without losing the original destination";
+		await writeTask(repoRoot, task);
+		const entries = await buildWorktreePromptEntries(
+			[
+				{
+					repoRoot,
+					repoName: "repo",
+					worktree: {
+						branch: "feature/login",
+						isCurrent: true,
+						path: repoRoot,
+					},
+				},
+			],
+			{ queryPullRequests: async () => [] },
+		);
+		const { input, output } = createPromptIO();
+		output.columns = 48;
+		const choice = promptForSingleWorktree("Choose a worktree", entries, {
+			input,
+			output,
+		});
+
+		// When the user searches by text that only occurs in the task.
+		input.write("/redirect\r");
+
+		// Then the task-bearing worktree is selected and the visible row stays bounded.
+		await expect(choice).resolves.toBe(repoRoot);
+		expect(entries[0].task).toBe(task);
+		const rendered = stripVTControlCharacters(output.text());
+		expect(rendered).toContain("redirect");
+		expect(rendered).toContain("…");
+		expect(rendered).not.toContain(task);
 	});
 
 	it("builds a fast all-repositories scope without status or PR lookups", async () => {

@@ -116,6 +116,8 @@ gji open feature/dark-mode --editor code
 gji done feature/dark-mode
 ```
 
+Interactive worktree pickers show a worktree's task summary when one is set. Press `/` to search branch, path, PR, or task text; long task summaries are shortened to fit the terminal.
+
 Worktrees land at a deterministic path so your editor bookmarks and scripts always know where to look:
 
 ```

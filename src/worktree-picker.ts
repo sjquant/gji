@@ -27,6 +27,7 @@ export interface WorktreePromptEntry extends WorktreeEntry {
 	pullRequestNumbers?: number[];
 	pullRequestUrls?: string[];
 	repoName: string;
+	task?: string | null;
 }
 
 export type QueryWorktreePullRequests = (
@@ -315,7 +316,13 @@ function buildSearchableWorktreeEntry(
 	const branch = worktree.branch ?? "(detached)";
 
 	return {
-		detail: [worktree.repoName, branch, metadata, worktree.path]
+		detail: [
+			worktree.repoName,
+			branch,
+			metadata,
+			worktree.task ?? null,
+			worktree.path,
+		]
 			.filter((part): part is string => part !== null && part.length > 0)
 			.join(" · "),
 		label: worktree.label,
@@ -329,6 +336,7 @@ function buildSearchableWorktreeEntry(
 			metadata,
 			path: worktree.path,
 			repoName: worktree.repoName,
+			task: worktree.task ?? null,
 		},
 	};
 }
@@ -344,6 +352,7 @@ interface SearchablePromptEntry {
 		metadata: string | null;
 		path: string;
 		repoName: string;
+		task: string | null;
 	};
 }
 
@@ -842,6 +851,16 @@ class SearchablePrompt {
 								value: entry.worktree.metadata,
 							},
 						]),
+				...(entry.worktree.task === null
+					? []
+					: [
+							{
+								ellipsize: middleEllipsize,
+								max: 36,
+								min: 10,
+								value: entry.worktree.task,
+							},
+						]),
 				{
 					ellipsize: startEllipsize,
 					max: 36,
@@ -1268,6 +1287,7 @@ function buildPromptSearchText(worktree: WorktreePromptEntry): string {
 		worktree.branch ?? "detached",
 		worktree.path,
 		worktree.label,
+		worktree.task ?? "",
 		`${worktree.repoName}/${worktree.branch ?? "detached"}`,
 		...(worktree.pullRequestNumbers ?? []).map((number) => `#${number}`),
 		...(worktree.pullRequestUrls ?? []),
@@ -1314,6 +1334,7 @@ function buildWorktreePromptEntry(
 		middleEllipsize(source.repoName, 22),
 		middleEllipsize(branch, 34),
 		metadata,
+		info.task === null ? null : middleEllipsize(info.task, 36),
 		path,
 	]
 		.filter((part): part is string => part !== null && part.length > 0)
@@ -1327,6 +1348,7 @@ function buildWorktreePromptEntry(
 		pullRequestNumbers: pullRequests.map((pullRequest) => pullRequest.number),
 		pullRequestUrls: pullRequests.map((pullRequest) => pullRequest.url),
 		repoName: source.repoName,
+		task: info.task,
 	};
 }
 
