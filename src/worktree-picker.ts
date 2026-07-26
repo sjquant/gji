@@ -9,6 +9,7 @@ import {
 	type PullRequestInfo,
 } from "./pull-requests.js";
 import type { WorktreeEntry } from "./repo.js";
+import { readTask } from "./task.js";
 import {
 	readWorktreeInfos,
 	type UpstreamState,
@@ -17,6 +18,7 @@ import {
 import type { WorktreeSource } from "./worktree-source.js";
 
 const MAX_PULL_REQUEST_REPOSITORY_QUERY_CONCURRENCY = 4;
+const MAX_TASK_READ_CONCURRENCY = 8;
 
 export type WorktreePromptSource = WorktreeSource;
 
@@ -27,6 +29,7 @@ export interface WorktreePromptEntry extends WorktreeEntry {
 	pullRequestNumbers?: number[];
 	pullRequestUrls?: string[];
 	repoName: string;
+	task?: string | null;
 }
 
 export type QueryWorktreePullRequests = (
@@ -96,10 +99,8 @@ export async function buildWorktreePromptEntries(
 		loadHistory(),
 		includeMetadata
 			? readWorktreeInfos(sources.map((source) => source.worktree))
-			: Promise.resolve(
-					sources.map((source) =>
-						createUnhydratedWorktreeInfo(source.worktree),
-					),
+			: mapWithConcurrency(sources, MAX_TASK_READ_CONCURRENCY, (source) =>
+					createUnhydratedWorktreeInfo(source.worktree),
 				),
 		repositoryPullRequests,
 	]);
@@ -132,13 +133,22 @@ export async function buildWorktreePromptEntries(
 		);
 }
 
-function createUnhydratedWorktreeInfo(worktree: WorktreeEntry): WorktreeInfo {
+async function createUnhydratedWorktreeInfo(
+	worktree: WorktreeEntry,
+): Promise<WorktreeInfo> {
+	let task: string | null = null;
+	try {
+		task = (await readTask(worktree.path))?.task ?? null;
+	} catch {
+		// Task metadata is optional picker decoration.
+	}
+
 	return {
 		...worktree,
 		lastCommitTimestamp: null,
 		slot: null,
 		status: "unknown",
-		task: null,
+		task,
 		upstream: { kind: "unknown" },
 	};
 }
@@ -315,7 +325,13 @@ function buildSearchableWorktreeEntry(
 	const branch = worktree.branch ?? "(detached)";
 
 	return {
-		detail: [worktree.repoName, branch, metadata, worktree.path]
+		detail: [
+			worktree.repoName,
+			branch,
+			metadata,
+			worktree.task == null ? null : sanitizePromptText(worktree.task),
+			worktree.path,
+		]
 			.filter((part): part is string => part !== null && part.length > 0)
 			.join(" · "),
 		label: worktree.label,
@@ -329,6 +345,7 @@ function buildSearchableWorktreeEntry(
 			metadata,
 			path: worktree.path,
 			repoName: worktree.repoName,
+			task: worktree.task == null ? null : sanitizePromptText(worktree.task),
 		},
 	};
 }
@@ -344,6 +361,7 @@ interface SearchablePromptEntry {
 		metadata: string | null;
 		path: string;
 		repoName: string;
+		task: string | null;
 	};
 }
 
@@ -392,6 +410,7 @@ interface PromptPiece {
 	ellipsize: (value: string, maxLength: number) => string;
 	max: number;
 	min: number;
+	removablePriority?: number;
 	value: string;
 }
 
@@ -824,6 +843,7 @@ class SearchablePrompt {
 					ellipsize: middleEllipsize,
 					max: 18,
 					min: 6,
+					removablePriority: entry.worktree.task === null ? undefined : 1,
 					value: entry.worktree.repoName,
 				},
 				{
@@ -839,13 +859,25 @@ class SearchablePrompt {
 								ellipsize: middleEllipsize,
 								max: 30,
 								min: 10,
+								removablePriority: entry.worktree.task === null ? undefined : 0,
 								value: entry.worktree.metadata,
+							},
+						]),
+				...(entry.worktree.task === null
+					? []
+					: [
+							{
+								ellipsize: middleEllipsize,
+								max: 36,
+								min: 10,
+								value: entry.worktree.task,
 							},
 						]),
 				{
 					ellipsize: startEllipsize,
 					max: 36,
 					min: 12,
+					removablePriority: entry.worktree.task === null ? undefined : 2,
 					value: entry.worktree.path,
 				},
 			],
@@ -1152,6 +1184,24 @@ function windowPromptEntries(
 	return window;
 }
 
+function findPromptPieceToRemove(
+	pieces: PromptPiece[],
+	fallbackIndex: number,
+): number {
+	let candidate = fallbackIndex;
+	let priority = Infinity;
+
+	for (let index = 0; index < pieces.length; index += 1) {
+		const piecePriority = pieces[index].removablePriority;
+		if (piecePriority !== undefined && piecePriority < priority) {
+			candidate = index;
+			priority = piecePriority;
+		}
+	}
+
+	return candidate;
+}
+
 function fitPromptPieces(pieces: PromptPiece[], width: number): string {
 	const separator = " · ";
 	let visiblePieces = pieces.filter((piece) => piece.value.length > 0);
@@ -1162,8 +1212,10 @@ function fitPromptPieces(pieces: PromptPiece[], width: number): string {
 		visiblePieces.length > 1 &&
 		available < minimumPieceLength(visiblePieces)
 	) {
-		const removableIndex =
-			visiblePieces.length === 4 ? 2 : visiblePieces.length - 2;
+		const removableIndex = findPromptPieceToRemove(
+			visiblePieces,
+			visiblePieces.length === 4 ? 2 : visiblePieces.length - 2,
+		);
 		visiblePieces = visiblePieces.filter(
 			(_, index) => index !== removableIndex,
 		);
@@ -1268,12 +1320,22 @@ function buildPromptSearchText(worktree: WorktreePromptEntry): string {
 		worktree.branch ?? "detached",
 		worktree.path,
 		worktree.label,
+		worktree.task ?? "",
 		`${worktree.repoName}/${worktree.branch ?? "detached"}`,
 		...(worktree.pullRequestNumbers ?? []).map((number) => `#${number}`),
 		...(worktree.pullRequestUrls ?? []),
 	]
 		.join(" ")
 		.toLowerCase();
+}
+
+function sanitizePromptText(value: string): string {
+	return Array.from(value, (character) => {
+		const codePoint = character.codePointAt(0) ?? 0;
+		return codePoint <= 0x1f || (codePoint >= 0x7f && codePoint <= 0x9f)
+			? " "
+			: character;
+	}).join("");
 }
 
 function buildWorktreePromptEntry(
@@ -1314,6 +1376,9 @@ function buildWorktreePromptEntry(
 		middleEllipsize(source.repoName, 22),
 		middleEllipsize(branch, 34),
 		metadata,
+		info.task === null
+			? null
+			: middleEllipsize(sanitizePromptText(info.task), 36),
 		path,
 	]
 		.filter((part): part is string => part !== null && part.length > 0)
@@ -1327,6 +1392,7 @@ function buildWorktreePromptEntry(
 		pullRequestNumbers: pullRequests.map((pullRequest) => pullRequest.number),
 		pullRequestUrls: pullRequests.map((pullRequest) => pullRequest.url),
 		repoName: source.repoName,
+		task: info.task,
 	};
 }
 
