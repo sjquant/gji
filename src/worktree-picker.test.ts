@@ -135,6 +135,37 @@ describe("worktree picker search", () => {
 		});
 	});
 
+	it("keeps task metadata searchable in a fast all-repositories scope", async () => {
+		// Given a worktree with task metadata and a fast picker scope.
+		const repoRoot = await createRepository();
+		await writeTask(repoRoot, "find the login redirect");
+		const entries = await buildWorktreePromptEntries(
+			[
+				{
+					repoRoot,
+					repoName: "repo",
+					worktree: {
+						branch: "feature/fast-task",
+						isCurrent: false,
+						path: repoRoot,
+					},
+				},
+			],
+			{ metadata: "fast" },
+		);
+		const { input, output } = createPromptIO();
+		const choice = promptForSingleWorktree("Choose a worktree", entries, {
+			input,
+			output,
+		});
+
+		// When the user searches task text without full metadata hydration.
+		input.write("/redirect\r");
+
+		// Then the fast picker still finds the task-bearing worktree.
+		await expect(choice).resolves.toBe(repoRoot);
+	});
+
 	it("queries each repository once and joins PRs by source branch", async () => {
 		// Given two worktrees from one repository and repository-scoped PR metadata.
 		const repoRoot = await createRepository();
@@ -409,6 +440,30 @@ describe("worktree picker search", () => {
 
 		input.write("\u001b");
 		await expect(choice).resolves.toBeNull();
+	});
+
+	it("sanitizes control characters in task labels without changing search text", async () => {
+		// Given a task containing a newline and terminal escape sequence.
+		const { input, output } = createPromptIO();
+		const task = "line one\n\u001b[31munsafe";
+		const choice = promptForSingleWorktree(
+			"Choose a worktree",
+			[
+				{
+					...worktreeEntry("feature/safe-task", "/repo/safe-task"),
+					task,
+				},
+			],
+			{ input, output },
+		);
+
+		// When the user searches by the original task text.
+		input.write("/unsafe\r");
+
+		// Then search still matches, while the row cannot inject terminal control output.
+		await expect(choice).resolves.toBe("/repo/safe-task");
+		expect(output.text()).not.toContain("\u001b[31m");
+		expect(output.text()).not.toContain(task);
 	});
 
 	it("ellipsizes wide glyph labels by terminal display width", async () => {

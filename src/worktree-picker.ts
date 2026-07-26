@@ -9,6 +9,7 @@ import {
 	type PullRequestInfo,
 } from "./pull-requests.js";
 import type { WorktreeEntry } from "./repo.js";
+import { readTask } from "./task.js";
 import {
 	readWorktreeInfos,
 	type UpstreamState,
@@ -97,7 +98,7 @@ export async function buildWorktreePromptEntries(
 		loadHistory(),
 		includeMetadata
 			? readWorktreeInfos(sources.map((source) => source.worktree))
-			: Promise.resolve(
+			: Promise.all(
 					sources.map((source) =>
 						createUnhydratedWorktreeInfo(source.worktree),
 					),
@@ -133,13 +134,22 @@ export async function buildWorktreePromptEntries(
 		);
 }
 
-function createUnhydratedWorktreeInfo(worktree: WorktreeEntry): WorktreeInfo {
+async function createUnhydratedWorktreeInfo(
+	worktree: WorktreeEntry,
+): Promise<WorktreeInfo> {
+	let task: string | null = null;
+	try {
+		task = (await readTask(worktree.path))?.task ?? null;
+	} catch {
+		// Task metadata is optional picker decoration.
+	}
+
 	return {
 		...worktree,
 		lastCommitTimestamp: null,
 		slot: null,
 		status: "unknown",
-		task: null,
+		task,
 		upstream: { kind: "unknown" },
 	};
 }
@@ -320,7 +330,7 @@ function buildSearchableWorktreeEntry(
 			worktree.repoName,
 			branch,
 			metadata,
-			worktree.task ?? null,
+			worktree.task == null ? null : sanitizePromptText(worktree.task),
 			worktree.path,
 		]
 			.filter((part): part is string => part !== null && part.length > 0)
@@ -336,7 +346,7 @@ function buildSearchableWorktreeEntry(
 			metadata,
 			path: worktree.path,
 			repoName: worktree.repoName,
-			task: worktree.task ?? null,
+			task: worktree.task == null ? null : sanitizePromptText(worktree.task),
 		},
 	};
 }
@@ -1320,6 +1330,15 @@ function buildPromptSearchText(worktree: WorktreePromptEntry): string {
 		.toLowerCase();
 }
 
+function sanitizePromptText(value: string): string {
+	return Array.from(value, (character) => {
+		const codePoint = character.codePointAt(0) ?? 0;
+		return codePoint <= 0x1f || (codePoint >= 0x7f && codePoint <= 0x9f)
+			? " "
+			: character;
+	}).join("");
+}
+
 function buildWorktreePromptEntry(
 	source: WorktreeSource,
 	info: WorktreeInfo,
@@ -1358,7 +1377,9 @@ function buildWorktreePromptEntry(
 		middleEllipsize(source.repoName, 22),
 		middleEllipsize(branch, 34),
 		metadata,
-		info.task === null ? null : middleEllipsize(info.task, 36),
+		info.task === null
+			? null
+			: middleEllipsize(sanitizePromptText(info.task), 36),
 		path,
 	]
 		.filter((part): part is string => part !== null && part.length > 0)
