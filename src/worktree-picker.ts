@@ -18,6 +18,7 @@ import {
 import type { WorktreeSource } from "./worktree-source.js";
 
 const MAX_PULL_REQUEST_REPOSITORY_QUERY_CONCURRENCY = 4;
+const MAX_TASK_READ_CONCURRENCY = 8;
 
 export type WorktreePromptSource = WorktreeSource;
 
@@ -98,10 +99,8 @@ export async function buildWorktreePromptEntries(
 		loadHistory(),
 		includeMetadata
 			? readWorktreeInfos(sources.map((source) => source.worktree))
-			: Promise.all(
-					sources.map((source) =>
-						createUnhydratedWorktreeInfo(source.worktree),
-					),
+			: mapWithConcurrency(sources, MAX_TASK_READ_CONCURRENCY, (source) =>
+					createUnhydratedWorktreeInfo(source.worktree),
 				),
 		repositoryPullRequests,
 	]);
