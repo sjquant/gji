@@ -38,3 +38,28 @@ export async function listRegisteredWorktreeSources(
 
 	return allItems;
 }
+
+export async function listDiscoverableWorktreeSources(
+	cwd: string,
+	onSkipped?: (entry: RepoRegistryEntry) => void,
+): Promise<WorktreeSource[]> {
+	const currentRepository = await detectRepository(cwd).catch(() => null);
+	const registeredSources = await listRegisteredWorktreeSources(cwd, onSkipped);
+	if (currentRepository === null) return dedupeSources(registeredSources);
+
+	const currentSources = (await listWorktrees(cwd)).map((worktree) => ({
+		repoName: currentRepository.repoName,
+		repoRoot: currentRepository.repoRoot,
+		worktree,
+	}));
+	return dedupeSources([...currentSources, ...registeredSources]);
+}
+
+function dedupeSources(sources: WorktreeSource[]): WorktreeSource[] {
+	const seen = new Set<string>();
+	return sources.filter((source) => {
+		if (seen.has(source.worktree.path)) return false;
+		seen.add(source.worktree.path);
+		return true;
+	});
+}

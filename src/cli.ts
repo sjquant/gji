@@ -104,7 +104,7 @@ export async function runCli(
 	const stdout = options.stdout ?? (() => undefined);
 	const stderr = options.stderr ?? (() => undefined);
 
-	if (shouldRegisterCurrentRepo(argv)) {
+	if (shouldRegisterCurrentRepo(argv) || isHubInvocation(argv)) {
 		await maybeRegisterCurrentRepo(cwd);
 	}
 
@@ -204,6 +204,10 @@ function shouldRegisterCurrentRepo(argv: string[]): boolean {
 			"init",
 		].includes(command ?? "")
 	);
+}
+
+function isHubInvocation(argv: string[]): boolean {
+	return argv.length === 0 || (argv.length === 1 && argv[0] === "--json");
 }
 
 async function maybeRegisterCurrentRepo(cwd: string): Promise<void> {

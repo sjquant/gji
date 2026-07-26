@@ -26,9 +26,7 @@ export interface WorktreePromptEntry extends WorktreeEntry {
 	group: "recent" | "other";
 	label: string;
 	metadata?: string | null;
-	pullRequestNumbers?: number[];
-	pullRequestTitles?: string[];
-	pullRequestUrls?: string[];
+	pullRequests?: PullRequestInfo[];
 	repoName: string;
 	task?: string | null;
 }
@@ -339,11 +337,7 @@ function buildSearchableWorktreeEntry(
 		searchText: buildPromptSearchText(worktree),
 		value: worktree.path,
 		worktree: {
-			branch: formatWorktreeBranchLabel(
-				worktree.branch,
-				worktree.pullRequestNumbers,
-				worktree.pullRequestTitles,
-			),
+			branch: formatWorktreeBranchLabel(worktree.branch, worktree.pullRequests),
 			metadata,
 			path: worktree.path,
 			repoName: worktree.repoName,
@@ -1324,9 +1318,11 @@ function buildPromptSearchText(worktree: WorktreePromptEntry): string {
 		worktree.label,
 		worktree.task ?? "",
 		`${worktree.repoName}/${worktree.branch ?? "detached"}`,
-		...(worktree.pullRequestNumbers ?? []).map((number) => `#${number}`),
-		...(worktree.pullRequestTitles ?? []),
-		...(worktree.pullRequestUrls ?? []),
+		...(worktree.pullRequests ?? []).flatMap((pullRequest) => [
+			`#${pullRequest.number}`,
+			pullRequest.title ?? "",
+			pullRequest.url,
+		]),
 	]
 		.join(" ")
 		.toLowerCase();
@@ -1359,8 +1355,7 @@ function buildWorktreePromptEntry(
 				: null;
 	const branch = formatWorktreeBranchLabel(
 		source.worktree.branch,
-		pullRequests.map((pullRequest) => pullRequest.number),
-		pullRequests.map((pullRequest) => pullRequest.title ?? ""),
+		pullRequests,
 	);
 	const badges = buildStatusBadges(info);
 	const recency = formatPromptRecency(
@@ -1393,11 +1388,7 @@ function buildWorktreePromptEntry(
 		label,
 		lastActivityTimestamp,
 		metadata,
-		pullRequestNumbers: pullRequests.map((pullRequest) => pullRequest.number),
-		pullRequestTitles: pullRequests.map(
-			(pullRequest) => pullRequest.title ?? "",
-		),
-		pullRequestUrls: pullRequests.map((pullRequest) => pullRequest.url),
+		pullRequests,
 		repoName: source.repoName,
 		task: info.task,
 	};
@@ -1496,18 +1487,17 @@ function sortSourcePullRequests(
 
 export function formatWorktreeBranchLabel(
 	branch: string | null,
-	pullRequestNumbers: number[] = [],
-	pullRequestTitles: string[] = [],
+	pullRequests: PullRequestInfo[] = [],
 ): string {
 	const branchLabel = branch ?? "(detached)";
-	if (pullRequestNumbers.length === 0) return branchLabel;
+	if (pullRequests.length === 0) return branchLabel;
 
-	return `${branchLabel} (${pullRequestNumbers
-		.map((number, index) => {
-			const title = pullRequestTitles[index];
-			return title === undefined || title.length === 0
-				? `#${number}`
-				: `#${number} ${title}`;
+	return `${branchLabel} (${pullRequests
+		.map((pullRequest) => {
+			const title = pullRequest.title
+				? ` ${middleEllipsize(sanitizePromptText(pullRequest.title), 48)}`
+				: "";
+			return `#${pullRequest.number}${title}`;
 		})
 		.join(", ")})`;
 }

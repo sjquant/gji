@@ -266,7 +266,7 @@ async function openFromWorktreeSelector(
 			pullRequestsByBranch.get(branch) ?? [],
 	});
 	const connectedEntries = entries.filter(
-		(entry) => (entry.pullRequestNumbers?.length ?? 0) > 0,
+		(entry) => (entry.pullRequests?.length ?? 0) > 0,
 	);
 	if (connectedEntries.length === 0) {
 		if (lookupError !== null) {
@@ -425,15 +425,7 @@ async function openSelectedEntry(
 	promptForPullRequest: PrOpenCommandDependencies["promptForPullRequest"],
 	openInBrowser: (url: string) => Promise<void>,
 ): Promise<number> {
-	const numbers = entry.pullRequestNumbers ?? [];
-	const urls = entry.pullRequestUrls ?? [];
-	const pullRequests = numbers
-		.map((number, index) => ({
-			number,
-			sourceBranch: entry.branch ?? "",
-			url: urls[index] ?? "",
-		}))
-		.filter((pullRequest) => pullRequest.url.length > 0);
+	const pullRequests = entry.pullRequests ?? [];
 
 	return openPullRequests(
 		pullRequests,

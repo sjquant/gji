@@ -122,6 +122,7 @@ describe("pull request lookup", () => {
 		// Then the CLI result is used without an API request and sorted numerically.
 		expect(fetcher).not.toHaveBeenCalled();
 		expect(calls[1]).toContain("--head");
+		expect(calls[1]).toContain("number,url,headRefName,title,state");
 		expect(timeouts).toEqual([2500, 2500]);
 		expect(pullRequests.map((pullRequest) => pullRequest.number)).toEqual([
 			12, 34,
@@ -145,6 +146,7 @@ describe("pull request lookup", () => {
 							iid: 7,
 							state: "opened",
 							source_branch: "feature/api",
+							title: "API fallback title",
 							web_url: "https://gitlab.com/platform/widgets/-/merge_requests/7",
 						},
 					]),
@@ -167,6 +169,7 @@ describe("pull request lookup", () => {
 			{
 				number: 7,
 				sourceBranch: "feature/api",
+				title: "API fallback title",
 				url: "https://gitlab.com/platform/widgets/-/merge_requests/7",
 			},
 		]);

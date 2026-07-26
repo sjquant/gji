@@ -50,19 +50,59 @@ describe("worktree picker search", () => {
 			output,
 		});
 
-		// When the user searches by text from the second PR title.
-		input.write("/filters\r");
+		// When the user searches by the second PR number.
+		input.write("/#12\r");
 
 		// Then the PR badge is sorted, rendered, and searchable without changing the path value.
 		await expect(choice).resolves.toBe(repoRoot);
-		expect(entries[0].pullRequestNumbers).toEqual([12, 34]);
-		expect(entries[0].pullRequestUrls).toEqual([
-			"https://example.com/pull/12",
-			"https://example.com/pull/34",
+		expect(entries[0].pullRequests).toEqual([
+			expect.objectContaining({ number: 12, title: "Fix review filters" }),
+			expect.objectContaining({ number: 34 }),
 		]);
-		expect(entries[0].pullRequestTitles).toEqual(["Fix review filters", ""]);
 		expect(output.text()).toContain("feature/review");
 		expect(output.text()).toContain("#34");
+	});
+
+	it("searches PR titles without changing the selected worktree path", async () => {
+		// Given a worktree with a titled open PR.
+		const repoRoot = await createRepository();
+		const entries = await buildWorktreePromptEntries(
+			[
+				{
+					repoRoot,
+					repoName: "repo",
+					worktree: {
+						branch: "feature/title",
+						isCurrent: true,
+						path: repoRoot,
+					},
+				},
+			],
+			{
+				queryPullRequests: async () => [
+					{
+						number: 7,
+						sourceBranch: "feature/title",
+						title: "Improve dashboard filtering",
+						url: "https://example.com/pull/7",
+					},
+				],
+			},
+		);
+		const { input, output } = createPromptIO();
+		const choice = promptForSingleWorktree("Choose a worktree", entries, {
+			input,
+			output,
+		});
+
+		// When the user searches text that exists only in the PR title.
+		input.write("/filtering\r");
+
+		// Then title search still selects the original worktree.
+		expect(await choice).toBe(repoRoot);
+		expect(entries[0].pullRequests?.[0]?.title).toBe(
+			"Improve dashboard filtering",
+		);
 	});
 
 	it("renders and searches a worktree task while safely truncating its row", async () => {
@@ -134,7 +174,7 @@ describe("worktree picker search", () => {
 		expect(entries[0]).toMatchObject({
 			branch: "feature/fast",
 			path: "/repo/fast",
-			pullRequestNumbers: [],
+			pullRequests: [],
 		});
 	});
 
@@ -208,12 +248,12 @@ describe("worktree picker search", () => {
 
 		// Then one repository lookup decorates only the matching branch.
 		expect(queriedRoots).toEqual([repoRoot]);
+		expect(entries.find((entry) => entry.path === pathA)?.pullRequests).toEqual(
+			[],
+		);
 		expect(
-			entries.find((entry) => entry.path === pathA)?.pullRequestNumbers,
-		).toEqual([]);
-		expect(
-			entries.find((entry) => entry.path === pathB)?.pullRequestNumbers,
-		).toEqual([12]);
+			entries.find((entry) => entry.path === pathB)?.pullRequests,
+		).toMatchObject([{ number: 12 }]);
 	});
 
 	it("filters single-select choices after slash search", async () => {

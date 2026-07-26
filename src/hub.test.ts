@@ -1,7 +1,12 @@
+import { mkdtemp } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
 import { describe, expect, it } from "vitest";
 
 import { runCli } from "./cli.js";
 import { addLinkedWorktree, createRepository } from "./repo.test-helpers.js";
+import { loadRegistry } from "./repo-registry.js";
 import { writeTask } from "./task.js";
 
 describe("repository hub", () => {
@@ -20,7 +25,7 @@ describe("repository hub", () => {
 					{
 						number: 42,
 						sourceBranch: "feature/hub",
-						title: "Add dashboard discovery",
+						title: "Add dashboard\n\u001b[31mdiscovery",
 						url: "https://example.test/pull/42",
 					},
 				],
@@ -34,7 +39,30 @@ describe("repository hub", () => {
 		expect(output).toContain("GJI REPOSITORY HUB");
 		expect(output).toContain("feature/hub");
 		expect(output).toContain("polish the dashboard discovery flow");
-		expect(output).toContain("#42 Add dashboard discovery");
+		expect(output).toContain("#42 Add dashboard");
+		expect(output).not.toContain("\u001b");
+	});
+
+	it("registers the current repository for both human and JSON hub access", async () => {
+		// Given a repository and an isolated registry.
+		const repoRoot = await createRepository();
+		const configDir = await mkdtemp(join(tmpdir(), "gji-hub-config-"));
+		const previousConfigDir = process.env.GJI_CONFIG_DIR;
+		process.env.GJI_CONFIG_DIR = configDir;
+
+		try {
+			// When each hub mode is invoked from the repository.
+			await runCli([], { cwd: repoRoot, stdout: () => undefined });
+			await runCli(["--json"], { cwd: repoRoot, stdout: () => undefined });
+
+			// Then both modes leave the repository available to future discovery.
+			expect(await loadRegistry()).toEqual([
+				expect.objectContaining({ path: repoRoot }),
+			]);
+		} finally {
+			if (previousConfigDir === undefined) delete process.env.GJI_CONFIG_DIR;
+			else process.env.GJI_CONFIG_DIR = previousConfigDir;
+		}
 	});
 
 	it("emits a stable dashboard-oriented JSON projection", async () => {

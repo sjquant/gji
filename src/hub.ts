@@ -4,7 +4,7 @@ import {
 	createPullRequestQuery,
 	type PullRequestInfo,
 } from "./pull-requests.js";
-import { detectRepository, listWorktrees, type WorktreeEntry } from "./repo.js";
+import { detectRepository } from "./repo.js";
 import {
 	formatLastCommit,
 	formatUpstreamState,
@@ -12,7 +12,9 @@ import {
 	type WorktreeInfo,
 } from "./worktree-info.js";
 import type { WorktreeSource } from "./worktree-source.js";
-import { listRegisteredWorktreeSources } from "./worktree-sources.js";
+import { listDiscoverableWorktreeSources } from "./worktree-sources.js";
+
+const MAX_HUB_REPOSITORY_CONCURRENCY = 4;
 
 export interface HubCommandOptions {
 	cwd: string;
@@ -55,12 +57,7 @@ export async function buildHubData(
 		dependencies.queryRepositoryPullRequests ??
 		defaultDependencies.queryRepositoryPullRequests;
 	const currentRepository = await detectRepository(cwd).catch(() => null);
-	const registeredSources = await listRegisteredWorktreeSources(cwd);
-	const sources = await mergeCurrentSources(
-		cwd,
-		currentRepository,
-		registeredSources,
-	);
+	const sources = await listDiscoverableWorktreeSources(cwd);
 	const groups = new Map<string, { name: string; sources: WorktreeSource[] }>();
 
 	for (const source of sources) {
@@ -77,10 +74,12 @@ export async function buildHubData(
 		}
 	}
 
-	const repositories = await Promise.all(
-		[...groups.entries()].map(async ([root, group]) => {
+	const repositories = await mapWithConcurrency(
+		[...groups.entries()],
+		MAX_HUB_REPOSITORY_CONCURRENCY,
+		async ([root, group]) => {
 			const infos = await readWorktreeInfos(
-				dedupeWorktrees(group.sources.map((source) => source.worktree)),
+				group.sources.map((source) => source.worktree),
 			);
 			let pullRequests: PullRequestInfo[] = [];
 			try {
@@ -102,7 +101,7 @@ export async function buildHubData(
 				root,
 				worktrees,
 			};
-		}),
+		},
 	);
 
 	repositories.sort((left, right) => {
@@ -149,7 +148,7 @@ export function formatHubOutput(data: HubData): string {
 			const prs = worktree.pullRequests
 				.map((pullRequest) =>
 					pullRequest.title
-						? `#${pullRequest.number} ${pullRequest.title}`
+						? `#${pullRequest.number} ${formatHumanText(pullRequest.title, 80)}`
 						: `#${pullRequest.number}`,
 				)
 				.join(", ");
@@ -157,7 +156,7 @@ export function formatHubOutput(data: HubData): string {
 				worktree.status,
 				formatUpstreamState(worktree.upstream),
 				formatLastCommit(worktree.lastCommitTimestamp),
-				worktree.task,
+				worktree.task === null ? null : formatHumanText(worktree.task, 80),
 				prs,
 			]
 				.filter((value): value is string => value !== null && value.length > 0)
@@ -171,36 +170,34 @@ export function formatHubOutput(data: HubData): string {
 	return lines.join("\n").trimEnd();
 }
 
-async function mergeCurrentSources(
-	cwd: string,
-	currentRepository: Awaited<ReturnType<typeof detectRepository>> | null,
-	registeredSources: WorktreeSource[],
-): Promise<WorktreeSource[]> {
-	if (!currentRepository) return dedupeSources(registeredSources);
-
-	const currentWorktrees = await listWorktrees(cwd);
-	const currentSources = currentWorktrees.map((worktree) => ({
-		repoName: currentRepository.repoName,
-		repoRoot: currentRepository.repoRoot,
-		worktree,
-	}));
-	return dedupeSources([...currentSources, ...registeredSources]);
+function formatHumanText(value: string, maxLength: number): string {
+	const sanitized = Array.from(value, (character) => {
+		const codePoint = character.codePointAt(0) ?? 0;
+		return codePoint <= 0x1f || (codePoint >= 0x7f && codePoint <= 0x9f)
+			? " "
+			: character;
+	}).join("");
+	return sanitized.length <= maxLength
+		? sanitized
+		: `${sanitized.slice(0, Math.max(0, maxLength - 1))}…`;
 }
 
-function dedupeSources(sources: WorktreeSource[]): WorktreeSource[] {
-	const seen = new Set<string>();
-	return sources.filter((source) => {
-		if (seen.has(source.worktree.path)) return false;
-		seen.add(source.worktree.path);
-		return true;
-	});
-}
-
-function dedupeWorktrees(worktrees: WorktreeEntry[]): WorktreeEntry[] {
-	const seen = new Set<string>();
-	return worktrees.filter((worktree) => {
-		if (seen.has(worktree.path)) return false;
-		seen.add(worktree.path);
-		return true;
-	});
+async function mapWithConcurrency<Input, Output>(
+	items: Input[],
+	limit: number,
+	mapper: (item: Input) => Promise<Output>,
+): Promise<Output[]> {
+	const results: Output[] = new Array(items.length);
+	let nextIndex = 0;
+	async function readNext(): Promise<void> {
+		for (;;) {
+			const index = nextIndex++;
+			if (index >= items.length) return;
+			results[index] = await mapper(items[index]);
+		}
+	}
+	await Promise.all(
+		Array.from({ length: Math.min(limit, items.length) }, () => readNext()),
+	);
+	return results;
 }
