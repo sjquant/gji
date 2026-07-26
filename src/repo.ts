@@ -36,6 +36,11 @@ export async function detectRepository(
 	};
 }
 
+export async function worktreeGitDir(worktreePath: string): Promise<string> {
+	const rawGitDir = await runGit(worktreePath, ["rev-parse", "--git-dir"]);
+	return isAbsolute(rawGitDir) ? rawGitDir : resolve(worktreePath, rawGitDir);
+}
+
 export function resolveWorktreePath(
 	repoRoot: string,
 	branch: string,

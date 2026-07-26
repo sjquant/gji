@@ -1,6 +1,7 @@
 import { loadEffectiveConfig } from "./config.js";
 import { extractHooks, type GjiHooks, runHook } from "./hooks.js";
 import { detectRepository, listWorktrees } from "./repo.js";
+import { getWorktreeSlot } from "./slots.js";
 
 const VALID_HOOKS: Array<keyof GjiHooks> = [
 	"after-create",
@@ -57,6 +58,7 @@ export async function runHookCommand(
 			branch: currentWorktree?.branch ?? undefined,
 			path: repository.currentRoot,
 			repo: repository.repoName,
+			slot: await getWorktreeSlot(repository.currentRoot),
 		},
 		options.stderr,
 	);

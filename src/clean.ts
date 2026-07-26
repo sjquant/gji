@@ -9,6 +9,7 @@ import {
 } from "./git.js";
 import { isHeadless } from "./headless.js";
 import type { WorktreeEntry } from "./repo.js";
+import { releaseWorktreeSlot } from "./slots.js";
 import { finalizeUndoOperation, recordUndoOperation } from "./undo.js";
 import {
 	formatLastCommit,
@@ -300,6 +301,9 @@ export function createCleanCommand(
 			}
 		}
 		await finalizeUndoOperation(journal, removedWorktrees);
+		await Promise.all(
+			removedWorktrees.map((worktree) => releaseWorktreeSlot(worktree.path)),
+		);
 
 		if (options.json) {
 			const removed = removedWorktrees.map((worktree) => {

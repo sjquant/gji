@@ -40,6 +40,7 @@ import {
 } from "./repo.js";
 import { writeShellOutput } from "./shell-handoff.js";
 import { estimateSyncDirectories } from "./sync-plan.js";
+import { writeTask } from "./task.js";
 import { bootstrapWorktree } from "./worktree-bootstrap.js";
 
 const execFileAsync = promisify(execFile);
@@ -68,6 +69,7 @@ export interface NewCommandOptions {
 	take?: boolean;
 	stderr: (chunk: string) => void;
 	stdout: (chunk: string) => void;
+	task?: string;
 }
 
 export interface NewCommandDependencies
@@ -494,6 +496,16 @@ export function createNewCommand(
 				options,
 				`could not apply taken changes; your changes are safe in stash: ${stashSha}`,
 			);
+		}
+
+		if (options.task !== undefined) {
+			try {
+				await writeTask(worktreePath, options.task);
+			} catch (error) {
+				options.stderr(
+					`Warning: could not save task metadata: ${error instanceof Error ? error.message : String(error)}\n`,
+				);
+			}
 		}
 
 		const bootstrap = await bootstrapWorktree({

@@ -407,7 +407,7 @@ print -r -- "\${_comps[gji]-unset}"`,
 		expect(stdout.join("")).toContain("sync-files");
 		expect(stdout.join("")).toContain("list add remove rm --json --help");
 		expect(stdout.join("")).toContain(
-			"--detached --from-current --no-fetch --take --copy --force",
+			"--detached --from-current --no-fetch --take --copy --task --force",
 		);
 		expect(stdout.join("")).toContain("--force --open --editor");
 		expect(stdout.join("")).toContain("go|jump)");

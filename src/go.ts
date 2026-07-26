@@ -3,6 +3,7 @@ import { basename } from "node:path";
 import { confirm, isCancel } from "@clack/prompts";
 import { runBackCommand } from "./back.js";
 import { loadEffectiveConfig } from "./config.js";
+import { renderContextCard } from "./context-card.js";
 import { type GoBranchResolution, resolveGoBranch } from "./go-resolver.js";
 import { isHeadless } from "./headless.js";
 import { recordWorktreeUsage } from "./history.js";
@@ -20,6 +21,7 @@ import {
 	type WorktreeEntry,
 } from "./repo.js";
 import { writeShellOutput } from "./shell-handoff.js";
+import { getWorktreeSlot } from "./slots.js";
 import {
 	buildWorktreePromptEntries,
 	promptForSingleWorktree,
@@ -36,6 +38,7 @@ export interface GoCommandOptions {
 	json?: boolean;
 	print?: boolean;
 	root?: boolean;
+	quiet?: boolean;
 	stderr: (chunk: string) => void;
 	stdout: (chunk: string) => void;
 }
@@ -359,9 +362,14 @@ async function navigateToExistingWorktree(
 			branch: worktree?.branch ?? undefined,
 			path,
 			repo: basename(repository.repoRoot),
+			slot: await getWorktreeSlot(path),
 		},
 		options.stderr,
 	);
+	if (!options.quiet) {
+		const card = await renderContextCard(path);
+		if (card) options.stderr(`${card}\n`);
+	}
 
 	await recordWorktreeUsage(path, worktree?.branch ?? null);
 	await writeShellOutput(GO_OUTPUT_FILE_ENV, path, options.stdout);

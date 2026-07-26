@@ -239,7 +239,7 @@ path=$(gji root --print)
 
 | Command | Description |
 |---|---|
-| `gji new [branch] [--from-current] [--detached] [--no-fetch] [--take] [--copy] [--force] [--open] [--editor <cli>] [--dry-run] [--json]` | create branch + worktree from a refreshed remote base by default; `--no-fetch` opts out |
+| `gji new [branch] [--from-current] [--detached] [--no-fetch] [--take] [--copy] [--task <description>] [--force] [--open] [--editor <cli>] [--dry-run] [--json]` | create branch + worktree from a refreshed remote base by default; `--task` records its purpose |
 | `gji done [branch] [--force] [--keep-branch] [--json]` | safely finish a linked worktree and return |
 | `gji undo [id] [--list] [--json]` | restore a journaled cleanup without overwriting work |
 | `gji pr <ref> [--json]` | fetch PR ref, create worktree, cd in |
@@ -251,6 +251,7 @@ path=$(gji root --print)
 | `gji go [branch] [--root] [--print] [--json]` | resolve and jump to a worktree, branch, remote, or PR |
 | `gji root [--print]` | jump to the main repo root |
 | `gji status [--json]` | repo overview, worktree health, ahead/behind |
+| `gji task [description] [--clear] [--json]` | show, set, or clear the current worktree task |
 | `gji ls [--compact] [--json]` | list active worktrees |
 | `gji sync [--all]` | fetch and rebase worktrees onto default branch |
 | `gji sync-files [list\|add\|remove] [paths...]` | manage local files copied into new worktrees |
@@ -416,7 +417,9 @@ Run scripts automatically at key lifecycle moments:
 | `afterEnter` | after `gji go` switches to a worktree |
 | `beforeRemove` | before `gji done` or `gji clean` deletes a worktree |
 
-Hooks receive `{{branch}}`, `{{path}}`, `{{repo}}` as template variables and `GJI_BRANCH`, `GJI_PATH`, `GJI_REPO` as environment variables. A failing hook emits a warning but never aborts the command.
+Hooks receive `{{branch}}`, `{{path}}`, `{{repo}}`, and `{{slot}}` as template variables and `GJI_BRANCH`, `GJI_PATH`, `GJI_REPO`, and `GJI_SLOT` as environment variables. A failing hook emits a warning but never aborts the command.
+
+Each worktree created by gji receives a stable integer slot. The main worktree is slot 0; linked worktrees receive the smallest available slot, and released slots are reused. Use `GJI_SLOT` in hooks to offset development-server ports. `gji go` displays a context card with the task and worktree state; use `gji go --quiet` to suppress it. `gji ls --json` and `gji status --json` include `slot` and `task` fields.
 
 Prefer argv-array hooks for simple commands:
 

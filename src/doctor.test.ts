@@ -73,6 +73,7 @@ describe("gji doctor", () => {
 				expect.objectContaining({ id: "worktree-base", status: "ok" }),
 				expect.objectContaining({ id: "repo-registry", status: "ok" }),
 				expect.objectContaining({ id: "editor", status: "skip" }),
+				expect.objectContaining({ id: "slots", status: "ok" }),
 			],
 			problems: 0,
 		});
