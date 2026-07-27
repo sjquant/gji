@@ -6,7 +6,6 @@ import {
 } from "./pull-requests.js";
 import { detectRepository } from "./repo.js";
 import {
-	formatLastCommit,
 	formatUpstreamState,
 	readWorktreeInfos,
 	type WorktreeInfo,
@@ -138,49 +137,162 @@ export function formatHubOutput(
 		return "No registered repositories. Run gji from a repository to add one.";
 	}
 
-	const narrow = columns < 72;
 	const lineWidth = Math.max(20, columns);
-	const lines = ["GJI REPOSITORY HUB", ""];
-	for (const repository of data.repositories) {
-		const marker = repository.current ? "*" : " ";
-		const prSummary = repository.pullRequests.length
-			? ` · ${repository.pullRequests.length} open PR${repository.pullRequests.length === 1 ? "" : "s"}`
-			: "";
-		lines.push(`${marker} ${repository.name}${prSummary}`);
-		lines.push(`  ${startEllipsize(repository.root, lineWidth - 2)}`);
-		for (const worktree of repository.worktrees) {
-			const branch = worktree.branch ?? "(detached)";
-			const prs = worktree.pullRequests
-				.map((pullRequest) =>
-					pullRequest.title
-						? `#${pullRequest.number} ${formatHumanText(pullRequest.title, 80)}`
-						: `#${pullRequest.number}`,
-				)
-				.join(", ");
-			const metadata = [
-				worktree.status,
-				formatUpstreamState(worktree.upstream),
-				formatLastCommit(worktree.lastCommitTimestamp),
-				worktree.task === null ? null : formatHumanText(worktree.task, 80),
-				prs,
-			]
-				.filter((value): value is string => value !== null && value.length > 0)
-				.join(" · ");
-			const worktreeMarker = worktree.isCurrent ? "*" : " ";
-			lines.push(
-				`  ${worktreeMarker} ${middleEllipsize(branch, lineWidth - 6)}`,
-			);
-			if (metadata.length > 0) {
-				lines.push(
-					`    ${narrow ? middleEllipsize(metadata, lineWidth - 4) : metadata}`,
-				);
-			}
-			lines.push(`    ${startEllipsize(worktree.path, lineWidth - 4)}`);
+	const allWorktrees = data.repositories.flatMap((repository) =>
+		repository.worktrees.map((worktree) => ({ repository, worktree })),
+	);
+	const attention = allWorktrees.filter(({ worktree }) =>
+		isActionable(worktree),
+	);
+	const next = chooseNextWorktree(allWorktrees);
+	const remainingAttention = attention.filter((entry) => entry !== next);
+	const quiet = allWorktrees.filter(
+		(entry) => entry !== next && !attention.includes(entry),
+	);
+	const recentOther = [...quiet]
+		.sort(
+			(left, right) =>
+				(right.worktree.lastCommitTimestamp ?? 0) -
+				(left.worktree.lastCommitTimestamp ?? 0),
+		)
+		.slice(0, 5);
+	const hiddenCount = quiet.length - recentOther.length;
+	const lines = [
+		`GJI  ${data.repositories.length} repositories · ${allWorktrees.length} worktrees${
+			attention.length > 0 ? ` · ${attention.length} need attention` : ""
+		}`,
+		"",
+	];
+
+	if (next !== null) {
+		lines.push("NEXT");
+		lines.push(...formatHubWorktree(next, lineWidth, "›"));
+		lines.push("");
+	}
+
+	if (remainingAttention.length > 0) {
+		lines.push("ATTENTION");
+		for (const entry of remainingAttention) {
+			lines.push(...formatHubWorktree(entry, lineWidth, "!"));
 		}
 		lines.push("");
 	}
 
-	return lines.join("\n").trimEnd();
+	if (recentOther.length > 0) {
+		lines.push("OTHER");
+		for (const entry of recentOther) {
+			lines.push(...formatHubWorktree(entry, lineWidth, " "));
+		}
+		if (hiddenCount > 0) {
+			lines.push(
+				`  ${hiddenCount} quiet worktree${hiddenCount === 1 ? "" : "s"} hidden`,
+			);
+		}
+		lines.push("");
+	}
+
+	if (
+		next === null &&
+		remainingAttention.length === 0 &&
+		recentOther.length === 0
+	) {
+		lines.push("No active worktrees.");
+	}
+
+	lines.push("Run `gji go <repo>/<branch>` to switch worktrees.");
+
+	return lines
+		.map((line) =>
+			line.length > lineWidth ? middleEllipsize(line, lineWidth) : line,
+		)
+		.join("\n")
+		.trimEnd();
+}
+
+function chooseNextWorktree(
+	entries: Array<{ repository: HubRepository; worktree: HubWorktree }>,
+): { repository: HubRepository; worktree: HubWorktree } | null {
+	return (
+		[...entries].sort((left, right) => {
+			const scoreDifference =
+				nextWorktreeScore(right) - nextWorktreeScore(left);
+			if (scoreDifference !== 0) return scoreDifference;
+			return (
+				(right.worktree.lastCommitTimestamp ?? 0) -
+				(left.worktree.lastCommitTimestamp ?? 0)
+			);
+		})[0] ?? null
+	);
+}
+
+function nextWorktreeScore(entry: {
+	repository: HubRepository;
+	worktree: HubWorktree;
+}): number {
+	const { worktree } = entry;
+	let score =
+		worktree.isCurrent && (worktree.task !== null || isActionable(worktree))
+			? 100
+			: 0;
+	if (worktree.task !== null) score += 40;
+	if (worktree.status === "dirty") score += 30;
+	if (worktree.upstream.kind === "stale") score += 25;
+	if (worktree.upstream.kind === "tracked" && worktree.upstream.behind > 0) {
+		score += 25;
+	}
+	if (worktree.pullRequests.length > 0) score += 20;
+	return score;
+}
+
+function isActionable(worktree: HubWorktree): boolean {
+	return (
+		worktree.status === "dirty" ||
+		worktree.upstream.kind === "stale" ||
+		(worktree.upstream.kind === "tracked" && worktree.upstream.behind > 0) ||
+		worktree.pullRequests.length > 0
+	);
+}
+
+function formatHubWorktree(
+	entry: { repository: HubRepository; worktree: HubWorktree },
+	lineWidth: number,
+	marker: string,
+): string[] {
+	const { repository, worktree } = entry;
+	const branch = worktree.branch ?? "(detached)";
+	const status = [
+		worktree.status !== "clean" ? worktree.status : null,
+		formatUpstreamState(worktree.upstream) !== "up to date"
+			? formatUpstreamState(worktree.upstream)
+			: null,
+		worktree.pullRequests.length > 0
+			? worktree.pullRequests
+					.map((pullRequest) =>
+						pullRequest.title
+							? `#${pullRequest.number} ${formatHumanText(pullRequest.title, 60)}`
+							: `#${pullRequest.number}`,
+					)
+					.join(", ")
+			: null,
+	]
+		.filter((value): value is string => value !== null)
+		.join(" · ");
+	const task =
+		worktree.task === null
+			? null
+			: `task: ${formatHumanText(worktree.task, 80)}`;
+	const target = `${repository.name}/${branch}`;
+	const lines = [`${marker} ${middleEllipsize(target, lineWidth - 2)}`];
+	if (status.length > 0) {
+		lines.push(`  ${middleEllipsize(status, lineWidth - 2)}`);
+	}
+	if (task !== null) {
+		lines.push(`  ${middleEllipsize(task, lineWidth - 2)}`);
+	}
+	if (marker === "›") {
+		lines.push(`  ${middleEllipsize(`next: gji go ${target}`, lineWidth - 2)}`);
+	}
+	return lines;
 }
 
 function middleEllipsize(value: string, maxLength: number): string {
@@ -190,12 +302,6 @@ function middleEllipsize(value: string, maxLength: number): string {
 	const visibleLength = maxLength - 1;
 	const startLength = Math.ceil(visibleLength / 2);
 	return `${value.slice(0, startLength)}…${value.slice(-Math.floor(visibleLength / 2))}`;
-}
-
-function startEllipsize(value: string, maxLength: number): string {
-	if (value.length <= maxLength) return value;
-	if (maxLength <= 1) return "…";
-	return `…${value.slice(-(maxLength - 1))}`;
 }
 
 function formatHumanText(value: string, maxLength: number): string {

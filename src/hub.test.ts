@@ -37,7 +37,7 @@ describe("repository hub", () => {
 		// Then the hub exposes enough context to choose the next repository or worktree.
 		expect(result.exitCode).toBe(0);
 		const output = stdout.join("");
-		expect(output).toContain("GJI REPOSITORY HUB");
+		expect(output).toContain("GJI  1 repositories");
 		expect(output).toContain("feature/hub");
 		expect(output).toContain("polish the dashboard discovery flow");
 		expect(output).toContain("#42 Add dashboard");
@@ -114,7 +114,7 @@ describe("repository hub", () => {
 							slot: 1,
 							status: "clean",
 							task: "review the repository discovery experience",
-							upstream: { kind: "tracked", ahead: 2, behind: 0 },
+							upstream: { kind: "tracked", ahead: 0, behind: 2 },
 						},
 					],
 				},
@@ -129,9 +129,70 @@ describe("repository hub", () => {
 		expect(Math.max(...rows.map((row) => row.length))).toBeLessThanOrEqual(
 			fortyTwo,
 		);
-		expect(output).toContain("  * feature/");
-		expect(output).toContain("    clean");
+		expect(output).toContain("› gji/feature/");
+		expect(output).toContain("behind 2");
 		expect(output).toContain("…");
+	});
+
+	it("prioritizes a next worktree and collapses quiet worktrees", () => {
+		// Given one active task, one dirty worktree, and several quiet worktrees.
+		const quietWorktrees = Array.from({ length: 6 }, (_, index) => ({
+			branch: `quiet/${index}`,
+			isCurrent: false,
+			lastCommitTimestamp: index,
+			path: `/repo/quiet-${index}`,
+			pullRequests: [],
+			slot: index + 2,
+			status: "clean" as const,
+			task: null,
+			upstream: { kind: "tracked" as const, ahead: 0, behind: 0 },
+		}));
+		const data: HubData = {
+			currentRepository: "/repo",
+			repositories: [
+				{
+					current: true,
+					name: "repo",
+					pullRequests: [],
+					root: "/repo",
+					worktrees: [
+						{
+							branch: "feature/task",
+							isCurrent: true,
+							lastCommitTimestamp: 10,
+							path: "/repo/task",
+							pullRequests: [],
+							slot: 0,
+							status: "clean",
+							task: "finish the dashboard",
+							upstream: { kind: "no-upstream" },
+						},
+						{
+							branch: "feature/dirty",
+							isCurrent: false,
+							lastCommitTimestamp: 20,
+							path: "/repo/dirty",
+							pullRequests: [],
+							slot: 1,
+							status: "dirty",
+							task: null,
+							upstream: { kind: "no-upstream" },
+						},
+						...quietWorktrees,
+					],
+				},
+			],
+		};
+
+		// When the action-oriented hub is formatted.
+		const output = formatHubOutput(data, 80);
+
+		// Then the task is the recommendation, attention is separate, and quiet items collapse.
+		expect(output.indexOf("NEXT")).toBeLessThan(output.indexOf("feature/task"));
+		expect(output).toContain("next: gji go repo/feature/task");
+		expect(output).toContain("ATTENTION");
+		expect(output).toContain("repo/feature/dirty");
+		expect(output).toContain("1 quiet worktree hidden");
 	});
 });
 
