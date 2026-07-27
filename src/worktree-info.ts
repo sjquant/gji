@@ -183,11 +183,11 @@ export function formatLastCommit(timestampSeconds: number | null): string {
 		: formatRelativeAge(timestampSeconds);
 }
 
-export function formatRelativeAge(timestampSeconds: number): string {
-	const ageSeconds = Math.max(
-		0,
-		Math.floor(Date.now() / 1000) - timestampSeconds,
-	);
+export function formatRelativeAge(
+	timestampSeconds: number,
+	nowSeconds = Math.floor(Date.now() / 1000),
+): string {
+	const ageSeconds = Math.max(0, nowSeconds - timestampSeconds);
 	const units = [
 		{ label: "y", seconds: 365 * 24 * 60 * 60 },
 		{ label: "mo", seconds: 30 * 24 * 60 * 60 },

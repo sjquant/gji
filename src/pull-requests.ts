@@ -3,12 +3,14 @@ import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
 const PULL_REQUEST_QUERY_TIMEOUT_MS = 2500;
+const PULL_REQUEST_CACHE_TTL_MS = 30_000;
 
 export type PullRequestForge = "bitbucket" | "github" | "gitlab";
 
 export interface PullRequestInfo {
 	number: number;
 	sourceBranch: string;
+	title?: string;
 	url: string;
 }
 
@@ -102,14 +104,46 @@ export function createPullRequestQuery(
 ): PullRequestQuery {
 	const runCommand = dependencies.runCommand ?? defaultRunCommand;
 	const fetcher = dependencies.fetch ?? fetch;
+	const repositoryCache = new Map<
+		string,
+		{ expiresAt: number; value: PullRequestInfo[] }
+	>();
+	const repositoryInFlight = new Map<string, Promise<PullRequestInfo[]>>();
+	const listRepositoryPullRequests = (repoRoot: string) => {
+		const cached = repositoryCache.get(repoRoot);
+		if (cached !== undefined && cached.expiresAt > Date.now()) {
+			return Promise.resolve(cached.value);
+		}
+		const inFlight = repositoryInFlight.get(repoRoot);
+		if (inFlight !== undefined) return inFlight;
+
+		const request = listOpenPullRequestsForRepository(
+			repoRoot,
+			runCommand,
+			fetcher,
+		)
+			.then((value) => {
+				repositoryCache.set(repoRoot, {
+					expiresAt: Date.now() + PULL_REQUEST_CACHE_TTL_MS,
+					value,
+				});
+				repositoryInFlight.delete(repoRoot);
+				return value;
+			})
+			.catch((error) => {
+				repositoryInFlight.delete(repoRoot);
+				throw error;
+			});
+		repositoryInFlight.set(repoRoot, request);
+		return request;
+	};
 
 	return {
 		findOpenPullRequest: (repoRoot, number) =>
 			findOpenPullRequest(repoRoot, number, runCommand, fetcher),
 		listOpenPullRequests: (repoRoot, sourceBranch) =>
 			listOpenPullRequests(repoRoot, sourceBranch, runCommand, fetcher),
-		listOpenPullRequestsForRepository: (repoRoot) =>
-			listOpenPullRequestsForRepository(repoRoot, runCommand, fetcher),
+		listOpenPullRequestsForRepository: listRepositoryPullRequests,
 	};
 }
 
@@ -302,7 +336,7 @@ function providerCliCommand(
 						"view",
 						String(query.number),
 						"--json",
-						"number,url,headRefName,state",
+						"number,url,headRefName,title,state",
 						"--repo",
 						coordinate,
 					],
@@ -317,7 +351,7 @@ function providerCliCommand(
 					"open",
 					...(query.kind === "branch" ? ["--head", sourceBranch] : []),
 					"--json",
-					"number,url,headRefName,state",
+					"number,url,headRefName,title,state",
 					"--limit",
 					"100",
 					"--repo",
@@ -477,6 +511,7 @@ function normalizePullRequest(
 				? value.links.html.href
 				: undefined),
 	);
+	const title = stringValue(value.title);
 	const state = stringValue(value.state)?.toLowerCase();
 	if (number === null || url === null) return null;
 	if (query.kind !== "number" && sourceBranch === null) return null;
@@ -486,6 +521,7 @@ function normalizePullRequest(
 	return {
 		number,
 		sourceBranch: sourceBranch ?? "",
+		...(title === null ? {} : { title }),
 		url,
 	};
 }

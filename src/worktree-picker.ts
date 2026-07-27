@@ -11,6 +11,12 @@ import {
 import type { WorktreeEntry } from "./repo.js";
 import { readTask } from "./task.js";
 import {
+	middleEllipsize,
+	sanitizeTerminalText,
+	startEllipsize,
+	terminalWidth,
+} from "./terminal-text.js";
+import {
 	readWorktreeInfos,
 	type UpstreamState,
 	type WorktreeInfo,
@@ -26,8 +32,7 @@ export interface WorktreePromptEntry extends WorktreeEntry {
 	group: "recent" | "other";
 	label: string;
 	metadata?: string | null;
-	pullRequestNumbers?: number[];
-	pullRequestUrls?: string[];
+	pullRequests?: PullRequestInfo[];
 	repoName: string;
 	task?: string | null;
 }
@@ -329,7 +334,7 @@ function buildSearchableWorktreeEntry(
 			worktree.repoName,
 			branch,
 			metadata,
-			worktree.task == null ? null : sanitizePromptText(worktree.task),
+			worktree.task == null ? null : sanitizeTerminalText(worktree.task),
 			worktree.path,
 		]
 			.filter((part): part is string => part !== null && part.length > 0)
@@ -338,14 +343,11 @@ function buildSearchableWorktreeEntry(
 		searchText: buildPromptSearchText(worktree),
 		value: worktree.path,
 		worktree: {
-			branch: formatWorktreeBranchLabel(
-				worktree.branch,
-				worktree.pullRequestNumbers,
-			),
+			branch: formatWorktreeBranchLabel(worktree.branch, worktree.pullRequests),
 			metadata,
 			path: worktree.path,
 			repoName: worktree.repoName,
-			task: worktree.task == null ? null : sanitizePromptText(worktree.task),
+			task: worktree.task == null ? null : sanitizeTerminalText(worktree.task),
 		},
 	};
 }
@@ -1322,20 +1324,14 @@ function buildPromptSearchText(worktree: WorktreePromptEntry): string {
 		worktree.label,
 		worktree.task ?? "",
 		`${worktree.repoName}/${worktree.branch ?? "detached"}`,
-		...(worktree.pullRequestNumbers ?? []).map((number) => `#${number}`),
-		...(worktree.pullRequestUrls ?? []),
+		...(worktree.pullRequests ?? []).flatMap((pullRequest) => [
+			`#${pullRequest.number}`,
+			pullRequest.title ?? "",
+			pullRequest.url,
+		]),
 	]
 		.join(" ")
 		.toLowerCase();
-}
-
-function sanitizePromptText(value: string): string {
-	return Array.from(value, (character) => {
-		const codePoint = character.codePointAt(0) ?? 0;
-		return codePoint <= 0x1f || (codePoint >= 0x7f && codePoint <= 0x9f)
-			? " "
-			: character;
-	}).join("");
 }
 
 function buildWorktreePromptEntry(
@@ -1356,7 +1352,7 @@ function buildWorktreePromptEntry(
 				: null;
 	const branch = formatWorktreeBranchLabel(
 		source.worktree.branch,
-		pullRequests.map((pullRequest) => pullRequest.number),
+		pullRequests,
 	);
 	const badges = buildStatusBadges(info);
 	const recency = formatPromptRecency(
@@ -1378,7 +1374,7 @@ function buildWorktreePromptEntry(
 		metadata,
 		info.task === null
 			? null
-			: middleEllipsize(sanitizePromptText(info.task), 36),
+			: middleEllipsize(sanitizeTerminalText(info.task), 36),
 		path,
 	]
 		.filter((part): part is string => part !== null && part.length > 0)
@@ -1389,8 +1385,7 @@ function buildWorktreePromptEntry(
 		label,
 		lastActivityTimestamp,
 		metadata,
-		pullRequestNumbers: pullRequests.map((pullRequest) => pullRequest.number),
-		pullRequestUrls: pullRequests.map((pullRequest) => pullRequest.url),
+		pullRequests,
 		repoName: source.repoName,
 		task: info.task,
 	};
@@ -1489,12 +1484,19 @@ function sortSourcePullRequests(
 
 export function formatWorktreeBranchLabel(
 	branch: string | null,
-	pullRequestNumbers: number[] = [],
+	pullRequests: PullRequestInfo[] = [],
 ): string {
 	const branchLabel = branch ?? "(detached)";
-	if (pullRequestNumbers.length === 0) return branchLabel;
+	if (pullRequests.length === 0) return branchLabel;
 
-	return `${branchLabel} (${pullRequestNumbers.map((number) => `#${number}`).join(", ")})`;
+	return `${branchLabel} (${pullRequests
+		.map((pullRequest) => {
+			const title = pullRequest.title
+				? ` ${middleEllipsize(sanitizeTerminalText(pullRequest.title), 48)}`
+				: "";
+			return `#${pullRequest.number}${title}`;
+		})
+		.join(", ")})`;
 }
 
 function buildStatusBadges(info: WorktreeInfo): string[] {
@@ -1642,99 +1644,4 @@ function scoreWorktreeMatch(
 	}
 
 	return buildSearchText(entry.repoName, entry).includes(query) ? 1 : null;
-}
-
-function middleEllipsize(value: string, maxLength: number): string {
-	if (terminalWidth(value) <= maxLength) {
-		return value;
-	}
-
-	if (maxLength <= 1) {
-		return "…";
-	}
-
-	const keep = maxLength - 1;
-	const start = takeTerminalColumns(value, Math.ceil(keep / 2), "start");
-	const end = takeTerminalColumns(value, Math.floor(keep / 2), "end");
-
-	return `${start}…${end}`;
-}
-
-function startEllipsize(value: string, maxLength: number): string {
-	if (terminalWidth(value) <= maxLength) {
-		return value;
-	}
-
-	if (maxLength <= 1) {
-		return "…";
-	}
-
-	return `…${takeTerminalColumns(value, maxLength - 1, "end")}`;
-}
-
-function takeTerminalColumns(
-	value: string,
-	maxWidth: number,
-	direction: "start" | "end",
-): string {
-	const characters =
-		direction === "start" ? Array.from(value) : Array.from(value).reverse();
-	const kept: string[] = [];
-	let width = 0;
-
-	for (const character of characters) {
-		const characterWidth = terminalWidth(character);
-		if (width + characterWidth > maxWidth) break;
-
-		kept.push(character);
-		width += characterWidth;
-	}
-
-	return direction === "start" ? kept.join("") : kept.reverse().join("");
-}
-
-function terminalWidth(value: string): number {
-	let width = 0;
-
-	for (const character of Array.from(value)) {
-		width += characterTerminalWidth(character);
-	}
-
-	return width;
-}
-
-function characterTerminalWidth(character: string): number {
-	const codePoint = character.codePointAt(0);
-	if (codePoint === undefined) return 0;
-
-	if (isZeroWidthCodePoint(codePoint) || /\p{Mark}/u.test(character)) {
-		return 0;
-	}
-
-	return isWideCodePoint(codePoint) ? 2 : 1;
-}
-
-function isZeroWidthCodePoint(codePoint: number): boolean {
-	return (
-		codePoint === 0 ||
-		codePoint === 0x200d ||
-		(codePoint >= 0xfe00 && codePoint <= 0xfe0f)
-	);
-}
-
-function isWideCodePoint(codePoint: number): boolean {
-	return (
-		(codePoint >= 0x1100 && codePoint <= 0x115f) ||
-		codePoint === 0x2329 ||
-		codePoint === 0x232a ||
-		(codePoint >= 0x2e80 && codePoint <= 0xa4cf) ||
-		(codePoint >= 0xac00 && codePoint <= 0xd7a3) ||
-		(codePoint >= 0xf900 && codePoint <= 0xfaff) ||
-		(codePoint >= 0xfe10 && codePoint <= 0xfe19) ||
-		(codePoint >= 0xfe30 && codePoint <= 0xfe6f) ||
-		(codePoint >= 0xff00 && codePoint <= 0xff60) ||
-		(codePoint >= 0xffe0 && codePoint <= 0xffe6) ||
-		(codePoint >= 0x1f300 && codePoint <= 0x1faff) ||
-		(codePoint >= 0x20000 && codePoint <= 0x3fffd)
-	);
 }

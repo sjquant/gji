@@ -11,6 +11,7 @@ import { runDoneCommand } from "./done.js";
 import { runGoCommand } from "./go.js";
 import { isHeadless } from "./headless.js";
 import { runHistoryCommand } from "./history-command.js";
+import { type HubCommandDependencies, runHubCommand } from "./hub.js";
 import { runInitCommand } from "./init.js";
 import { runLsCommand } from "./ls.js";
 import { runNewCommand } from "./new.js";
@@ -38,8 +39,11 @@ interface PackageMetadata {
 }
 
 export interface RunCliOptions {
+	columns?: number;
 	cwd?: string;
+	now?: number;
 	prOpenDependencies?: Partial<PrOpenCommandDependencies>;
+	hubDependencies?: Partial<HubCommandDependencies>;
 	stderr?: (chunk: string) => void;
 	stdout?: (chunk: string) => void;
 }
@@ -102,7 +106,7 @@ export async function runCli(
 	const stdout = options.stdout ?? (() => undefined);
 	const stderr = options.stderr ?? (() => undefined);
 
-	if (shouldRegisterCurrentRepo(argv)) {
+	if (shouldRegisterCurrentRepo(argv) || isHubInvocation(argv)) {
 		await maybeRegisterCurrentRepo(cwd);
 	}
 
@@ -114,10 +118,19 @@ export async function runCli(
 	});
 	program.exitOverride();
 
-	if (argv.length === 0) {
-		program.outputHelp();
-
-		return { exitCode: 0 };
+	if (isHubInvocation(argv)) {
+		const exitCode = await runHubCommand(
+			{
+				columns: options.columns,
+				cwd,
+				json: argv.includes("--json"),
+				now: options.now,
+				stderr,
+				stdout,
+			},
+			options.hubDependencies,
+		);
+		return { exitCode };
 	}
 
 	try {
@@ -195,6 +208,10 @@ function shouldRegisterCurrentRepo(argv: string[]): boolean {
 			"init",
 		].includes(command ?? "")
 	);
+}
+
+function isHubInvocation(argv: string[]): boolean {
+	return argv.length === 0 || (argv.length === 1 && argv[0] === "--json");
 }
 
 async function maybeRegisterCurrentRepo(cwd: string): Promise<void> {

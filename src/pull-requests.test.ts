@@ -100,6 +100,7 @@ describe("pull request lookup", () => {
 						headRefName: "feature/search",
 						number: 34,
 						state: "OPEN",
+						title: "Add search support",
 						url: "https://github.com/octo/widgets/pull/34",
 					},
 					{
@@ -121,10 +122,12 @@ describe("pull request lookup", () => {
 		// Then the CLI result is used without an API request and sorted numerically.
 		expect(fetcher).not.toHaveBeenCalled();
 		expect(calls[1]).toContain("--head");
+		expect(calls[1]).toContain("number,url,headRefName,title,state");
 		expect(timeouts).toEqual([2500, 2500]);
 		expect(pullRequests.map((pullRequest) => pullRequest.number)).toEqual([
 			12, 34,
 		]);
+		expect(pullRequests[1]?.title).toBe("Add search support");
 	});
 
 	it("falls back to the public API after a CLI failure", async () => {
@@ -143,6 +146,7 @@ describe("pull request lookup", () => {
 							iid: 7,
 							state: "opened",
 							source_branch: "feature/api",
+							title: "API fallback title",
 							web_url: "https://gitlab.com/platform/widgets/-/merge_requests/7",
 						},
 					]),
@@ -165,6 +169,7 @@ describe("pull request lookup", () => {
 			{
 				number: 7,
 				sourceBranch: "feature/api",
+				title: "API fallback title",
 				url: "https://gitlab.com/platform/widgets/-/merge_requests/7",
 			},
 		]);
@@ -289,6 +294,29 @@ describe("pull request lookup", () => {
 			),
 			expect.anything(),
 		);
+	});
+
+	it("caches concurrent repository PR lookups briefly", async () => {
+		// Given an unavailable provider CLI and an API fallback.
+		const fetcher = vi.fn<typeof fetch>(
+			async () => new Response(JSON.stringify([]), { status: 200 }),
+		);
+		const runCommand: PullRequestCommandRunner = async (command) => {
+			if (command === "git") {
+				return { stdout: "git@github.com:octo/widgets.git" };
+			}
+			throw new Error("provider unavailable");
+		};
+		const query = createPullRequestQuery({ fetch: fetcher, runCommand });
+
+		// When concurrent lookups target the same repository.
+		await Promise.all([
+			query.listOpenPullRequestsForRepository("/repo"),
+			query.listOpenPullRequestsForRepository("/repo"),
+		]);
+
+		// Then only one public request is made during the cache window.
+		expect(fetcher).toHaveBeenCalledTimes(1);
 	});
 
 	it("does not return a closed PR from numeric REST lookup", async () => {
