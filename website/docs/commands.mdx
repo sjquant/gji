@@ -14,18 +14,15 @@ image: /img/social-card.png
 
 Running `gji` without a subcommand opens the action-oriented repository hub.
 It shows the current worktree, recommends a next worktree, separates worktrees
-needing attention, and collapses quiet worktrees. Use
-`gji --attention [dirty|behind|stale|prs]` for a reason-specific view,
-`gji --all` for the complete inventory, `gji --interactive` to choose a
-worktree, or `gji --json` for dashboard, IDE, fzf, and other ecosystem
-integrations; the JSON projection remains additive to the existing `ls --json`
-and `status --json` contracts.
+needing attention, and collapses quiet worktrees. Use `gji --json` for
+dashboard, IDE, fzf, and other ecosystem integrations; the JSON projection
+remains additive to the existing `ls --json` and `status --json` contracts.
 
 ## Everyday commands
 
 | Command | What it does |
 | --- | --- |
-| `gji [--attention [reason]] [--all] [--interactive] [--json]` | Show the action-oriented repository/worktree hub with focused, filtered, complete, interactive, and structured views. |
+| `gji [--json]` | Show the action-oriented repository/worktree hub, optionally as structured JSON. |
 | `gji new [branch] [--from-current] [--detached] [--take] [--copy] [--task <description>] [--force] [--open] [--editor <cli>] [--dry-run] [--json]` | Create a branch and worktree, optionally carrying uncommitted changes, recording a task, and CoW-bootstrap configured directories. |
 | `gji done [branch] [--force] [--keep-branch] [--json]` | Safely finish a linked worktree and return. |
 | `gji undo [id] [--list] [--json]` | Restore a journaled cleanup without overwriting work. |

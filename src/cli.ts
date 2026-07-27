@@ -11,12 +11,7 @@ import { runDoneCommand } from "./done.js";
 import { runGoCommand } from "./go.js";
 import { isHeadless } from "./headless.js";
 import { runHistoryCommand } from "./history-command.js";
-import {
-	type HubAttentionReason,
-	type HubCommandDependencies,
-	type HubView,
-	runHubCommand,
-} from "./hub.js";
+import { type HubCommandDependencies, runHubCommand } from "./hub.js";
 import { runInitCommand } from "./init.js";
 import { runLsCommand } from "./ls.js";
 import { runNewCommand } from "./new.js";
@@ -80,9 +75,6 @@ export function createProgram(): Command {
 			"  gji new <branch>       create a worktree\n" +
 			"  gji go <branch>        navigate to a worktree\n" +
 			"  gji go                 choose; press Tab for all repositories\n" +
-			"  gji --attention        show only worktrees needing attention\n" +
-			"  gji --all              show the complete worktree inventory\n" +
-			"  gji --interactive      choose a worktree from the hub\n" +
 			"  gji go -               return to the previous worktree\n",
 	);
 
@@ -124,15 +116,13 @@ export async function runCli(
 	});
 	program.exitOverride();
 
-	const hubView = resolveHubView(argv);
-	if (hubView !== null) {
+	if (isHubInvocation(argv)) {
 		const exitCode = await runHubCommand(
 			{
 				cwd,
-				json: hubView.json,
+				json: argv.includes("--json"),
 				stderr,
 				stdout,
-				view: hubView.view,
 			},
 			options.hubDependencies,
 		);
@@ -217,63 +207,7 @@ function shouldRegisterCurrentRepo(argv: string[]): boolean {
 }
 
 function isHubInvocation(argv: string[]): boolean {
-	return resolveHubView(argv) !== null;
-}
-
-function resolveHubView(
-	argv: string[],
-): { json: boolean; view: HubView } | null {
-	if (argv.length === 0) return { json: false, view: { kind: "focused" } };
-
-	let json = false;
-	let view: HubView = { kind: "focused" };
-	for (let index = 0; index < argv.length; index += 1) {
-		const argument = argv[index];
-		if (argument === "--json") {
-			json = true;
-			continue;
-		}
-		if (argument === "--all") {
-			if (view.kind !== "focused") return null;
-			view = { kind: "all" };
-			continue;
-		}
-		if (argument === "--interactive") {
-			if (view.kind !== "focused") return null;
-			view = { kind: "interactive" };
-			continue;
-		}
-		if (argument === "--attention" || argument?.startsWith("--attention=")) {
-			if (view.kind !== "focused") return null;
-			const inlineReason = argument.slice("--attention".length + 1);
-			const next = inlineReason || argv[index + 1];
-			const reason = isHubAttentionReason(next) ? next : undefined;
-			if (inlineReason.length === 0 && reason !== undefined) index += 1;
-			if (
-				next !== undefined &&
-				reason === undefined &&
-				!next.startsWith("--")
-			) {
-				return null;
-			}
-			view = { kind: "attention", reason };
-			continue;
-		}
-		return null;
-	}
-
-	return { json, view };
-}
-
-function isHubAttentionReason(
-	value: string | undefined,
-): value is HubAttentionReason {
-	return (
-		value === "behind" ||
-		value === "dirty" ||
-		value === "prs" ||
-		value === "stale"
-	);
+	return argv.length === 0 || (argv.length === 1 && argv[0] === "--json");
 }
 
 async function maybeRegisterCurrentRepo(cwd: string): Promise<void> {

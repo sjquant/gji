@@ -118,7 +118,7 @@ gji open feature/dark-mode --editor code
 gji done feature/dark-mode
 ```
 
-Run bare `gji` for an action-oriented repository hub. It shows the current worktree, recommends a next worktree, separates worktrees needing attention, and collapses quiet worktrees so large inventories stay readable. Use `gji --attention [dirty|behind|stale|prs]` for a reason-specific view, `gji --all` for the complete inventory, `gji --interactive` to choose a worktree, or `gji --json` for structured output.
+Run bare `gji` for an action-oriented repository hub. It shows the current worktree, recommends a next worktree, separates worktrees needing attention, and collapses quiet worktrees so large inventories stay readable. Use `gji --json` when a dashboard, prompt, or shell script needs structured output.
 
 Interactive worktree pickers show a worktree's task summary when one is set. Press `/` to search branch, path, PR, or task text; long task summaries are shortened to fit the terminal.
 
@@ -259,7 +259,7 @@ path=$(gji root --print)
 | `gji status [--json]` | repo overview, worktree health, ahead/behind |
 | `gji task [description] [--clear] [--json]` | show, set, or clear the current worktree task |
 | `gji ls [--compact] [--json]` | list active worktrees |
-| `gji [--attention [reason]] [--all] [--interactive] [--json]` | action-oriented repository hub with focused, filtered, complete, interactive, and structured views |
+| `gji [--json]` | action-oriented repository hub with focused and structured views |
 | `gji sync [--all]` | fetch and rebase worktrees onto default branch |
 | `gji sync-files [list\|add\|remove] [paths...]` | manage local files copied into new worktrees |
 | `gji clean [--stale] [--force] [--dry-run] [--json]` | interactively prune linked worktrees |

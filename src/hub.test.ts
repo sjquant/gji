@@ -45,37 +45,6 @@ describe("repository hub", () => {
 		expect(output).not.toContain("\u001b");
 	});
 
-	it("supports an attention-only view for large worktree inventories", async () => {
-		// Given a repository with one PR-bearing worktree and one quiet worktree.
-		const repoRoot = await createRepository();
-		await addLinkedWorktree(repoRoot, "feature/attention");
-		const stdout: string[] = [];
-
-		// When the attention-only hub view is requested.
-		const result = await runCli(["--attention", "prs"], {
-			cwd: repoRoot,
-			hubDependencies: {
-				queryRepositoryPullRequests: async () => [
-					{
-						number: 9,
-						sourceBranch: "feature/attention",
-						title: "Review this worktree",
-						url: "https://example.test/pull/9",
-					},
-				],
-			},
-			stdout: (chunk) => stdout.push(chunk),
-		});
-
-		// Then only actionable worktrees are shown.
-		expect(result.exitCode).toBe(0);
-		const output = stdout.join("");
-		expect(output).toContain("GJI ATTENTION · prs · 1 worktree");
-		expect(output).toContain("feature/attention");
-		expect(output).not.toContain("NEXT");
-		expect(output).not.toContain("OTHER");
-	});
-
 	it("registers the current repository for both human and JSON hub access", async () => {
 		// Given a repository and an isolated registry.
 		const repoRoot = await createRepository();
@@ -218,22 +187,14 @@ describe("repository hub", () => {
 
 		// When the action-oriented hub is formatted.
 		const output = formatHubOutput(data, 80);
-		const allOutput = formatHubOutput(data, 80, { kind: "all" });
-		const dirtyOutput = formatHubOutput(data, 80, {
-			kind: "attention",
-			reason: "dirty",
-		});
 
 		// Then the task is the recommendation, attention is separate, and quiet items collapse.
-		expect(output.indexOf("NEXT")).toBeLessThan(output.indexOf("feature/task"));
+		expect(output).toContain("CURRENT");
+		expect(output).toContain("repo/feature/task");
 		expect(output).toContain("next: continue task");
 		expect(output).toContain("ATTENTION");
 		expect(output).toContain("repo/feature/dirty");
 		expect(output).toContain("1 quiet worktree hidden");
-		expect(allOutput).toContain("/repo/quiet-0");
-		expect(allOutput).not.toContain("quiet worktrees hidden");
-		expect(dirtyOutput).toContain("repo/feature/dirty");
-		expect(dirtyOutput).not.toContain("repo/feature/task");
 	});
 });
 
