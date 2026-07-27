@@ -7,6 +7,11 @@ import {
 } from "./pull-requests.js";
 import { detectRepository } from "./repo.js";
 import {
+	middleEllipsize,
+	sanitizeTerminalText,
+	terminalWidth,
+} from "./terminal-text.js";
+import {
 	formatRelativeAge,
 	formatUpstreamState,
 	readWorktreeInfos,
@@ -19,7 +24,9 @@ const MAX_HUB_REPOSITORY_CONCURRENCY = 4;
 
 export interface HubCommandOptions {
 	cwd: string;
+	columns?: number;
 	json?: boolean;
+	now?: number;
 	stderr: (chunk: string) => void;
 	stdout: (chunk: string) => void;
 }
@@ -29,7 +36,7 @@ export interface HubCommandDependencies {
 }
 
 export interface HubWorktree extends WorktreeInfo {
-	lastUsedTimestamp?: number | null;
+	lastUsedTimestamp: number | null;
 	pullRequests: PullRequestInfo[];
 }
 
@@ -132,19 +139,26 @@ export async function runHubCommand(
 		options.stdout(`${JSON.stringify(data, null, 2)}\n`);
 		return 0;
 	}
-	options.stdout(`${formatHubOutput(data, process.stdout.columns ?? 80)}\n`);
+	options.stdout(
+		`${formatHubOutput(
+			data,
+			options.columns ?? process.stdout.columns ?? 80,
+			options.now ?? Date.now(),
+		)}\n`,
+	);
 	return 0;
 }
 
 export function formatHubOutput(
 	data: HubData,
 	columns = process.stdout.columns ?? 80,
+	now = Date.now(),
 ): string {
 	if (data.repositories.length === 0) {
 		return "No registered repositories. Run gji from a repository to add one.";
 	}
 
-	const lineWidth = Math.max(20, columns);
+	const lineWidth = Math.max(1, columns);
 	const allWorktrees = data.repositories.flatMap((repository) =>
 		repository.worktrees.map((worktree) => ({ repository, worktree })),
 	);
@@ -186,20 +200,20 @@ export function formatHubOutput(
 
 	if (current !== null) {
 		lines.push("CURRENT");
-		lines.push(...formatHubWorktree(current, lineWidth, "@"));
+		lines.push(...formatHubWorktree(current, lineWidth, "@", now));
 		lines.push("");
 	}
 
 	if (next !== null && next !== current) {
 		lines.push("NEXT");
-		lines.push(...formatHubWorktree(next, lineWidth, "›"));
+		lines.push(...formatHubWorktree(next, lineWidth, "›", now));
 		lines.push("");
 	}
 
 	if (remainingAttention.length > 0) {
 		lines.push("ATTENTION");
 		for (const entry of remainingAttention) {
-			lines.push(...formatHubWorktree(entry, lineWidth, "!"));
+			lines.push(...formatHubWorktree(entry, lineWidth, "!", now));
 		}
 		lines.push("");
 	}
@@ -207,7 +221,7 @@ export function formatHubOutput(
 	if (recentOther.length > 0) {
 		lines.push("OTHER");
 		for (const entry of recentOther) {
-			lines.push(...formatHubWorktree(entry, lineWidth, " "));
+			lines.push(...formatHubWorktree(entry, lineWidth, " ", now));
 		}
 		if (hiddenCount > 0) {
 			lines.push(
@@ -229,7 +243,7 @@ export function formatHubOutput(
 
 	return lines
 		.map((line) =>
-			line.length > lineWidth ? middleEllipsize(line, lineWidth) : line,
+			terminalWidth(line) > lineWidth ? middleEllipsize(line, lineWidth) : line,
 		)
 		.join("\n")
 		.trimEnd();
@@ -257,6 +271,10 @@ function chooseNextWorktree(
 			const scoreDifference =
 				nextWorktreeScore(right) - nextWorktreeScore(left);
 			if (scoreDifference !== 0) return scoreDifference;
+			const lastUsedDifference =
+				(right.worktree.lastUsedTimestamp ?? 0) -
+				(left.worktree.lastUsedTimestamp ?? 0);
+			if (lastUsedDifference !== 0) return lastUsedDifference;
 			return (
 				(right.worktree.lastCommitTimestamp ?? 0) -
 				(left.worktree.lastCommitTimestamp ?? 0)
@@ -281,10 +299,7 @@ function nextWorktreeScore(entry: {
 		score += 25;
 	}
 	if (worktree.pullRequests.length > 0) score += 20;
-	if (
-		worktree.lastUsedTimestamp !== null &&
-		worktree.lastUsedTimestamp !== undefined
-	) {
+	if (worktree.lastUsedTimestamp !== null && worktree.lastUsedTimestamp > 0) {
 		score += 15;
 	}
 	return score;
@@ -303,6 +318,7 @@ function formatHubWorktree(
 	entry: { repository: HubRepository; worktree: HubWorktree },
 	lineWidth: number,
 	marker: string,
+	now: number,
 ): string[] {
 	const { repository, worktree } = entry;
 	const branch = worktree.branch ?? "(detached)";
@@ -318,7 +334,7 @@ function formatHubWorktree(
 					)
 					.join(", ")
 			: null,
-		formatWorktreeActivity(worktree),
+		formatWorktreeActivity(worktree, now),
 	]
 		.filter((value): value is string => value !== null)
 		.join(" · ");
@@ -357,7 +373,10 @@ function formatWorktreeUpstream(worktree: HubWorktree): string | null {
 	return null;
 }
 
-function formatWorktreeActivity(worktree: HubWorktree): string | null {
+function formatWorktreeActivity(
+	worktree: HubWorktree,
+	now: number,
+): string | null {
 	if (worktree.isCurrent) return null;
 	const timestamps = [
 		worktree.lastUsedTimestamp ?? 0,
@@ -365,9 +384,12 @@ function formatWorktreeActivity(worktree: HubWorktree): string | null {
 	].filter((timestamp) => timestamp > 0);
 	if (timestamps.length === 0) return null;
 	const latest = Math.max(...timestamps);
-	const ageSeconds = Math.floor((Date.now() - latest) / 1000);
+	const ageSeconds = Math.floor((now - latest) / 1000);
 	if (ageSeconds < 24 * 60 * 60) return null;
-	return `inactive ${formatRelativeAge(Math.floor(latest / 1000))}`;
+	return `inactive ${formatRelativeAge(
+		Math.floor(latest / 1000),
+		Math.floor(now / 1000),
+	)}`;
 }
 
 function nextAction(worktree: HubWorktree): string {
@@ -390,22 +412,8 @@ function nextAction(worktree: HubWorktree): string {
 	return "next: switch worktree";
 }
 
-function middleEllipsize(value: string, maxLength: number): string {
-	if (value.length <= maxLength) return value;
-	if (maxLength <= 1) return "…";
-
-	const visibleLength = maxLength - 1;
-	const startLength = Math.ceil(visibleLength / 2);
-	return `${value.slice(0, startLength)}…${value.slice(-Math.floor(visibleLength / 2))}`;
-}
-
 function formatHumanText(value: string, maxLength: number): string {
-	const sanitized = Array.from(value, (character) => {
-		const codePoint = character.codePointAt(0) ?? 0;
-		return codePoint <= 0x1f || (codePoint >= 0x7f && codePoint <= 0x9f)
-			? " "
-			: character;
-	}).join("");
+	const sanitized = sanitizeTerminalText(value);
 	return sanitized.length <= maxLength
 		? sanitized
 		: `${sanitized.slice(0, Math.max(0, maxLength - 1))}…`;

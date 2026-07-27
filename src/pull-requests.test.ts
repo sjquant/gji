@@ -296,6 +296,29 @@ describe("pull request lookup", () => {
 		);
 	});
 
+	it("caches concurrent repository PR lookups briefly", async () => {
+		// Given an unavailable provider CLI and an API fallback.
+		const fetcher = vi.fn<typeof fetch>(
+			async () => new Response(JSON.stringify([]), { status: 200 }),
+		);
+		const runCommand: PullRequestCommandRunner = async (command) => {
+			if (command === "git") {
+				return { stdout: "git@github.com:octo/widgets.git" };
+			}
+			throw new Error("provider unavailable");
+		};
+		const query = createPullRequestQuery({ fetch: fetcher, runCommand });
+
+		// When concurrent lookups target the same repository.
+		await Promise.all([
+			query.listOpenPullRequestsForRepository("/repo"),
+			query.listOpenPullRequestsForRepository("/repo"),
+		]);
+
+		// Then only one public request is made during the cache window.
+		expect(fetcher).toHaveBeenCalledTimes(1);
+	});
+
 	it("does not return a closed PR from numeric REST lookup", async () => {
 		// Given a GitHub remote, an unavailable CLI, and a closed PR response.
 		const runCommand: PullRequestCommandRunner = async (command) => {

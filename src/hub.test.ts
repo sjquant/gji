@@ -9,6 +9,7 @@ import { formatHubOutput, type HubData } from "./hub.js";
 import { addLinkedWorktree, createRepository } from "./repo.test-helpers.js";
 import { loadRegistry } from "./repo-registry.js";
 import { writeTask } from "./task.js";
+import { terminalWidth } from "./terminal-text.js";
 
 describe("repository hub", () => {
 	it("shows the current repository, worktree context, and PR titles", async () => {
@@ -64,6 +65,49 @@ describe("repository hub", () => {
 		} finally {
 			if (previousConfigDir === undefined) delete process.env.GJI_CONFIG_DIR;
 			else process.env.GJI_CONFIG_DIR = previousConfigDir;
+		}
+	});
+
+	it("keeps the dashboard available when repository PR lookup fails", async () => {
+		// Given a repository whose PR provider is unavailable.
+		const repoRoot = await createRepository();
+		await addLinkedWorktree(repoRoot, "feature/offline");
+		const stdout: string[] = [];
+
+		// When the bare dashboard is rendered.
+		const result = await runCli([], {
+			cwd: repoRoot,
+			hubDependencies: {
+				queryRepositoryPullRequests: async () => {
+					throw new Error("provider unavailable");
+				},
+			},
+			stdout: (chunk) => stdout.push(chunk),
+		});
+
+		// Then worktrees remain visible without PR decorations.
+		expect(result.exitCode).toBe(0);
+		expect(stdout.join("")).toContain("feature/offline");
+		expect(stdout.join("")).not.toContain("#");
+	});
+
+	it("passes a narrow terminal width through the CLI boundary", async () => {
+		// Given a dashboard rendered in a ten-column terminal.
+		const repoRoot = await createRepository();
+		const stdout: string[] = [];
+
+		// When the CLI hub is rendered with injected terminal context.
+		const result = await runCli([], {
+			columns: 10,
+			cwd: repoRoot,
+			now: 1_700_000_000_000,
+			stdout: (chunk) => stdout.push(chunk),
+		});
+
+		// Then no dashboard row exceeds the actual terminal width.
+		expect(result.exitCode).toBe(0);
+		for (const row of stdout.join("").trimEnd().split("\n")) {
+			expect(terminalWidth(row)).toBeLessThanOrEqual(10);
 		}
 	});
 
@@ -169,6 +213,7 @@ describe("repository hub", () => {
 							branch: "feature/a-very-long-branch-name",
 							isCurrent: true,
 							lastCommitTimestamp: null,
+							lastUsedTimestamp: null,
 							path: "/Users/me/.gji/worktrees/feature-a-very-long-name",
 							pullRequests: [],
 							slot: 1,
@@ -200,6 +245,7 @@ describe("repository hub", () => {
 			branch: `quiet/${index}`,
 			isCurrent: false,
 			lastCommitTimestamp: index,
+			lastUsedTimestamp: null,
 			path: `/repo/quiet-${index}`,
 			pullRequests: [],
 			slot: index + 2,
@@ -220,6 +266,7 @@ describe("repository hub", () => {
 							branch: "feature/task",
 							isCurrent: true,
 							lastCommitTimestamp: 10,
+							lastUsedTimestamp: null,
 							path: "/repo/task",
 							pullRequests: [],
 							slot: 0,
@@ -231,6 +278,7 @@ describe("repository hub", () => {
 							branch: "feature/dirty",
 							isCurrent: false,
 							lastCommitTimestamp: 20,
+							lastUsedTimestamp: null,
 							path: "/repo/dirty",
 							pullRequests: [],
 							slot: 1,
@@ -254,6 +302,70 @@ describe("repository hub", () => {
 		expect(output).toContain("ATTENTION");
 		expect(output).toContain("repo/feature/dirty");
 		expect(output).toContain("1 quiet worktree hidden");
+	});
+
+	it("uses recent worktree history to break next-worktree ties", () => {
+		// Given two equally relevant task worktrees with different last-used times.
+		const data: HubData = {
+			currentRepository: "/repo",
+			repositories: [
+				{
+					current: true,
+					name: "repo",
+					pullRequests: [],
+					root: "/repo",
+					worktrees: [
+						{
+							branch: "main",
+							isCurrent: true,
+							lastCommitTimestamp: 10,
+							lastUsedTimestamp: null,
+							path: "/repo/main",
+							pullRequests: [],
+							slot: 0,
+							status: "clean",
+							task: null,
+							upstream: { kind: "no-upstream" },
+						},
+						{
+							branch: "old-task",
+							isCurrent: false,
+							lastCommitTimestamp: 20,
+							lastUsedTimestamp: 100,
+							path: "/repo/old",
+							pullRequests: [],
+							slot: 1,
+							status: "clean",
+							task: "same priority",
+							upstream: { kind: "no-upstream" },
+						},
+						{
+							branch: "recent-task",
+							isCurrent: false,
+							lastCommitTimestamp: 20,
+							lastUsedTimestamp: 200,
+							path: "/repo/recent",
+							pullRequests: [],
+							slot: 2,
+							status: "clean",
+							task: "same priority",
+							upstream: { kind: "no-upstream" },
+						},
+					],
+				},
+			],
+		};
+
+		// When the dashboard chooses its next worktree.
+		const output = formatHubOutput(data, 80, 1_700_000_000_000);
+		const nextSection = output.slice(
+			output.indexOf("NEXT"),
+			output.indexOf("OTHER"),
+		);
+
+		// Then the more recently used worktree wins the tie.
+		expect(nextSection).toContain("repo/recent-task");
+		expect(nextSection).not.toContain("repo/old-task");
 	});
 });
 

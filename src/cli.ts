@@ -39,7 +39,9 @@ interface PackageMetadata {
 }
 
 export interface RunCliOptions {
+	columns?: number;
 	cwd?: string;
+	now?: number;
 	prOpenDependencies?: Partial<PrOpenCommandDependencies>;
 	hubDependencies?: Partial<HubCommandDependencies>;
 	stderr?: (chunk: string) => void;
@@ -119,8 +121,10 @@ export async function runCli(
 	if (isHubInvocation(argv)) {
 		const exitCode = await runHubCommand(
 			{
+				columns: options.columns,
 				cwd,
 				json: argv.includes("--json"),
+				now: options.now,
 				stderr,
 				stdout,
 			},
