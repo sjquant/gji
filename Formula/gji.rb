@@ -1,9 +1,9 @@
 class Gji < Formula
   desc "Git worktree CLI for fast context switching"
   homepage "https://github.com/sjquant/gji"
-  url "https://github.com/sjquant/gji/releases/download/v0.11.0/gji-v0.11.0.tar.gz"
+  url "https://github.com/sjquant/gji/releases/download/v0.12.0/gji-v0.12.0.tar.gz"
   # Updated automatically by publish.yml after each release.
-  sha256 "444cd06beebe59b64c7aca5d1402b71695764405de24e88be9fd7993d6f08310"
+  sha256 "6c8a94b0c50b7f25a1ab6311ec1b7ae8876bb79c5e943c425f142753e776191a"
   license "MIT"
 
   depends_on "node"
