@@ -18,6 +18,7 @@ const MAX_HUB_REPOSITORY_CONCURRENCY = 4;
 export interface HubCommandOptions {
 	cwd: string;
 	json?: boolean;
+	view?: "attention" | "focused";
 	stderr: (chunk: string) => void;
 	stdout: (chunk: string) => void;
 }
@@ -125,13 +126,16 @@ export async function runHubCommand(
 		return 0;
 	}
 
-	options.stdout(`${formatHubOutput(data, process.stdout.columns ?? 80)}\n`);
+	options.stdout(
+		`${formatHubOutput(data, process.stdout.columns ?? 80, options.view)}\n`,
+	);
 	return 0;
 }
 
 export function formatHubOutput(
 	data: HubData,
 	columns = process.stdout.columns ?? 80,
+	view: "attention" | "focused" = "focused",
 ): string {
 	if (data.repositories.length === 0) {
 		return "No registered repositories. Run gji from a repository to add one.";
@@ -157,6 +161,23 @@ export function formatHubOutput(
 		)
 		.slice(0, 5);
 	const hiddenCount = quiet.length - recentOther.length;
+	if (view === "attention") {
+		const lines = [
+			`GJI ATTENTION · ${attention.length} worktree${attention.length === 1 ? "" : "s"}`,
+			"",
+		];
+		for (const entry of attention) {
+			lines.push(...formatHubWorktree(entry, lineWidth, "!"));
+		}
+		if (attention.length === 0) lines.push("No worktrees need attention.");
+		lines.push("", "Run `gji go <repo>/<branch>` to switch worktrees.");
+		return lines
+			.map((line) =>
+				line.length > lineWidth ? middleEllipsize(line, lineWidth) : line,
+			)
+			.join("\n")
+			.trimEnd();
+	}
 	const lines = [
 		`GJI  ${data.repositories.length} repositories · ${allWorktrees.length} worktrees${
 			attention.length > 0 ? ` · ${attention.length} need attention` : ""
@@ -289,10 +310,30 @@ function formatHubWorktree(
 	if (task !== null) {
 		lines.push(`  ${middleEllipsize(task, lineWidth - 2)}`);
 	}
-	if (marker === "›") {
-		lines.push(`  ${middleEllipsize(`next: gji go ${target}`, lineWidth - 2)}`);
+	if (marker === "›" || marker === "!") {
+		lines.push(
+			`  ${middleEllipsize(nextCommand(target, worktree), lineWidth - 2)}`,
+		);
 	}
 	return lines;
+}
+
+function nextCommand(target: string, worktree: HubWorktree): string {
+	const switchCommand = `gji go ${target}`;
+	if (worktree.status === "dirty") {
+		return `next: ${switchCommand}`;
+	}
+	if (
+		worktree.upstream.kind === "stale" ||
+		(worktree.upstream.kind === "tracked" && worktree.upstream.behind > 0)
+	) {
+		return `next: ${switchCommand} && gji sync`;
+	}
+	const pullRequest = worktree.pullRequests[0];
+	if (pullRequest !== undefined) {
+		return `next: ${switchCommand} && gji pr open '#${pullRequest.number}'`;
+	}
+	return `next: ${switchCommand}`;
 }
 
 function middleEllipsize(value: string, maxLength: number): string {

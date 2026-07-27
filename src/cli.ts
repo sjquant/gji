@@ -75,6 +75,7 @@ export function createProgram(): Command {
 			"  gji new <branch>       create a worktree\n" +
 			"  gji go <branch>        navigate to a worktree\n" +
 			"  gji go                 choose; press Tab for all repositories\n" +
+			"  gji --attention        show only worktrees needing attention\n" +
 			"  gji go -               return to the previous worktree\n",
 	);
 
@@ -116,13 +117,15 @@ export async function runCli(
 	});
 	program.exitOverride();
 
-	if (argv.length === 0 || (argv.length === 1 && argv[0] === "--json")) {
+	const hubView = resolveHubView(argv);
+	if (hubView !== null) {
 		const exitCode = await runHubCommand(
 			{
 				cwd,
-				json: argv[0] === "--json",
+				json: hubView.json,
 				stderr,
 				stdout,
+				view: hubView.view,
 			},
 			options.hubDependencies,
 		);
@@ -207,7 +210,21 @@ function shouldRegisterCurrentRepo(argv: string[]): boolean {
 }
 
 function isHubInvocation(argv: string[]): boolean {
-	return argv.length === 0 || (argv.length === 1 && argv[0] === "--json");
+	return resolveHubView(argv) !== null;
+}
+
+function resolveHubView(
+	argv: string[],
+): { json: boolean; view: "attention" | "focused" } | null {
+	if (argv.length === 0) return { json: false, view: "focused" };
+
+	const allowed = new Set(["--json", "--attention"]);
+	if (argv.some((argument) => !allowed.has(argument))) return null;
+
+	return {
+		json: argv.includes("--json"),
+		view: argv.includes("--attention") ? "attention" : "focused",
+	};
 }
 
 async function maybeRegisterCurrentRepo(cwd: string): Promise<void> {

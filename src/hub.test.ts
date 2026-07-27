@@ -41,7 +41,39 @@ describe("repository hub", () => {
 		expect(output).toContain("feature/hub");
 		expect(output).toContain("polish the dashboard discovery flow");
 		expect(output).toContain("#42 Add dashboard");
+		expect(output).toContain("&& gji pr open '#42'");
 		expect(output).not.toContain("\u001b");
+	});
+
+	it("supports an attention-only view for large worktree inventories", async () => {
+		// Given a repository with one PR-bearing worktree and one quiet worktree.
+		const repoRoot = await createRepository();
+		await addLinkedWorktree(repoRoot, "feature/attention");
+		const stdout: string[] = [];
+
+		// When the attention-only hub view is requested.
+		const result = await runCli(["--attention"], {
+			cwd: repoRoot,
+			hubDependencies: {
+				queryRepositoryPullRequests: async () => [
+					{
+						number: 9,
+						sourceBranch: "feature/attention",
+						title: "Review this worktree",
+						url: "https://example.test/pull/9",
+					},
+				],
+			},
+			stdout: (chunk) => stdout.push(chunk),
+		});
+
+		// Then only actionable worktrees are shown.
+		expect(result.exitCode).toBe(0);
+		const output = stdout.join("");
+		expect(output).toContain("GJI ATTENTION · 1 worktree");
+		expect(output).toContain("feature/attention");
+		expect(output).not.toContain("NEXT");
+		expect(output).not.toContain("OTHER");
 	});
 
 	it("registers the current repository for both human and JSON hub access", async () => {
