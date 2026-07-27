@@ -7,6 +7,7 @@ import {
 } from "./pull-requests.js";
 import { detectRepository } from "./repo.js";
 import {
+	formatRelativeAge,
 	formatUpstreamState,
 	readWorktreeInfos,
 	type WorktreeInfo,
@@ -175,6 +176,14 @@ export function formatHubOutput(
 		"",
 	];
 
+	if (data.repositories.length > 1) {
+		lines.push("REPOSITORIES");
+		for (const repository of data.repositories) {
+			lines.push(formatRepositorySummary(repository, lineWidth));
+		}
+		lines.push("");
+	}
+
 	if (current !== null) {
 		lines.push("CURRENT");
 		lines.push(...formatHubWorktree(current, lineWidth, "@"));
@@ -224,6 +233,20 @@ export function formatHubOutput(
 		)
 		.join("\n")
 		.trimEnd();
+}
+
+function formatRepositorySummary(
+	repository: HubRepository,
+	lineWidth: number,
+): string {
+	const attentionCount = repository.worktrees.filter(isActionable).length;
+	const attention =
+		attentionCount === 0 ? "healthy" : `${attentionCount} attention`;
+	const marker = repository.current ? "*" : " ";
+	return middleEllipsize(
+		`${marker} ${repository.name} · ${repository.worktrees.length} worktree${repository.worktrees.length === 1 ? "" : "s"} · ${attention}`,
+		lineWidth,
+	);
 }
 
 function chooseNextWorktree(
@@ -284,10 +307,8 @@ function formatHubWorktree(
 	const { repository, worktree } = entry;
 	const branch = worktree.branch ?? "(detached)";
 	const status = [
-		worktree.status !== "clean" ? worktree.status : null,
-		formatUpstreamState(worktree.upstream) !== "up to date"
-			? formatUpstreamState(worktree.upstream)
-			: null,
+		formatWorktreeHealth(worktree),
+		formatWorktreeUpstream(worktree),
 		worktree.pullRequests.length > 0
 			? worktree.pullRequests
 					.map((pullRequest) =>
@@ -297,6 +318,7 @@ function formatHubWorktree(
 					)
 					.join(", ")
 			: null,
+		formatWorktreeActivity(worktree),
 	]
 		.filter((value): value is string => value !== null)
 		.join(" · ");
@@ -316,6 +338,36 @@ function formatHubWorktree(
 		lines.push(`  ${middleEllipsize(nextAction(worktree), lineWidth - 2)}`);
 	}
 	return lines;
+}
+
+function formatWorktreeHealth(worktree: HubWorktree): string | null {
+	if (worktree.status === "dirty") return "! dirty";
+	if (worktree.status === "unknown") return "? health unknown";
+	return null;
+}
+
+function formatWorktreeUpstream(worktree: HubWorktree): string | null {
+	if (worktree.upstream.kind === "stale") return "! stale upstream";
+	if (
+		worktree.upstream.kind === "tracked" &&
+		(worktree.upstream.behind > 0 || worktree.upstream.ahead > 0)
+	) {
+		return formatUpstreamState(worktree.upstream);
+	}
+	return null;
+}
+
+function formatWorktreeActivity(worktree: HubWorktree): string | null {
+	if (worktree.isCurrent) return null;
+	const timestamps = [
+		worktree.lastUsedTimestamp ?? 0,
+		(worktree.lastCommitTimestamp ?? 0) * 1000,
+	].filter((timestamp) => timestamp > 0);
+	if (timestamps.length === 0) return null;
+	const latest = Math.max(...timestamps);
+	const ageSeconds = Math.floor((Date.now() - latest) / 1000);
+	if (ageSeconds < 24 * 60 * 60) return null;
+	return `inactive ${formatRelativeAge(Math.floor(latest / 1000))}`;
 }
 
 function nextAction(worktree: HubWorktree): string {

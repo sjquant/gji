@@ -95,6 +95,65 @@ describe("repository hub", () => {
 		});
 	});
 
+	it("summarizes multiple repositories and surfaces inactive worktrees", () => {
+		// Given two repositories, one healthy and one with a dirty inactive worktree.
+		const oldCommit = Math.floor(Date.now() / 1000) - 3 * 24 * 60 * 60;
+		const data: HubData = {
+			currentRepository: "/repo/gji",
+			repositories: [
+				{
+					current: true,
+					name: "gji",
+					pullRequests: [],
+					root: "/repo/gji",
+					worktrees: [
+						{
+							branch: "main",
+							isCurrent: true,
+							lastCommitTimestamp: oldCommit,
+							lastUsedTimestamp: null,
+							path: "/repo/gji",
+							pullRequests: [],
+							slot: 0,
+							status: "clean",
+							task: null,
+							upstream: { kind: "tracked", ahead: 0, behind: 0 },
+						},
+					],
+				},
+				{
+					current: false,
+					name: "api",
+					pullRequests: [],
+					root: "/repo/api",
+					worktrees: [
+						{
+							branch: "feature/auth",
+							isCurrent: false,
+							lastCommitTimestamp: oldCommit,
+							lastUsedTimestamp: null,
+							path: "/repo/api/auth",
+							pullRequests: [],
+							slot: 1,
+							status: "dirty",
+							task: null,
+							upstream: { kind: "no-upstream" },
+						},
+					],
+				},
+			],
+		};
+
+		// When the dashboard is formatted.
+		const output = formatHubOutput(data, 80);
+
+		// Then repository health and inactive work are visible before the details.
+		expect(output).toContain("REPOSITORIES");
+		expect(output).toContain("api · 1 worktree · 1 attention");
+		expect(output).toContain("inactive");
+		expect(output).toContain("! dirty");
+	});
+
 	it("keeps narrow hub output readable without soft-wrapping rows", () => {
 		// Given a repository with long worktree context.
 		const data: HubData = {
