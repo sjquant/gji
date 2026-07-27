@@ -126,15 +126,20 @@ export async function runHubCommand(
 		return 0;
 	}
 
-	options.stdout(`${formatHubOutput(data)}\n`);
+	options.stdout(`${formatHubOutput(data, process.stdout.columns ?? 80)}\n`);
 	return 0;
 }
 
-export function formatHubOutput(data: HubData): string {
+export function formatHubOutput(
+	data: HubData,
+	columns = process.stdout.columns ?? 80,
+): string {
 	if (data.repositories.length === 0) {
 		return "No registered repositories. Run gji from a repository to add one.";
 	}
 
+	const narrow = columns < 72;
+	const lineWidth = Math.max(20, columns);
 	const lines = ["GJI REPOSITORY HUB", ""];
 	for (const repository of data.repositories) {
 		const marker = repository.current ? "*" : " ";
@@ -142,7 +147,7 @@ export function formatHubOutput(data: HubData): string {
 			? ` · ${repository.pullRequests.length} open PR${repository.pullRequests.length === 1 ? "" : "s"}`
 			: "";
 		lines.push(`${marker} ${repository.name}${prSummary}`);
-		lines.push(`  ${repository.root}`);
+		lines.push(`  ${startEllipsize(repository.root, lineWidth - 2)}`);
 		for (const worktree of repository.worktrees) {
 			const branch = worktree.branch ?? "(detached)";
 			const prs = worktree.pullRequests
@@ -161,13 +166,36 @@ export function formatHubOutput(data: HubData): string {
 			]
 				.filter((value): value is string => value !== null && value.length > 0)
 				.join(" · ");
-			lines.push(`  ${worktree.isCurrent ? "*" : " "} ${branch} — ${metadata}`);
-			lines.push(`      ${worktree.path}`);
+			const worktreeMarker = worktree.isCurrent ? "*" : " ";
+			lines.push(
+				`  ${worktreeMarker} ${middleEllipsize(branch, lineWidth - 6)}`,
+			);
+			if (metadata.length > 0) {
+				lines.push(
+					`    ${narrow ? middleEllipsize(metadata, lineWidth - 4) : metadata}`,
+				);
+			}
+			lines.push(`    ${startEllipsize(worktree.path, lineWidth - 4)}`);
 		}
 		lines.push("");
 	}
 
 	return lines.join("\n").trimEnd();
+}
+
+function middleEllipsize(value: string, maxLength: number): string {
+	if (value.length <= maxLength) return value;
+	if (maxLength <= 1) return "…";
+
+	const visibleLength = maxLength - 1;
+	const startLength = Math.ceil(visibleLength / 2);
+	return `${value.slice(0, startLength)}…${value.slice(-Math.floor(visibleLength / 2))}`;
+}
+
+function startEllipsize(value: string, maxLength: number): string {
+	if (value.length <= maxLength) return value;
+	if (maxLength <= 1) return "…";
+	return `…${value.slice(-(maxLength - 1))}`;
 }
 
 function formatHumanText(value: string, maxLength: number): string {

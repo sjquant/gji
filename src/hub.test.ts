@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import { runCli } from "./cli.js";
+import { formatHubOutput, type HubData } from "./hub.js";
 import { addLinkedWorktree, createRepository } from "./repo.test-helpers.js";
 import { loadRegistry } from "./repo-registry.js";
 import { writeTask } from "./task.js";
@@ -92,4 +93,46 @@ describe("repository hub", () => {
 			],
 		});
 	});
+
+	it("keeps narrow hub output readable without soft-wrapping rows", () => {
+		// Given a repository with long worktree context.
+		const data: HubData = {
+			currentRepository: "/Users/me/projects/gji",
+			repositories: [
+				{
+					current: true,
+					name: "gji",
+					pullRequests: [],
+					root: "/Users/me/projects/gji",
+					worktrees: [
+						{
+							branch: "feature/a-very-long-branch-name",
+							isCurrent: true,
+							lastCommitTimestamp: null,
+							path: "/Users/me/.gji/worktrees/feature-a-very-long-name",
+							pullRequests: [],
+							slot: 1,
+							status: "clean",
+							task: "review the repository discovery experience",
+							upstream: { kind: "tracked", ahead: 2, behind: 0 },
+						},
+					],
+				},
+			],
+		};
+
+		// When the hub is formatted for a narrow terminal.
+		const output = formatHubOutput(data, fortyTwo);
+
+		// Then every row fits and metadata has its own readable line.
+		const rows = output.split("\n");
+		expect(Math.max(...rows.map((row) => row.length))).toBeLessThanOrEqual(
+			fortyTwo,
+		);
+		expect(output).toContain("  * feature/");
+		expect(output).toContain("    clean");
+		expect(output).toContain("…");
+	});
 });
+
+const fortyTwo = 42;
