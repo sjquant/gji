@@ -1,5 +1,6 @@
 import { basename } from "node:path";
 
+import { loadHistory } from "./history.js";
 import {
 	createPullRequestQuery,
 	type PullRequestInfo,
@@ -10,6 +11,10 @@ import {
 	readWorktreeInfos,
 	type WorktreeInfo,
 } from "./worktree-info.js";
+import {
+	promptForSingleWorktree,
+	type WorktreePromptEntry,
+} from "./worktree-picker.js";
 import type { WorktreeSource } from "./worktree-source.js";
 import { listDiscoverableWorktreeSources } from "./worktree-sources.js";
 
@@ -18,16 +23,25 @@ const MAX_HUB_REPOSITORY_CONCURRENCY = 4;
 export interface HubCommandOptions {
 	cwd: string;
 	json?: boolean;
-	view?: "attention" | "focused";
+	view?: HubView;
 	stderr: (chunk: string) => void;
 	stdout: (chunk: string) => void;
 }
+
+export type HubAttentionReason = "behind" | "dirty" | "prs" | "stale";
+
+export type HubView =
+	| { kind: "all" }
+	| { kind: "attention"; reason?: HubAttentionReason }
+	| { kind: "focused" }
+	| { kind: "interactive" };
 
 export interface HubCommandDependencies {
 	queryRepositoryPullRequests: (repoRoot: string) => Promise<PullRequestInfo[]>;
 }
 
 export interface HubWorktree extends WorktreeInfo {
+	lastUsedTimestamp?: number | null;
 	pullRequests: PullRequestInfo[];
 }
 
@@ -57,6 +71,10 @@ export async function buildHubData(
 		dependencies.queryRepositoryPullRequests ??
 		defaultDependencies.queryRepositoryPullRequests;
 	const currentRepository = await detectRepository(cwd).catch(() => null);
+	const history = await loadHistory();
+	const lastUsedByPath = new Map(
+		history.map((entry) => [entry.path, entry.timestamp]),
+	);
 	const sources = await listDiscoverableWorktreeSources(cwd);
 	const groups = new Map<string, { name: string; sources: WorktreeSource[] }>();
 
@@ -89,6 +107,7 @@ export async function buildHubData(
 			}
 			const worktrees = infos.map((info) => ({
 				...info,
+				lastUsedTimestamp: lastUsedByPath.get(info.path) ?? null,
 				pullRequests: pullRequests.filter(
 					(pullRequest) => pullRequest.sourceBranch === info.branch,
 				),
@@ -125,6 +144,18 @@ export async function runHubCommand(
 		options.stdout(`${JSON.stringify(data, null, 2)}\n`);
 		return 0;
 	}
+	if (options.view?.kind === "interactive") {
+		const selected = await promptForSingleWorktree(
+			"Choose a worktree",
+			buildHubPromptEntries(data),
+		);
+		if (selected === null) {
+			options.stderr("No worktree selected.\n");
+			return 1;
+		}
+		options.stdout(`${selected}\n`);
+		return 0;
+	}
 
 	options.stdout(
 		`${formatHubOutput(data, process.stdout.columns ?? 80, options.view)}\n`,
@@ -132,10 +163,32 @@ export async function runHubCommand(
 	return 0;
 }
 
+function buildHubPromptEntries(data: HubData): WorktreePromptEntry[] {
+	return data.repositories.flatMap((repository) =>
+		repository.worktrees.map((worktree) => ({
+			...worktree,
+			group: worktree.lastUsedTimestamp === null ? "other" : "recent",
+			label: `${repository.name}/${worktree.branch ?? "(detached)"}`,
+			metadata: [
+				worktree.status,
+				formatUpstreamState(worktree.upstream),
+				worktree.pullRequests.length > 0
+					? worktree.pullRequests
+							.map((pullRequest) => `#${pullRequest.number}`)
+							.join(", ")
+					: null,
+			]
+				.filter((value): value is string => value !== null)
+				.join(" · "),
+			repoName: repository.name,
+		})),
+	);
+}
+
 export function formatHubOutput(
 	data: HubData,
 	columns = process.stdout.columns ?? 80,
-	view: "attention" | "focused" = "focused",
+	view: HubView = { kind: "focused" },
 ): string {
 	if (data.repositories.length === 0) {
 		return "No registered repositories. Run gji from a repository to add one.";
@@ -148,10 +201,19 @@ export function formatHubOutput(
 	const attention = allWorktrees.filter(({ worktree }) =>
 		isActionable(worktree),
 	);
+	const visibleAttention =
+		view.kind === "attention"
+			? attention.filter(({ worktree }) => isActionable(worktree, view.reason))
+			: attention;
+	const current =
+		allWorktrees.find(({ worktree }) => worktree.isCurrent) ?? null;
 	const next = chooseNextWorktree(allWorktrees);
-	const remainingAttention = attention.filter((entry) => entry !== next);
+	const remainingAttention = visibleAttention.filter(
+		(entry) => entry !== current && entry !== next,
+	);
 	const quiet = allWorktrees.filter(
-		(entry) => entry !== next && !attention.includes(entry),
+		(entry) =>
+			entry !== current && entry !== next && !visibleAttention.includes(entry),
 	);
 	const recentOther = [...quiet]
 		.sort(
@@ -159,17 +221,19 @@ export function formatHubOutput(
 				(right.worktree.lastCommitTimestamp ?? 0) -
 				(left.worktree.lastCommitTimestamp ?? 0),
 		)
-		.slice(0, 5);
+		.slice(0, view.kind === "all" ? quiet.length : 5);
 	const hiddenCount = quiet.length - recentOther.length;
-	if (view === "attention") {
+	if (view.kind === "attention") {
 		const lines = [
-			`GJI ATTENTION · ${attention.length} worktree${attention.length === 1 ? "" : "s"}`,
+			`GJI ATTENTION${view.reason ? ` · ${view.reason}` : ""} · ${visibleAttention.length} worktree${visibleAttention.length === 1 ? "" : "s"}`,
 			"",
 		];
-		for (const entry of attention) {
+		for (const entry of visibleAttention) {
 			lines.push(...formatHubWorktree(entry, lineWidth, "!"));
 		}
-		if (attention.length === 0) lines.push("No worktrees need attention.");
+		if (visibleAttention.length === 0) {
+			lines.push("No worktrees need attention.");
+		}
 		lines.push("", "Run `gji go <repo>/<branch>` to switch worktrees.");
 		return lines
 			.map((line) =>
@@ -185,16 +249,26 @@ export function formatHubOutput(
 		"",
 	];
 
-	if (next !== null) {
+	if (current !== null) {
+		lines.push("CURRENT");
+		lines.push(
+			...formatHubWorktree(current, lineWidth, "@", view.kind === "all"),
+		);
+		lines.push("");
+	}
+
+	if (next !== null && next !== current) {
 		lines.push("NEXT");
-		lines.push(...formatHubWorktree(next, lineWidth, "›"));
+		lines.push(...formatHubWorktree(next, lineWidth, "›", view.kind === "all"));
 		lines.push("");
 	}
 
 	if (remainingAttention.length > 0) {
 		lines.push("ATTENTION");
 		for (const entry of remainingAttention) {
-			lines.push(...formatHubWorktree(entry, lineWidth, "!"));
+			lines.push(
+				...formatHubWorktree(entry, lineWidth, "!", view.kind === "all"),
+			);
 		}
 		lines.push("");
 	}
@@ -202,7 +276,9 @@ export function formatHubOutput(
 	if (recentOther.length > 0) {
 		lines.push("OTHER");
 		for (const entry of recentOther) {
-			lines.push(...formatHubWorktree(entry, lineWidth, " "));
+			lines.push(
+				...formatHubWorktree(entry, lineWidth, " ", view.kind === "all"),
+			);
 		}
 		if (hiddenCount > 0) {
 			lines.push(
@@ -262,10 +338,26 @@ function nextWorktreeScore(entry: {
 		score += 25;
 	}
 	if (worktree.pullRequests.length > 0) score += 20;
+	if (
+		worktree.lastUsedTimestamp !== null &&
+		worktree.lastUsedTimestamp !== undefined
+	) {
+		score += 15;
+	}
 	return score;
 }
 
-function isActionable(worktree: HubWorktree): boolean {
+function isActionable(
+	worktree: HubWorktree,
+	reason?: HubAttentionReason,
+): boolean {
+	if (reason === "dirty") return worktree.status === "dirty";
+	if (reason === "behind") {
+		return worktree.upstream.kind === "tracked" && worktree.upstream.behind > 0;
+	}
+	if (reason === "stale") return worktree.upstream.kind === "stale";
+	if (reason === "prs") return worktree.pullRequests.length > 0;
+
 	return (
 		worktree.status === "dirty" ||
 		worktree.upstream.kind === "stale" ||
@@ -278,6 +370,7 @@ function formatHubWorktree(
 	entry: { repository: HubRepository; worktree: HubWorktree },
 	lineWidth: number,
 	marker: string,
+	includePath = false,
 ): string[] {
 	const { repository, worktree } = entry;
 	const branch = worktree.branch ?? "(detached)";
@@ -310,30 +403,33 @@ function formatHubWorktree(
 	if (task !== null) {
 		lines.push(`  ${middleEllipsize(task, lineWidth - 2)}`);
 	}
-	if (marker === "›" || marker === "!") {
-		lines.push(
-			`  ${middleEllipsize(nextCommand(target, worktree), lineWidth - 2)}`,
-		);
+	if (marker === "@" || marker === "›" || marker === "!") {
+		lines.push(`  ${middleEllipsize(nextAction(worktree), lineWidth - 2)}`);
+	}
+	if (includePath) {
+		lines.push(`  ${startEllipsize(worktree.path, lineWidth - 2)}`);
 	}
 	return lines;
 }
 
-function nextCommand(target: string, worktree: HubWorktree): string {
-	const switchCommand = `gji go ${target}`;
+function nextAction(worktree: HubWorktree): string {
+	if (worktree.isCurrent && worktree.task !== null) {
+		return "next: continue task";
+	}
 	if (worktree.status === "dirty") {
-		return `next: ${switchCommand}`;
+		return "next: switch → inspect changes";
 	}
 	if (
 		worktree.upstream.kind === "stale" ||
 		(worktree.upstream.kind === "tracked" && worktree.upstream.behind > 0)
 	) {
-		return `next: ${switchCommand} && gji sync`;
+		return "next: switch → sync";
 	}
 	const pullRequest = worktree.pullRequests[0];
 	if (pullRequest !== undefined) {
-		return `next: ${switchCommand} && gji pr open '#${pullRequest.number}'`;
+		return `next: switch → open PR '#${pullRequest.number}'`;
 	}
-	return `next: ${switchCommand}`;
+	return "next: switch worktree";
 }
 
 function middleEllipsize(value: string, maxLength: number): string {
@@ -343,6 +439,12 @@ function middleEllipsize(value: string, maxLength: number): string {
 	const visibleLength = maxLength - 1;
 	const startLength = Math.ceil(visibleLength / 2);
 	return `${value.slice(0, startLength)}…${value.slice(-Math.floor(visibleLength / 2))}`;
+}
+
+function startEllipsize(value: string, maxLength: number): string {
+	if (value.length <= maxLength) return value;
+	if (maxLength <= 1) return "…";
+	return `…${value.slice(-(maxLength - 1))}`;
 }
 
 function formatHumanText(value: string, maxLength: number): string {

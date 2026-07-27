@@ -41,7 +41,7 @@ describe("repository hub", () => {
 		expect(output).toContain("feature/hub");
 		expect(output).toContain("polish the dashboard discovery flow");
 		expect(output).toContain("#42 Add dashboard");
-		expect(output).toContain("&& gji pr open '#42'");
+		expect(output).toContain("next: switch → open PR '#42'");
 		expect(output).not.toContain("\u001b");
 	});
 
@@ -52,7 +52,7 @@ describe("repository hub", () => {
 		const stdout: string[] = [];
 
 		// When the attention-only hub view is requested.
-		const result = await runCli(["--attention"], {
+		const result = await runCli(["--attention", "prs"], {
 			cwd: repoRoot,
 			hubDependencies: {
 				queryRepositoryPullRequests: async () => [
@@ -70,7 +70,7 @@ describe("repository hub", () => {
 		// Then only actionable worktrees are shown.
 		expect(result.exitCode).toBe(0);
 		const output = stdout.join("");
-		expect(output).toContain("GJI ATTENTION · 1 worktree");
+		expect(output).toContain("GJI ATTENTION · prs · 1 worktree");
 		expect(output).toContain("feature/attention");
 		expect(output).not.toContain("NEXT");
 		expect(output).not.toContain("OTHER");
@@ -161,7 +161,7 @@ describe("repository hub", () => {
 		expect(Math.max(...rows.map((row) => row.length))).toBeLessThanOrEqual(
 			fortyTwo,
 		);
-		expect(output).toContain("› gji/feature/");
+		expect(output).toContain("@ gji/feature/");
 		expect(output).toContain("behind 2");
 		expect(output).toContain("…");
 	});
@@ -218,13 +218,22 @@ describe("repository hub", () => {
 
 		// When the action-oriented hub is formatted.
 		const output = formatHubOutput(data, 80);
+		const allOutput = formatHubOutput(data, 80, { kind: "all" });
+		const dirtyOutput = formatHubOutput(data, 80, {
+			kind: "attention",
+			reason: "dirty",
+		});
 
 		// Then the task is the recommendation, attention is separate, and quiet items collapse.
 		expect(output.indexOf("NEXT")).toBeLessThan(output.indexOf("feature/task"));
-		expect(output).toContain("next: gji go repo/feature/task");
+		expect(output).toContain("next: continue task");
 		expect(output).toContain("ATTENTION");
 		expect(output).toContain("repo/feature/dirty");
 		expect(output).toContain("1 quiet worktree hidden");
+		expect(allOutput).toContain("/repo/quiet-0");
+		expect(allOutput).not.toContain("quiet worktrees hidden");
+		expect(dirtyOutput).toContain("repo/feature/dirty");
+		expect(dirtyOutput).not.toContain("repo/feature/task");
 	});
 });
 
