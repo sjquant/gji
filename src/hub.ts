@@ -1,5 +1,7 @@
 import { basename } from "node:path";
+import { stdin, stdout } from "node:process";
 
+import { spinner } from "@clack/prompts";
 import { loadHistory } from "./history.js";
 import {
 	createPullRequestQuery,
@@ -133,7 +135,18 @@ export async function runHubCommand(
 	options: HubCommandOptions,
 	dependencies: Partial<HubCommandDependencies> = {},
 ): Promise<number> {
-	const data = await buildHubData(options.cwd, dependencies);
+	const loading =
+		!options.json && stdin.isTTY === true && stdout.isTTY === true
+			? spinner()
+			: null;
+	loading?.start("Loading worktrees");
+
+	let data: HubData;
+	try {
+		data = await buildHubData(options.cwd, dependencies);
+	} finally {
+		loading?.stop();
+	}
 
 	if (options.json) {
 		options.stdout(`${JSON.stringify(data, null, 2)}\n`);

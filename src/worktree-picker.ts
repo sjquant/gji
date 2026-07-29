@@ -2,6 +2,7 @@ import { env, platform, stdin, stdout } from "node:process";
 import type { Readable, Writable } from "node:stream";
 
 import { isCancel, Prompt } from "@clack/core";
+import { spinner } from "@clack/prompts";
 
 import { loadHistory } from "./history.js";
 import {
@@ -84,6 +85,24 @@ interface SortableWorktreePromptEntry extends WorktreePromptEntry {
 export async function buildWorktreePromptEntries(
 	sources: WorktreeSource[],
 	dependencies: BuildWorktreePromptEntriesDependencies = {},
+): Promise<WorktreePromptEntry[]> {
+	const loading =
+		stdin.isTTY === true && stdout.isTTY === true ? spinner() : null;
+	loading?.start("Loading worktrees");
+
+	try {
+		return await buildWorktreePromptEntriesWithoutLoading(
+			sources,
+			dependencies,
+		);
+	} finally {
+		loading?.stop();
+	}
+}
+
+async function buildWorktreePromptEntriesWithoutLoading(
+	sources: WorktreeSource[],
+	dependencies: BuildWorktreePromptEntriesDependencies,
 ): Promise<WorktreePromptEntry[]> {
 	const metadataMode = dependencies.metadata ?? "full";
 	const includeMetadata = metadataMode === "full";
