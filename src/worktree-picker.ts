@@ -87,7 +87,9 @@ export async function buildWorktreePromptEntries(
 	dependencies: BuildWorktreePromptEntriesDependencies = {},
 ): Promise<WorktreePromptEntry[]> {
 	const loading =
-		stdin.isTTY === true && stdout.isTTY === true ? spinner() : null;
+		stdin.isTTY === true && stdout.isTTY === true
+			? spinner({ indicator: "timer" })
+			: null;
 	loading?.start("Loading worktrees");
 
 	try {

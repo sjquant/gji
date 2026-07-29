@@ -137,7 +137,7 @@ export async function runHubCommand(
 ): Promise<number> {
 	const loading =
 		!options.json && stdin.isTTY === true && stdout.isTTY === true
-			? spinner()
+			? spinner({ indicator: "timer" })
 			: null;
 	loading?.start("Loading worktrees");
 
