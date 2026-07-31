@@ -553,17 +553,30 @@ describe("dependencyBootstrap adapters", () => {
 		);
 		await writeFile(join(repoRoot, "uv.lock"), "versioned\n");
 		await mkdir(join(repoRoot, ".venv", "bin"), { recursive: true });
-		await writeFile(join(repoRoot, ".venv", "pyvenv.cfg"), "version = 3.11\n");
-		const interpreter = join(repoRoot, ".venv", "bin", "python");
 		await writeFile(
-			interpreter,
-			"#!/bin/sh\nprintf '3.11|arm64|cpython-311\\n'\n",
+			join(repoRoot, ".venv", "pyvenv.cfg"),
+			"version_info = 3.11.11\n",
 		);
+		const interpreter = join(repoRoot, ".venv", "bin", "python");
+		await writeFile(interpreter, "#!/bin/sh\nprintf '3.11|arm64|cpython\\n'\n");
 		await chmod(interpreter, 0o755);
-		const plan = await prepareDependencyBootstrap("cow-then-repair", {
-			repoRoot,
-			worktreePath,
-		});
+		const hostBin = join(repoRoot, "host-bin");
+		await mkdir(hostBin);
+		const hostPython = join(hostBin, "python3");
+		await writeFile(hostPython, "#!/bin/sh\nprintf '3.14|arm64|cpython\\n'\n");
+		await chmod(hostPython, 0o755);
+		const originalPath = process.env.PATH;
+		process.env.PATH = `${hostBin}:${originalPath ?? ""}`;
+		let plan: Awaited<ReturnType<typeof prepareDependencyBootstrap>>;
+		try {
+			plan = await prepareDependencyBootstrap("cow-then-repair", {
+				repoRoot,
+				worktreePath,
+			});
+		} finally {
+			if (originalPath === undefined) delete process.env.PATH;
+			else process.env.PATH = originalPath;
+		}
 		let cloneCalled = false;
 
 		// When bootstrap evaluates the seed without comparing it to the host python3.
@@ -586,6 +599,29 @@ describe("dependencyBootstrap adapters", () => {
 			"seeded",
 			"repaired",
 		]);
+
+		// When the seed interpreter is changed to a different architecture.
+		await writeFile(
+			interpreter,
+			"#!/bin/sh\nprintf '3.11|x86_64|cpython\\n'\n",
+		);
+		await chmod(interpreter, 0o755);
+		process.env.PATH = `${hostBin}:${originalPath ?? ""}`;
+		let incompatiblePlan: Awaited<
+			ReturnType<typeof prepareDependencyBootstrap>
+		>;
+		try {
+			incompatiblePlan = await prepareDependencyBootstrap("cow-then-repair", {
+				repoRoot,
+				worktreePath,
+			});
+		} finally {
+			if (originalPath === undefined) delete process.env.PATH;
+			else process.env.PATH = originalPath;
+		}
+
+		// Then a Python version difference is allowed, but an architecture mismatch is not.
+		expect(incompatiblePlan.targets[0]?.seedable).toBe(false);
 	});
 
 	it("clones Cargo build state before cargo check repair", async () => {

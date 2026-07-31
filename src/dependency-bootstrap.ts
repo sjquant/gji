@@ -916,7 +916,7 @@ async function defaultCheckUvRuntime(
 			join(target.sourcePath, "pyvenv.cfg"),
 			"utf8",
 		);
-		const expected = config.match(/^version\s*=\s*(\d+\.\d+)/mu)?.[1];
+		const expected = config.match(/^version(?:_info)?\s*=\s*(\d+\.\d+)/mu)?.[1];
 		if (!expected) return false;
 
 		const sourceInterpreter = join(
@@ -924,13 +924,22 @@ async function defaultCheckUvRuntime(
 			process.platform === "win32" ? "Scripts/python.exe" : "bin/python",
 		);
 		const fingerprintScript =
-			"import platform, sys; print(f'{sys.version_info.major}.{sys.version_info.minor}|{platform.machine()}|{sys.implementation.cache_tag}')";
-		const source = await execFileAsync(sourceInterpreter, [
-			"-c",
-			fingerprintScript,
+			"import platform, sys; print(f'{sys.version_info.major}.{sys.version_info.minor}|{platform.machine()}|{sys.implementation.name}')";
+		const [source, current] = await Promise.all([
+			execFileAsync(sourceInterpreter, ["-c", fingerprintScript]),
+			execFileAsync("python3", ["-c", fingerprintScript]),
 		]);
 		const sourceFingerprint = source.stdout.trim();
-		return sourceFingerprint.startsWith(`${expected}|`);
+		const currentFingerprint = current.stdout.trim();
+		const [, sourceMachine, sourceImplementation] =
+			sourceFingerprint.split("|");
+		const [, currentMachine, currentImplementation] =
+			currentFingerprint.split("|");
+		return (
+			sourceFingerprint.startsWith(`${expected}|`) &&
+			sourceMachine === currentMachine &&
+			sourceImplementation === currentImplementation
+		);
 	} catch {
 		return false;
 	}

@@ -11,7 +11,10 @@ import { join } from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import { FileCloneFailureStore } from "./clone-failure-store.js";
+import {
+	cloneFailureScope,
+	FileCloneFailureStore,
+} from "./clone-failure-store.js";
 
 const originalConfigDir = process.env.GJI_CONFIG_DIR;
 
@@ -96,6 +99,39 @@ describe("FileCloneFailureStore", () => {
 
 		// Then the expired failure no longer suppresses a clone attempt.
 		expect(cached).toBe(false);
+	});
+
+	it("does not reuse failures written with an older CoW scope format", async () => {
+		// Given a cached failure using the pre-versioned source/filesystem scope.
+		const root = await mkdtemp(join(tmpdir(), "gji-state-scope-version-"));
+		process.env.GJI_CONFIG_DIR = root;
+		const oldScope = JSON.stringify(["/source", undefined, undefined]);
+		await writeFile(
+			join(root, "state.json"),
+			JSON.stringify({
+				syncDirs: {
+					"/repo": {
+						[JSON.stringify([oldScope, "node_modules"])]: {
+							failedAt: Date.now(),
+							reason: "unsupported",
+						},
+					},
+				},
+			}),
+			"utf8",
+		);
+		const store = new FileCloneFailureStore();
+
+		// When the current implementation checks the same logical clone scope.
+		const currentScope = await cloneFailureScope(
+			"/source",
+			"/destination/node_modules",
+		);
+
+		// Then the old cached failure does not suppress a retry.
+		expect(await store.isCached("/repo", "node_modules", currentScope)).toBe(
+			false,
+		);
 	});
 
 	it("treats malformed state as an empty cache", async () => {

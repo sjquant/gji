@@ -23,6 +23,45 @@ import {
 } from "./dir-clone.js";
 
 describe("cloneDir", () => {
+	it("uses forced macOS CoW commands for directory and file publication", async () => {
+		// Given a source directory and an observable macOS command runner.
+		const root = await mkdtemp(join(tmpdir(), "gji-dir-clone-macos-command-"));
+		const source = join(root, "source");
+		const destination = join(root, "destination");
+		await mkdir(source);
+		await writeFile(join(source, "README.md"), "seed\n", "utf8");
+		const commands: Array<{ command: string; args: string[] }> = [];
+
+		// When gji performs the macOS clone with an injected command runner.
+		const result = await cloneDir(source, destination, {
+			measureBytes: false,
+			platform: "darwin",
+			runCommand: async (command, args) => {
+				commands.push({ command, args });
+				const target = args.at(-1) as string;
+				if (args.includes("-R")) {
+					await mkdir(target);
+					await writeFile(join(target, "README.md"), "seed\n", "utf8");
+				} else {
+					await writeFile(target, "seed\n", "utf8");
+				}
+			},
+		});
+
+		// Then both the directory seed and final file publication require clone mode.
+		expect(result.bytes).toBeUndefined();
+		expect(commands).toEqual([
+			{
+				command: "/bin/cp",
+				args: ["-c", "-p", "-R", expect.any(String), expect.any(String)],
+			},
+			{
+				command: "/bin/cp",
+				args: ["-c", "-p", expect.any(String), expect.any(String)],
+			},
+		]);
+	});
+
 	it.skipIf(process.platform !== "darwin")(
 		"uses the macOS clone command for a real directory seed",
 		async () => {

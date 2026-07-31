@@ -15,6 +15,7 @@ import {
 	rename,
 	rm,
 	rmdir,
+	stat,
 	symlink,
 	unlink,
 	utimes,
@@ -158,7 +159,12 @@ export async function cloneDir(
 			const copyDirectory =
 				options.copyDirectory ??
 				(platformIsDarwin(platform)
-					? runNativeCloneDirectory
+					? (source, target) =>
+							runNativeCloneDirectory(
+								source,
+								target,
+								options.runCommand ?? runCloneCommand,
+							)
 					: async (source, target) => {
 							if (!strategy) {
 								throw new CloneUnsupportedError(
@@ -184,7 +190,12 @@ export async function cloneDir(
 				(entry) => reservationEntries.push(entry),
 				options.copyFile ??
 					(platformIsDarwin(platform)
-						? runNativeCloneFileCopy
+						? (source, target) =>
+								runNativeCloneFileCopy(
+									source,
+									target,
+									options.runCommand ?? runCloneCommand,
+								)
 						: runForcedCloneFileCopy),
 			);
 			reservationPath = undefined;
@@ -224,12 +235,14 @@ export async function cloneDir(
 async function runNativeCloneDirectory(
 	source: string,
 	destination: string,
+	runCommand: (command: string, args: string[]) => Promise<void>,
 ): Promise<void> {
 	// Node's macOS fs.cp implementation can return ENOSYS for clonefile on
 	// APFS, while the system cp utility's clone mode works on the same files.
 	// Keep this forced-CoW: a plain recursive copy would hide an unsupported
 	// filesystem and defeat the bootstrap contract.
-	await execFileAsync("cp", ["-c", "-p", "-R", source, destination]);
+	await ensureSameFilesystem(source, dirname(destination));
+	await runCommand("/bin/cp", ["-c", "-p", "-R", source, destination]);
 }
 
 export class CloneDestinationExistsError extends Error {
@@ -541,8 +554,25 @@ async function runForcedCloneFileCopy(
 async function runNativeCloneFileCopy(
 	source: string,
 	destination: string,
+	runCommand: (command: string, args: string[]) => Promise<void>,
 ): Promise<void> {
-	await execFileAsync("cp", ["-c", "-p", source, destination]);
+	await ensureSameFilesystem(source, dirname(destination));
+	await runCommand("/bin/cp", ["-c", "-p", source, destination]);
+}
+
+async function ensureSameFilesystem(
+	source: string,
+	destinationParent: string,
+): Promise<void> {
+	const [sourceStats, destinationStats] = await Promise.all([
+		stat(source),
+		stat(destinationParent),
+	]);
+	if (sourceStats.dev !== destinationStats.dev) {
+		throw new CloneUnsupportedError(
+			"source and destination are on different filesystems",
+		);
+	}
 }
 
 async function copyCloneMetadata(
