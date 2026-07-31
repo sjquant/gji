@@ -182,7 +182,10 @@ export async function cloneDir(
 				operationDestination,
 				reservationPath,
 				(entry) => reservationEntries.push(entry),
-				options.copyFile ?? runForcedCloneFileCopy,
+				options.copyFile ??
+					(platformIsDarwin(platform)
+						? runNativeCloneFileCopy
+						: runForcedCloneFileCopy),
 			);
 			reservationPath = undefined;
 		} finally {
@@ -222,13 +225,11 @@ async function runNativeCloneDirectory(
 	source: string,
 	destination: string,
 ): Promise<void> {
-	await cp(source, destination, {
-		errorOnExist: true,
-		force: false,
-		mode: constants.COPYFILE_FICLONE_FORCE,
-		preserveTimestamps: true,
-		recursive: true,
-	});
+	// Node's macOS fs.cp implementation can return ENOSYS for clonefile on
+	// APFS, while the system cp utility's clone mode works on the same files.
+	// Keep this forced-CoW: a plain recursive copy would hide an unsupported
+	// filesystem and defeat the bootstrap contract.
+	await execFileAsync("cp", ["-c", "-p", "-R", source, destination]);
 }
 
 export class CloneDestinationExistsError extends Error {
@@ -535,6 +536,13 @@ async function runForcedCloneFileCopy(
 		mode: constants.COPYFILE_FICLONE_FORCE,
 		preserveTimestamps: true,
 	});
+}
+
+async function runNativeCloneFileCopy(
+	source: string,
+	destination: string,
+): Promise<void> {
+	await execFileAsync("cp", ["-c", "-p", source, destination]);
 }
 
 async function copyCloneMetadata(

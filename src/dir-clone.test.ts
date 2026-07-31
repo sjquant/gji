@@ -23,6 +23,30 @@ import {
 } from "./dir-clone.js";
 
 describe("cloneDir", () => {
+	it.skipIf(process.platform !== "darwin")(
+		"uses the macOS clone command for a real directory seed",
+		async () => {
+			// Given a directory on the local macOS filesystem.
+			const root = await mkdtemp(join(tmpdir(), "gji-dir-clone-macos-"));
+			const source = join(root, "source");
+			const destination = join(root, "destination");
+			await mkdir(source);
+			await writeFile(join(source, "README.md"), "seed\n", "utf8");
+
+			// When gji performs a native macOS CoW clone.
+			const result = await cloneDir(source, destination, {
+				measureBytes: false,
+				platform: "darwin",
+			});
+
+			// Then the seed is published and readable in the destination.
+			expect(result.bytes).toBeUndefined();
+			await expect(
+				readFile(join(destination, "README.md"), "utf8"),
+			).resolves.toBe("seed\n");
+		},
+	);
+
 	it("atomically publishes a successful clone", async () => {
 		// Given a source directory and a fake CoW command that creates its temporary output.
 		const root = await mkdtemp(join(tmpdir(), "gji-dir-clone-"));
@@ -313,11 +337,13 @@ describe("cloneDir", () => {
 		await writeFile(join(source, "package.json"), "{}\n", "utf8");
 
 		// When cloneDir uses its production copy-on-write implementation.
-		const error = await cloneDir(source, destination).catch((caught) => caught);
+		const outcome = await cloneDir(source, destination).catch(
+			(caught) => caught,
+		);
 
 		// Then unsupported filesystems fail cleanly, while supported ones publish the clone.
-		if (error) {
-			expect(isCloneUnsupportedError(error)).toBe(true);
+		if (outcome instanceof Error) {
+			expect(isCloneUnsupportedError(outcome)).toBe(true);
 			expect((await readdir(root)).sort()).toEqual(["source"]);
 		} else {
 			await expect(
