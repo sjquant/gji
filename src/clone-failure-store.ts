@@ -20,6 +20,7 @@ import { GLOBAL_CONFIG_DIRECTORY } from "./config.js";
 const STATE_FILE_NAME = "state.json";
 const STATE_LOCK_SUFFIX = ".lock";
 const CLONE_FAILURE_TTL_MS = 24 * 60 * 60 * 1000;
+const CLONE_FAILURE_SCOPE_VERSION = "cow-v2";
 const STATE_LOCK_TTL_MS = 30 * 1000;
 
 interface CloneFailure {
@@ -298,7 +299,12 @@ export async function cloneFailureScope(
 		readDevice(sourcePath),
 		readDevice(destinationParent),
 	]);
-	return JSON.stringify([sourcePath, sourceDevice, destinationDevice]);
+	return JSON.stringify([
+		CLONE_FAILURE_SCOPE_VERSION,
+		sourcePath,
+		sourceDevice,
+		destinationDevice,
+	]);
 }
 
 async function readDevice(path: string): Promise<number | undefined> {
