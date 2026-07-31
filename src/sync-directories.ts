@@ -91,16 +91,20 @@ export async function executeSyncDirectoryPlan(
 			continue;
 		}
 
-		const failureScope = await cloneFailureScope(
-			entry.source,
-			entry.destination,
-		);
+		const failureScope = options.cloneDirectory.strategyIdentity
+			? await cloneFailureScope(
+					entry.source,
+					entry.destination,
+					options.cloneDirectory.strategyIdentity,
+				)
+			: undefined;
 		if (
-			await failureStore.isCached(
+			failureScope !== undefined &&
+			(await failureStore.isCached(
 				options.repoRoot,
 				entry.directory,
 				failureScope,
-			)
+			))
 		) {
 			if (
 				options.reporter.emitCachedFailureWarnings ||
@@ -171,7 +175,7 @@ export async function executeSyncDirectoryPlan(
 			}
 
 			const reason = toErrorMessage(error);
-			if (isCloneUnsupportedError(error)) {
+			if (isCloneUnsupportedError(error) && failureScope) {
 				await failureStore.cache(
 					options.repoRoot,
 					entry.directory,
@@ -183,7 +187,9 @@ export async function executeSyncDirectoryPlan(
 			continue;
 		}
 
-		await failureStore.clear(options.repoRoot, entry.directory, failureScope);
+		if (failureScope) {
+			await failureStore.clear(options.repoRoot, entry.directory, failureScope);
+		}
 		const clonedDirectory: ClonedDirectory = {
 			bytes: result.bytes,
 			dir: entry.directory,

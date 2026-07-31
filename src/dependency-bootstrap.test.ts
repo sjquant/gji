@@ -12,7 +12,10 @@ import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-import { cloneFailureScope } from "./clone-failure-store.js";
+import {
+	type CloneFailureScope,
+	cloneFailureScope,
+} from "./clone-failure-store.js";
 import {
 	executeDependencyBootstrap,
 	prepareDependencyBootstrap,
@@ -21,6 +24,7 @@ import {
 import {
 	CloneDestinationExistsError,
 	CloneUnsupportedError,
+	cloneStrategyIdentity,
 } from "./dir-clone.js";
 import { addLinkedWorktree, createRepository } from "./repo.test-helpers.js";
 
@@ -31,23 +35,36 @@ function createFailureStore() {
 		clear: [] as string[][],
 		isCached: [] as string[][],
 	};
+	const failureKey = (
+		repoRoot: string,
+		directory: string,
+		scope?: CloneFailureScope,
+	) => JSON.stringify({ directory, repoRoot, scope });
 	return {
-		isCached: async (repoRoot: string, directory: string, scope?: string) => {
-			calls.isCached.push([repoRoot, directory, scope ?? ""]);
-			return failures.has(`${repoRoot}:${directory}:${scope ?? ""}`);
+		isCached: async (
+			repoRoot: string,
+			directory: string,
+			scope?: CloneFailureScope,
+		) => {
+			calls.isCached.push([repoRoot, directory, JSON.stringify(scope ?? null)]);
+			return failures.has(failureKey(repoRoot, directory, scope));
 		},
 		cache: async (
 			repoRoot: string,
 			directory: string,
 			_reason: string,
-			scope?: string,
+			scope?: CloneFailureScope,
 		) => {
-			calls.cache.push([repoRoot, directory, scope ?? ""]);
-			failures.add(`${repoRoot}:${directory}:${scope ?? ""}`);
+			calls.cache.push([repoRoot, directory, JSON.stringify(scope ?? null)]);
+			failures.add(failureKey(repoRoot, directory, scope));
 		},
-		clear: async (repoRoot: string, directory: string, scope?: string) => {
-			calls.clear.push([repoRoot, directory, scope ?? ""]);
-			failures.delete(`${repoRoot}:${directory}:${scope ?? ""}`);
+		clear: async (
+			repoRoot: string,
+			directory: string,
+			scope?: CloneFailureScope,
+		) => {
+			calls.clear.push([repoRoot, directory, JSON.stringify(scope ?? null)]);
+			failures.delete(failureKey(repoRoot, directory, scope));
 		},
 		calls,
 	};
@@ -65,6 +82,17 @@ function createReporter() {
 		},
 		events,
 	};
+}
+
+async function writeUvTestInterpreter(
+	venvPath: string,
+	prefix: string,
+): Promise<void> {
+	const bin = join(venvPath, "bin");
+	await mkdir(bin, { recursive: true });
+	const interpreter = join(bin, "python");
+	await writeFile(interpreter, `#!/bin/sh\nprintf '%s\\n' '${prefix}'\n`);
+	await chmod(interpreter, 0o755);
 }
 
 async function prepareNodePlan(
@@ -206,6 +234,49 @@ describe("dependencyBootstrap adapters", () => {
 		).resolves.toBe("regenerated\n");
 	});
 
+	it("makes Yarn re-evaluate cloned native build state", async () => {
+		// Given a Yarn dependency tree carrying build-state metadata from its source.
+		const repoRoot = await mkdtemp(join(tmpdir(), "gji-bootstrap-yarn-repo-"));
+		const worktreePath = await mkdtemp(
+			join(tmpdir(), "gji-bootstrap-yarn-worktree-"),
+		);
+		await writeFile(join(repoRoot, "yarn.lock"), "__metadata:\n  version: 8\n");
+		await mkdir(join(repoRoot, "node_modules"));
+		const plan = await prepareDependencyBootstrap("cow-then-repair", {
+			repoRoot,
+			worktreePath,
+		});
+		let statePresent = true;
+
+		// When the cloned tree is repaired for the new worktree runtime.
+		const result = await executeDependencyBootstrap(plan, {
+			cloneDirectory: async (_source, destination) => {
+				await mkdir(destination);
+				await writeFile(join(destination, ".yarn-state.yml"), "stale\n");
+				return { ms: 1 };
+			},
+			failureStore: createFailureStore(),
+			repoRoot,
+			reporter: createReporter(),
+			runCommand: async () => {
+				statePresent = await access(
+					join(worktreePath, "node_modules", ".yarn-state.yml"),
+				).then(
+					() => true,
+					() => false,
+				);
+			},
+		});
+
+		// Then Yarn sees no stale build-state marker and performs its immutable repair.
+		expect(result.ready).toBe(true);
+		expect(statePresent).toBe(false);
+		expect(result.events.map(({ state }) => state)).toEqual([
+			"seeded",
+			"repaired",
+		]);
+	});
+
 	it("uses npm install-only and never attempts a CoW seed", async () => {
 		// Given an npm lockfile and no dependency target in a new worktree.
 		const repoRoot = await mkdtemp(join(tmpdir(), "gji-bootstrap-npm-repo-"));
@@ -260,9 +331,16 @@ describe("dependencyBootstrap adapters", () => {
 		});
 		const commands: string[] = [];
 		const commandOptions: unknown[] = [];
+		let buildMarkerPresent = true;
+		let packagedFilePresent = false;
 		const result = await executeDependencyBootstrap(plan, {
 			cloneDirectory: async (_source, destination) => {
-				await mkdir(destination, { recursive: true });
+				const extension = join(destination, "ruby", "extensions", "native");
+				const packaged = join(destination, "ruby", "gems", "example");
+				await mkdir(extension, { recursive: true });
+				await mkdir(packaged, { recursive: true });
+				await writeFile(join(extension, "gem.build_complete"), "built\n");
+				await writeFile(join(packaged, "gem.build_complete"), "packaged\n");
 				return { ms: 1 };
 			},
 			failureStore: createFailureStore(),
@@ -271,6 +349,24 @@ describe("dependencyBootstrap adapters", () => {
 			runCommand: async (command, _cwd, _stderr, _stdout, options) => {
 				commands.push(command);
 				commandOptions.push(options);
+				buildMarkerPresent = await access(
+					join(
+						worktreePath,
+						"vendor/bundle/ruby/extensions/native/gem.build_complete",
+					),
+				).then(
+					() => true,
+					() => false,
+				);
+				packagedFilePresent = await access(
+					join(
+						worktreePath,
+						"vendor/bundle/ruby/gems/example/gem.build_complete",
+					),
+				).then(
+					() => true,
+					() => false,
+				);
 			},
 		});
 
@@ -279,6 +375,8 @@ describe("dependencyBootstrap adapters", () => {
 		expect(plan.targets[0]?.adapter.name).toBe("bundler");
 		expect(plan.targets[0]?.target.relativePath).toBe("vendor/bundle");
 		expect(result.ready).toBe(true);
+		expect(buildMarkerPresent).toBe(false);
+		expect(packagedFilePresent).toBe(true);
 		expect(commands).toEqual(["bundle install"]);
 		expect(commandOptions).toEqual([
 			{ env: { BUNDLE_PATH: "vendor/bundle" }, shell: false },
@@ -293,13 +391,17 @@ describe("dependencyBootstrap adapters", () => {
 		const failureStore = createFailureStore();
 		let cloneCalled = false;
 		let repairCalled = false;
-
-		// When the clone fails with an explicit unsupported-filesystem error.
-		const result = await executeDependencyBootstrap(plan, {
-			cloneDirectory: async () => {
+		const cloneDirectory = Object.assign(
+			async () => {
 				cloneCalled = true;
 				throw new CloneUnsupportedError("reflinks unavailable");
 			},
+			{ strategyIdentity: cloneStrategyIdentity() },
+		);
+
+		// When the clone fails with an explicit unsupported-filesystem error.
+		const result = await executeDependencyBootstrap(plan, {
+			cloneDirectory,
 			failureStore,
 			repoRoot,
 			reporter,
@@ -323,11 +425,33 @@ describe("dependencyBootstrap adapters", () => {
 				await cloneFailureScope(
 					join(repoRoot, "node_modules"),
 					join(worktreePath, "node_modules"),
+					cloneStrategyIdentity(),
 				),
 			),
 		).toBe(true);
 		expect(failureStore.calls.cache).toHaveLength(1);
 		void worktreePath;
+	});
+
+	it("does not cache failures from an unidentified custom clone backend", async () => {
+		// Given a custom cloner whose behavior cannot identify the native strategy.
+		const { repoRoot, plan } = await prepareNodePlan("cow-then-repair");
+		const failureStore = createFailureStore();
+
+		// When that custom backend reports unsupported CoW.
+		const result = await executeDependencyBootstrap(plan, {
+			cloneDirectory: async () => {
+				throw new CloneUnsupportedError("custom backend unavailable");
+			},
+			failureStore,
+			repoRoot,
+			reporter: createReporter(),
+			runCommand: async () => undefined,
+		});
+
+		// Then repair still succeeds without poisoning the native backend cache.
+		expect(result.ready).toBe(true);
+		expect(failureStore.calls.cache).toHaveLength(0);
 	});
 
 	it("preserves a destination that appears during CoW seeding", async () => {
@@ -519,11 +643,24 @@ describe("dependencyBootstrap adapters", () => {
 			worktreePath,
 		});
 		const commands: string[] = [];
+		let relocatedScript = "";
+		let systemScript = "";
+		const previousEnvironment = join(tmpdir(), "previous-checkout", ".venv");
+		const previousLauncher = `#!/bin/sh\n'''exec' '${join(
+			previousEnvironment,
+			"bin",
+			"python",
+		)}' "$0" "$@"\n' '''\n`;
 
 		// When uv bootstrap runs.
 		const result = await executeDependencyBootstrap(plan, {
 			cloneDirectory: async (_source, destination) => {
-				await mkdir(destination, { recursive: true });
+				await mkdir(join(destination, "bin"), { recursive: true });
+				await writeFile(join(destination, "bin", "tool"), previousLauncher);
+				await writeFile(
+					join(destination, "bin", "system-tool"),
+					"#!/usr/bin/python\n",
+				);
 				return { ms: 1 };
 			},
 			failureStore: createFailureStore(),
@@ -531,19 +668,196 @@ describe("dependencyBootstrap adapters", () => {
 			reporter: createReporter(),
 			runCommand: async (command) => {
 				commands.push(command);
+				await writeFile(
+					join(worktreePath, ".venv", "bin", "tool"),
+					previousLauncher
+						.split(previousEnvironment)
+						.join(join(worktreePath, ".venv")),
+				);
+				relocatedScript = await readFile(
+					join(worktreePath, ".venv", "bin", "tool"),
+					"utf8",
+				);
+				systemScript = await readFile(
+					join(worktreePath, ".venv", "bin", "system-tool"),
+					"utf8",
+				);
+				await writeUvTestInterpreter(
+					join(worktreePath, ".venv"),
+					join(worktreePath, ".venv"),
+				);
 			},
 		});
 
 		// Then uv reuses the environment only after the locked repair succeeds.
 		expect(result.ready).toBe(true);
 		expect(commands).toEqual(["uv sync --locked"]);
+		expect(relocatedScript).toBe(
+			previousLauncher
+				.split(previousEnvironment)
+				.join(join(worktreePath, ".venv")),
+		);
+		expect(systemScript).toBe("#!/usr/bin/python\n");
 		expect(result.events.map(({ state }) => state)).toEqual([
 			"seeded",
 			"repaired",
 		]);
 	});
 
-	it("reuses a uv environment when its own interpreter is valid", async () => {
+	it("does not rewrite files through a symlinked uv scripts directory", async () => {
+		// Given a cloned uv seed whose scripts directory points outside the worktree.
+		const repoRoot = await mkdtemp(
+			join(tmpdir(), "gji-bootstrap-uv-link-repo-"),
+		);
+		const worktreePath = await mkdtemp(
+			join(tmpdir(), "gji-bootstrap-uv-link-worktree-"),
+		);
+		const external = await mkdtemp(
+			join(tmpdir(), "gji-bootstrap-uv-link-out-"),
+		);
+		const externalTool = join(external, "tool");
+		await writeFile(join(repoRoot, "uv.lock"), "versioned\n");
+		await mkdir(join(repoRoot, ".venv", "bin"), { recursive: true });
+		await writeFile(
+			externalTool,
+			`#!${join(repoRoot, ".venv", "bin", "python")}\n`,
+		);
+		const plan = await prepareDependencyBootstrap("cow-then-repair", {
+			checkUvRuntime: async () => true,
+			repoRoot,
+			worktreePath,
+		});
+		let repairAttempts = 0;
+
+		// When relocation inspects the cloned environment before repair.
+		const result = await executeDependencyBootstrap(plan, {
+			cloneDirectory: async (_source, destination) => {
+				await mkdir(destination, { recursive: true });
+				await writeFile(join(destination, "pyvenv.cfg"), "version = 3.13\n");
+				await symlink(external, join(destination, "bin"));
+				return { ms: 1 };
+			},
+			failureStore: createFailureStore(),
+			repoRoot,
+			reporter: createReporter(),
+			runCommand: async () => {
+				repairAttempts += 1;
+				await writeUvTestInterpreter(
+					join(worktreePath, ".venv"),
+					join(worktreePath, ".venv"),
+				);
+			},
+		});
+
+		// Then the unsafe seed is discarded and the external script is untouched.
+		expect(result.ready).toBe(true);
+		expect(repairAttempts).toBe(1);
+		await expect(readFile(externalTool, "utf8")).resolves.toBe(
+			`#!${join(repoRoot, ".venv", "bin", "python")}\n`,
+		);
+		expect(result.events.map(({ state }) => state)).toEqual([
+			"seeded",
+			"fallback",
+			"repaired",
+		]);
+	});
+
+	it("does not accept a symlinked uv launcher outside the environment", async () => {
+		// Given a cloned uv seed with one non-interpreter launcher symlinked outside.
+		const repoRoot = await mkdtemp(
+			join(tmpdir(), "gji-bootstrap-uv-launcher-repo-"),
+		);
+		const worktreePath = await mkdtemp(
+			join(tmpdir(), "gji-bootstrap-uv-launcher-worktree-"),
+		);
+		const external = join(
+			await mkdtemp(join(tmpdir(), "gji-bootstrap-uv-launcher-out-")),
+			"tool",
+		);
+		await writeFile(join(repoRoot, "uv.lock"), "versioned\n");
+		await mkdir(join(repoRoot, ".venv", "bin"), { recursive: true });
+		await writeFile(external, "external\n");
+		const plan = await prepareDependencyBootstrap("cow-then-repair", {
+			checkUvRuntime: async () => true,
+			repoRoot,
+			worktreePath,
+		});
+
+		// When relocation inspects the individual launcher before repair.
+		const result = await executeDependencyBootstrap(plan, {
+			cloneDirectory: async (_source, destination) => {
+				await mkdir(join(destination, "bin"), { recursive: true });
+				await writeFile(join(destination, "pyvenv.cfg"), "version = 3.13\n");
+				await symlink(external, join(destination, "bin", "tool"));
+				return { ms: 1 };
+			},
+			failureStore: createFailureStore(),
+			repoRoot,
+			reporter: createReporter(),
+			runCommand: async () => {
+				await writeUvTestInterpreter(
+					join(worktreePath, ".venv"),
+					join(worktreePath, ".venv"),
+				);
+			},
+		});
+
+		// Then the unsafe seed is discarded without changing the external target.
+		expect(result.ready).toBe(true);
+		await expect(readFile(external, "utf8")).resolves.toBe("external\n");
+		expect(result.events.map(({ state }) => state)).toEqual([
+			"seeded",
+			"fallback",
+			"repaired",
+		]);
+	});
+
+	it("retries uv from a clean target when repaired scripts still use the source prefix", async () => {
+		// Given a cloned environment whose first locked repair restores a source-bound interpreter.
+		const repoRoot = await mkdtemp(join(tmpdir(), "gji-bootstrap-uv-stale-"));
+		const worktreePath = await mkdtemp(
+			join(tmpdir(), "gji-bootstrap-uv-stale-worktree-"),
+		);
+		await writeFile(join(repoRoot, "uv.lock"), "versioned\n");
+		await mkdir(join(repoRoot, ".venv", "bin"), { recursive: true });
+		const plan = await prepareDependencyBootstrap("cow-then-repair", {
+			checkUvRuntime: async () => true,
+			repoRoot,
+			worktreePath,
+		});
+		let repairAttempts = 0;
+
+		// When post-repair validation detects the stale prefix.
+		const result = await executeDependencyBootstrap(plan, {
+			cloneDirectory: async (_source, destination) => {
+				await mkdir(join(destination, "bin"), { recursive: true });
+				return { ms: 1 };
+			},
+			failureStore: createFailureStore(),
+			repoRoot,
+			reporter: createReporter(),
+			runCommand: async () => {
+				repairAttempts += 1;
+				await writeUvTestInterpreter(
+					join(worktreePath, ".venv"),
+					repairAttempts === 1
+						? join(repoRoot, ".venv")
+						: join(worktreePath, ".venv"),
+				);
+			},
+		});
+
+		// Then the seed is removed and the clean repair is accepted only after relocation succeeds.
+		expect(result.ready).toBe(true);
+		expect(repairAttempts).toBe(2);
+		expect(result.events.map(({ state }) => state)).toEqual([
+			"seeded",
+			"fallback",
+			"repaired",
+		]);
+	});
+
+	it("reuses a uv environment when its own interpreter matches its metadata", async () => {
 		// Given a uv environment whose Python version differs from the gji process.
 		const repoRoot = await mkdtemp(
 			join(tmpdir(), "gji-bootstrap-uv-mismatch-repo-"),
@@ -555,18 +869,13 @@ describe("dependencyBootstrap adapters", () => {
 		await mkdir(join(repoRoot, ".venv", "bin"), { recursive: true });
 		await writeFile(
 			join(repoRoot, ".venv", "pyvenv.cfg"),
-			"version_info = 3.11.11\n",
+			"version_info = 3.11.11\nimplementation = CPython\n",
 		);
 		const interpreter = join(repoRoot, ".venv", "bin", "python");
 		await writeFile(interpreter, "#!/bin/sh\nprintf '3.11|arm64|cpython\\n'\n");
 		await chmod(interpreter, 0o755);
-		const hostBin = join(repoRoot, "host-bin");
-		await mkdir(hostBin);
-		const hostPython = join(hostBin, "python3");
-		await writeFile(hostPython, "#!/bin/sh\nprintf '3.14|arm64|cpython\\n'\n");
-		await chmod(hostPython, 0o755);
 		const originalPath = process.env.PATH;
-		process.env.PATH = `${hostBin}:${originalPath ?? ""}`;
+		process.env.PATH = "";
 		let plan: Awaited<ReturnType<typeof prepareDependencyBootstrap>>;
 		try {
 			plan = await prepareDependencyBootstrap("cow-then-repair", {
@@ -579,7 +888,7 @@ describe("dependencyBootstrap adapters", () => {
 		}
 		let cloneCalled = false;
 
-		// When bootstrap evaluates the seed without comparing it to the host python3.
+		// When bootstrap evaluates the seed using only that environment's interpreter.
 		const result = await executeDependencyBootstrap(plan, {
 			cloneDirectory: async (_source, destination) => {
 				cloneCalled = true;
@@ -589,39 +898,66 @@ describe("dependencyBootstrap adapters", () => {
 			failureStore: createFailureStore(),
 			repoRoot,
 			reporter: createReporter(),
-			runCommand: async () => undefined,
+			runCommand: async () =>
+				writeUvTestInterpreter(
+					join(worktreePath, ".venv"),
+					join(worktreePath, ".venv"),
+				),
 		});
 
-		// Then the valid environment is seeded and repaired despite the host Python version.
+		// Then the self-consistent environment is seeded and repaired.
 		expect(result.ready).toBe(true);
 		expect(cloneCalled).toBe(true);
 		expect(result.events.map(({ state }) => state)).toEqual([
 			"seeded",
 			"repaired",
 		]);
+	});
 
-		// When the seed interpreter is changed to a different architecture.
-		await writeFile(
-			interpreter,
-			"#!/bin/sh\nprintf '3.11|x86_64|cpython\\n'\n",
-		);
-		await chmod(interpreter, 0o755);
-		process.env.PATH = `${hostBin}:${originalPath ?? ""}`;
-		let incompatiblePlan: Awaited<
-			ReturnType<typeof prepareDependencyBootstrap>
-		>;
-		try {
-			incompatiblePlan = await prepareDependencyBootstrap("cow-then-repair", {
+	it("rejects uv seeds whose interpreter disagrees with environment metadata", async () => {
+		// Given uv environments with mismatched or unusable interpreter fingerprints.
+		const cases = [
+			{
+				config: "version_info = 3.12.1\nimplementation = CPython\n",
+				script: "printf '3.11|arm64|cpython\\n'",
+			},
+			{
+				config: "version_info = 3.11.1\nimplementation = PyPy\n",
+				script: "printf '3.11|arm64|cpython\\n'",
+			},
+			{
+				config: "version_info = 3.11.1\nimplementation = CPython\n",
+				script: "printf 'not-a-fingerprint\\n'",
+			},
+			{
+				config: "version_info = 3.11.1\nimplementation = CPython\n",
+				script: "exit 1",
+			},
+		];
+
+		// When each environment is considered as a CoW seed.
+		for (const [index, testCase] of cases.entries()) {
+			const repoRoot = await mkdtemp(
+				join(tmpdir(), `gji-uv-invalid-${index}-`),
+			);
+			const worktreePath = await mkdtemp(
+				join(tmpdir(), `gji-uv-invalid-worktree-${index}-`),
+			);
+			await writeFile(join(repoRoot, "uv.lock"), "versioned\n");
+			await mkdir(join(repoRoot, ".venv", "bin"), { recursive: true });
+			await writeFile(join(repoRoot, ".venv", "pyvenv.cfg"), testCase.config);
+			const interpreter = join(repoRoot, ".venv", "bin", "python");
+			await writeFile(interpreter, `#!/bin/sh\n${testCase.script}\n`);
+			await chmod(interpreter, 0o755);
+
+			const plan = await prepareDependencyBootstrap("cow-then-repair", {
 				repoRoot,
 				worktreePath,
 			});
-		} finally {
-			if (originalPath === undefined) delete process.env.PATH;
-			else process.env.PATH = originalPath;
-		}
 
-		// Then a Python version difference is allowed, but an architecture mismatch is not.
-		expect(incompatiblePlan.targets[0]?.seedable).toBe(false);
+			// Then the incompatible environment is repaired from an empty target.
+			expect(plan.targets[0]?.seedable).toBe(false);
+		}
 	});
 
 	it("clones Cargo build state before cargo check repair", async () => {

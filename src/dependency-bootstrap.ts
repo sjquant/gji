@@ -1,6 +1,15 @@
 import { execFile } from "node:child_process";
-import { lstat, readFile, realpath, rm } from "node:fs/promises";
-import { join, relative, resolve, sep } from "node:path";
+import type { Dirent } from "node:fs";
+import { lstat, readdir, readFile, realpath, rm } from "node:fs/promises";
+import {
+	basename,
+	dirname,
+	isAbsolute,
+	join,
+	relative,
+	resolve,
+	sep,
+} from "node:path";
 import { promisify } from "node:util";
 import {
 	type CloneFailureStore,
@@ -43,6 +52,7 @@ export interface BootstrapPreparationContext {
 }
 
 export interface BootstrapExecutionContext {
+	ownership?: BootstrapTargetOwnership;
 	runCommand: BootstrapCommandRunner;
 	stderr: (chunk: string) => void;
 	stdout: (chunk: string) => void;
@@ -359,9 +369,14 @@ async function executeBootstrapTarget(
 	}
 
 	let seeded = false;
-	const failureScope = seedable
-		? await cloneFailureScope(adapter.seedPath(target), target.targetPath)
-		: undefined;
+	const failureScope =
+		seedable && cloneDirectory.strategyIdentity
+			? await cloneFailureScope(
+					adapter.seedPath(target),
+					target.targetPath,
+					cloneDirectory.strategyIdentity,
+				)
+			: undefined;
 	let ownership: BootstrapTargetOwnership = target.existingBeforeBootstrap
 		? "preserve"
 		: "empty";
@@ -412,6 +427,7 @@ async function executeBootstrapTarget(
 		});
 	} else if (
 		seedable &&
+		failureScope !== undefined &&
 		(await failureStore.isCached(repoRoot, target.relativePath, failureScope))
 	) {
 		recordBootstrapEvent(events, reporter, {
@@ -428,7 +444,9 @@ async function executeBootstrapTarget(
 				destinationRoot: target.worktreePath,
 				measureBytes: reporter.measureCloneSize,
 			});
-			await failureStore.clear(repoRoot, target.relativePath, failureScope);
+			if (failureScope) {
+				await failureStore.clear(repoRoot, target.relativePath, failureScope);
+			}
 			seeded = true;
 			ownership = "adapter";
 			recordBootstrapEvent(events, reporter, {
@@ -471,7 +489,7 @@ async function executeBootstrapTarget(
 				);
 				return;
 			}
-			if (isCloneUnsupportedError(error)) {
+			if (isCloneUnsupportedError(error) && failureScope) {
 				await failureStore.cache(
 					repoRoot,
 					target.relativePath,
@@ -536,7 +554,7 @@ async function repairTarget(
 	}
 	const presentBeforeRepair = beforeRepairInspection.kind === "exists";
 	try {
-		await adapter.repair(target, execution);
+		await adapter.repair(target, { ...execution, ownership });
 		recordBootstrapEvent(events, reporter, {
 			adapter: adapter.name,
 			kind: adapter.kind,
@@ -607,8 +625,11 @@ async function repairTarget(
 			return;
 		}
 		const presentBeforeRetry = beforeRetryInspection.kind === "exists";
+		const retryOwnership: BootstrapTargetOwnership = presentBeforeRetry
+			? "preserve"
+			: "empty";
 		try {
-			await adapter.repair(target, execution);
+			await adapter.repair(target, { ...execution, ownership: retryOwnership });
 			recordBootstrapEvent(events, reporter, {
 				adapter: adapter.name,
 				kind: adapter.kind,
@@ -621,7 +642,7 @@ async function repairTarget(
 			const cleanupError = await adapter
 				.cleanupAfterRepairFailure({
 					target,
-					ownership,
+					ownership: retryOwnership,
 					targetExistedBeforeRepair: presentBeforeRetry,
 				})
 				.then(() => undefined)
@@ -696,8 +717,11 @@ function createBootstrapAdapters(
 			relativePath: "node_modules",
 			repairCommand: "pnpm install --frozen-lockfile",
 			shell: false,
-			beforeRepair: async (target) => {
-				if (!target.existingBeforeBootstrap) {
+			beforeRepair: async (target, context) => {
+				if (
+					!target.existingBeforeBootstrap &&
+					(context.ownership === "adapter" || context.ownership === "syncDirs")
+				) {
 					await rm(join(target.targetPath, ".modules.yaml"), {
 						force: true,
 					});
@@ -711,6 +735,16 @@ function createBootstrapAdapters(
 			relativePath: "node_modules",
 			repairCommand: "yarn install --immutable",
 			shell: false,
+			beforeRepair: async (target, context) => {
+				if (
+					!target.existingBeforeBootstrap &&
+					(context.ownership === "adapter" || context.ownership === "syncDirs")
+				) {
+					await rm(join(target.targetPath, ".yarn-state.yml"), {
+						force: true,
+					});
+				}
+			},
 		}),
 		new LockfileBootstrapAdapter({
 			name: "npm",
@@ -734,6 +768,14 @@ function createBootstrapAdapters(
 			commandOptions: () => ({
 				env: { BUNDLE_PATH: "vendor/bundle" },
 			}),
+			beforeRepair: async (target, context) => {
+				if (
+					!target.existingBeforeBootstrap &&
+					(context.ownership === "adapter" || context.ownership === "syncDirs")
+				) {
+					await removeNamedFiles(target.targetPath, "gem.build_complete");
+				}
+			},
 		}),
 		new LockfileBootstrapAdapter({
 			name: "uv",
@@ -743,6 +785,8 @@ function createBootstrapAdapters(
 			repairCommand: "uv sync --locked",
 			shell: false,
 			canSeedOverride: checkUvRuntime,
+			beforeRepair: validateUvStructure,
+			afterRepair: validateUvRelocation,
 		}),
 		new LockfileBootstrapAdapter({
 			name: "cargo",
@@ -764,7 +808,11 @@ interface LockfileBootstrapAdapterSpec {
 	shell?: boolean;
 	seedPolicy?: "always" | "never";
 	canSeedOverride?: (target: BootstrapTarget) => Promise<boolean>;
-	beforeRepair?: (target: BootstrapTarget) => Promise<void>;
+	beforeRepair?: (
+		target: BootstrapTarget,
+		context: BootstrapExecutionContext,
+	) => Promise<void>;
+	afterRepair?: (target: BootstrapTarget) => Promise<void>;
 	commandOptions?: (
 		target: BootstrapTarget,
 	) => Parameters<BootstrapCommandRunner>[4];
@@ -783,7 +831,11 @@ class LockfileBootstrapAdapter implements BootstrapAdapter {
 	private readonly canSeedOverride?: (
 		target: BootstrapTarget,
 	) => Promise<boolean>;
-	private readonly beforeRepair?: (target: BootstrapTarget) => Promise<void>;
+	private readonly beforeRepair?: (
+		target: BootstrapTarget,
+		context: BootstrapExecutionContext,
+	) => Promise<void>;
+	private readonly afterRepair?: (target: BootstrapTarget) => Promise<void>;
 	private readonly commandOptions?: (
 		target: BootstrapTarget,
 	) => Parameters<BootstrapCommandRunner>[4];
@@ -800,6 +852,7 @@ class LockfileBootstrapAdapter implements BootstrapAdapter {
 		this.seedPolicy = spec.seedPolicy ?? "always";
 		this.canSeedOverride = spec.canSeedOverride;
 		this.beforeRepair = spec.beforeRepair;
+		this.afterRepair = spec.afterRepair;
 		this.commandOptions = spec.commandOptions;
 		this.repairCommandOverride = spec.repairCommandOverride;
 		this.repairState = spec.repairState ?? "repaired";
@@ -845,7 +898,7 @@ class LockfileBootstrapAdapter implements BootstrapAdapter {
 		target: BootstrapTarget,
 		context: BootstrapExecutionContext,
 	): Promise<void> {
-		await this.beforeRepair?.(target);
+		await this.beforeRepair?.(target, context);
 		await context.runCommand(
 			target.repairCommand,
 			target.worktreePath,
@@ -856,6 +909,7 @@ class LockfileBootstrapAdapter implements BootstrapAdapter {
 				shell: this.shell,
 			},
 		);
+		await this.afterRepair?.(target);
 	}
 
 	async canSeed(target: BootstrapTarget): Promise<boolean> {
@@ -918,6 +972,9 @@ async function defaultCheckUvRuntime(
 		);
 		const expected = config.match(/^version(?:_info)?\s*=\s*(\d+\.\d+)/mu)?.[1];
 		if (!expected) return false;
+		const expectedImplementation = config
+			.match(/^implementation\s*=\s*([^\s#]+)/imu)?.[1]
+			?.toLowerCase();
 
 		const sourceInterpreter = join(
 			target.sourcePath,
@@ -925,23 +982,212 @@ async function defaultCheckUvRuntime(
 		);
 		const fingerprintScript =
 			"import platform, sys; print(f'{sys.version_info.major}.{sys.version_info.minor}|{platform.machine()}|{sys.implementation.name}')";
-		const [source, current] = await Promise.all([
-			execFileAsync(sourceInterpreter, ["-c", fingerprintScript]),
-			execFileAsync("python3", ["-c", fingerprintScript]),
+		const source = await execFileAsync(sourceInterpreter, [
+			"-c",
+			fingerprintScript,
 		]);
 		const sourceFingerprint = source.stdout.trim();
-		const currentFingerprint = current.stdout.trim();
-		const [, sourceMachine, sourceImplementation] =
+		const [sourceVersion, sourceMachine, sourceImplementation, extra] =
 			sourceFingerprint.split("|");
-		const [, currentMachine, currentImplementation] =
-			currentFingerprint.split("|");
 		return (
-			sourceFingerprint.startsWith(`${expected}|`) &&
-			sourceMachine === currentMachine &&
-			sourceImplementation === currentImplementation
+			extra === undefined &&
+			sourceVersion === expected &&
+			Boolean(sourceMachine) &&
+			Boolean(sourceImplementation) &&
+			(expectedImplementation === undefined ||
+				sourceImplementation.toLowerCase() === expectedImplementation)
 		);
 	} catch {
 		return false;
+	}
+}
+
+function virtualEnvironmentPrefixes(text: string): string[] {
+	const prefixes: string[] = [];
+	for (const line of text.split(/\r?\n/u)) {
+		if (!/\bVIRTUAL_ENV\b/u.test(line)) continue;
+		for (const match of line.matchAll(/["']([^"']+)["']/gu)) {
+			if (match[1] && isAbsolute(match[1])) prefixes.push(match[1]);
+		}
+		const unquoted = line.match(/\bVIRTUAL_ENV(?:\s*=|\s+)\s*([^\s"']+)/u)?.[1];
+		if (unquoted && isAbsolute(unquoted)) prefixes.push(unquoted);
+	}
+	return uniquePaths(prefixes);
+}
+
+function pythonPrefixFromShebang(text: string): string | undefined {
+	const command = text
+		.match(/^#!\s*([^\r\n]+)/u)?.[1]
+		?.trim()
+		.split(/\s+/u)[0];
+	if (!command || !isAbsolute(command)) return undefined;
+	if (
+		!/^python(?:\d+(?:\.\d+)?)?(?:\.exe)?$/iu.test(
+			command.split(sep).at(-1) ?? "",
+		)
+	) {
+		return undefined;
+	}
+	return dirname(dirname(command));
+}
+
+function pythonPrefixesFromText(text: string): string[] {
+	const interpreters: string[] = [];
+	for (const match of text.matchAll(/["'](\/[^"']+)["']/gu)) {
+		if (match[1]) interpreters.push(match[1]);
+	}
+	for (const match of text.matchAll(/(?:^|\s)(\/[^\s"']+)/gmu)) {
+		if (match[1]) interpreters.push(match[1]);
+	}
+	return uniquePaths(
+		interpreters.flatMap((interpreter) => {
+			const name = interpreter.split(sep).at(-1) ?? "";
+			return /^python(?:\d+(?:\.\d+)?)?(?:\.exe)?$/iu.test(name)
+				? [dirname(dirname(interpreter))]
+				: [];
+		}),
+	);
+}
+
+async function validateUvRelocation(target: BootstrapTarget): Promise<void> {
+	if (target.existingBeforeBootstrap) return;
+
+	const scriptsDirectory = join(
+		target.targetPath,
+		process.platform === "win32" ? "Scripts" : "bin",
+	);
+	const interpreter = join(
+		scriptsDirectory,
+		process.platform === "win32" ? "python.exe" : "python",
+	);
+	const { stdout } = await execFileAsync(interpreter, [
+		"-c",
+		"import os, sys; print(os.path.realpath(sys.prefix))",
+	]);
+	const [actualPrefix, expectedPrefix] = await Promise.all([
+		realpath(stdout.trim()),
+		realpath(target.targetPath),
+	]);
+	if (actualPrefix !== expectedPrefix) {
+		throw new Error(
+			`uv environment still points to its source prefix: ${actualPrefix}`,
+		);
+	}
+
+	const sourcePaths = uniquePaths([
+		target.sourcePath,
+		await realpath(target.sourcePath).catch(() => undefined),
+	]);
+	const entries = await readdir(scriptsDirectory, { withFileTypes: true });
+	assertSafeUvScriptEntries(entries);
+	const environmentName = basename(target.targetPath);
+	const acceptedPrefixes = new Set([
+		resolve(target.targetPath),
+		await realpath(target.targetPath),
+	]);
+	for (const path of [
+		join(target.targetPath, "pyvenv.cfg"),
+		...entries
+			.filter((entry) => entry.isFile())
+			.map((entry) => join(scriptsDirectory, entry.name)),
+	]) {
+		const contents = await readFile(path).catch(() => undefined);
+		if (!contents) continue;
+		const text = contents.toString("utf8");
+		if (!Buffer.from(text, "utf8").equals(contents)) continue;
+		if (sourcePaths.some((sourcePath) => text.includes(sourcePath))) {
+			throw new Error(`uv environment contains a stale source path: ${path}`);
+		}
+		const shebangPrefix = pythonPrefixFromShebang(text);
+		if (
+			shebangPrefix &&
+			basename(shebangPrefix) === environmentName &&
+			!acceptedPrefixes.has(resolve(shebangPrefix))
+		) {
+			throw new Error(`uv launcher points outside its environment: ${path}`);
+		}
+		if (
+			pythonPrefixesFromText(text)
+				.filter((prefix) => basename(prefix) === environmentName)
+				.some((prefix) => !acceptedPrefixes.has(resolve(prefix)))
+		) {
+			throw new Error(`uv launcher points outside its environment: ${path}`);
+		}
+		if (
+			virtualEnvironmentPrefixes(text).some(
+				(prefix) => !acceptedPrefixes.has(resolve(prefix)),
+			)
+		) {
+			throw new Error(
+				`uv activation script points outside its environment: ${path}`,
+			);
+		}
+	}
+}
+
+async function validateUvStructure(target: BootstrapTarget): Promise<void> {
+	if (target.existingBeforeBootstrap) return;
+	const targetStats = await lstat(target.targetPath).catch(() => undefined);
+	if (!targetStats) return;
+	if (!targetStats.isDirectory() || targetStats.isSymbolicLink()) {
+		throw new Error("uv environment must be a real directory");
+	}
+
+	const configStats = await lstat(join(target.targetPath, "pyvenv.cfg")).catch(
+		() => undefined,
+	);
+	if (configStats && (!configStats.isFile() || configStats.isSymbolicLink())) {
+		throw new Error("uv pyvenv.cfg must be a regular file");
+	}
+
+	const scriptsDirectory = join(
+		target.targetPath,
+		process.platform === "win32" ? "Scripts" : "bin",
+	);
+	const scriptsStats = await lstat(scriptsDirectory).catch(() => undefined);
+	if (!scriptsStats) return;
+	if (!scriptsStats.isDirectory() || scriptsStats.isSymbolicLink()) {
+		throw new Error("uv scripts path must be a real directory");
+	}
+	assertSafeUvScriptEntries(
+		await readdir(scriptsDirectory, { withFileTypes: true }),
+	);
+}
+
+function assertSafeUvScriptEntries(entries: readonly Dirent[]): void {
+	for (const entry of entries) {
+		if (entry.isSymbolicLink() && !isUvInterpreterName(entry.name)) {
+			throw new Error(`uv script must not be a symbolic link: ${entry.name}`);
+		}
+	}
+}
+
+function isUvInterpreterName(name: string): boolean {
+	return /^python(?:\d+(?:\.\d+)?)?(?:\.exe)?$/iu.test(name);
+}
+
+async function removeNamedFiles(root: string, name: string): Promise<void> {
+	const pending = [root];
+	while (pending.length > 0) {
+		const current = pending.pop();
+		if (!current) continue;
+		let entries: Dirent[];
+		try {
+			entries = await readdir(current, { withFileTypes: true });
+		} catch {
+			continue;
+		}
+		for (const entry of entries) {
+			const path = join(current, entry.name);
+			if (entry.isDirectory()) pending.push(path);
+			else if (
+				entry.isFile() &&
+				entry.name === name &&
+				relative(root, path).split(sep).includes("extensions")
+			) {
+				await rm(path, { force: true });
+			}
+		}
 	}
 }
 

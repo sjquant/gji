@@ -14,15 +14,28 @@ export type DestinationInspection =
 	| { kind: "unsafe"; reason: string };
 
 export interface OpenDestinationDirectory {
+	fd?: number;
 	path: string;
+	relativePath?: string;
 	close(): Promise<void>;
 }
 
 export async function openDestinationDirectory(
 	root: string,
 	path: string,
+	createDirectories = true,
 ): Promise<OpenDestinationDirectory> {
 	const segments = destinationSegments(root, path);
+	if (process.platform === "darwin") {
+		if (createDirectories) await ensureDestinationDirectory(root, path);
+		const handle = await open(root, destinationDirectoryFlags());
+		return {
+			fd: handle.fd,
+			path: resolve(path),
+			relativePath: segments.join(sep),
+			close: async () => handle.close(),
+		};
+	}
 	if (process.platform !== "linux") {
 		await ensureDestinationDirectory(root, path);
 		return { path: resolve(path), close: async () => undefined };
@@ -44,6 +57,7 @@ export async function openDestinationDirectory(
 		}
 
 		return {
+			fd: handle.fd,
 			path: fileDescriptorPath(handle.fd),
 			close: async () => handle.close(),
 		};

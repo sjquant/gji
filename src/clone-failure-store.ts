@@ -20,7 +20,6 @@ import { GLOBAL_CONFIG_DIRECTORY } from "./config.js";
 const STATE_FILE_NAME = "state.json";
 const STATE_LOCK_SUFFIX = ".lock";
 const CLONE_FAILURE_TTL_MS = 24 * 60 * 60 * 1000;
-const CLONE_FAILURE_SCOPE_VERSION = "cow-v2";
 const STATE_LOCK_TTL_MS = 30 * 1000;
 
 interface CloneFailure {
@@ -37,15 +36,26 @@ export interface CloneFailureStore {
 	isCached(
 		repoRoot: string,
 		directory: string,
-		scope?: string,
+		scope?: CloneFailureScope,
 	): Promise<boolean>;
 	cache(
 		repoRoot: string,
 		directory: string,
 		reason: string,
-		scope?: string,
+		scope?: CloneFailureScope,
 	): Promise<void>;
-	clear(repoRoot: string, directory: string, scope?: string): Promise<void>;
+	clear(
+		repoRoot: string,
+		directory: string,
+		scope?: CloneFailureScope,
+	): Promise<void>;
+}
+
+export interface CloneFailureScope {
+	strategy: string;
+	sourcePath: string;
+	sourceDevice?: number;
+	destinationDevice?: number;
 }
 
 export class FileCloneFailureStore implements CloneFailureStore {
@@ -54,7 +64,7 @@ export class FileCloneFailureStore implements CloneFailureStore {
 	async isCached(
 		repoRoot: string,
 		directory: string,
-		scope?: string,
+		scope?: CloneFailureScope,
 	): Promise<boolean> {
 		const state = await this.readState();
 		const repoState = state.syncDirs?.[repoRoot];
@@ -73,7 +83,7 @@ export class FileCloneFailureStore implements CloneFailureStore {
 		repoRoot: string,
 		directory: string,
 		reason: string,
-		scope?: string,
+		scope?: CloneFailureScope,
 	): Promise<void> {
 		await this.update(async () => {
 			const state = await this.readState();
@@ -93,7 +103,7 @@ export class FileCloneFailureStore implements CloneFailureStore {
 	async clear(
 		repoRoot: string,
 		directory: string,
-		scope?: string,
+		scope?: CloneFailureScope,
 	): Promise<void> {
 		await this.update(async () => {
 			const state = await this.readState();
@@ -292,31 +302,48 @@ export const defaultCloneFailureStore: CloneFailureStore =
 export async function cloneFailureScope(
 	source: string,
 	destination: string,
-): Promise<string> {
+	strategy: string,
+): Promise<CloneFailureScope> {
 	const sourcePath = resolve(source);
 	const destinationParent = resolve(dirname(destination));
 	const [sourceDevice, destinationDevice] = await Promise.all([
 		readDevice(sourcePath),
 		readDevice(destinationParent),
 	]);
-	return JSON.stringify([
-		CLONE_FAILURE_SCOPE_VERSION,
+	return {
+		strategy,
 		sourcePath,
 		sourceDevice,
 		destinationDevice,
-	]);
+	};
 }
 
 async function readDevice(path: string): Promise<number | undefined> {
-	try {
-		return (await stat(path)).dev;
-	} catch {
-		return undefined;
+	let current = path;
+	while (true) {
+		try {
+			return (await stat(current)).dev;
+		} catch (error) {
+			if (!isErrorCode(error, "ENOENT") && !isErrorCode(error, "ENOTDIR")) {
+				return undefined;
+			}
+			const parent = dirname(current);
+			if (parent === current) return undefined;
+			current = parent;
+		}
 	}
 }
 
-function failureKey(directory: string, scope?: string): string {
-	return scope === undefined ? directory : JSON.stringify([scope, directory]);
+function failureKey(directory: string, scope?: CloneFailureScope): string {
+	return scope === undefined
+		? directory
+		: JSON.stringify({
+				directory,
+				strategy: scope.strategy,
+				sourcePath: scope.sourcePath,
+				sourceDevice: scope.sourceDevice,
+				destinationDevice: scope.destinationDevice,
+			});
 }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {

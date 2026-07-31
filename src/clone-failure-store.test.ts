@@ -3,6 +3,7 @@ import {
 	mkdir,
 	mkdtemp,
 	readFile,
+	stat,
 	utimes,
 	writeFile,
 } from "node:fs/promises";
@@ -15,6 +16,7 @@ import {
 	cloneFailureScope,
 	FileCloneFailureStore,
 } from "./clone-failure-store.js";
+import { cloneStrategyIdentity } from "./dir-clone.js";
 
 const originalConfigDir = process.env.GJI_CONFIG_DIR;
 
@@ -55,18 +57,25 @@ describe("FileCloneFailureStore", () => {
 		const root = await mkdtemp(join(tmpdir(), "gji-state-scoped-"));
 		process.env.GJI_CONFIG_DIR = root;
 		const store = new FileCloneFailureStore();
-		await store.cache("/repo", "node_modules", "unsupported", "dependency-a");
+		const dependencyA = {
+			strategy: "dependency-a",
+			sourcePath: "/source-a",
+		};
+		const dependencyB = {
+			strategy: "dependency-b",
+			sourcePath: "/source-b",
+		};
+		await store.cache("/repo", "node_modules", "unsupported", dependencyA);
 
 		// When two bootstrap scopes query the same logical directory.
-		const sameScope = await store.isCached(
-			"/repo",
-			"node_modules",
-			"dependency-a",
-		);
+		const sameScope = await store.isCached("/repo", "node_modules", {
+			sourcePath: dependencyA.sourcePath,
+			strategy: dependencyA.strategy,
+		});
 		const differentScope = await store.isCached(
 			"/repo",
 			"node_modules",
-			"dependency-b",
+			dependencyB,
 		);
 
 		// Then a failure from one source/filesystem scope does not suppress another.
@@ -105,7 +114,12 @@ describe("FileCloneFailureStore", () => {
 		// Given a cached failure using the pre-versioned source/filesystem scope.
 		const root = await mkdtemp(join(tmpdir(), "gji-state-scope-version-"));
 		process.env.GJI_CONFIG_DIR = root;
-		const oldScope = JSON.stringify(["/source", undefined, undefined]);
+		const oldScope = JSON.stringify([
+			"cow-v2",
+			"/source",
+			undefined,
+			undefined,
+		]);
 		await writeFile(
 			join(root, "state.json"),
 			JSON.stringify({
@@ -126,12 +140,30 @@ describe("FileCloneFailureStore", () => {
 		const currentScope = await cloneFailureScope(
 			"/source",
 			"/destination/node_modules",
+			cloneStrategyIdentity(),
 		);
 
 		// Then the old cached failure does not suppress a retry.
 		expect(await store.isCached("/repo", "node_modules", currentScope)).toBe(
 			false,
 		);
+	});
+
+	it("scopes failures to the nearest existing destination filesystem", async () => {
+		// Given a nested destination whose immediate parents do not exist yet.
+		const root = await mkdtemp(join(tmpdir(), "gji-state-scope-device-"));
+		const source = join(root, "source");
+		await mkdir(source);
+
+		// When the clone scope is created before those parents are installed.
+		const scope = await cloneFailureScope(
+			source,
+			join(root, "worktree", "vendor", "bundle"),
+			cloneStrategyIdentity(),
+		);
+
+		// Then the existing worktree ancestor still identifies the destination volume.
+		expect(scope.destinationDevice).toBe((await stat(root)).dev);
 	});
 
 	it("treats malformed state as an empty cache", async () => {

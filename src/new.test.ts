@@ -13,7 +13,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { runCli } from "./cli.js";
 import { GLOBAL_CONFIG_FILE_PATH } from "./config.js";
-import { CloneUnsupportedError } from "./dir-clone.js";
+import { CloneUnsupportedError, cloneStrategyIdentity } from "./dir-clone.js";
 import {
 	createNewCommand,
 	generateBranchPlaceholder,
@@ -1715,14 +1715,18 @@ describe("gji new", () => {
 				"utf8",
 			);
 			let cloneCalls = 0;
-			const runNew = createNewCommand({
-				cloneDir: async (_source, destination) => {
+			const cloneDir = Object.assign(
+				async (_source: string, destination: string) => {
 					cloneCalls += 1;
 					await mkdir(destination, { recursive: true });
 					await writeFile(join(destination, "partial.txt"), "partial\n");
 					await rm(destination, { force: true, recursive: true });
 					throw new Error("reflink unsupported");
 				},
+				{ strategyIdentity: cloneStrategyIdentity() },
+			);
+			const runNew = createNewCommand({
+				cloneDir,
 			});
 
 			// When two worktrees are created after the first CoW attempt fails.
