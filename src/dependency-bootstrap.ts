@@ -925,16 +925,12 @@ async function defaultCheckUvRuntime(
 		);
 		const fingerprintScript =
 			"import platform, sys; print(f'{sys.version_info.major}.{sys.version_info.minor}|{platform.machine()}|{sys.implementation.cache_tag}')";
-		const [source, current] = await Promise.all([
-			execFileAsync(sourceInterpreter, ["-c", fingerprintScript]),
-			execFileAsync("python3", ["-c", fingerprintScript]),
+		const source = await execFileAsync(sourceInterpreter, [
+			"-c",
+			fingerprintScript,
 		]);
 		const sourceFingerprint = source.stdout.trim();
-		const currentFingerprint = current.stdout.trim();
-		return (
-			sourceFingerprint === currentFingerprint &&
-			sourceFingerprint.startsWith(`${expected}|`)
-		);
+		return sourceFingerprint.startsWith(`${expected}|`);
 	} catch {
 		return false;
 	}

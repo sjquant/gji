@@ -1,5 +1,6 @@
 import {
 	access,
+	chmod,
 	mkdir,
 	mkdtemp,
 	readFile,
@@ -542,8 +543,8 @@ describe("dependencyBootstrap adapters", () => {
 		]);
 	});
 
-	it("falls back safely when the Python runtime is incompatible", async () => {
-		// Given a uv environment that cannot run under the current interpreter.
+	it("reuses a uv environment when its own interpreter is valid", async () => {
+		// Given a uv environment whose Python version differs from the gji process.
 		const repoRoot = await mkdtemp(
 			join(tmpdir(), "gji-bootstrap-uv-mismatch-repo-"),
 		);
@@ -551,18 +552,25 @@ describe("dependencyBootstrap adapters", () => {
 			join(tmpdir(), "gji-bootstrap-uv-mismatch-worktree-"),
 		);
 		await writeFile(join(repoRoot, "uv.lock"), "versioned\n");
-		await mkdir(join(repoRoot, ".venv"), { recursive: true });
+		await mkdir(join(repoRoot, ".venv", "bin"), { recursive: true });
+		await writeFile(join(repoRoot, ".venv", "pyvenv.cfg"), "version = 3.11\n");
+		const interpreter = join(repoRoot, ".venv", "bin", "python");
+		await writeFile(
+			interpreter,
+			"#!/bin/sh\nprintf '3.11|arm64|cpython-311\\n'\n",
+		);
+		await chmod(interpreter, 0o755);
 		const plan = await prepareDependencyBootstrap("cow-then-repair", {
-			checkUvRuntime: async () => false,
 			repoRoot,
 			worktreePath,
 		});
 		let cloneCalled = false;
 
-		// When bootstrap evaluates the incompatible seed.
+		// When bootstrap evaluates the seed without comparing it to the host python3.
 		const result = await executeDependencyBootstrap(plan, {
-			cloneDirectory: async () => {
+			cloneDirectory: async (_source, destination) => {
 				cloneCalled = true;
+				await mkdir(destination, { recursive: true });
 				return { ms: 1 };
 			},
 			failureStore: createFailureStore(),
@@ -571,11 +579,11 @@ describe("dependencyBootstrap adapters", () => {
 			runCommand: async () => undefined,
 		});
 
-		// Then it does not clone an incompatible interpreter environment and repairs from empty state.
+		// Then the valid environment is seeded and repaired despite the host Python version.
 		expect(result.ready).toBe(true);
-		expect(cloneCalled).toBe(false);
+		expect(cloneCalled).toBe(true);
 		expect(result.events.map(({ state }) => state)).toEqual([
-			"fallback",
+			"seeded",
 			"repaired",
 		]);
 	});
