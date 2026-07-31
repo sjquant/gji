@@ -164,6 +164,7 @@ export async function cloneDir(
 								source,
 								target,
 								options.runCommand ?? runCloneCommand,
+								options.runCommand === undefined,
 							)
 					: async (source, target) => {
 							if (!strategy) {
@@ -236,12 +237,16 @@ async function runNativeCloneDirectory(
 	source: string,
 	destination: string,
 	runCommand: (command: string, args: string[]) => Promise<void>,
+	verifyCloneFilesystem: boolean,
 ): Promise<void> {
 	// Node's macOS fs.cp implementation can return ENOSYS for clonefile on
 	// APFS, while the system cp utility's clone mode works on the same files.
 	// Keep this forced-CoW: a plain recursive copy would hide an unsupported
 	// filesystem and defeat the bootstrap contract.
 	await ensureSameFilesystem(source, dirname(destination));
+	if (verifyCloneFilesystem) {
+		await ensureMacOSCloneFilesystem(dirname(destination));
+	}
 	await runCommand("/bin/cp", ["-c", "-p", "-R", source, destination]);
 }
 
@@ -573,6 +578,31 @@ async function ensureSameFilesystem(
 	if (sourceStats.dev !== destinationStats.dev) {
 		throw new CloneUnsupportedError(
 			"source and destination are on different filesystems",
+		);
+	}
+}
+
+async function ensureMacOSCloneFilesystem(path: string): Promise<void> {
+	const { stdout: dfOutput } = await execFileAsync("/bin/df", ["-P", path]);
+	const device = dfOutput.trim().split("\n").at(-1)?.trim().split(/\s+/u)[0];
+	if (!device) {
+		throw new CloneUnsupportedError(
+			"could not identify the destination volume",
+		);
+	}
+
+	const { stdout: diskutilOutput } = await execFileAsync("/usr/sbin/diskutil", [
+		"info",
+		"-plist",
+		device,
+	]);
+	if (
+		!/<key>FilesystemName<\/key>\s*<string>APFS<\/string>/iu.test(
+			diskutilOutput,
+		)
+	) {
+		throw new CloneUnsupportedError(
+			"macOS CoW requires an APFS destination volume",
 		);
 	}
 }
