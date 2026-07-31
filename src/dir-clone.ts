@@ -556,7 +556,9 @@ async function runNativeCloneFileCopy(
 	destination: string,
 	runCommand: (command: string, args: string[]) => Promise<void>,
 ): Promise<void> {
-	await ensureSameFilesystem(source, dirname(destination));
+	// The directory-level clone already verified the source and destination
+	// filesystems before publication. Repeating the check for every file would
+	// add two syscalls per entry in large dependency trees.
 	await runCommand("/bin/cp", ["-c", "-p", source, destination]);
 }
 
