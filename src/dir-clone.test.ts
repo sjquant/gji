@@ -469,7 +469,8 @@ describe("cloneDir", () => {
 		const lockPath = `${destination}.gji-clone-lock`;
 		await mkdir(source);
 		await mkdir(lockPath);
-		await utimes(lockPath, new Date(0), new Date(0));
+		const staleTime = new Date(Date.now() - 6 * 60 * 1000);
+		await utimes(lockPath, staleTime, staleTime);
 
 		// When a later clone encounters the abandoned pre-marker lock.
 		await cloneDir(source, destination, {
@@ -481,6 +482,25 @@ describe("cloneDir", () => {
 
 		// Then the stale lock is reclaimed and the clone completes normally.
 		await expect(readdir(root)).resolves.toEqual(["destination", "source"]);
+	});
+
+	it("preserves a fresh empty lock while its owner may still write the marker", async () => {
+		// Given an empty clone lock created within the stale timeout.
+		const root = await mkdtemp(join(tmpdir(), "gji-dir-clone-fresh-lock-"));
+		const source = join(root, "source");
+		const destination = join(root, "destination");
+		const lockPath = `${destination}.gji-clone-lock`;
+		await mkdir(source);
+		await mkdir(lockPath);
+
+		// When another clone reaches the lock before its owner marker appears.
+		const error = await cloneDir(source, destination, {
+			platform: "linux",
+		}).catch((caught) => caught);
+
+		// Then the fresh lock remains protected as an in-progress operation.
+		expect(isCloneInProgressError(error)).toBe(true);
+		await expect(readdir(lockPath)).resolves.toEqual([]);
 	});
 
 	it("does not reclaim an unrelated directory that resembles a stale clone lock", async () => {

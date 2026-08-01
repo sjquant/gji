@@ -31,7 +31,7 @@ import {
 } from "./safe-destination.js";
 
 const execFileAsync = promisify(execFile);
-const CLONE_LOCK_TTL_MS = 24 * 60 * 60 * 1000;
+const CLONE_LOCK_TTL_MS = 5 * 60 * 1000;
 const CLONE_GUARD_TTL_MS = 30 * 1000;
 const CLONE_LOCK_SUFFIX = ".gji-clone-lock";
 const SIZE_ESTIMATE_MAX_ENTRIES = 1_000_000;

@@ -1157,7 +1157,14 @@ async function readBoundedUvTextFile(
 		if (stats.size > remainingBytes) {
 			throw new Error("uv launchers exceed the total validation size limit");
 		}
-		const contents = await handle.readFile();
+		const readLimit = Math.min(UV_VALIDATION_MAX_FILE_BYTES, remainingBytes);
+		const contents = await readFilePrefix(handle, readLimit + 1);
+		if (contents.byteLength > UV_VALIDATION_MAX_FILE_BYTES) {
+			throw new Error(`uv launcher exceeds the validation size limit: ${path}`);
+		}
+		if (contents.byteLength > remainingBytes) {
+			throw new Error("uv launchers exceed the total validation size limit");
+		}
 		const text = contents.toString("utf8");
 		return Buffer.from(text, "utf8").equals(contents)
 			? { bytes: contents.byteLength, text }
@@ -1165,6 +1172,25 @@ async function readBoundedUvTextFile(
 	} finally {
 		await handle.close();
 	}
+}
+
+async function readFilePrefix(
+	handle: Awaited<ReturnType<typeof open>>,
+	maxBytes: number,
+): Promise<Buffer> {
+	const contents = Buffer.allocUnsafe(maxBytes);
+	let offset = 0;
+	while (offset < contents.byteLength) {
+		const { bytesRead } = await handle.read(
+			contents,
+			offset,
+			contents.byteLength - offset,
+			offset,
+		);
+		if (bytesRead === 0) break;
+		offset += bytesRead;
+	}
+	return contents.subarray(0, offset);
 }
 
 function isUvInterpreterName(name: string): boolean {
