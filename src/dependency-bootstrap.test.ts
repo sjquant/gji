@@ -13,10 +13,6 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import {
-	type CloneFailureScope,
-	cloneFailureScope,
-} from "./clone-failure-store.js";
-import {
 	executeDependencyBootstrap,
 	prepareDependencyBootstrap,
 	previewDependencyBootstrap,
@@ -24,56 +20,12 @@ import {
 import {
 	CloneDestinationExistsError,
 	CloneUnsupportedError,
-	cloneStrategyIdentity,
 } from "./dir-clone.js";
 import { addLinkedWorktree, createRepository } from "./repo.test-helpers.js";
-
-function createFailureStore() {
-	const failures = new Set<string>();
-	const calls = {
-		cache: [] as string[][],
-		clear: [] as string[][],
-		isCached: [] as string[][],
-	};
-	const failureKey = (
-		repoRoot: string,
-		directory: string,
-		scope?: CloneFailureScope,
-	) => JSON.stringify({ directory, repoRoot, scope });
-	return {
-		isCached: async (
-			repoRoot: string,
-			directory: string,
-			scope?: CloneFailureScope,
-		) => {
-			calls.isCached.push([repoRoot, directory, JSON.stringify(scope ?? null)]);
-			return failures.has(failureKey(repoRoot, directory, scope));
-		},
-		cache: async (
-			repoRoot: string,
-			directory: string,
-			_reason: string,
-			scope?: CloneFailureScope,
-		) => {
-			calls.cache.push([repoRoot, directory, JSON.stringify(scope ?? null)]);
-			failures.add(failureKey(repoRoot, directory, scope));
-		},
-		clear: async (
-			repoRoot: string,
-			directory: string,
-			scope?: CloneFailureScope,
-		) => {
-			calls.clear.push([repoRoot, directory, JSON.stringify(scope ?? null)]);
-			failures.delete(failureKey(repoRoot, directory, scope));
-		},
-		calls,
-	};
-}
 
 function createReporter() {
 	const events: string[] = [];
 	return {
-		emitCachedFailureWarnings: true,
 		measureCloneSize: false,
 		write: () => undefined,
 		cloned: () => undefined,
@@ -206,7 +158,6 @@ describe("dependencyBootstrap adapters", () => {
 				await writeFile(join(destination, ".modules.yaml"), "stale\n");
 				return { bytes: 1, ms: 1 };
 			},
-			failureStore: createFailureStore(),
 			repoRoot,
 			reporter,
 			runCommand: async (command, cwd) => {
@@ -255,7 +206,6 @@ describe("dependencyBootstrap adapters", () => {
 				await writeFile(join(destination, ".yarn-state.yml"), "stale\n");
 				return { ms: 1 };
 			},
-			failureStore: createFailureStore(),
 			repoRoot,
 			reporter: createReporter(),
 			runCommand: async () => {
@@ -298,7 +248,6 @@ describe("dependencyBootstrap adapters", () => {
 				cloneCalled = true;
 				return { ms: 1 };
 			},
-			failureStore: createFailureStore(),
 			repoRoot,
 			reporter,
 			runCommand: async (command) => {
@@ -335,15 +284,30 @@ describe("dependencyBootstrap adapters", () => {
 		let packagedFilePresent = false;
 		const result = await executeDependencyBootstrap(plan, {
 			cloneDirectory: async (_source, destination) => {
-				const extension = join(destination, "ruby", "extensions", "native");
-				const packaged = join(destination, "ruby", "gems", "example");
+				const extension = join(
+					destination,
+					"ruby",
+					"3.4.0",
+					"extensions",
+					"arm64-darwin",
+					"3.4.0",
+					"example-1.0.0",
+				);
+				const packaged = join(
+					destination,
+					"ruby",
+					"3.4.0",
+					"gems",
+					"example-1.0.0",
+					"lib",
+					"extensions",
+				);
 				await mkdir(extension, { recursive: true });
 				await mkdir(packaged, { recursive: true });
 				await writeFile(join(extension, "gem.build_complete"), "built\n");
 				await writeFile(join(packaged, "gem.build_complete"), "packaged\n");
 				return { ms: 1 };
 			},
-			failureStore: createFailureStore(),
 			repoRoot,
 			reporter: createReporter(),
 			runCommand: async (command, _cwd, _stderr, _stdout, options) => {
@@ -352,7 +316,7 @@ describe("dependencyBootstrap adapters", () => {
 				buildMarkerPresent = await access(
 					join(
 						worktreePath,
-						"vendor/bundle/ruby/extensions/native/gem.build_complete",
+						"vendor/bundle/ruby/3.4.0/extensions/arm64-darwin/3.4.0/example-1.0.0/gem.build_complete",
 					),
 				).then(
 					() => true,
@@ -361,7 +325,7 @@ describe("dependencyBootstrap adapters", () => {
 				packagedFilePresent = await access(
 					join(
 						worktreePath,
-						"vendor/bundle/ruby/gems/example/gem.build_complete",
+						"vendor/bundle/ruby/3.4.0/gems/example-1.0.0/lib/extensions/gem.build_complete",
 					),
 				).then(
 					() => true,
@@ -383,79 +347,42 @@ describe("dependencyBootstrap adapters", () => {
 		]);
 	});
 
-	it("falls back to a clean repair when CoW is unsupported and caches the failure", async () => {
-		// Given a pnpm source whose filesystem rejects CoW.
-		const { repoRoot, worktreePath, plan } =
-			await prepareNodePlan("cow-then-repair");
-		const reporter = createReporter();
-		const failureStore = createFailureStore();
-		let cloneCalled = false;
-		let repairCalled = false;
-		const cloneDirectory = Object.assign(
-			async () => {
-				cloneCalled = true;
-				throw new CloneUnsupportedError("reflinks unavailable");
-			},
-			{ strategyIdentity: cloneStrategyIdentity() },
-		);
+	it("retries CoW on later bootstraps after an unsupported seed", async () => {
+		// Given a pnpm source whose filesystem rejects every forced CoW attempt.
+		const { repoRoot, plan } = await prepareNodePlan("cow-then-repair");
+		let cloneCalls = 0;
+		let repairCalls = 0;
+		const cloneDirectory = async () => {
+			cloneCalls += 1;
+			throw new CloneUnsupportedError("reflinks unavailable");
+		};
+		const execute = () =>
+			executeDependencyBootstrap(plan, {
+				cloneDirectory,
+				repoRoot,
+				reporter: createReporter(),
+				runCommand: async () => {
+					repairCalls += 1;
+				},
+			});
 
-		// When the clone fails with an explicit unsupported-filesystem error.
-		const result = await executeDependencyBootstrap(plan, {
-			cloneDirectory,
-			failureStore,
-			repoRoot,
-			reporter,
-			runCommand: async () => {
-				repairCalled = true;
-			},
-		});
+		// When the same bootstrap is executed again after repair-only fallback.
+		const first = await execute();
+		const second = await execute();
 
-		// Then ordinary copy is never attempted, while repair still makes progress and the failure is cached.
-		expect(result.ready).toBe(true);
-		expect(cloneCalled).toBe(true);
-		expect(repairCalled).toBe(true);
-		expect(result.events.map(({ state }) => state)).toEqual([
+		// Then each run retries CoW, never performs an ordinary copy, and repairs cleanly.
+		expect(first.ready).toBe(true);
+		expect(second.ready).toBe(true);
+		expect(cloneCalls).toBe(2);
+		expect(repairCalls).toBe(2);
+		expect(first.events.map(({ state }) => state)).toEqual([
 			"fallback",
 			"repaired",
 		]);
-		expect(
-			await failureStore.isCached(
-				repoRoot,
-				"node_modules",
-				await cloneFailureScope(
-					join(repoRoot, "node_modules"),
-					join(worktreePath, "node_modules"),
-					cloneStrategyIdentity(),
-				),
-			),
-		).toBe(true);
-		expect(failureStore.calls.cache).toHaveLength(1);
-		void worktreePath;
 	});
 
-	it("does not cache failures from an unidentified custom clone backend", async () => {
-		// Given a custom cloner whose behavior cannot identify the native strategy.
-		const { repoRoot, plan } = await prepareNodePlan("cow-then-repair");
-		const failureStore = createFailureStore();
-
-		// When that custom backend reports unsupported CoW.
-		const result = await executeDependencyBootstrap(plan, {
-			cloneDirectory: async () => {
-				throw new CloneUnsupportedError("custom backend unavailable");
-			},
-			failureStore,
-			repoRoot,
-			reporter: createReporter(),
-			runCommand: async () => undefined,
-		});
-
-		// Then repair still succeeds without poisoning the native backend cache.
-		expect(result.ready).toBe(true);
-		expect(failureStore.calls.cache).toHaveLength(0);
-	});
-
-	it("preserves a destination that appears during CoW seeding", async () => {
-		// Given a fresh target that another process publishes during the clone race.
+	it("preserves package-manager metadata that appears during CoW seeding", async () => {
+		// Given a fresh target whose pnpm metadata is published by another process.
 		const { repoRoot, worktreePath, plan } =
 			await prepareNodePlan("cow-then-repair");
 		const reporter = createReporter();
@@ -464,19 +391,18 @@ describe("dependencyBootstrap adapters", () => {
 		const result = await executeDependencyBootstrap(plan, {
 			cloneDirectory: async (_source, destination) => {
 				await mkdir(destination, { recursive: true });
-				await writeFile(join(destination, "published.txt"), "keep\n");
+				await writeFile(join(destination, ".modules.yaml"), "keep\n");
 				throw new CloneDestinationExistsError(destination);
 			},
-			failureStore: createFailureStore(),
 			repoRoot,
 			reporter,
 			runCommand: async () => undefined,
 		});
 
-		// Then repair can use the published target without deleting it.
+		// Then repair uses the published target without deleting its metadata.
 		expect(result.ready).toBe(true);
 		await expect(
-			readFile(join(worktreePath, "node_modules", "published.txt"), "utf8"),
+			readFile(join(worktreePath, "node_modules", ".modules.yaml"), "utf8"),
 		).resolves.toBe("keep\n");
 		expect(result.events.map(({ state }) => state)).toEqual([
 			"skipped",
@@ -499,7 +425,6 @@ describe("dependencyBootstrap adapters", () => {
 				await writeFile(join(destination, "partial.txt"), "partial\n");
 				return { ms: 1 };
 			},
-			failureStore: createFailureStore(),
 			repoRoot,
 			reporter,
 			runCommand: async (_command, cwd) => {
@@ -539,7 +464,6 @@ describe("dependencyBootstrap adapters", () => {
 
 		// When repair fails against the existing target.
 		const result = await executeDependencyBootstrap(plan, {
-			failureStore: createFailureStore(),
 			repoRoot,
 			reporter,
 			runCommand: async () => {
@@ -579,7 +503,6 @@ describe("dependencyBootstrap adapters", () => {
 				cloneCalled = true;
 				return { ms: 1 };
 			},
-			failureStore: createFailureStore(),
 			repoRoot,
 			reporter,
 			runCommand: async () => undefined,
@@ -613,7 +536,6 @@ describe("dependencyBootstrap adapters", () => {
 
 		// When dependency bootstrap evaluates and executes the unsafe target.
 		const result = await executeDependencyBootstrap(plan, {
-			failureStore: createFailureStore(),
 			repoRoot,
 			reporter,
 			runCommand: async () => {
@@ -663,7 +585,6 @@ describe("dependencyBootstrap adapters", () => {
 				);
 				return { ms: 1 };
 			},
-			failureStore: createFailureStore(),
 			repoRoot,
 			reporter: createReporter(),
 			runCommand: async (command) => {
@@ -737,7 +658,6 @@ describe("dependencyBootstrap adapters", () => {
 				await symlink(external, join(destination, "bin"));
 				return { ms: 1 };
 			},
-			failureStore: createFailureStore(),
 			repoRoot,
 			reporter: createReporter(),
 			runCommand: async () => {
@@ -791,7 +711,6 @@ describe("dependencyBootstrap adapters", () => {
 				await symlink(external, join(destination, "bin", "tool"));
 				return { ms: 1 };
 			},
-			failureStore: createFailureStore(),
 			repoRoot,
 			reporter: createReporter(),
 			runCommand: async () => {
@@ -833,7 +752,6 @@ describe("dependencyBootstrap adapters", () => {
 				await mkdir(join(destination, "bin"), { recursive: true });
 				return { ms: 1 };
 			},
-			failureStore: createFailureStore(),
 			repoRoot,
 			reporter: createReporter(),
 			runCommand: async () => {
@@ -895,7 +813,6 @@ describe("dependencyBootstrap adapters", () => {
 				await mkdir(destination, { recursive: true });
 				return { ms: 1 };
 			},
-			failureStore: createFailureStore(),
 			repoRoot,
 			reporter: createReporter(),
 			runCommand: async () =>
@@ -980,7 +897,6 @@ describe("dependencyBootstrap adapters", () => {
 				await mkdir(destination, { recursive: true });
 				return { ms: 1 };
 			},
-			failureStore: createFailureStore(),
 			repoRoot,
 			reporter: createReporter(),
 			runCommand: async (command) => {

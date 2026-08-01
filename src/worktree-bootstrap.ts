@@ -71,7 +71,6 @@ export async function bootstrapWorktree(
 	);
 	const outcomes = await executeSyncDirectoryPlan(syncPlan, {
 		cloneDirectory: options.cloneDirectory ?? cloneDir,
-		repoRoot: options.repoRoot,
 		reporter: options.reporter,
 	});
 	const clonedDirs = outcomes.flatMap((outcome) =>

@@ -1,8 +1,3 @@
-import {
-	type CloneFailureStore,
-	cloneFailureScope,
-	defaultCloneFailureStore,
-} from "./clone-failure-store.js";
 import type {
 	CloneDirectory,
 	CloneDirResult,
@@ -11,7 +6,6 @@ import type {
 import {
 	isCloneDestinationExistsError,
 	isCloneInProgressError,
-	isCloneUnsupportedError,
 } from "./dir-clone.js";
 import { inspectDestination } from "./safe-destination.js";
 import type { SyncDirectoryPlan } from "./sync-plan.js";
@@ -27,7 +21,6 @@ export type SyncDirectoryOutcome =
 	| { kind: "skipped"; dir: string; reason: string };
 
 export interface SyncDirectoryReporter {
-	readonly emitCachedFailureWarnings: boolean;
 	readonly measureCloneSize: boolean;
 	write(message: string): void;
 	cloned(directory: ClonedDirectory): void;
@@ -36,8 +29,6 @@ export interface SyncDirectoryReporter {
 
 export interface SyncDirectoryExecutionOptions {
 	cloneDirectory: CloneDirectory;
-	failureStore?: CloneFailureStore;
-	repoRoot: string;
 	reporter: SyncDirectoryReporter;
 }
 
@@ -45,7 +36,6 @@ export async function executeSyncDirectoryPlan(
 	plan: readonly SyncDirectoryPlan[],
 	options: SyncDirectoryExecutionOptions,
 ): Promise<SyncDirectoryOutcome[]> {
-	const failureStore = options.failureStore ?? defaultCloneFailureStore;
 	const outcomes: SyncDirectoryOutcome[] = [];
 
 	for (const entry of plan) {
@@ -88,46 +78,6 @@ export async function executeSyncDirectoryPlan(
 				entry.directory,
 				"source does not exist",
 			);
-			continue;
-		}
-
-		const failureScope = options.cloneDirectory.strategyIdentity
-			? await cloneFailureScope(
-					entry.source,
-					entry.destination,
-					options.cloneDirectory.strategyIdentity,
-				)
-			: undefined;
-		if (
-			failureScope !== undefined &&
-			(await failureStore.isCached(
-				options.repoRoot,
-				entry.directory,
-				failureScope,
-			))
-		) {
-			if (
-				options.reporter.emitCachedFailureWarnings ||
-				options.reporter.skipped
-			) {
-				recordSkipped(
-					outcomes,
-					options.reporter,
-					entry.directory,
-					"copy-on-write failure cached",
-				);
-			} else {
-				options.reporter.write(
-					`syncDirs: previous copy-on-write failure cached, skipped ${entry.directory}\n`,
-				);
-				recordSkipped(
-					outcomes,
-					options.reporter,
-					entry.directory,
-					"copy-on-write failure cached",
-					false,
-				);
-			}
 			continue;
 		}
 
@@ -175,21 +125,10 @@ export async function executeSyncDirectoryPlan(
 			}
 
 			const reason = toErrorMessage(error);
-			if (isCloneUnsupportedError(error) && failureScope) {
-				await failureStore.cache(
-					options.repoRoot,
-					entry.directory,
-					reason,
-					failureScope,
-				);
-			}
 			recordSkipped(outcomes, options.reporter, entry.directory, reason);
 			continue;
 		}
 
-		if (failureScope) {
-			await failureStore.clear(options.repoRoot, entry.directory, failureScope);
-		}
 		const clonedDirectory: ClonedDirectory = {
 			bytes: result.bytes,
 			dir: entry.directory,

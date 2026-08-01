@@ -1,8 +1,7 @@
-import { execFile, spawn } from "node:child_process";
-import { createHash, randomUUID } from "node:crypto";
+import { execFile } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { constants } from "node:fs";
 import {
-	access,
 	chmod,
 	cp,
 	lstat,
@@ -21,11 +20,9 @@ import {
 	utimes,
 	writeFile,
 } from "node:fs/promises";
-import { homedir } from "node:os";
 import { basename, dirname, join, relative, resolve, sep } from "node:path";
 import { promisify } from "node:util";
 
-import { GLOBAL_CONFIG_DIRECTORY } from "./config.js";
 import { isAlreadyExistsError, isNotFoundError } from "./fs-utils.js";
 import {
 	inspectDestination,
@@ -39,304 +36,6 @@ const CLONE_GUARD_TTL_MS = 30 * 1000;
 const CLONE_LOCK_SUFFIX = ".gji-clone-lock";
 const SIZE_ESTIMATE_MAX_ENTRIES = 1_000_000;
 const SIZE_ESTIMATE_MAX_MS = 5_000;
-const MACOS_CLONE_HELPER_SOURCE = `
-#include <errno.h>
-#include <copyfile.h>
-#include <dirent.h>
-#include <fcntl.h>
-#include <fts.h>
-#include <limits.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <sys/clonefile.h>
-#include <sys/stdio.h>
-#include <sys/stat.h>
-#include <unistd.h>
-
-static int remove_tree_at(int parent_fd, const char *name) {
-	int directory_fd = openat(parent_fd, name, O_RDONLY | O_DIRECTORY | O_NOFOLLOW);
-	if (directory_fd < 0) return unlinkat(parent_fd, name, 0);
-	DIR *directory = fdopendir(directory_fd);
-	if (directory == NULL) {
-		close(directory_fd);
-		return -1;
-	}
-	int result = 0;
-	struct dirent *entry;
-	while ((entry = readdir(directory)) != NULL) {
-		if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0) continue;
-		if (remove_tree_at(directory_fd, entry->d_name) != 0 && errno != ENOENT) {
-			result = -1;
-			break;
-		}
-	}
-	int saved_errno = errno;
-	closedir(directory);
-	if (result != 0) {
-		errno = saved_errno;
-		return -1;
-	}
-	return unlinkat(parent_fd, name, AT_REMOVEDIR);
-}
-
-static char *destination_path(const char *root, const char *source, const char *path) {
-	const char *relative = path + strlen(source);
-	if (*relative == '/') relative++;
-	size_t size = strlen(root) + strlen(relative) + 2;
-	char *destination = malloc(size);
-	if (destination == NULL) return NULL;
-	if (*relative == '\\0') snprintf(destination, size, "%s", root);
-	else snprintf(destination, size, "%s/%s", root, relative);
-	return destination;
-}
-
-struct hardlink_entry {
-	dev_t device;
-	ino_t inode;
-	char *target;
-	struct hardlink_entry *next;
-};
-
-static const char *hardlink_target(struct hardlink_entry *entries, const struct stat *stats) {
-	for (struct hardlink_entry *entry = entries; entry != NULL; entry = entry->next) {
-		if (entry->device == stats->st_dev && entry->inode == stats->st_ino) return entry->target;
-	}
-	return NULL;
-}
-
-static int remember_hardlink(struct hardlink_entry **entries, const struct stat *stats, const char *target) {
-	struct hardlink_entry *entry = malloc(sizeof(*entry));
-	if (entry == NULL) return -1;
-	entry->target = strdup(target);
-	if (entry->target == NULL) {
-		free(entry);
-		return -1;
-	}
-	entry->device = stats->st_dev;
-	entry->inode = stats->st_ino;
-	entry->next = *entries;
-	*entries = entry;
-	return 0;
-}
-
-static void free_hardlinks(struct hardlink_entry *entries) {
-	while (entries != NULL) {
-		struct hardlink_entry *next = entries->next;
-		free(entries->target);
-		free(entries);
-		entries = next;
-	}
-}
-
-static int copy_directory_metadata(const char *source, int destination_fd, const char *target, const struct stat *stats, copyfile_flags_t flags) {
-	int source_fd = open(source, O_RDONLY | O_DIRECTORY);
-	int target_fd = openat(destination_fd, target, O_RDONLY | O_DIRECTORY | O_NOFOLLOW);
-	int result = 0;
-	if (source_fd < 0 || target_fd < 0 || fcopyfile(source_fd, target_fd, NULL, flags) != 0) {
-		result = -1;
-	}
-	if (source_fd >= 0) close(source_fd);
-	if (target_fd >= 0) close(target_fd);
-	if (result != 0 || (flags & COPYFILE_STAT) == 0) return result;
-	if (fchmodat(destination_fd, target, stats->st_mode & 07777, 0) != 0) return -1;
-	struct timespec times[2] = {stats->st_atimespec, stats->st_mtimespec};
-	return utimensat(destination_fd, target, times, 0);
-}
-
-static int clone_tree(const char *source, int destination_fd, const char *destination) {
-	char *paths[] = {(char *)source, NULL};
-	FTS *tree = fts_open(paths, FTS_NOCHDIR | FTS_PHYSICAL, NULL);
-	if (tree == NULL) return -1;
-	dev_t source_device = 0;
-	int result = 0;
-	struct hardlink_entry *hardlinks = NULL;
-	FTSENT *entry;
-	while (1) {
-		errno = 0;
-		entry = fts_read(tree);
-		if (entry == NULL) {
-			if (errno != 0) result = -1;
-			break;
-		}
-		if (entry->fts_level == 0 && entry->fts_statp != NULL) {
-			source_device = entry->fts_statp->st_dev;
-		} else if (entry->fts_statp != NULL && entry->fts_statp->st_dev != source_device) {
-			errno = EXDEV;
-			result = -1;
-			break;
-		}
-
-		char *target = destination_path(destination, source, entry->fts_path);
-		if (target == NULL) {
-			result = -1;
-			break;
-		}
-
-		switch (entry->fts_info) {
-			case FTS_D:
-				if (mkdirat(destination_fd, target, 0700) != 0) result = -1;
-				break;
-			case FTS_DP:
-				if (entry->fts_level > 0 && copy_directory_metadata(entry->fts_path, destination_fd, target, entry->fts_statp, COPYFILE_METADATA) != 0) result = -1;
-				break;
-			case FTS_F:
-				{
-					const char *existing = entry->fts_statp->st_nlink > 1 ? hardlink_target(hardlinks, entry->fts_statp) : NULL;
-					if (existing != NULL) {
-						if (linkat(destination_fd, existing, destination_fd, target, 0) != 0) result = -1;
-					} else if (clonefileat(AT_FDCWD, entry->fts_path, destination_fd, target, CLONE_NOFOLLOW | CLONE_ACL) != 0) {
-						result = -1;
-					} else if (entry->fts_statp->st_nlink > 1 && remember_hardlink(&hardlinks, entry->fts_statp, target) != 0) {
-						result = -1;
-					}
-				}
-				break;
-			case FTS_SL:
-			case FTS_SLNONE:
-				if (clonefileat(AT_FDCWD, entry->fts_path, destination_fd, target, CLONE_NOFOLLOW | CLONE_ACL) != 0) result = -1;
-				break;
-			case FTS_DNR:
-			case FTS_ERR:
-			case FTS_NS:
-				errno = entry->fts_errno;
-				result = -1;
-				break;
-			default:
-				errno = ENOTSUP;
-				result = -1;
-		}
-		free(target);
-		if (result != 0) break;
-	}
-	int saved_errno = errno;
-	fts_close(tree);
-	free_hardlinks(hardlinks);
-	errno = saved_errno;
-	return result;
-}
-
-static int open_parent(int root_fd, const char *path) {
-	int current = dup(root_fd);
-	if (current < 0 || *path == '\0') return current;
-	char *copy = strdup(path);
-	if (copy == NULL) {
-		close(current);
-		return -1;
-	}
-	char *state = NULL;
-	for (char *segment = strtok_r(copy, "/", &state); segment != NULL; segment = strtok_r(NULL, "/", &state)) {
-		if (strcmp(segment, ".") == 0 || strcmp(segment, "..") == 0) {
-			errno = EINVAL;
-			close(current);
-			current = -1;
-			break;
-		}
-		if (mkdirat(current, segment, 0777) != 0 && errno != EEXIST) {
-			close(current);
-			current = -1;
-			break;
-		}
-		int next = openat(current, segment, O_RDONLY | O_DIRECTORY | O_NOFOLLOW);
-		if (next < 0) {
-			close(current);
-			current = -1;
-			break;
-		}
-		close(current);
-		current = next;
-	}
-	free(copy);
-	return current;
-}
-
-int main(int argc, char **argv) {
-	if (argc != 5) return 64;
-	int parent_fd = open_parent(3, argv[2]);
-	if (parent_fd < 0) {
-		fprintf(stderr, "GJI_CLONE_ERROR:%s\\n", strerror(errno));
-		return 70;
-	}
-	if (clonefileat(AT_FDCWD, argv[1], parent_fd, argv[4], CLONE_NOFOLLOW | CLONE_ACL) == 0) {
-		close(parent_fd);
-		return 0;
-	}
-	int error = errno;
-	close(parent_fd);
-	errno = error;
-	if (errno == EEXIST) {
-		fprintf(stderr, "GJI_CLONE_DESTINATION_EXISTS:%s\\n", strerror(errno));
-		return 65;
-	}
-	if (errno == ENOTSUP || errno == EXDEV || errno == EINVAL) {
-		fprintf(stderr, "GJI_CLONE_UNSUPPORTED:%s\\n", strerror(errno));
-		return 69;
-	}
-	fprintf(stderr, "GJI_CLONE_ERROR:%s\\n", strerror(errno));
-	return 70;
-}
-`;
-
-let macOSCloneHelperPromise: Promise<string> | undefined;
-const MACOS_CLONE_AT_SCRIPT = `
-ObjC.import("Foundation");
-ObjC.bindFunction("mkdirat", ["int", ["int", "char *", "unsigned short"]]);
-ObjC.bindFunction("openat", ["int", ["int", "char *", "int", "unsigned short"]]);
-ObjC.bindFunction("clonefileat", ["int", ["int", "char *", "int", "char *", "unsigned int"]]);
-ObjC.bindFunction("close", ["int", ["int"]]);
-ObjC.bindFunction("__error", ["pointer", []]);
-function run(argv) {
-	let parent = 3;
-	const segments = argv[1] ? argv[1].split("/") : [];
-	for (const segment of segments) {
-		if (!segment || segment === "." || segment === "..") return "70:22";
-		if ($.mkdirat(parent, segment, 511) !== 0 && $.__error()[0] !== 17) {
-			const error = $.__error()[0];
-			if (parent !== 3) $.close(parent);
-			return "70:" + error;
-		}
-		const next = $.openat(parent, segment, Number(argv[3]), 0);
-		if (next < 0) {
-			const error = $.__error()[0];
-			if (parent !== 3) $.close(parent);
-			return "70:" + error;
-		}
-		if (parent !== 3) $.close(parent);
-		parent = next;
-	}
-	const result = $.clonefileat(-2, argv[0], parent, argv[2], 5);
-	const error = result === 0 ? 0 : $.__error()[0];
-	if (parent !== 3) $.close(parent);
-	if (result === 0) return "0";
-	if (error === 17) return "65:" + error;
-	if (error === 18 || error === 22 || error === 45 || error === 102) return "69:" + error;
-	return "70:" + error;
-}
-`;
-
-const LINUX_RENAME_HELPER_SOURCE = `
-#define _GNU_SOURCE
-#include <errno.h>
-#include <fcntl.h>
-#include <linux/fs.h>
-#include <stdio.h>
-#include <string.h>
-#include <sys/syscall.h>
-#include <unistd.h>
-
-int main(int argc, char **argv) {
-	if (argc != 3 && argc != 4) return 64;
-	int directory_fd = argc == 4 ? 3 : AT_FDCWD;
-	if (syscall(SYS_renameat2, directory_fd, argv[1], directory_fd, argv[2], RENAME_NOREPLACE) == 0) return 0;
-	if (errno == EEXIST) return 65;
-	if (errno == ENOSYS || errno == EINVAL || errno == EOPNOTSUPP || errno == EXDEV) return 69;
-	fprintf(stderr, "GJI_RENAME_ERROR:%s\\n", strerror(errno));
-	return 70;
-}
-`;
-
-let linuxRenameHelperPromise: Promise<string> | undefined;
-
 export interface CloneDirResult {
 	bytes?: number;
 	ms: number;
@@ -352,85 +51,13 @@ export interface CloneDirOptions extends CloneRequestOptions {
 	runLinuxCommand?: (command: string, args: string[]) => Promise<void>;
 	copyDirectory?: (source: string, destination: string) => Promise<void>;
 	copyFile?: (source: string, destination: string) => Promise<void>;
-	atomicCloneDirectory?: (source: string, destination: string) => Promise<void>;
 }
 
-export type CloneDirectory = {
-	(
-		source: string,
-		destination: string,
-		options?: CloneRequestOptions,
-	): Promise<CloneDirResult>;
-	readonly strategyIdentity?: string;
-};
-
-export function cloneStrategyIdentity(
-	platform: NodeJS.Platform = process.platform,
-): string {
-	if (platform === "darwin") return "darwin-clonefile-tree-v3";
-	if (platform === "linux") return "linux-cp-reflink-v1";
-	return `unsupported-${platform}`;
-}
-
-export async function waitForCloneLock(
+export type CloneDirectory = (
+	source: string,
 	destination: string,
-	timeoutMs = 5_000,
-	destinationRoot?: string,
-): Promise<boolean> {
-	const lockPath = cloneLockPath(
-		destination,
-		destinationRoot,
-		process.platform,
-	);
-	const deadline = Date.now() + timeoutMs;
-	while (await cloneLockExists(lockPath)) {
-		if (await cloneLockIsStale(lockPath)) return true;
-		if (Date.now() >= deadline) return false;
-		await new Promise((resolve) => setTimeout(resolve, 25));
-	}
-	return true;
-}
-
-async function cloneLockIsStale(lockPath: string): Promise<boolean> {
-	try {
-		const lock = await inspectCloneLock(lockPath);
-		if (!lock) return false;
-		const stats = await lstat(lock.markerPath);
-		return Date.now() - stats.mtimeMs >= CLONE_LOCK_TTL_MS;
-	} catch (error) {
-		if (isNotFoundError(error)) return false;
-		return false;
-	}
-}
-
-async function cloneLockExists(lockPath: string): Promise<boolean> {
-	try {
-		return await destinationExists(lockPath);
-	} catch (error) {
-		if (
-			"code" in (error as object) &&
-			(error as NodeJS.ErrnoException).code === "ENOTDIR"
-		) {
-			return false;
-		}
-		throw error;
-	}
-}
-
-function cloneLockPath(
-	destination: string,
-	destinationRoot: string | undefined,
-	platform: NodeJS.Platform,
-): string {
-	if (platform !== "darwin" || !destinationRoot) {
-		return `${destination}${CLONE_LOCK_SUFFIX}`;
-	}
-	const digest = createHash("sha256")
-		.update(resolve(destination))
-		.digest("hex")
-		.slice(0, 16);
-	return join(resolve(destinationRoot), `.gji-clone-${digest}.lock`);
-}
+	options?: CloneRequestOptions,
+) => Promise<CloneDirResult>;
 
 export async function cloneDir(
 	source: string,
@@ -438,7 +65,6 @@ export async function cloneDir(
 	options: CloneDirOptions = {},
 ): Promise<CloneDirResult> {
 	const platform = options.platform ?? process.platform;
-	const strategy = cloneStrategy(platform);
 	if (!isClonePlatformSupported(platform)) {
 		throw new CloneUnsupportedError(`platform ${platform} has no CoW strategy`);
 	}
@@ -476,114 +102,44 @@ export async function cloneDir(
 			safeParent = await openDestinationDirectory(
 				options.destinationRoot,
 				parent,
-				!platformIsDarwin(platform),
 			);
 		} else {
 			await mkdir(parent, { recursive: true });
-			if (platformIsDarwin(platform)) {
-				safeParent = await openDestinationDirectory(parent, parent);
-			}
 		}
+
 		const operationParent = safeParent?.path ?? parent;
 		const operationDestination = join(operationParent, basename(destination));
 		if (await destinationExists(operationDestination)) {
 			throw new CloneDestinationExistsError(destination);
 		}
-		const lockPath = cloneLockPath(
+		const cloneLock = await acquireCloneLock(
+			`${operationDestination}${CLONE_LOCK_SUFFIX}`,
 			destination,
-			options.destinationRoot,
-			platform,
 		);
-		const cloneLock = await acquireCloneLock(lockPath, destination);
 		const stopLockHeartbeat = startLockHeartbeat(cloneLock);
 
 		let temporaryRoot: string | undefined;
 		let reservationPath: string | undefined;
 		const reservationEntries: string[] = [];
 		try {
-			if (platformIsDarwin(platform)) {
-				try {
-					if (options.atomicCloneDirectory) {
-						await options.atomicCloneDirectory(
-							sourcePath,
-							operationDestination,
-						);
-					} else {
-						await runNativeCloneDirectory(
-							sourcePath,
-							operationDestination,
-							safeParent?.fd,
-							safeParent?.relativePath ?? "",
-						);
-					}
-				} catch (error) {
-					if (isNativeDestinationExistsError(error)) {
-						throw new CloneDestinationExistsError(destination);
-					}
-					if (error instanceof CloneSetupError) throw error;
-					if (error instanceof CloneUnsupportedError) throw error;
-					if (isUnsupportedCloneError(error)) {
-						throw new CloneUnsupportedError(toErrorMessage(error));
-					}
-					throw error;
-				}
-				return cloneResult(sourcePath, startedAt, options.measureBytes);
-			}
-			if (
-				platform === "linux" &&
-				options.copyDirectory === undefined &&
-				options.copyFile === undefined &&
-				options.runLinuxCommand === undefined
-			) {
-				await linuxRenameHelper();
-				temporaryRoot = await mkdtemp(
-					join(operationParent, `.${basename(destination)}.gji-clone-`),
-				);
-				const temporaryDestination = join(temporaryRoot, basename(destination));
-				try {
-					await runNativeLinuxClone(
-						sourcePath,
-						temporaryDestination,
-						operationParent,
-						safeParent?.fd,
-					);
-					await publishNativeLinuxClone(
-						temporaryDestination,
-						operationDestination,
-						operationParent,
-						safeParent?.fd,
-					);
-				} catch (error) {
-					if (isNativeDestinationExistsError(error)) {
-						throw new CloneDestinationExistsError(destination);
-					}
-					if (isUnsupportedCloneError(error)) {
-						throw new CloneUnsupportedError(toErrorMessage(error));
-					}
-					throw error;
-				}
-				return cloneResult(sourcePath, startedAt, options.measureBytes);
-			}
-
 			reservationPath = await reserveDestination(operationDestination);
 			temporaryRoot = await mkdtemp(
 				join(operationParent, `.${basename(destination)}.gji-clone-`),
 			);
 			const temporaryDestination = join(temporaryRoot, basename(destination));
-			const copyDirectory =
-				options.copyDirectory ??
-				(async (source, target) => {
-					if (!strategy) {
-						throw new CloneUnsupportedError(
-							`platform ${platform} has no CoW strategy`,
-						);
-					}
-					const runCommand = options.runLinuxCommand ?? runCloneCommand;
-					await runCommand("cp", strategy(source, target));
-				});
 			try {
-				await copyDirectory(sourcePath, temporaryDestination);
+				await (
+					options.copyDirectory ??
+					((sourcePath, targetPath) =>
+						copyDirectoryWithCow(
+							sourcePath,
+							targetPath,
+							platform,
+							options.runLinuxCommand,
+						))
+				)(sourcePath, temporaryDestination);
 			} catch (error) {
+				if (error instanceof CloneUnsupportedError) throw error;
 				if (isUnsupportedCloneError(error)) {
 					throw new CloneUnsupportedError(toErrorMessage(error));
 				}
@@ -607,24 +163,45 @@ export async function cloneDir(
 					reservationEntries,
 				);
 			}
-			try {
-				if (temporaryRoot) {
-					await rm(temporaryRoot, { force: true, recursive: true });
-				}
-			} catch {
-				// Cleanup is best effort and must not mask the clone result.
+			if (temporaryRoot) {
+				await rm(temporaryRoot, { force: true, recursive: true }).catch(
+					() => undefined,
+				);
 			}
-			try {
-				await releaseCloneLock(cloneLock);
-			} catch {
-				// A stale lock is reclaimed on a later attempt.
-			}
+			await releaseCloneLock(cloneLock).catch(() => undefined);
 		}
 
 		return cloneResult(sourcePath, startedAt, options.measureBytes);
 	} finally {
 		await safeParent?.close().catch(() => undefined);
 	}
+}
+
+async function copyDirectoryWithCow(
+	source: string,
+	destination: string,
+	platform: NodeJS.Platform,
+	runLinuxCommand?: (command: string, args: string[]) => Promise<void>,
+): Promise<void> {
+	if (platform === "darwin") {
+		await cp(source, destination, {
+			errorOnExist: true,
+			force: false,
+			mode: constants.COPYFILE_FICLONE_FORCE,
+			preserveTimestamps: true,
+			recursive: true,
+		});
+		return;
+	}
+
+	const strategy = cloneStrategy(platform);
+	if (!strategy) {
+		throw new CloneUnsupportedError(`platform ${platform} has no CoW strategy`);
+	}
+	await (runLinuxCommand ?? runCloneCommand)(
+		"cp",
+		strategy(source, destination),
+	);
 }
 
 async function resolveProspectivePath(path: string): Promise<string> {
@@ -641,343 +218,6 @@ async function resolveProspectivePath(path: string): Promise<string> {
 			current = parent;
 		}
 	}
-}
-
-export namespace cloneDir {
-	export const strategyIdentity = cloneStrategyIdentity();
-}
-
-async function runNativeCloneDirectory(
-	source: string,
-	destination: string,
-	destinationParentFd: number | undefined,
-	destinationParentRelative: string,
-): Promise<void> {
-	if (destinationParentFd === undefined) {
-		throw new CloneUnsupportedError("safe destination handle is unavailable");
-	}
-	let status: string;
-	try {
-		status = await runMacOSCloneAt(
-			[
-				source,
-				destinationParentRelative,
-				basename(destination),
-				String(
-					constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW,
-				),
-			],
-			destinationParentFd,
-		);
-	} catch {
-		const helper = await macOSCloneHelper();
-		try {
-			await runNativeCloneProcess(
-				helper,
-				[
-					source,
-					destinationParentRelative,
-					"unused-staging-name",
-					basename(destination),
-				],
-				destinationParentFd,
-			);
-			return;
-		} catch (error) {
-			if (error instanceof NativeCloneProcessError && error.exitCode === 65) {
-				throw new CloneDestinationExistsError(destination);
-			}
-			if (error instanceof NativeCloneProcessError && error.exitCode === 69) {
-				throw new CloneUnsupportedError(error.stderr.trim());
-			}
-			throw error;
-		}
-	}
-	const exitCode = Number(status.split(":", 1)[0]);
-	if (exitCode === 0) return;
-	if (exitCode === 65) throw new CloneDestinationExistsError(destination);
-	if (exitCode === 69) {
-		throw new CloneUnsupportedError(`clonefileat failed (${status})`);
-	}
-	throw new Error(`native clonefileat failed (${status})`);
-}
-
-async function runMacOSCloneAt(
-	args: string[],
-	destinationParentFd: number,
-): Promise<string> {
-	return new Promise<string>((resolve, reject) => {
-		const child = spawn(
-			"/usr/bin/osascript",
-			["-l", "JavaScript", "-e", MACOS_CLONE_AT_SCRIPT, ...args],
-			{ stdio: ["ignore", "pipe", "pipe", destinationParentFd] },
-		);
-		let stdout = "";
-		let stderr = "";
-		child.stdout?.setEncoding("utf8");
-		child.stdout?.on("data", (chunk: string) => {
-			stdout += chunk;
-		});
-		child.stderr?.setEncoding("utf8");
-		child.stderr?.on("data", (chunk: string) => {
-			stderr += chunk;
-		});
-		child.once("error", reject);
-		child.once("close", (code) => {
-			if (code === 0) resolve(stdout.trim());
-			else reject(new Error(`native clonefileat failed: ${stderr.trim()}`));
-		});
-	});
-}
-
-class NativeCloneProcessError extends Error {
-	constructor(
-		readonly exitCode: number | null,
-		readonly stderr: string,
-	) {
-		super(
-			`native clone helper exited with code ${String(exitCode)}: ${stderr.trim()}`,
-		);
-		this.name = "NativeCloneProcessError";
-	}
-}
-
-class CloneSetupError extends Error {
-	constructor(message: string) {
-		super(message);
-		this.name = "CloneSetupError";
-	}
-}
-
-async function runNativeCloneProcess(
-	command: string,
-	args: string[],
-	destinationParentFd?: number,
-): Promise<void> {
-	await new Promise<void>((resolve, reject) => {
-		const child = spawn(command, args, {
-			stdio: ["ignore", "ignore", "pipe", destinationParentFd ?? "ignore"],
-		});
-		let stderr = "";
-		const stderrStream = child.stderr;
-		if (!stderrStream) {
-			reject(new Error("native clone helper stderr is unavailable"));
-			return;
-		}
-		stderrStream.setEncoding("utf8");
-		stderrStream.on("data", (chunk: string) => {
-			stderr += chunk;
-		});
-		child.once("error", reject);
-		child.once("close", (code) => {
-			if (code === 0) resolve();
-			else reject(new NativeCloneProcessError(code, stderr));
-		});
-	});
-}
-
-async function runNativeLinuxClone(
-	source: string,
-	destination: string,
-	operationParent: string,
-	destinationParentFd: number | undefined,
-): Promise<void> {
-	const target = destinationParentFd
-		? inheritedDirectoryPath(operationParent, destination)
-		: destination;
-	if (destinationParentFd) {
-		await runCommandWithInheritedDirectory(
-			"cp",
-			["-a", "--reflink=always", source, target],
-			destinationParentFd,
-		);
-		return;
-	}
-	await runCloneCommand("cp", ["-a", "--reflink=always", source, target]);
-}
-
-async function publishNativeLinuxClone(
-	source: string,
-	destination: string,
-	operationParent: string,
-	destinationParentFd: number | undefined,
-): Promise<void> {
-	const sourceOperand = destinationParentFd
-		? relative(operationParent, source)
-		: source;
-	const destinationOperand = destinationParentFd
-		? relative(operationParent, destination)
-		: destination;
-	const helper = await linuxRenameHelper();
-	try {
-		await runNativeCloneProcess(
-			helper,
-			[
-				sourceOperand,
-				destinationOperand,
-				...(destinationParentFd === undefined ? [] : ["fd3"]),
-			],
-			destinationParentFd,
-		);
-	} catch (error) {
-		if (error instanceof NativeCloneProcessError && error.exitCode === 65) {
-			throw new CloneDestinationExistsError(destination);
-		}
-		if (error instanceof NativeCloneProcessError && error.exitCode === 69) {
-			throw new CloneUnsupportedError(
-				"atomic no-replace publication is unavailable",
-			);
-		}
-		throw error;
-	}
-}
-
-function inheritedDirectoryPath(root: string, path: string): string {
-	return join("/proc/self/fd/3", relative(root, path));
-}
-
-async function runCommandWithInheritedDirectory(
-	command: string,
-	args: string[],
-	directoryFd: number,
-): Promise<void> {
-	await new Promise<void>((resolve, reject) => {
-		const child = spawn(command, args, {
-			stdio: ["ignore", "ignore", "pipe", directoryFd],
-		});
-		let stderr = "";
-		child.stderr?.setEncoding("utf8");
-		child.stderr?.on("data", (chunk: string) => {
-			stderr += chunk;
-		});
-		child.once("error", reject);
-		child.once("close", (code) => {
-			if (code === 0) resolve();
-			else
-				reject(
-					new Error(
-						`${command} failed with code ${String(code)}: ${stderr.trim()}`,
-					),
-				);
-		});
-	});
-}
-
-async function macOSCloneHelper(): Promise<string> {
-	const pending = macOSCloneHelperPromise ?? compileMacOSCloneHelper();
-	macOSCloneHelperPromise = pending;
-	try {
-		return await pending;
-	} catch (error) {
-		if (macOSCloneHelperPromise === pending)
-			macOSCloneHelperPromise = undefined;
-		throw error;
-	}
-}
-
-async function compileMacOSCloneHelper(): Promise<string> {
-	const digest = createHash("sha256")
-		.update(MACOS_CLONE_HELPER_SOURCE)
-		.digest("hex")
-		.slice(0, 16);
-	const configRoot = process.env.GJI_CONFIG_DIR
-		? resolve(process.env.GJI_CONFIG_DIR)
-		: join(homedir(), GLOBAL_CONFIG_DIRECTORY);
-	const helperRoot = join(
-		configRoot,
-		"native",
-		`darwin-${process.arch}-${digest}`,
-	);
-	const executable = join(helperRoot, "clone");
-	try {
-		await access(executable, constants.X_OK);
-		return executable;
-	} catch {
-		// Compile once below and reuse the versioned helper across CLI processes.
-	}
-
-	await mkdir(helperRoot, { recursive: true });
-	const buildRoot = await mkdtemp(join(helperRoot, ".build-"));
-	const source = join(buildRoot, "clone.c");
-	const buildExecutable = join(buildRoot, "clone");
-	try {
-		await writeFile(source, MACOS_CLONE_HELPER_SOURCE, "utf8");
-		await execFileAsync("/usr/bin/cc", ["-Os", "-o", buildExecutable, source]);
-		await chmod(buildExecutable, 0o700);
-		await rename(buildExecutable, executable);
-		return executable;
-	} catch (error) {
-		throw new CloneSetupError(
-			`macOS clone helper setup failed: ${toErrorMessage(error)}`,
-		);
-	} finally {
-		await rm(buildRoot, { force: true, recursive: true }).catch(
-			() => undefined,
-		);
-	}
-}
-
-async function linuxRenameHelper(): Promise<string> {
-	const pending = linuxRenameHelperPromise ?? compileLinuxRenameHelper();
-	linuxRenameHelperPromise = pending;
-	try {
-		return await pending;
-	} catch (error) {
-		if (linuxRenameHelperPromise === pending)
-			linuxRenameHelperPromise = undefined;
-		throw error;
-	}
-}
-
-async function compileLinuxRenameHelper(): Promise<string> {
-	const digest = createHash("sha256")
-		.update(LINUX_RENAME_HELPER_SOURCE)
-		.digest("hex")
-		.slice(0, 16);
-	const configRoot = process.env.GJI_CONFIG_DIR
-		? resolve(process.env.GJI_CONFIG_DIR)
-		: join(homedir(), GLOBAL_CONFIG_DIRECTORY);
-	const helperRoot = join(
-		configRoot,
-		"native",
-		`linux-${process.arch}-${digest}`,
-	);
-	const executable = join(helperRoot, "rename-noreplace");
-	try {
-		await access(executable, constants.X_OK);
-		return executable;
-	} catch {
-		// Compile once below and reuse the versioned helper across CLI processes.
-	}
-
-	await mkdir(helperRoot, { recursive: true });
-	const buildRoot = await mkdtemp(join(helperRoot, ".build-"));
-	const source = join(buildRoot, "rename.c");
-	const buildExecutable = join(buildRoot, "rename-noreplace");
-	try {
-		await writeFile(source, LINUX_RENAME_HELPER_SOURCE, "utf8");
-		await execFileAsync("cc", ["-Os", "-o", buildExecutable, source]);
-		await chmod(buildExecutable, 0o700);
-		await rename(buildExecutable, executable);
-		return executable;
-	} catch (error) {
-		throw new CloneSetupError(
-			`Linux atomic publication helper setup failed: ${toErrorMessage(error)}`,
-		);
-	} finally {
-		await rm(buildRoot, { force: true, recursive: true }).catch(
-			() => undefined,
-		);
-	}
-}
-
-function isNativeDestinationExistsError(error: unknown): boolean {
-	return (
-		error instanceof CloneDestinationExistsError ||
-		(error instanceof Error &&
-			"code" in error &&
-			(error as NodeJS.ErrnoException).code === "EEXIST")
-	);
 }
 
 async function cloneResult(
@@ -1024,9 +264,7 @@ export function isCloneDestinationExistsError(
 }
 
 export function isCloneUnsupportedError(error: unknown): boolean {
-	return (
-		error instanceof CloneUnsupportedError || isUnsupportedCloneError(error)
-	);
+	return error instanceof CloneUnsupportedError;
 }
 
 export function isCloneInProgressError(
@@ -1551,15 +789,11 @@ function isUnsupportedCloneError(error: unknown): boolean {
 		return true;
 	}
 
-	return /clonefile|reflink|unsupported|operation not supported|not supported|invalid cross-device|cross-device/iu.test(
+	return /reflink|unsupported|operation not supported|not supported|invalid cross-device|cross-device/iu.test(
 		error.message,
 	);
 }
 
 function toErrorMessage(error: unknown): string {
 	return error instanceof Error ? error.message : String(error);
-}
-
-function platformIsDarwin(platform: NodeJS.Platform): boolean {
-	return platform === "darwin";
 }

@@ -11,11 +11,6 @@ import {
 	sep,
 } from "node:path";
 import { promisify } from "node:util";
-import {
-	type CloneFailureStore,
-	cloneFailureScope,
-	defaultCloneFailureStore,
-} from "./clone-failure-store.js";
 import { type CommandRunner, runCommand } from "./command-runner.js";
 import type { DependencyBootstrapMode } from "./config.js";
 import {
@@ -23,7 +18,6 @@ import {
 	cloneDir,
 	isCloneDestinationExistsError,
 	isCloneInProgressError,
-	isCloneUnsupportedError,
 } from "./dir-clone.js";
 import { pathExists } from "./fs-utils.js";
 import { inspectDestination } from "./safe-destination.js";
@@ -51,11 +45,15 @@ export interface BootstrapPreparationContext {
 	worktreePath: string;
 }
 
-export interface BootstrapExecutionContext {
-	ownership?: BootstrapTargetOwnership;
+interface BootstrapCommandExecutionContext {
 	runCommand: BootstrapCommandRunner;
 	stderr: (chunk: string) => void;
 	stdout: (chunk: string) => void;
+}
+
+export interface BootstrapExecutionContext
+	extends BootstrapCommandExecutionContext {
+	ownership: BootstrapTargetOwnership;
 }
 
 export interface BootstrapTarget {
@@ -144,7 +142,6 @@ export interface DependencyBootstrapReport {
 
 export interface DependencyBootstrapDependencies {
 	cloneDirectory?: CloneDirectory;
-	failureStore?: CloneFailureStore;
 	runCommand?: BootstrapCommandRunner;
 	stderr?: (chunk: string) => void;
 	stdout?: (chunk: string) => void;
@@ -283,9 +280,8 @@ export async function executeDependencyBootstrap(
 	if (plan.mode === "off") return { mode: plan.mode, ready: true, events: [] };
 
 	const events: BootstrapEvent[] = [];
-	const failureStore = options.failureStore ?? defaultCloneFailureStore;
 	const cloneDirectory = options.cloneDirectory ?? cloneDir;
-	const execution: BootstrapExecutionContext = {
+	const execution: BootstrapCommandExecutionContext = {
 		runCommand: options.runCommand ?? runCommand,
 		stderr: options.stderr ?? (() => undefined),
 		stdout: options.stdout ?? ((chunk) => process.stdout.write(chunk)),
@@ -311,12 +307,10 @@ export async function executeDependencyBootstrap(
 			seedable,
 			plan.mode,
 			cloneDirectory,
-			failureStore,
 			execution,
 			seededDirectories.has(target.relativePath),
 			events,
 			options.reporter,
-			options.repoRoot,
 		);
 	}
 
@@ -333,12 +327,10 @@ async function executeBootstrapTarget(
 	seedable: boolean,
 	mode: DependencyBootstrapMode,
 	cloneDirectory: CloneDirectory,
-	failureStore: CloneFailureStore,
-	execution: BootstrapExecutionContext,
+	execution: BootstrapCommandExecutionContext,
 	seededBySyncDirs: boolean,
 	events: BootstrapEvent[],
 	reporter: DependencyBootstrapReporter,
-	repoRoot: string,
 ): Promise<void> {
 	const destinationInspection = await inspectDestination(
 		target.worktreePath,
@@ -369,14 +361,6 @@ async function executeBootstrapTarget(
 	}
 
 	let seeded = false;
-	const failureScope =
-		seedable && cloneDirectory.strategyIdentity
-			? await cloneFailureScope(
-					adapter.seedPath(target),
-					target.targetPath,
-					cloneDirectory.strategyIdentity,
-				)
-			: undefined;
 	let ownership: BootstrapTargetOwnership = target.existingBeforeBootstrap
 		? "preserve"
 		: "empty";
@@ -425,28 +409,12 @@ async function executeBootstrapTarget(
 			message:
 				"target appeared during bootstrap; preserving it as the repair input",
 		});
-	} else if (
-		seedable &&
-		failureScope !== undefined &&
-		(await failureStore.isCached(repoRoot, target.relativePath, failureScope))
-	) {
-		recordBootstrapEvent(events, reporter, {
-			adapter: adapter.name,
-			kind: adapter.kind,
-			reason: "cow-failure-cached",
-			state: "fallback",
-			target: target.relativePath,
-			message: "previous CoW failure is cached; repairing from an empty target",
-		});
 	} else if (seedable) {
 		try {
 			await cloneDirectory(adapter.seedPath(target), target.targetPath, {
 				destinationRoot: target.worktreePath,
 				measureBytes: reporter.measureCloneSize,
 			});
-			if (failureScope) {
-				await failureStore.clear(repoRoot, target.relativePath, failureScope);
-			}
 			seeded = true;
 			ownership = "adapter";
 			recordBootstrapEvent(events, reporter, {
@@ -489,18 +457,10 @@ async function executeBootstrapTarget(
 				);
 				return;
 			}
-			if (isCloneUnsupportedError(error) && failureScope) {
-				await failureStore.cache(
-					repoRoot,
-					target.relativePath,
-					toErrorMessage(error),
-					failureScope,
-				);
-			}
 			recordBootstrapEvent(events, reporter, {
 				adapter: adapter.name,
 				kind: adapter.kind,
-				reason: "cow-unsupported",
+				reason: "cow-seed-failed",
 				state: "fallback",
 				target: target.relativePath,
 				message: `CoW seed failed; repairing from an empty target (${toErrorMessage(error)})`,
@@ -531,7 +491,7 @@ async function executeBootstrapTarget(
 async function repairTarget(
 	adapter: BootstrapAdapter,
 	target: BootstrapTarget,
-	execution: BootstrapExecutionContext,
+	execution: BootstrapCommandExecutionContext,
 	seeded: boolean,
 	ownership: BootstrapTargetOwnership,
 	events: BootstrapEvent[],
@@ -718,10 +678,7 @@ function createBootstrapAdapters(
 			repairCommand: "pnpm install --frozen-lockfile",
 			shell: false,
 			beforeRepair: async (target, context) => {
-				if (
-					!target.existingBeforeBootstrap &&
-					(context.ownership === "adapter" || context.ownership === "syncDirs")
-				) {
+				if (!target.existingBeforeBootstrap && isDisposableSeed(context)) {
 					await rm(join(target.targetPath, ".modules.yaml"), {
 						force: true,
 					});
@@ -736,10 +693,7 @@ function createBootstrapAdapters(
 			repairCommand: "yarn install --immutable",
 			shell: false,
 			beforeRepair: async (target, context) => {
-				if (
-					!target.existingBeforeBootstrap &&
-					(context.ownership === "adapter" || context.ownership === "syncDirs")
-				) {
+				if (!target.existingBeforeBootstrap && isDisposableSeed(context)) {
 					await rm(join(target.targetPath, ".yarn-state.yml"), {
 						force: true,
 					});
@@ -769,11 +723,8 @@ function createBootstrapAdapters(
 				env: { BUNDLE_PATH: "vendor/bundle" },
 			}),
 			beforeRepair: async (target, context) => {
-				if (
-					!target.existingBeforeBootstrap &&
-					(context.ownership === "adapter" || context.ownership === "syncDirs")
-				) {
-					await removeNamedFiles(target.targetPath, "gem.build_complete");
+				if (!target.existingBeforeBootstrap && isDisposableSeed(context)) {
+					await removeBundlerExtensionMarkers(target.targetPath);
 				}
 			},
 		}),
@@ -930,7 +881,7 @@ class LockfileBootstrapAdapter implements BootstrapAdapter {
 	shouldRetryAfterRepairFailure(
 		context: BootstrapRepairFailureContext,
 	): boolean {
-		return context.ownership === "adapter" || context.ownership === "syncDirs";
+		return isDisposableSeed(context);
 	}
 
 	async cleanupAfterRepairFailure(
@@ -939,7 +890,7 @@ class LockfileBootstrapAdapter implements BootstrapAdapter {
 		if (context.target.existingBeforeBootstrap) {
 			return;
 		}
-		if (context.ownership === "adapter" || context.ownership === "syncDirs") {
+		if (isDisposableSeed(context)) {
 			await rm(context.target.targetPath, { force: true, recursive: true });
 			return;
 		}
@@ -947,6 +898,12 @@ class LockfileBootstrapAdapter implements BootstrapAdapter {
 			await rm(context.target.targetPath, { force: true, recursive: true });
 		}
 	}
+}
+
+function isDisposableSeed(
+	context: Pick<BootstrapRepairFailureContext, "ownership">,
+): boolean {
+	return context.ownership === "adapter" || context.ownership === "syncDirs";
 }
 
 async function safeSourceDirectory(target: BootstrapTarget): Promise<boolean> {
@@ -1166,7 +1123,7 @@ function isUvInterpreterName(name: string): boolean {
 	return /^python(?:\d+(?:\.\d+)?)?(?:\.exe)?$/iu.test(name);
 }
 
-async function removeNamedFiles(root: string, name: string): Promise<void> {
+async function removeBundlerExtensionMarkers(root: string): Promise<void> {
 	const pending = [root];
 	while (pending.length > 0) {
 		const current = pending.pop();
@@ -1180,15 +1137,21 @@ async function removeNamedFiles(root: string, name: string): Promise<void> {
 		for (const entry of entries) {
 			const path = join(current, entry.name);
 			if (entry.isDirectory()) pending.push(path);
-			else if (
-				entry.isFile() &&
-				entry.name === name &&
-				relative(root, path).split(sep).includes("extensions")
-			) {
+			else if (entry.isFile() && isBundlerExtensionMarker(root, path)) {
 				await rm(path, { force: true });
 			}
 		}
 	}
+}
+
+function isBundlerExtensionMarker(root: string, path: string): boolean {
+	const segments = relative(root, path).split(sep);
+	return (
+		segments.length >= 7 &&
+		segments[0] === "ruby" &&
+		segments[2] === "extensions" &&
+		segments.at(-1) === "gem.build_complete"
+	);
 }
 
 function uniquePaths(paths: readonly (string | undefined)[]): string[] {

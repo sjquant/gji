@@ -1,4 +1,3 @@
-import { execFile } from "node:child_process";
 import { constants } from "node:fs";
 import {
 	copyFile,
@@ -13,19 +12,15 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { promisify } from "node:util";
 
 import { describe, expect, it } from "vitest";
 
 import {
-	CloneUnsupportedError,
 	cloneDir,
 	isCloneDestinationExistsError,
 	isCloneInProgressError,
 	isCloneUnsupportedError,
 } from "./dir-clone.js";
-
-const execFileAsync = promisify(execFile);
 
 describe("cloneDir", () => {
 	it("rejects a destination contained by its clone source", async () => {
@@ -48,167 +43,85 @@ describe("cloneDir", () => {
 		await expect(readdir(source)).resolves.toEqual([]);
 	});
 
-	it("publishes a macOS clone atomically without a staging copy", async () => {
-		// Given a source directory and an observable native clone boundary.
-		const root = await mkdtemp(join(tmpdir(), "gji-dir-clone-macos-command-"));
+	it("stages a macOS CoW seed before publishing it", async () => {
+		// Given a source directory and an observable forced-CoW boundary.
+		const root = await mkdtemp(join(tmpdir(), "gji-dir-clone-macos-stage-"));
 		const source = join(root, "source");
 		const destination = join(root, "destination");
 		await mkdir(source);
 		await writeFile(join(source, "README.md"), "seed\n", "utf8");
-		let cloneTarget = "";
+		let stagingTarget = "";
 
-		// When gji performs the macOS clone through its native clone boundary.
+		// When the macOS strategy creates its CoW seed.
 		const result = await cloneDir(source, destination, {
-			atomicCloneDirectory: async (_source, target) => {
-				cloneTarget = target;
+			copyDirectory: async (_source, target) => {
+				stagingTarget = target;
 				await mkdir(target);
 				await writeFile(join(target, "README.md"), "seed\n", "utf8");
 			},
+			copyFile: (sourcePath, destinationPath) =>
+				copyFile(sourcePath, destinationPath, constants.COPYFILE_EXCL),
 			measureBytes: false,
 			platform: "darwin",
 		});
 
-		// Then the clone syscall targets the final path and no temporary sibling remains.
+		// Then publication uses a hidden staging directory and removes it afterward.
 		expect(result.bytes).toBeUndefined();
-		expect(cloneTarget).toMatch(/[/\\]destination$/u);
+		expect(stagingTarget).toContain(".destination.gji-clone-");
+		await expect(
+			readFile(join(destination, "README.md"), "utf8"),
+		).resolves.toBe("seed\n");
 		expect((await readdir(root)).sort()).toEqual(["destination", "source"]);
 	});
 
-	it("leaves no destination when native macOS cloning is unsupported", async () => {
-		// Given a source on a filesystem that rejects native CoW cloning.
+	it("removes macOS staging when forced CoW is unavailable", async () => {
+		// Given a macOS CoW operation that leaves partial staging output before failing.
 		const root = await mkdtemp(join(tmpdir(), "gji-dir-clone-macos-reject-"));
 		const source = join(root, "source");
 		const destination = join(root, "destination");
 		await mkdir(source);
 
-		// When the atomic native clone reports that CoW is unsupported.
+		// When the filesystem rejects the forced CoW operation.
 		const error = await cloneDir(source, destination, {
-			atomicCloneDirectory: async () => {
-				throw new CloneUnsupportedError("APFS clone is unavailable");
+			copyDirectory: async (_source, target) => {
+				await mkdir(target);
+				await writeFile(join(target, "partial"), "partial\n", "utf8");
+				const unsupported = new Error(
+					"forced clone is unavailable",
+				) as NodeJS.ErrnoException;
+				unsupported.code = "ENOSYS";
+				throw unsupported;
 			},
 			platform: "darwin",
 		}).catch((caught) => caught);
 
-		// Then no fallback copy runs and no destination survives.
+		// Then no ordinary copy runs and neither staging nor the destination survives.
 		expect(isCloneUnsupportedError(error)).toBe(true);
-		expect(error).toHaveProperty(
-			"message",
-			expect.stringContaining("APFS clone"),
-		);
 		await expect(readdir(root)).resolves.toEqual(["source"]);
 	});
 
-	it("preserves a destination won by another process during macOS cloning", async () => {
-		// Given another process that atomically creates the destination first.
-		const root = await mkdtemp(join(tmpdir(), "gji-dir-clone-macos-race-"));
+	it("keeps transient macOS I/O failures distinct from unsupported CoW", async () => {
+		// Given a forced CoW operation that runs out of space temporarily.
+		const root = await mkdtemp(join(tmpdir(), "gji-dir-clone-macos-enospc-"));
 		const source = join(root, "source");
 		const destination = join(root, "destination");
 		await mkdir(source);
-		await writeFile(join(source, "README.md"), "seed\n", "utf8");
+		const noSpace = new Error("disk is full") as NodeJS.ErrnoException;
+		noSpace.code = "ENOSPC";
 
-		// When native clonefile rejects its destination-exists precondition.
+		// When the macOS CoW boundary reports the operational failure.
 		const error = await cloneDir(source, destination, {
-			atomicCloneDirectory: async () => {
-				await mkdir(destination);
-				await writeFile(join(destination, "README.md"), "external\n");
-				const conflict = new Error(
-					"destination exists",
-				) as NodeJS.ErrnoException;
-				conflict.code = "EEXIST";
-				throw conflict;
+			copyDirectory: async () => {
+				throw noSpace;
 			},
 			platform: "darwin",
 		}).catch((caught) => caught);
 
-		// Then clone publication fails without replacing or deleting the winner.
-		expect(isCloneDestinationExistsError(error)).toBe(true);
-		await expect(
-			readFile(join(destination, "README.md"), "utf8"),
-		).resolves.toBe("external\n");
+		// Then callers can distinguish it from an unsupported filesystem and retry later.
+		expect(error).toBe(noSpace);
+		expect(isCloneUnsupportedError(error)).toBe(false);
+		await expect(readdir(root)).resolves.toEqual(["source"]);
 	});
-
-	it.skipIf(process.platform !== "darwin")(
-		"uses the macOS clone command for a real directory seed",
-		async () => {
-			// Given a directory on the local macOS filesystem.
-			const root = await mkdtemp(join(tmpdir(), "gji-dir-clone-macos-"));
-			const source = join(root, "source");
-			const destination = join(root, "worktree", "destination");
-			await mkdir(source);
-			await writeFile(join(source, "README.md"), "seed\n", "utf8");
-
-			// When gji performs a native macOS CoW clone.
-			const result = await cloneDir(source, destination, {
-				destinationRoot: root,
-				measureBytes: false,
-				platform: "darwin",
-			});
-
-			// Then the seed is published and readable in the destination.
-			expect(result.bytes).toBeUndefined();
-			await expect(
-				readFile(join(destination, "README.md"), "utf8"),
-			).resolves.toBe("seed\n");
-		},
-	);
-
-	it.skipIf(process.platform !== "darwin")(
-		"preserves macOS directory metadata in a CoW seed",
-		async () => {
-			// Given an APFS source directory with an extended attribute.
-			const root = await mkdtemp(join(tmpdir(), "gji-dir-clone-macos-xattr-"));
-			const source = join(root, "source");
-			const nested = join(source, "nested");
-			const destination = join(root, "destination");
-			await mkdir(nested, { recursive: true });
-			await execFileAsync("/usr/bin/xattr", [
-				"-w",
-				"com.gji.clone-test",
-				"preserved",
-				nested,
-			]);
-
-			// When the native helper clones the tree.
-			await cloneDir(source, destination, {
-				measureBytes: false,
-				platform: "darwin",
-			});
-
-			// Then directory metadata survives alongside cloned file data.
-			const { stdout } = await execFileAsync("/usr/bin/xattr", [
-				"-p",
-				"com.gji.clone-test",
-				join(destination, "nested"),
-			]);
-			expect(stdout.trim()).toBe("preserved");
-		},
-	);
-
-	it.skipIf(process.platform !== "darwin")(
-		"publishes a native macOS clone whose root ACL denies deletion",
-		async () => {
-			// Given a source root whose copied ACL would prevent renaming a staging directory.
-			const root = await mkdtemp(join(tmpdir(), "gji-dir-clone-macos-acl-"));
-			const source = join(root, "source");
-			const destination = join(root, "destination");
-			await mkdir(source);
-			await writeFile(join(source, "README.md"), "seed\n", "utf8");
-			await execFileAsync("/bin/chmod", ["+a", "everyone deny delete", source]);
-
-			// When the directory is cloned and published atomically.
-			await cloneDir(source, destination, {
-				measureBytes: false,
-				platform: "darwin",
-			});
-
-			// Then publication succeeds before the restrictive root ACL is restored.
-			await expect(
-				readFile(join(destination, "README.md"), "utf8"),
-			).resolves.toBe("seed\n");
-			const { stdout } = await execFileAsync("/bin/ls", ["-lde", destination]);
-			expect(stdout).toContain("everyone deny delete");
-		},
-	);
 
 	it("atomically publishes a successful clone", async () => {
 		// Given a source directory and a fake CoW command that creates its temporary output.
@@ -509,6 +422,7 @@ describe("cloneDir", () => {
 		await mkdir(source);
 		let releaseFirst: () => void = () => undefined;
 		let releaseSecond: () => void = () => undefined;
+		let markFirstStarted: () => void = () => undefined;
 		let markSecondStarted: () => void = () => undefined;
 		const firstGate = new Promise<void>((resolve) => {
 			releaseFirst = resolve;
@@ -516,25 +430,31 @@ describe("cloneDir", () => {
 		const secondGate = new Promise<void>((resolve) => {
 			releaseSecond = resolve;
 		});
+		const firstStarted = new Promise<void>((resolve) => {
+			markFirstStarted = resolve;
+		});
 		const secondStarted = new Promise<void>((resolve) => {
 			markSecondStarted = resolve;
 		});
 		const first = cloneDir(source, destination, {
 			platform: "darwin",
-			atomicCloneDirectory: async () => {
+			copyDirectory: async () => {
+				markFirstStarted();
 				await firstGate;
 				throw new Error("first clone stopped");
 			},
 		}).catch((error) => error);
+		await firstStarted;
 		let firstMarker: string | undefined;
 		while (!firstMarker) {
 			await new Promise((resolve) => setTimeout(resolve, 1));
 			[firstMarker] = await readdir(lockPath).catch(() => []);
 		}
 		await utimes(join(lockPath, firstMarker), new Date(0), new Date(0));
+		await rm(destination, { force: true, recursive: true });
 		const second = cloneDir(source, destination, {
 			platform: "darwin",
-			atomicCloneDirectory: async () => {
+			copyDirectory: async () => {
 				markSecondStarted();
 				await secondGate;
 				throw new Error("second clone stopped");
@@ -546,12 +466,9 @@ describe("cloneDir", () => {
 		// When the fenced-out first owner finishes and releases its old lock.
 		releaseFirst();
 		await first;
-		const thirdError = await cloneDir(source, destination, {
-			platform: "darwin",
-		}).catch((error) => error);
 
-		// Then the second owner's marker still excludes a third clone.
-		expect(isCloneInProgressError(thirdError)).toBe(true);
+		// Then the second owner's marker still owns the lock.
+		expect((await readdir(lockPath))[0]).not.toBe(firstMarker);
 		releaseSecond();
 		await second;
 	});

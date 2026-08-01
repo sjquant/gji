@@ -13,7 +13,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { runCli } from "./cli.js";
 import { GLOBAL_CONFIG_FILE_PATH } from "./config.js";
-import { CloneUnsupportedError, cloneStrategyIdentity } from "./dir-clone.js";
+import { CloneUnsupportedError } from "./dir-clone.js";
 import {
 	createNewCommand,
 	generateBranchPlaceholder,
@@ -1703,7 +1703,7 @@ describe("gji new", () => {
 			});
 		});
 
-		it("cleans partial clones and caches the failure for later worktrees", async () => {
+		it("cleans partial clones and retries CoW for later worktrees", async () => {
 			// Given a repository and an isolated state directory.
 			const repoRoot = await createRepository();
 			const configDir = await mkdtemp(join(tmpdir(), "gji-config-"));
@@ -1715,16 +1715,13 @@ describe("gji new", () => {
 				"utf8",
 			);
 			let cloneCalls = 0;
-			const cloneDir = Object.assign(
-				async (_source: string, destination: string) => {
-					cloneCalls += 1;
-					await mkdir(destination, { recursive: true });
-					await writeFile(join(destination, "partial.txt"), "partial\n");
-					await rm(destination, { force: true, recursive: true });
-					throw new Error("reflink unsupported");
-				},
-				{ strategyIdentity: cloneStrategyIdentity() },
-			);
+			const cloneDir = async (_source: string, destination: string) => {
+				cloneCalls += 1;
+				await mkdir(destination, { recursive: true });
+				await writeFile(join(destination, "partial.txt"), "partial\n");
+				await rm(destination, { force: true, recursive: true });
+				throw new Error("reflink unsupported");
+			};
 			const runNew = createNewCommand({
 				cloneDir,
 			});
@@ -1743,13 +1740,13 @@ describe("gji new", () => {
 				stdout: () => undefined,
 			});
 
-			// Then neither partial directory remains and the cached failure suppresses retry.
+			// Then neither partial directory remains and each worktree retries forced CoW.
 			expect(first).toBe(0);
 			expect(second).toBe(0);
-			expect(cloneCalls).toBe(1);
-			await expect(
-				readFile(join(configDir, "state.json"), "utf8"),
-			).resolves.toContain("node_modules");
+			expect(cloneCalls).toBe(2);
+			await expect(pathExists(join(configDir, "state.json"))).resolves.toBe(
+				false,
+			);
 			await expect(
 				readFile(
 					join(

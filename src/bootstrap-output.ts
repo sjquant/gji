@@ -11,7 +11,6 @@ export function createBootstrapReporter(
 	measureCloneSize = false,
 ): SyncDirectoryReporter & DependencyBootstrapReporter {
 	return {
-		emitCachedFailureWarnings: !json,
 		measureCloneSize: measureCloneSize && !json,
 		write,
 		cloned: (directory) => {
@@ -27,7 +26,8 @@ export function createBootstrapReporter(
 		dependency: (event: BootstrapEvent) => {
 			if (json) return;
 			const target = event.target ? ` ${event.target}` : "";
-			write(`gji: ${event.state}${target} — ${event.message}\n`);
+			const state = event.state === "fallback" ? "repair-only" : event.state;
+			write(`gji: ${state}${target} — ${event.message}\n`);
 		},
 	};
 }
