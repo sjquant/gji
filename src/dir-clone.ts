@@ -83,10 +83,6 @@ export async function cloneDir(
 	) {
 		throw new Error("clone destination must not be inside its source");
 	}
-	if (await destinationExists(destination)) {
-		throw new CloneDestinationExistsError(destination);
-	}
-
 	const startedAt = Date.now();
 	const parent = dirname(destination);
 	let safeParent: OpenDestinationDirectory | undefined;
@@ -109,9 +105,6 @@ export async function cloneDir(
 
 		const operationParent = safeParent?.path ?? parent;
 		const operationDestination = join(operationParent, basename(destination));
-		if (await destinationExists(operationDestination)) {
-			throw new CloneDestinationExistsError(destination);
-		}
 		const cloneLock = await acquireCloneLock(
 			`${operationDestination}${CLONE_LOCK_SUFFIX}`,
 			destination,
@@ -119,10 +112,13 @@ export async function cloneDir(
 		const stopLockHeartbeat = startLockHeartbeat(cloneLock);
 
 		let temporaryRoot: string | undefined;
-		let reservationPath: string | undefined;
-		const reservationEntries: string[] = [];
+		let reservation: OwnedCloneEntry | undefined;
+		const publishedEntries: OwnedCloneEntry[] = [];
 		try {
-			reservationPath = await reserveDestination(operationDestination);
+			if (await destinationExists(operationDestination)) {
+				throw new CloneDestinationExistsError(destination);
+			}
+			reservation = await reserveDestination(operationDestination);
 			temporaryRoot = await mkdtemp(
 				join(operationParent, `.${basename(destination)}.gji-clone-`),
 			);
@@ -149,18 +145,18 @@ export async function cloneDir(
 			await publishCloneContents(
 				temporaryDestination,
 				operationDestination,
-				reservationPath,
-				(entry) => reservationEntries.push(entry),
+				reservation.path,
+				(entry) => publishedEntries.push(entry),
 				options.copyFile ?? runForcedCloneFileCopy,
 			);
-			reservationPath = undefined;
+			reservation = undefined;
 		} finally {
 			stopLockHeartbeat();
-			if (reservationPath) {
+			if (reservation) {
 				await cleanupReservedDestination(
 					operationDestination,
-					reservationPath,
-					reservationEntries,
+					reservation,
+					publishedEntries,
 				);
 			}
 			if (temporaryRoot) {
@@ -365,18 +361,17 @@ async function acquireCloneLockWithGuard(
 		const published = await publishCloneLock(lockPath, lockToken);
 		if (published) return published;
 
-		let lockStats: Awaited<ReturnType<typeof lstat>>;
-		let staleLock: CloneLock;
+		let staleLock: CloneLockInspection;
 		try {
-			const inspected = await inspectCloneLock(lockPath);
-			if (!inspected) throw new CloneInProgressError(destination);
-			staleLock = inspected;
-			lockStats = await lstat(staleLock.markerPath);
+			staleLock = await inspectCloneLock(lockPath);
 		} catch (error) {
 			if (isNotFoundError(error)) continue;
 			throw error;
 		}
-		if (Date.now() - lockStats.mtimeMs < CLONE_LOCK_TTL_MS) {
+		if (
+			staleLock.kind === "invalid" ||
+			Date.now() - staleLock.mtimeMs < CLONE_LOCK_TTL_MS
+		) {
 			throw new CloneInProgressError(destination);
 		}
 
@@ -391,20 +386,18 @@ async function acquireCloneLockWithGuard(
 		try {
 			const replacement = await publishCloneLock(lockPath, lockToken);
 			if (!replacement) {
-				await cleanupStaleCloneLock(stalePath, staleLock.markerName);
+				await cleanupStaleCloneLock(stalePath, staleLock);
 				continue;
 			}
 			try {
-				await cleanupStaleCloneLock(stalePath, staleLock.markerName);
+				await cleanupStaleCloneLock(stalePath, staleLock);
 			} catch (cleanupError) {
 				await releaseCloneLockWithGuard(replacement).catch(() => undefined);
 				throw cleanupError;
 			}
 			return replacement;
 		} catch (error) {
-			await cleanupStaleCloneLock(stalePath, staleLock.markerName).catch(
-				() => undefined,
-			);
+			await cleanupStaleCloneLock(stalePath, staleLock).catch(() => undefined);
 			if (isAlreadyExistsError(error)) continue;
 			throw error;
 		}
@@ -533,45 +526,75 @@ interface CloneLock {
 	token: string;
 }
 
+type CloneLockInspection =
+	| { kind: "empty"; mtimeMs: number }
+	| { kind: "invalid"; mtimeMs: number }
+	| ({ kind: "owned"; mtimeMs: number } & CloneLock);
+
 async function inspectCloneLock(
 	lockPath: string,
-): Promise<CloneLock | undefined> {
+): Promise<CloneLockInspection> {
 	try {
 		const stats = await lstat(lockPath);
-		if (!stats.isDirectory() || stats.isSymbolicLink()) return undefined;
+		if (!stats.isDirectory() || stats.isSymbolicLink()) {
+			return { kind: "invalid", mtimeMs: stats.mtimeMs };
+		}
 		const entries = await readdir(lockPath);
-		if (entries.length !== 1) return undefined;
+		if (entries.length === 0) return { kind: "empty", mtimeMs: stats.mtimeMs };
+		if (entries.length !== 1) {
+			return { kind: "invalid", mtimeMs: stats.mtimeMs };
+		}
 		const markerName = entries[0];
 		const token = markerName?.startsWith("owner-")
 			? markerName.slice("owner-".length)
 			: markerName;
 		if (!token || !/^[\da-f]{8}(?:-[\da-f]{4}){3}-[\da-f]{12}$/iu.test(token)) {
-			return undefined;
+			return { kind: "invalid", mtimeMs: stats.mtimeMs };
 		}
 		const markerPath = join(lockPath, markerName as string);
 		const markerStats = await lstat(markerPath);
-		if (!markerStats.isFile() || markerStats.isSymbolicLink()) return undefined;
-		if ((await readFile(markerPath, "utf8")).trim() !== token) return undefined;
-		return { lockPath, markerName: markerName as string, markerPath, token };
+		if (!markerStats.isFile() || markerStats.isSymbolicLink()) {
+			return { kind: "invalid", mtimeMs: markerStats.mtimeMs };
+		}
+		if ((await readFile(markerPath, "utf8")).trim() !== token) {
+			return { kind: "invalid", mtimeMs: markerStats.mtimeMs };
+		}
+		return {
+			kind: "owned",
+			lockPath,
+			markerName: markerName as string,
+			markerPath,
+			mtimeMs: markerStats.mtimeMs,
+			token,
+		};
 	} catch (error) {
 		if (isNotFoundError(error)) throw error;
-		return undefined;
+		return { kind: "invalid", mtimeMs: Date.now() };
 	}
 }
 
 async function cleanupStaleCloneLock(
 	lockPath: string,
-	markerName: string,
+	inspection: Exclude<CloneLockInspection, { kind: "invalid" }>,
 ): Promise<void> {
-	await unlink(join(lockPath, markerName));
+	if (inspection.kind === "owned") {
+		await unlink(join(lockPath, inspection.markerName));
+	}
 	await rmdir(lockPath);
+}
+
+interface OwnedCloneEntry {
+	dev: bigint;
+	ino: bigint;
+	kind: "directory" | "file" | "symlink";
+	path: string;
 }
 
 async function publishCloneContents(
 	temporaryDestination: string,
 	destination: string,
 	reservationPath: string,
-	onEntryPublished: (entry: string) => void,
+	onEntryPublished: (entry: OwnedCloneEntry) => void,
 	copyFileEntry: (source: string, destination: string) => Promise<void>,
 ): Promise<void> {
 	const reservationName = basename(reservationPath);
@@ -588,7 +611,7 @@ async function publishCloneContents(
 		await publishCloneEntry(
 			join(temporaryDestination, entry),
 			join(destination, entry),
-			() => onEntryPublished(entry),
+			(entry) => onEntryPublished(entry),
 			copyFileEntry,
 		);
 	}
@@ -599,7 +622,7 @@ async function publishCloneContents(
 async function publishCloneEntry(
 	source: string,
 	destination: string,
-	onCreated: () => void,
+	onCreated: (entry: OwnedCloneEntry) => void,
 	copyFileEntry: (source: string, destination: string) => Promise<void>,
 ): Promise<void> {
 	const sourceStats = await lstat(source);
@@ -612,7 +635,7 @@ async function publishCloneEntry(
 			}
 			throw error;
 		}
-		onCreated();
+		onCreated(await inspectOwnedCloneEntry(destination, "directory"));
 		for (const entry of await readdir(source)) {
 			await publishCloneEntry(
 				join(source, entry),
@@ -634,7 +657,7 @@ async function publishCloneEntry(
 			}
 			throw error;
 		}
-		onCreated();
+		onCreated(await inspectOwnedCloneEntry(destination, "symlink"));
 		return;
 	}
 
@@ -653,7 +676,7 @@ async function publishCloneEntry(
 		}
 		throw error;
 	}
-	onCreated();
+	onCreated(await inspectOwnedCloneEntry(destination, "file"));
 	await copyCloneMetadata(sourceStats, destination);
 }
 
@@ -677,7 +700,9 @@ async function copyCloneMetadata(
 	await utimes(destination, sourceStats.atime, sourceStats.mtime);
 }
 
-async function reserveDestination(destination: string): Promise<string> {
+async function reserveDestination(
+	destination: string,
+): Promise<OwnedCloneEntry> {
 	try {
 		await mkdir(destination);
 	} catch (error) {
@@ -695,7 +720,7 @@ async function reserveDestination(destination: string): Promise<string> {
 		await writeFile(reservationPath, "gji clone reservation\n", {
 			flag: "wx",
 		});
-		return reservationPath;
+		return await inspectOwnedCloneEntry(reservationPath, "file");
 	} catch (error) {
 		await rmdir(destination).catch(() => undefined);
 		throw error;
@@ -704,20 +729,31 @@ async function reserveDestination(destination: string): Promise<string> {
 
 async function cleanupReservedDestination(
 	destination: string,
-	reservationPath: string,
-	reservationEntries: readonly string[],
+	reservation: OwnedCloneEntry,
+	publishedEntries: readonly OwnedCloneEntry[],
 ): Promise<void> {
+	for (const entry of [...publishedEntries, reservation].reverse()) {
+		await removeOwnedCloneEntry(entry);
+	}
+	await rmdir(destination).catch(() => undefined);
+}
+
+async function inspectOwnedCloneEntry(
+	path: string,
+	kind: OwnedCloneEntry["kind"],
+): Promise<OwnedCloneEntry> {
+	const stats = await lstat(path, { bigint: true });
+	return { dev: stats.dev, ino: stats.ino, kind, path };
+}
+
+async function removeOwnedCloneEntry(entry: OwnedCloneEntry): Promise<void> {
 	try {
-		const entries = await readdir(destination);
-		const ownedEntries = new Set([
-			basename(reservationPath),
-			...reservationEntries,
-		]);
-		if (entries.every((entry) => ownedEntries.has(entry))) {
-			await rm(destination, { force: true, recursive: true });
-		}
+		const current = await lstat(entry.path, { bigint: true });
+		if (current.dev !== entry.dev || current.ino !== entry.ino) return;
+		if (entry.kind === "directory") await rmdir(entry.path);
+		else await unlink(entry.path);
 	} catch {
-		// Preserve a destination that was changed by another process.
+		// Missing, replaced, or non-empty entries are no longer exclusively ours.
 	}
 }
 

@@ -147,13 +147,10 @@ function recordSkipped(
 	reporter: SyncDirectoryReporter,
 	dir: string,
 	reason: string,
-	notify = true,
 ): void {
 	outcomes.push({ kind: "skipped", dir, reason });
-	if (notify) {
-		if (reporter.skipped) reporter.skipped({ dir, reason });
-		else reporter.write(`syncDirs: ${reason}, skipped ${dir}\n`);
-	}
+	if (reporter.skipped) reporter.skipped({ dir, reason });
+	else reporter.write(`syncDirs: ${reason}, skipped ${dir}\n`);
 }
 
 function toErrorMessage(error: unknown): string {

@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
-import type { Dirent } from "node:fs";
-import { lstat, readdir, readFile, realpath, rm } from "node:fs/promises";
+import { constants, type Dirent } from "node:fs";
+import { lstat, open, readdir, readFile, realpath, rm } from "node:fs/promises";
 import {
 	basename,
 	dirname,
@@ -19,17 +19,20 @@ import {
 	isCloneDestinationExistsError,
 	isCloneInProgressError,
 } from "./dir-clone.js";
-import { pathExists } from "./fs-utils.js";
+import { isNotFoundError, pathExists } from "./fs-utils.js";
 import { inspectDestination } from "./safe-destination.js";
 
 const execFileAsync = promisify(execFile);
+const UV_VALIDATION_MAX_ENTRIES = 10_000;
+const UV_VALIDATION_MAX_FILE_BYTES = 1024 * 1024;
+const UV_VALIDATION_MAX_TOTAL_BYTES = 16 * 1024 * 1024;
 
 export type BootstrapKind = "dependency" | "build-cache" | "sync-file";
 export type BootstrapState =
 	| "seeded"
 	| "repaired"
 	| "installed"
-	| "fallback"
+	| "repair-only"
 	| "skipped"
 	| "failed";
 export type BootstrapStrategy =
@@ -53,7 +56,7 @@ interface BootstrapCommandExecutionContext {
 
 export interface BootstrapExecutionContext
 	extends BootstrapCommandExecutionContext {
-	ownership: BootstrapTargetOwnership;
+	input: BootstrapTargetInput;
 }
 
 export interface BootstrapTarget {
@@ -66,26 +69,15 @@ export interface BootstrapTarget {
 	targetPath: string;
 	repairCommand: string;
 	repairState: "repaired" | "installed";
-	existingBeforeBootstrap: boolean;
+	shell: boolean;
+	initialInput: Exclude<BootstrapTargetInput, "seed">;
 }
 
-export type BootstrapTargetOwnership =
-	| "adapter"
-	| "syncDirs"
-	| "empty"
-	| "preserve";
+export type BootstrapTargetInput = "clean" | "preserve" | "seed";
 
 export interface BootstrapRepairFailureContext {
+	input: BootstrapTargetInput;
 	target: BootstrapTarget;
-	ownership: BootstrapTargetOwnership;
-	targetExistedBeforeRepair: boolean;
-}
-
-export interface BootstrapOutputMetadata {
-	adapter: string;
-	kind: BootstrapKind;
-	target: string;
-	repairCommand: string;
 }
 
 export interface BootstrapAdapter {
@@ -100,7 +92,6 @@ export interface BootstrapAdapter {
 		context: BootstrapExecutionContext,
 	): Promise<void>;
 	canSeed(target: BootstrapTarget): Promise<boolean>;
-	output(target: BootstrapTarget): BootstrapOutputMetadata;
 	shouldRetryAfterRepairFailure(
 		context: BootstrapRepairFailureContext,
 	): boolean;
@@ -115,7 +106,6 @@ export interface DependencyBootstrapPlan {
 }
 
 export interface PlannedBootstrapTarget {
-	adapter: BootstrapAdapter;
 	target: BootstrapTarget;
 	seedable: boolean;
 }
@@ -201,7 +191,7 @@ export async function prepareDependencyBootstrap(
 	for (const adapter of adapters) {
 		if (plannedRelativePaths.has(adapter.relativePath)) continue;
 
-		let fallback: PlannedBootstrapTarget | undefined;
+		let firstDetected: PlannedBootstrapTarget | undefined;
 		let selected: PlannedBootstrapTarget | undefined;
 
 		for (const sourceRoot of sourceRoots) {
@@ -214,15 +204,15 @@ export async function prepareDependencyBootstrap(
 
 			const seedable =
 				mode !== "install-only" && (await adapter.canSeed(target));
-			const candidate = { adapter, target, seedable };
-			fallback ??= candidate;
+			const candidate = { target, seedable };
+			firstDetected ??= candidate;
 			if (mode === "install-only" || seedable) {
 				selected = candidate;
 				break;
 			}
 		}
 
-		const plannedTarget = selected ?? fallback;
+		const plannedTarget = selected ?? firstDetected;
 		if (plannedTarget) {
 			targets.push(plannedTarget);
 			plannedRelativePaths.add(adapter.relativePath);
@@ -245,9 +235,9 @@ export async function detectDependencyBootstrapCandidate(context: {
 	if (!planned) return null;
 
 	return {
-		adapter: planned.adapter.name,
-		kind: planned.adapter.kind,
-		lockfile: planned.adapter.lockfile,
+		adapter: planned.target.adapter,
+		kind: planned.target.kind,
+		lockfile: adapterForTarget(planned.target).lockfile,
 		target: planned.target.relativePath,
 		repairCommand: planned.target.repairCommand,
 		seedable: planned.seedable,
@@ -259,10 +249,10 @@ export function previewDependencyBootstrap(
 ): DependencyBootstrapPreview {
 	return {
 		mode: plan.mode,
-		targets: plan.targets.map(({ adapter, target, seedable }) => ({
-			adapter: adapter.output(target).adapter,
-			kind: adapter.kind,
-			target: adapter.output(target).target,
+		targets: plan.targets.map(({ target, seedable }) => ({
+			adapter: target.adapter,
+			kind: target.kind,
+			target: target.relativePath,
 			repairCommand: target.repairCommand,
 			seedable,
 			strategy: bootstrapStrategy(plan.mode, target, seedable),
@@ -273,7 +263,6 @@ export function previewDependencyBootstrap(
 export async function executeDependencyBootstrap(
 	plan: DependencyBootstrapPlan,
 	options: DependencyBootstrapDependencies & {
-		repoRoot: string;
 		reporter: DependencyBootstrapReporter;
 	},
 ): Promise<DependencyBootstrapReport> {
@@ -300,7 +289,8 @@ export async function executeDependencyBootstrap(
 		return { mode: plan.mode, ready: true, events };
 	}
 
-	for (const { adapter, target, seedable } of plan.targets) {
+	for (const { target, seedable } of plan.targets) {
+		const adapter = adapterForTarget(target);
 		await executeBootstrapTarget(
 			adapter,
 			target,
@@ -352,20 +342,17 @@ async function executeBootstrapTarget(
 			adapter,
 			target,
 			execution,
-			false,
-			target.existingBeforeBootstrap ? "preserve" : "empty",
+			destinationInspection.kind === "exists" ? "preserve" : "clean",
 			events,
 			reporter,
 		);
 		return;
 	}
 
-	let seeded = false;
-	let ownership: BootstrapTargetOwnership = target.existingBeforeBootstrap
-		? "preserve"
-		: "empty";
+	let input: BootstrapTargetInput =
+		destinationInspection.kind === "exists" ? "preserve" : "clean";
 	const destinationExistsNow = destinationInspection.kind === "exists";
-	if (target.existingBeforeBootstrap) {
+	if (target.initialInput === "preserve" && destinationExistsNow) {
 		recordBootstrapEvent(events, reporter, {
 			adapter: adapter.name,
 			kind: adapter.kind,
@@ -376,8 +363,7 @@ async function executeBootstrapTarget(
 		});
 	} else if (seededBySyncDirs && destinationExistsNow) {
 		if (seedable) {
-			seeded = true;
-			ownership = "syncDirs";
+			input = "seed";
 			recordBootstrapEvent(events, reporter, {
 				adapter: adapter.name,
 				kind: adapter.kind,
@@ -387,19 +373,19 @@ async function executeBootstrapTarget(
 				message: "reusing a seed created by syncDirs",
 			});
 		} else {
-			ownership = "preserve";
+			input = "preserve";
 			recordBootstrapEvent(events, reporter, {
 				adapter: adapter.name,
 				kind: adapter.kind,
 				reason: "generic-seed",
-				state: "fallback",
+				state: "repair-only",
 				target: target.relativePath,
 				message:
 					"syncDirs created a generic target; this adapter uses repair without CoW",
 			});
 		}
 	} else if (destinationExistsNow) {
-		ownership = "preserve";
+		input = "preserve";
 		recordBootstrapEvent(events, reporter, {
 			adapter: adapter.name,
 			kind: adapter.kind,
@@ -415,8 +401,7 @@ async function executeBootstrapTarget(
 				destinationRoot: target.worktreePath,
 				measureBytes: reporter.measureCloneSize,
 			});
-			seeded = true;
-			ownership = "adapter";
+			input = "seed";
 			recordBootstrapEvent(events, reporter, {
 				adapter: adapter.name,
 				kind: adapter.kind,
@@ -426,7 +411,7 @@ async function executeBootstrapTarget(
 			});
 		} catch (error) {
 			if (isCloneDestinationExistsError(error)) {
-				ownership = "preserve";
+				input = "preserve";
 				recordBootstrapEvent(events, reporter, {
 					adapter: adapter.name,
 					kind: adapter.kind,
@@ -435,15 +420,7 @@ async function executeBootstrapTarget(
 					message:
 						"target appeared during CoW seeding; preserving it as the repair input",
 				});
-				await repairTarget(
-					adapter,
-					target,
-					execution,
-					false,
-					ownership,
-					events,
-					reporter,
-				);
+				await repairTarget(adapter, target, execution, input, events, reporter);
 				return;
 			}
 			if (isCloneInProgressError(error)) {
@@ -457,13 +434,31 @@ async function executeBootstrapTarget(
 				);
 				return;
 			}
+			const failedCloneInspection = await inspectDestination(
+				target.worktreePath,
+				target.targetPath,
+			);
+			if (failedCloneInspection.kind === "unsafe") {
+				recordBootstrapFailure(
+					events,
+					reporter,
+					adapter,
+					target,
+					failedCloneInspection.reason,
+					"destination-unsafe",
+				);
+				return;
+			}
+			input = failedCloneInspection.kind === "exists" ? "preserve" : "clean";
+			const repairInput =
+				input === "preserve" ? "the preserved target" : "an empty target";
 			recordBootstrapEvent(events, reporter, {
 				adapter: adapter.name,
 				kind: adapter.kind,
 				reason: "cow-seed-failed",
-				state: "fallback",
+				state: "repair-only",
 				target: target.relativePath,
-				message: `CoW seed failed; repairing from an empty target (${toErrorMessage(error)})`,
+				message: `CoW seed failed; repairing from ${repairInput} (${toErrorMessage(error)})`,
 			});
 		}
 	} else {
@@ -471,29 +466,20 @@ async function executeBootstrapTarget(
 			adapter: adapter.name,
 			kind: adapter.kind,
 			reason: "seed-unavailable",
-			state: "fallback",
+			state: "repair-only",
 			target: target.relativePath,
 			message: "CoW seed is unavailable; repairing from an empty target",
 		});
 	}
 
-	await repairTarget(
-		adapter,
-		target,
-		execution,
-		seeded,
-		ownership,
-		events,
-		reporter,
-	);
+	await repairTarget(adapter, target, execution, input, events, reporter);
 }
 
 async function repairTarget(
 	adapter: BootstrapAdapter,
 	target: BootstrapTarget,
 	execution: BootstrapCommandExecutionContext,
-	seeded: boolean,
-	ownership: BootstrapTargetOwnership,
+	input: BootstrapTargetInput,
 	events: BootstrapEvent[],
 	reporter: DependencyBootstrapReporter,
 ): Promise<void> {
@@ -512,23 +498,25 @@ async function repairTarget(
 		);
 		return;
 	}
-	const presentBeforeRepair = beforeRepairInspection.kind === "exists";
+	const effectiveInput: BootstrapTargetInput =
+		beforeRepairInspection.kind === "exists"
+			? input === "seed"
+				? "seed"
+				: "preserve"
+			: "clean";
 	try {
-		await adapter.repair(target, { ...execution, ownership });
+		await adapter.repair(target, { ...execution, input: effectiveInput });
 		recordBootstrapEvent(events, reporter, {
 			adapter: adapter.name,
 			kind: adapter.kind,
 			state: target.repairState,
 			target: target.relativePath,
-			message: seeded
-				? "reused and repaired"
-				: "installed or repaired from a clean target",
+			message: repairSuccessMessage(target, effectiveInput),
 		});
 	} catch (firstError) {
 		const firstFailureContext = {
+			input: effectiveInput,
 			target,
-			ownership,
-			targetExistedBeforeRepair: presentBeforeRepair,
 		};
 		const cleanupError = await adapter
 			.cleanupAfterRepairFailure(firstFailureContext)
@@ -564,7 +552,7 @@ async function repairTarget(
 			adapter: adapter.name,
 			kind: adapter.kind,
 			reason: "seed-repair-failed",
-			state: "fallback",
+			state: "repair-only",
 			target: target.relativePath,
 			message: `seed repair failed; removed the seed and retrying clean (${toErrorMessage(firstError)})`,
 		});
@@ -584,26 +572,23 @@ async function repairTarget(
 			);
 			return;
 		}
-		const presentBeforeRetry = beforeRetryInspection.kind === "exists";
-		const retryOwnership: BootstrapTargetOwnership = presentBeforeRetry
-			? "preserve"
-			: "empty";
+		const retryInput: BootstrapTargetInput =
+			beforeRetryInspection.kind === "exists" ? "preserve" : "clean";
 		try {
-			await adapter.repair(target, { ...execution, ownership: retryOwnership });
+			await adapter.repair(target, { ...execution, input: retryInput });
 			recordBootstrapEvent(events, reporter, {
 				adapter: adapter.name,
 				kind: adapter.kind,
 				reason: "repair-retry",
 				state: target.repairState,
 				target: target.relativePath,
-				message: "installed or repaired from a clean target",
+				message: repairSuccessMessage(target, retryInput),
 			});
 		} catch (secondError) {
 			const cleanupError = await adapter
 				.cleanupAfterRepairFailure({
+					input: retryInput,
 					target,
-					ownership: retryOwnership,
-					targetExistedBeforeRepair: presentBeforeRetry,
 				})
 				.then(() => undefined)
 				.catch((error) => toErrorMessage(error));
@@ -617,6 +602,17 @@ async function repairTarget(
 			);
 		}
 	}
+}
+
+function repairSuccessMessage(
+	target: BootstrapTarget,
+	input: BootstrapTargetInput,
+): string {
+	if (input === "seed") return "reused and repaired";
+	if (input === "preserve") return "repaired the existing target";
+	return target.repairState === "installed"
+		? "installed from a clean target"
+		: "repaired from a clean target";
 }
 
 function recordBootstrapFailure(
@@ -665,6 +661,15 @@ function bootstrapStrategy(
 	return seedable ? "cow-then-repair" : "repair-only";
 }
 
+function adapterForTarget(target: BootstrapTarget): BootstrapAdapter {
+	const adapter = createBootstrapAdapters(defaultCheckUvRuntime).find(
+		(candidate) => candidate.name === target.adapter,
+	);
+	if (!adapter)
+		throw new Error(`unsupported bootstrap adapter: ${target.adapter}`);
+	return adapter;
+}
+
 function createBootstrapAdapters(
 	checkUvRuntime: (target: BootstrapTarget) => Promise<boolean>,
 	cargoBuildCommand?: string,
@@ -678,7 +683,7 @@ function createBootstrapAdapters(
 			repairCommand: "pnpm install --frozen-lockfile",
 			shell: false,
 			beforeRepair: async (target, context) => {
-				if (!target.existingBeforeBootstrap && isDisposableSeed(context)) {
+				if (context.input === "seed") {
 					await rm(join(target.targetPath, ".modules.yaml"), {
 						force: true,
 					});
@@ -693,7 +698,7 @@ function createBootstrapAdapters(
 			repairCommand: "yarn install --immutable",
 			shell: false,
 			beforeRepair: async (target, context) => {
-				if (!target.existingBeforeBootstrap && isDisposableSeed(context)) {
+				if (context.input === "seed") {
 					await rm(join(target.targetPath, ".yarn-state.yml"), {
 						force: true,
 					});
@@ -708,8 +713,8 @@ function createBootstrapAdapters(
 			repairCommand: "npm ci",
 			shell: false,
 			seedPolicy: "never",
-			repairCommandOverride: (target) =>
-				target.existingBeforeBootstrap ? "npm install" : "npm ci",
+			selectRepairCommand: (_target, input) =>
+				input === "preserve" ? "npm install" : "npm ci",
 			repairState: "installed",
 		}),
 		new LockfileBootstrapAdapter({
@@ -723,7 +728,7 @@ function createBootstrapAdapters(
 				env: { BUNDLE_PATH: "vendor/bundle" },
 			}),
 			beforeRepair: async (target, context) => {
-				if (!target.existingBeforeBootstrap && isDisposableSeed(context)) {
+				if (context.input === "seed") {
 					await removeBundlerExtensionMarkers(target.targetPath);
 				}
 			},
@@ -745,7 +750,7 @@ function createBootstrapAdapters(
 			lockfile: "Cargo.lock",
 			relativePath: "target",
 			repairCommand: cargoBuildCommand?.trim() || "cargo check",
-			shell: cargoBuildCommand ? undefined : false,
+			shell: Boolean(cargoBuildCommand),
 		}),
 	];
 }
@@ -756,18 +761,24 @@ interface LockfileBootstrapAdapterSpec {
 	lockfile: string;
 	relativePath: string;
 	repairCommand: string;
-	shell?: boolean;
+	shell: boolean;
 	seedPolicy?: "always" | "never";
 	canSeedOverride?: (target: BootstrapTarget) => Promise<boolean>;
 	beforeRepair?: (
 		target: BootstrapTarget,
 		context: BootstrapExecutionContext,
 	) => Promise<void>;
-	afterRepair?: (target: BootstrapTarget) => Promise<void>;
+	afterRepair?: (
+		target: BootstrapTarget,
+		context: BootstrapExecutionContext,
+	) => Promise<void>;
 	commandOptions?: (
 		target: BootstrapTarget,
 	) => Parameters<BootstrapCommandRunner>[4];
-	repairCommandOverride?: (target: BootstrapTarget) => string;
+	selectRepairCommand?: (
+		target: BootstrapTarget,
+		input: BootstrapTargetInput,
+	) => string;
 	repairState?: "repaired" | "installed";
 }
 
@@ -777,7 +788,7 @@ class LockfileBootstrapAdapter implements BootstrapAdapter {
 	readonly name: string;
 	readonly relativePath: string;
 	private readonly defaultRepairCommand: string;
-	private readonly shell?: boolean;
+	private readonly shell: boolean;
 	private readonly seedPolicy: "always" | "never";
 	private readonly canSeedOverride?: (
 		target: BootstrapTarget,
@@ -786,11 +797,17 @@ class LockfileBootstrapAdapter implements BootstrapAdapter {
 		target: BootstrapTarget,
 		context: BootstrapExecutionContext,
 	) => Promise<void>;
-	private readonly afterRepair?: (target: BootstrapTarget) => Promise<void>;
+	private readonly afterRepair?: (
+		target: BootstrapTarget,
+		context: BootstrapExecutionContext,
+	) => Promise<void>;
 	private readonly commandOptions?: (
 		target: BootstrapTarget,
 	) => Parameters<BootstrapCommandRunner>[4];
-	private readonly repairCommandOverride?: (target: BootstrapTarget) => string;
+	private readonly selectRepairCommand?: (
+		target: BootstrapTarget,
+		input: BootstrapTargetInput,
+	) => string;
 	private readonly repairState: "repaired" | "installed";
 
 	constructor(spec: LockfileBootstrapAdapterSpec) {
@@ -805,7 +822,7 @@ class LockfileBootstrapAdapter implements BootstrapAdapter {
 		this.beforeRepair = spec.beforeRepair;
 		this.afterRepair = spec.afterRepair;
 		this.commandOptions = spec.commandOptions;
-		this.repairCommandOverride = spec.repairCommandOverride;
+		this.selectRepairCommand = spec.selectRepairCommand;
 		this.repairState = spec.repairState ?? "repaired";
 	}
 
@@ -821,7 +838,9 @@ class LockfileBootstrapAdapter implements BootstrapAdapter {
 			context.worktreePath,
 			targetPath,
 		);
-		const target = {
+		const initialInput =
+			destinationInspection.kind === "exists" ? "preserve" : "clean";
+		const target: BootstrapTarget = {
 			adapter: this.name,
 			kind: this.kind,
 			relativePath: this.relativePath,
@@ -831,13 +850,15 @@ class LockfileBootstrapAdapter implements BootstrapAdapter {
 			targetPath,
 			repairCommand: this.defaultRepairCommand,
 			repairState: this.repairState,
-			existingBeforeBootstrap: destinationInspection.kind === "exists",
+			shell: this.shell,
+			initialInput,
 		};
 
 		return {
 			...target,
 			repairCommand:
-				this.repairCommandOverride?.(target) ?? target.repairCommand,
+				this.selectRepairCommand?.(target, initialInput) ??
+				target.repairCommand,
 		};
 	}
 
@@ -850,17 +871,19 @@ class LockfileBootstrapAdapter implements BootstrapAdapter {
 		context: BootstrapExecutionContext,
 	): Promise<void> {
 		await this.beforeRepair?.(target, context);
+		const repairCommand =
+			this.selectRepairCommand?.(target, context.input) ?? target.repairCommand;
 		await context.runCommand(
-			target.repairCommand,
+			repairCommand,
 			target.worktreePath,
 			context.stderr,
 			context.stdout,
 			{
 				...this.commandOptions?.(target),
-				shell: this.shell,
+				shell: target.shell,
 			},
 		);
-		await this.afterRepair?.(target);
+		await this.afterRepair?.(target, context);
 	}
 
 	async canSeed(target: BootstrapTarget): Promise<boolean> {
@@ -869,41 +892,18 @@ class LockfileBootstrapAdapter implements BootstrapAdapter {
 		return (await this.canSeedOverride?.(target)) ?? true;
 	}
 
-	output(target: BootstrapTarget): BootstrapOutputMetadata {
-		return {
-			adapter: this.name,
-			kind: this.kind,
-			target: target.relativePath,
-			repairCommand: target.repairCommand,
-		};
-	}
-
 	shouldRetryAfterRepairFailure(
 		context: BootstrapRepairFailureContext,
 	): boolean {
-		return isDisposableSeed(context);
+		return context.input === "seed";
 	}
 
 	async cleanupAfterRepairFailure(
 		context: BootstrapRepairFailureContext,
 	): Promise<void> {
-		if (context.target.existingBeforeBootstrap) {
-			return;
-		}
-		if (isDisposableSeed(context)) {
-			await rm(context.target.targetPath, { force: true, recursive: true });
-			return;
-		}
-		if (context.ownership === "empty" && !context.targetExistedBeforeRepair) {
-			await rm(context.target.targetPath, { force: true, recursive: true });
-		}
+		if (context.input !== "seed") return;
+		await rm(context.target.targetPath, { force: true, recursive: true });
 	}
-}
-
-function isDisposableSeed(
-	context: Pick<BootstrapRepairFailureContext, "ownership">,
-): boolean {
-	return context.ownership === "adapter" || context.ownership === "syncDirs";
 }
 
 async function safeSourceDirectory(target: BootstrapTarget): Promise<boolean> {
@@ -1006,8 +1006,11 @@ function pythonPrefixesFromText(text: string): string[] {
 	);
 }
 
-async function validateUvRelocation(target: BootstrapTarget): Promise<void> {
-	if (target.existingBeforeBootstrap) return;
+async function validateUvRelocation(
+	target: BootstrapTarget,
+	context: BootstrapExecutionContext,
+): Promise<void> {
+	if (context.input === "preserve") return;
 
 	const scriptsDirectory = join(
 		target.targetPath,
@@ -1042,16 +1045,21 @@ async function validateUvRelocation(target: BootstrapTarget): Promise<void> {
 		resolve(target.targetPath),
 		await realpath(target.targetPath),
 	]);
+	let validatedBytes = 0;
 	for (const path of [
 		join(target.targetPath, "pyvenv.cfg"),
 		...entries
 			.filter((entry) => entry.isFile())
 			.map((entry) => join(scriptsDirectory, entry.name)),
 	]) {
-		const contents = await readFile(path).catch(() => undefined);
-		if (!contents) continue;
-		const text = contents.toString("utf8");
-		if (!Buffer.from(text, "utf8").equals(contents)) continue;
+		const validated = await readBoundedUvTextFile(
+			path,
+			UV_VALIDATION_MAX_TOTAL_BYTES - validatedBytes,
+		);
+		if (!validated) continue;
+		validatedBytes += validated.bytes;
+		if (validated.text === undefined) continue;
+		const { text } = validated;
 		if (sourcePaths.some((sourcePath) => text.includes(sourcePath))) {
 			throw new Error(`uv environment contains a stale source path: ${path}`);
 		}
@@ -1082,8 +1090,11 @@ async function validateUvRelocation(target: BootstrapTarget): Promise<void> {
 	}
 }
 
-async function validateUvStructure(target: BootstrapTarget): Promise<void> {
-	if (target.existingBeforeBootstrap) return;
+async function validateUvStructure(
+	target: BootstrapTarget,
+	context: BootstrapExecutionContext,
+): Promise<void> {
+	if (context.input === "preserve") return;
 	const targetStats = await lstat(target.targetPath).catch(() => undefined);
 	if (!targetStats) return;
 	if (!targetStats.isDirectory() || targetStats.isSymbolicLink()) {
@@ -1112,10 +1123,47 @@ async function validateUvStructure(target: BootstrapTarget): Promise<void> {
 }
 
 function assertSafeUvScriptEntries(entries: readonly Dirent[]): void {
+	if (entries.length > UV_VALIDATION_MAX_ENTRIES) {
+		throw new Error("uv scripts directory exceeds the validation entry limit");
+	}
 	for (const entry of entries) {
 		if (entry.isSymbolicLink() && !isUvInterpreterName(entry.name)) {
 			throw new Error(`uv script must not be a symbolic link: ${entry.name}`);
 		}
+	}
+}
+
+async function readBoundedUvTextFile(
+	path: string,
+	remainingBytes: number,
+): Promise<{ bytes: number; text?: string } | undefined> {
+	let handle: Awaited<ReturnType<typeof open>>;
+	try {
+		handle = await open(
+			path,
+			constants.O_RDONLY |
+				(process.platform === "win32" ? 0 : constants.O_NOFOLLOW),
+		);
+	} catch (error) {
+		if (isNotFoundError(error)) return undefined;
+		throw error;
+	}
+	try {
+		const stats = await handle.stat();
+		if (!stats.isFile()) return undefined;
+		if (stats.size > UV_VALIDATION_MAX_FILE_BYTES) {
+			throw new Error(`uv launcher exceeds the validation size limit: ${path}`);
+		}
+		if (stats.size > remainingBytes) {
+			throw new Error("uv launchers exceed the total validation size limit");
+		}
+		const contents = await handle.readFile();
+		const text = contents.toString("utf8");
+		return Buffer.from(text, "utf8").equals(contents)
+			? { bytes: contents.byteLength, text }
+			: { bytes: contents.byteLength };
+	} finally {
+		await handle.close();
 	}
 }
 
@@ -1131,8 +1179,9 @@ async function removeBundlerExtensionMarkers(root: string): Promise<void> {
 		let entries: Dirent[];
 		try {
 			entries = await readdir(current, { withFileTypes: true });
-		} catch {
-			continue;
+		} catch (error) {
+			if (isNotFoundError(error)) continue;
+			throw error;
 		}
 		for (const entry of entries) {
 			const path = join(current, entry.name);

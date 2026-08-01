@@ -1,11 +1,4 @@
-import {
-	mkdir,
-	mkdtemp,
-	readFile,
-	rm,
-	symlink,
-	writeFile,
-} from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 
@@ -1703,7 +1696,7 @@ describe("gji new", () => {
 			});
 		});
 
-		it("cleans partial clones and retries CoW for later worktrees", async () => {
+		it("retries unsupported CoW for later worktrees without persistent cache", async () => {
 			// Given a repository and an isolated state directory.
 			const repoRoot = await createRepository();
 			const configDir = await mkdtemp(join(tmpdir(), "gji-config-"));
@@ -1715,12 +1708,9 @@ describe("gji new", () => {
 				"utf8",
 			);
 			let cloneCalls = 0;
-			const cloneDir = async (_source: string, destination: string) => {
+			const cloneDir = async () => {
 				cloneCalls += 1;
-				await mkdir(destination, { recursive: true });
-				await writeFile(join(destination, "partial.txt"), "partial\n");
-				await rm(destination, { force: true, recursive: true });
-				throw new Error("reflink unsupported");
+				throw new CloneUnsupportedError("reflink unsupported");
 			};
 			const runNew = createNewCommand({
 				cloneDir,
@@ -1740,22 +1730,13 @@ describe("gji new", () => {
 				stdout: () => undefined,
 			});
 
-			// Then neither partial directory remains and each worktree retries forced CoW.
+			// Then each worktree retries forced CoW without writing a failure cache.
 			expect(first).toBe(0);
 			expect(second).toBe(0);
 			expect(cloneCalls).toBe(2);
 			await expect(pathExists(join(configDir, "state.json"))).resolves.toBe(
 				false,
 			);
-			await expect(
-				readFile(
-					join(
-						resolveWorktreePath(repoRoot, "feature/cow-failure-one"),
-						"node_modules",
-						"partial.txt",
-					),
-				),
-			).rejects.toThrow();
 		});
 
 		it("does not permanently cache operational clone failures", async () => {

@@ -123,7 +123,7 @@ describe("cloneDir", () => {
 		await expect(readdir(root)).resolves.toEqual(["source"]);
 	});
 
-	it("atomically publishes a successful clone", async () => {
+	it("publishes a successful staged clone without temporary output", async () => {
 		// Given a source directory and a fake CoW command that creates its temporary output.
 		const root = await mkdtemp(join(tmpdir(), "gji-dir-clone-"));
 		const source = join(root, "source");
@@ -182,6 +182,40 @@ describe("cloneDir", () => {
 
 		// Then neither the destination nor the temporary partial clone remains.
 		expect((await readdir(root)).sort()).toEqual(["source"]);
+	});
+
+	it("preserves files added concurrently while cleaning failed publication", async () => {
+		// Given a staged clone whose destination gains an external nested file during publication.
+		const root = await mkdtemp(join(tmpdir(), "gji-dir-clone-cleanup-race-"));
+		const source = join(root, "source");
+		const destination = join(root, "destination");
+		await mkdir(join(source, "package"), { recursive: true });
+		await writeFile(join(source, "package", "a.txt"), "a\n");
+		await writeFile(join(source, "package", "b.txt"), "b\n");
+
+		// When publication fails after another process writes below a directory created by gji.
+		const error = await cloneDir(source, destination, {
+			copyDirectory: async (_source, target) => {
+				await mkdir(join(target, "package"), { recursive: true });
+				await writeFile(join(target, "package", "a.txt"), "a\n");
+				await writeFile(join(target, "package", "b.txt"), "b\n");
+			},
+			copyFile: async (sourcePath, destinationPath) => {
+				if (sourcePath.endsWith("b.txt")) throw new Error("publication failed");
+				await copyFile(sourcePath, destinationPath, constants.COPYFILE_EXCL);
+				await writeFile(join(destination, "package", "external.txt"), "keep\n");
+			},
+			platform: "darwin",
+		}).catch((caught) => caught);
+
+		// Then cleanup preserves the dirty subtree rather than deleting the concurrent file.
+		expect(error).toHaveProperty("message", "publication failed");
+		await expect(
+			readFile(join(destination, "package", "external.txt"), "utf8"),
+		).resolves.toBe("keep\n");
+		await expect(
+			readFile(join(destination, "package", "a.txt"), "utf8"),
+		).resolves.toBe("a\n");
 	});
 
 	it("reports the logical source size in bytes", async () => {
@@ -363,6 +397,42 @@ describe("cloneDir", () => {
 		await expect(readdir(root)).resolves.toContain("source");
 	});
 
+	it("keeps a concurrent clone from treating an in-progress reservation as reusable", async () => {
+		// Given a clone paused after reserving its destination while holding the clone lock.
+		const root = await mkdtemp(join(tmpdir(), "gji-dir-clone-contender-"));
+		const source = join(root, "source");
+		const destination = join(root, "destination");
+		await mkdir(source);
+		let releaseFirst: () => void = () => undefined;
+		let markFirstStarted: () => void = () => undefined;
+		const firstGate = new Promise<void>((resolve) => {
+			releaseFirst = resolve;
+		});
+		const firstStarted = new Promise<void>((resolve) => {
+			markFirstStarted = resolve;
+		});
+		const first = cloneDir(source, destination, {
+			copyDirectory: async (_source, target) => {
+				markFirstStarted();
+				await firstGate;
+				await mkdir(target);
+			},
+			platform: "darwin",
+		});
+		await firstStarted;
+
+		// When another clone attempts the same destination before publication finishes.
+		const secondError = await cloneDir(source, destination, {
+			platform: "darwin",
+		}).catch((caught) => caught);
+		releaseFirst();
+		await first;
+
+		// Then the contender reports active work and never treats partial state as a repair input.
+		expect(isCloneInProgressError(secondError)).toBe(true);
+		expect(isCloneDestinationExistsError(secondError)).toBe(false);
+	});
+
 	it("reclaims an abandoned clone lock without leaving the replacement lock behind", async () => {
 		// Given an old lock for an absent destination.
 		const root = await mkdtemp(join(tmpdir(), "gji-dir-clone-stale-lock-"));
@@ -388,6 +458,28 @@ describe("cloneDir", () => {
 		});
 
 		// Then the clone succeeds and only its destination remains.
+		await expect(readdir(root)).resolves.toEqual(["destination", "source"]);
+	});
+
+	it("reclaims an old empty lock left before its owner marker was written", async () => {
+		// Given an empty clone lock directory left by an interrupted publisher.
+		const root = await mkdtemp(join(tmpdir(), "gji-dir-clone-empty-lock-"));
+		const source = join(root, "source");
+		const destination = join(root, "destination");
+		const lockPath = `${destination}.gji-clone-lock`;
+		await mkdir(source);
+		await mkdir(lockPath);
+		await utimes(lockPath, new Date(0), new Date(0));
+
+		// When a later clone encounters the abandoned pre-marker lock.
+		await cloneDir(source, destination, {
+			platform: "linux",
+			runLinuxCommand: async (_command, args) => {
+				await mkdir(args.at(-1) as string);
+			},
+		});
+
+		// Then the stale lock is reclaimed and the clone completes normally.
 		await expect(readdir(root)).resolves.toEqual(["destination", "source"]);
 	});
 

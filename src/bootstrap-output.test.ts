@@ -16,7 +16,7 @@ describe("createBootstrapReporter", () => {
 			adapter: "yarn",
 			kind: "dependency",
 			reason: "cow-seed-failed",
-			state: "fallback",
+			state: "repair-only",
 			target: "node_modules",
 			message: "CoW seed failed; repairing from an empty target",
 		});

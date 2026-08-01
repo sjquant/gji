@@ -26,8 +26,7 @@ export function createBootstrapReporter(
 		dependency: (event: BootstrapEvent) => {
 			if (json) return;
 			const target = event.target ? ` ${event.target}` : "";
-			const state = event.state === "fallback" ? "repair-only" : event.state;
-			write(`gji: ${state}${target} — ${event.message}\n`);
+			write(`gji: ${event.state}${target} — ${event.message}\n`);
 		},
 	};
 }
