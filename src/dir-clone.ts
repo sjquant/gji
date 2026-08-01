@@ -20,7 +20,7 @@ import {
 	utimes,
 	writeFile,
 } from "node:fs/promises";
-import { basename, dirname, join } from "node:path";
+import { basename, dirname, join, relative, resolve, sep } from "node:path";
 import { promisify } from "node:util";
 
 import { isAlreadyExistsError, isNotFoundError } from "./fs-utils.js";
@@ -31,11 +31,11 @@ import {
 } from "./safe-destination.js";
 
 const execFileAsync = promisify(execFile);
-const CLONE_LOCK_TTL_MS = 24 * 60 * 60 * 1000;
+const CLONE_LOCK_TTL_MS = 5 * 60 * 1000;
+const CLONE_GUARD_TTL_MS = 30 * 1000;
 const CLONE_LOCK_SUFFIX = ".gji-clone-lock";
 const SIZE_ESTIMATE_MAX_ENTRIES = 1_000_000;
 const SIZE_ESTIMATE_MAX_MS = 5_000;
-
 export interface CloneDirResult {
 	bytes?: number;
 	ms: number;
@@ -48,7 +48,7 @@ export interface CloneRequestOptions {
 
 export interface CloneDirOptions extends CloneRequestOptions {
 	platform?: NodeJS.Platform;
-	runCommand?: (command: string, args: string[]) => Promise<void>;
+	runLinuxCommand?: (command: string, args: string[]) => Promise<void>;
 	copyDirectory?: (source: string, destination: string) => Promise<void>;
 	copyFile?: (source: string, destination: string) => Promise<void>;
 }
@@ -59,52 +59,12 @@ export type CloneDirectory = (
 	options?: CloneRequestOptions,
 ) => Promise<CloneDirResult>;
 
-export async function waitForCloneLock(
-	destination: string,
-	timeoutMs = 5_000,
-): Promise<boolean> {
-	const lockPath = `${destination}${CLONE_LOCK_SUFFIX}`;
-	const deadline = Date.now() + timeoutMs;
-	while (await cloneLockExists(lockPath)) {
-		if (await cloneLockIsStale(lockPath)) return true;
-		if (Date.now() >= deadline) return false;
-		await new Promise((resolve) => setTimeout(resolve, 25));
-	}
-	return true;
-}
-
-async function cloneLockIsStale(lockPath: string): Promise<boolean> {
-	try {
-		const freshnessPath = await lockFreshnessPath(lockPath);
-		const stats = await lstat(freshnessPath);
-		return Date.now() - stats.mtimeMs >= CLONE_LOCK_TTL_MS;
-	} catch (error) {
-		if (isNotFoundError(error)) return false;
-		return false;
-	}
-}
-
-async function cloneLockExists(lockPath: string): Promise<boolean> {
-	try {
-		return await destinationExists(lockPath);
-	} catch (error) {
-		if (
-			"code" in (error as object) &&
-			(error as NodeJS.ErrnoException).code === "ENOTDIR"
-		) {
-			return false;
-		}
-		throw error;
-	}
-}
-
 export async function cloneDir(
 	source: string,
 	destination: string,
 	options: CloneDirOptions = {},
 ): Promise<CloneDirResult> {
 	const platform = options.platform ?? process.platform;
-	const strategy = cloneStrategy(platform);
 	if (!isClonePlatformSupported(platform)) {
 		throw new CloneUnsupportedError(`platform ${platform} has no CoW strategy`);
 	}
@@ -114,10 +74,15 @@ export async function cloneDir(
 	if (!sourceStats.isDirectory()) {
 		throw new Error("source is not a directory");
 	}
-	if (await destinationExists(destination)) {
-		throw new CloneDestinationExistsError(destination);
+	const destinationPath = await resolveProspectivePath(destination);
+	const destinationDistance = relative(sourcePath, destinationPath);
+	if (
+		destinationDistance === "" ||
+		(destinationDistance !== ".." &&
+			!destinationDistance.startsWith(`..${sep}`))
+	) {
+		throw new Error("clone destination must not be inside its source");
 	}
-
 	const startedAt = Date.now();
 	const parent = dirname(destination);
 	let safeParent: OpenDestinationDirectory | undefined;
@@ -137,40 +102,40 @@ export async function cloneDir(
 		} else {
 			await mkdir(parent, { recursive: true });
 		}
+
 		const operationParent = safeParent?.path ?? parent;
 		const operationDestination = join(operationParent, basename(destination));
-		if (await destinationExists(operationDestination)) {
-			throw new CloneDestinationExistsError(destination);
-		}
-		const lockPath = `${destination}${CLONE_LOCK_SUFFIX}`;
-		const lockToken = await acquireCloneLock(lockPath, destination);
-		const stopLockHeartbeat = startLockHeartbeat(lockPath, lockToken);
+		const cloneLock = await acquireCloneLock(
+			`${operationDestination}${CLONE_LOCK_SUFFIX}`,
+			destination,
+		);
+		const stopLockHeartbeat = startLockHeartbeat(cloneLock);
 
 		let temporaryRoot: string | undefined;
-		let reservationPath: string | undefined;
-		const reservationEntries: string[] = [];
+		let reservation: OwnedCloneEntry | undefined;
+		const publishedEntries: OwnedCloneEntry[] = [];
 		try {
-			reservationPath = await reserveDestination(operationDestination);
+			if (await destinationExists(operationDestination)) {
+				throw new CloneDestinationExistsError(destination);
+			}
+			reservation = await reserveDestination(operationDestination);
 			temporaryRoot = await mkdtemp(
 				join(operationParent, `.${basename(destination)}.gji-clone-`),
 			);
 			const temporaryDestination = join(temporaryRoot, basename(destination));
-			const copyDirectory =
-				options.copyDirectory ??
-				(platformIsDarwin(platform)
-					? runNativeCloneDirectory
-					: async (source, target) => {
-							if (!strategy) {
-								throw new CloneUnsupportedError(
-									`platform ${platform} has no CoW strategy`,
-								);
-							}
-							const runCommand = options.runCommand ?? runCloneCommand;
-							await runCommand("cp", strategy(source, target));
-						});
 			try {
-				await copyDirectory(sourcePath, temporaryDestination);
+				await (
+					options.copyDirectory ??
+					((sourcePath, targetPath) =>
+						copyDirectoryWithCow(
+							sourcePath,
+							targetPath,
+							platform,
+							options.runLinuxCommand,
+						))
+				)(sourcePath, temporaryDestination);
 			} catch (error) {
+				if (error instanceof CloneUnsupportedError) throw error;
 				if (isUnsupportedCloneError(error)) {
 					throw new CloneUnsupportedError(toErrorMessage(error));
 				}
@@ -180,55 +145,85 @@ export async function cloneDir(
 			await publishCloneContents(
 				temporaryDestination,
 				operationDestination,
-				reservationPath,
-				(entry) => reservationEntries.push(entry),
+				reservation.path,
+				(entry) => publishedEntries.push(entry),
 				options.copyFile ?? runForcedCloneFileCopy,
 			);
-			reservationPath = undefined;
+			reservation = undefined;
 		} finally {
 			stopLockHeartbeat();
-			if (reservationPath) {
+			if (reservation) {
 				await cleanupReservedDestination(
 					operationDestination,
-					reservationPath,
-					reservationEntries,
+					reservation,
+					publishedEntries,
 				);
 			}
-			try {
-				if (temporaryRoot) {
-					await rm(temporaryRoot, { force: true, recursive: true });
-				}
-			} catch {
-				// Cleanup is best effort and must not mask the clone result.
+			if (temporaryRoot) {
+				await rm(temporaryRoot, { force: true, recursive: true }).catch(
+					() => undefined,
+				);
 			}
-			try {
-				await releaseCloneLock(lockPath, lockToken);
-			} catch {
-				// A stale lock is reclaimed on a later attempt.
-			}
+			await releaseCloneLock(cloneLock).catch(() => undefined);
 		}
 
-		const bytes =
-			options.measureBytes === false
-				? undefined
-				: await estimateCloneBytes(sourcePath);
-		return { bytes, ms: Date.now() - startedAt };
+		return cloneResult(sourcePath, startedAt, options.measureBytes);
 	} finally {
 		await safeParent?.close().catch(() => undefined);
 	}
 }
 
-async function runNativeCloneDirectory(
+async function copyDirectoryWithCow(
 	source: string,
 	destination: string,
+	platform: NodeJS.Platform,
+	runLinuxCommand?: (command: string, args: string[]) => Promise<void>,
 ): Promise<void> {
-	await cp(source, destination, {
-		errorOnExist: true,
-		force: false,
-		mode: constants.COPYFILE_FICLONE_FORCE,
-		preserveTimestamps: true,
-		recursive: true,
-	});
+	if (platform === "darwin") {
+		await cp(source, destination, {
+			errorOnExist: true,
+			force: false,
+			mode: constants.COPYFILE_FICLONE_FORCE,
+			preserveTimestamps: true,
+			recursive: true,
+		});
+		return;
+	}
+
+	const strategy = cloneStrategy(platform);
+	if (!strategy) {
+		throw new CloneUnsupportedError(`platform ${platform} has no CoW strategy`);
+	}
+	await (runLinuxCommand ?? runCloneCommand)(
+		"cp",
+		strategy(source, destination),
+	);
+}
+
+async function resolveProspectivePath(path: string): Promise<string> {
+	let current = resolve(path);
+	const missing: string[] = [];
+	while (true) {
+		try {
+			return join(await realpath(current), ...missing);
+		} catch (error) {
+			if (!isNotFoundError(error)) throw error;
+			const parent = dirname(current);
+			if (parent === current) throw error;
+			missing.unshift(basename(current));
+			current = parent;
+		}
+	}
+}
+
+async function cloneResult(
+	source: string,
+	startedAt: number,
+	measureBytes: boolean | undefined,
+): Promise<CloneDirResult> {
+	const bytes =
+		measureBytes === false ? undefined : await estimateCloneBytes(source);
+	return { bytes, ms: Date.now() - startedAt };
 }
 
 export class CloneDestinationExistsError extends Error {
@@ -265,9 +260,7 @@ export function isCloneDestinationExistsError(
 }
 
 export function isCloneUnsupportedError(error: unknown): boolean {
-	return (
-		error instanceof CloneUnsupportedError || isUnsupportedCloneError(error)
-	);
+	return error instanceof CloneUnsupportedError;
 }
 
 export function isCloneInProgressError(
@@ -350,36 +343,35 @@ async function runCloneCommand(command: string, args: string[]): Promise<void> {
 async function acquireCloneLock(
 	lockPath: string,
 	destination: string,
-): Promise<string> {
+): Promise<CloneLock> {
+	const releaseGuard = await acquireCloneLockGuard(lockPath, destination);
+	try {
+		return await acquireCloneLockWithGuard(lockPath, destination);
+	} finally {
+		await releaseGuard();
+	}
+}
+
+async function acquireCloneLockWithGuard(
+	lockPath: string,
+	destination: string,
+): Promise<CloneLock> {
 	const lockToken = randomUUID();
 	for (let attempt = 0; attempt < 3; attempt += 1) {
-		try {
-			await mkdir(lockPath);
-			try {
-				await writeFile(
-					join(lockPath, ownerFileName(lockToken)),
-					`${lockToken}\n`,
-					{
-						flag: "wx",
-					},
-				);
-			} catch (error) {
-				await rm(lockPath, { force: true, recursive: true });
-				throw error;
-			}
-			return lockToken;
-		} catch (error) {
-			if (!isAlreadyExistsError(error)) throw error;
-		}
+		const published = await publishCloneLock(lockPath, lockToken);
+		if (published) return published;
 
-		let lockStats: Awaited<ReturnType<typeof lstat>>;
+		let staleLock: CloneLockInspection;
 		try {
-			lockStats = await lstat(await lockFreshnessPath(lockPath));
+			staleLock = await inspectCloneLock(lockPath);
 		} catch (error) {
 			if (isNotFoundError(error)) continue;
 			throw error;
 		}
-		if (Date.now() - lockStats.mtimeMs < CLONE_LOCK_TTL_MS) {
+		if (
+			staleLock.kind === "invalid" ||
+			Date.now() - staleLock.mtimeMs < CLONE_LOCK_TTL_MS
+		) {
 			throw new CloneInProgressError(destination);
 		}
 
@@ -392,30 +384,20 @@ async function acquireCloneLock(
 		}
 
 		try {
-			await mkdir(lockPath);
-			try {
-				await writeFile(
-					join(lockPath, ownerFileName(lockToken)),
-					`${lockToken}\n`,
-					{
-						flag: "wx",
-					},
-				);
-			} catch (error) {
-				await rm(lockPath, { force: true, recursive: true });
-				throw error;
+			const replacement = await publishCloneLock(lockPath, lockToken);
+			if (!replacement) {
+				await cleanupStaleCloneLock(stalePath, staleLock);
+				continue;
 			}
 			try {
-				await rm(stalePath, { force: true, recursive: true });
+				await cleanupStaleCloneLock(stalePath, staleLock);
 			} catch (cleanupError) {
-				await releaseCloneLock(lockPath, lockToken).catch(() => undefined);
+				await releaseCloneLockWithGuard(replacement).catch(() => undefined);
 				throw cleanupError;
 			}
-			return lockToken;
+			return replacement;
 		} catch (error) {
-			await rm(stalePath, { force: true, recursive: true }).catch(
-				() => undefined,
-			);
+			await cleanupStaleCloneLock(stalePath, staleLock).catch(() => undefined);
 			if (isAlreadyExistsError(error)) continue;
 			throw error;
 		}
@@ -424,22 +406,195 @@ async function acquireCloneLock(
 	throw new CloneInProgressError(destination);
 }
 
-async function lockFreshnessPath(lockPath: string): Promise<string> {
+async function acquireCloneLockGuard(
+	lockPath: string,
+	destination: string,
+): Promise<() => Promise<void>> {
+	const guardPath = `${lockPath}.guard`;
+	const deadline = Date.now() + 5_000;
+	while (true) {
+		try {
+			await mkdir(guardPath, { mode: 0o700 });
+			const markerName = `${process.pid}-${randomUUID()}`;
+			const markerPath = join(guardPath, markerName);
+			try {
+				await writeFile(markerPath, `${markerName}\n`, {
+					flag: "wx",
+					mode: 0o600,
+				});
+			} catch (error) {
+				await rmdir(guardPath).catch(() => undefined);
+				throw error;
+			}
+			return async () => {
+				await unlink(markerPath).catch((error) => {
+					if (!isNotFoundError(error)) throw error;
+				});
+				await rmdir(guardPath).catch((error) => {
+					if (!isNotFoundError(error)) throw error;
+				});
+			};
+		} catch (error) {
+			if (!isAlreadyExistsError(error)) throw error;
+			if (await reclaimAbandonedCloneGuard(guardPath)) continue;
+			if (Date.now() >= deadline) {
+				throw new CloneInProgressError(destination);
+			}
+			await new Promise((resolve) => setTimeout(resolve, 10));
+		}
+	}
+}
+
+async function reclaimAbandonedCloneGuard(guardPath: string): Promise<boolean> {
+	let expectedMarker: string | undefined;
 	try {
+		const entries = await readdir(guardPath);
+		if (entries.length > 1) return false;
+		expectedMarker = entries[0];
+		const freshnessPath = expectedMarker
+			? join(guardPath, expectedMarker)
+			: guardPath;
+		const stats = await lstat(freshnessPath);
+		if (Date.now() - stats.mtimeMs < CLONE_GUARD_TTL_MS) return false;
+		if (expectedMarker) {
+			const ownerPid = Number(expectedMarker.split("-", 1)[0]);
+			if (!Number.isSafeInteger(ownerPid) || ownerPid <= 0) return false;
+			if (processIsAlive(ownerPid)) return false;
+		}
+	} catch (error) {
+		return isNotFoundError(error);
+	}
+
+	const stalePath = `${guardPath}.stale-${randomUUID()}`;
+	try {
+		await rename(guardPath, stalePath);
+	} catch (error) {
+		if (isNotFoundError(error)) return true;
+		throw error;
+	}
+	const movedEntries = await readdir(stalePath).catch(() => []);
+	if (
+		movedEntries.length !== (expectedMarker ? 1 : 0) ||
+		(expectedMarker && movedEntries[0] !== expectedMarker)
+	) {
+		await rename(stalePath, guardPath).catch(() => undefined);
+		return false;
+	}
+	if (expectedMarker) await unlink(join(stalePath, expectedMarker));
+	await rmdir(stalePath);
+	return true;
+}
+
+function processIsAlive(pid: number): boolean {
+	try {
+		process.kill(pid, 0);
+		return true;
+	} catch (error) {
+		return (error as NodeJS.ErrnoException).code === "EPERM";
+	}
+}
+
+async function publishCloneLock(
+	lockPath: string,
+	lockToken: string,
+): Promise<CloneLock | undefined> {
+	try {
+		await mkdir(lockPath, { mode: 0o700 });
+	} catch (error) {
+		if (isAlreadyExistsError(error)) return undefined;
+		throw error;
+	}
+	const markerPath = join(lockPath, lockToken);
+	try {
+		await writeFile(markerPath, `${lockToken}\n`, { flag: "wx", mode: 0o600 });
+		return {
+			lockPath,
+			markerName: lockToken,
+			markerPath,
+			token: lockToken,
+		};
+	} catch (error) {
+		await rmdir(lockPath).catch(() => undefined);
+		throw error;
+	}
+}
+
+interface CloneLock {
+	lockPath: string;
+	markerName: string;
+	markerPath: string;
+	token: string;
+}
+
+type CloneLockInspection =
+	| { kind: "empty"; mtimeMs: number }
+	| { kind: "invalid"; mtimeMs: number }
+	| ({ kind: "owned"; mtimeMs: number } & CloneLock);
+
+async function inspectCloneLock(
+	lockPath: string,
+): Promise<CloneLockInspection> {
+	try {
+		const stats = await lstat(lockPath);
+		if (!stats.isDirectory() || stats.isSymbolicLink()) {
+			return { kind: "invalid", mtimeMs: stats.mtimeMs };
+		}
 		const entries = await readdir(lockPath);
-		const owner = entries.find((entry) => entry.startsWith("owner-"));
-		return owner ? join(lockPath, owner) : lockPath;
+		if (entries.length === 0) return { kind: "empty", mtimeMs: stats.mtimeMs };
+		if (entries.length !== 1) {
+			return { kind: "invalid", mtimeMs: stats.mtimeMs };
+		}
+		const markerName = entries[0];
+		const token = markerName?.startsWith("owner-")
+			? markerName.slice("owner-".length)
+			: markerName;
+		if (!token || !/^[\da-f]{8}(?:-[\da-f]{4}){3}-[\da-f]{12}$/iu.test(token)) {
+			return { kind: "invalid", mtimeMs: stats.mtimeMs };
+		}
+		const markerPath = join(lockPath, markerName as string);
+		const markerStats = await lstat(markerPath);
+		if (!markerStats.isFile() || markerStats.isSymbolicLink()) {
+			return { kind: "invalid", mtimeMs: markerStats.mtimeMs };
+		}
+		if ((await readFile(markerPath, "utf8")).trim() !== token) {
+			return { kind: "invalid", mtimeMs: markerStats.mtimeMs };
+		}
+		return {
+			kind: "owned",
+			lockPath,
+			markerName: markerName as string,
+			markerPath,
+			mtimeMs: markerStats.mtimeMs,
+			token,
+		};
 	} catch (error) {
 		if (isNotFoundError(error)) throw error;
-		return lockPath;
+		return { kind: "invalid", mtimeMs: Date.now() };
 	}
+}
+
+async function cleanupStaleCloneLock(
+	lockPath: string,
+	inspection: Exclude<CloneLockInspection, { kind: "invalid" }>,
+): Promise<void> {
+	if (inspection.kind === "owned") {
+		await unlink(join(lockPath, inspection.markerName));
+	}
+	await rmdir(lockPath);
+}
+
+interface OwnedCloneEntry {
+	dev: bigint;
+	ino: bigint;
+	kind: "directory" | "file" | "symlink";
+	path: string;
 }
 
 async function publishCloneContents(
 	temporaryDestination: string,
 	destination: string,
 	reservationPath: string,
-	onEntryPublished: (entry: string) => void,
+	onEntryPublished: (entry: OwnedCloneEntry) => void,
 	copyFileEntry: (source: string, destination: string) => Promise<void>,
 ): Promise<void> {
 	const reservationName = basename(reservationPath);
@@ -456,7 +611,7 @@ async function publishCloneContents(
 		await publishCloneEntry(
 			join(temporaryDestination, entry),
 			join(destination, entry),
-			() => onEntryPublished(entry),
+			(entry) => onEntryPublished(entry),
 			copyFileEntry,
 		);
 	}
@@ -467,7 +622,7 @@ async function publishCloneContents(
 async function publishCloneEntry(
 	source: string,
 	destination: string,
-	onCreated: () => void,
+	onCreated: (entry: OwnedCloneEntry) => void,
 	copyFileEntry: (source: string, destination: string) => Promise<void>,
 ): Promise<void> {
 	const sourceStats = await lstat(source);
@@ -480,7 +635,7 @@ async function publishCloneEntry(
 			}
 			throw error;
 		}
-		onCreated();
+		onCreated(await inspectOwnedCloneEntry(destination, "directory"));
 		for (const entry of await readdir(source)) {
 			await publishCloneEntry(
 				join(source, entry),
@@ -502,7 +657,7 @@ async function publishCloneEntry(
 			}
 			throw error;
 		}
-		onCreated();
+		onCreated(await inspectOwnedCloneEntry(destination, "symlink"));
 		return;
 	}
 
@@ -521,7 +676,7 @@ async function publishCloneEntry(
 		}
 		throw error;
 	}
-	onCreated();
+	onCreated(await inspectOwnedCloneEntry(destination, "file"));
 	await copyCloneMetadata(sourceStats, destination);
 }
 
@@ -545,7 +700,9 @@ async function copyCloneMetadata(
 	await utimes(destination, sourceStats.atime, sourceStats.mtime);
 }
 
-async function reserveDestination(destination: string): Promise<string> {
+async function reserveDestination(
+	destination: string,
+): Promise<OwnedCloneEntry> {
 	try {
 		await mkdir(destination);
 	} catch (error) {
@@ -563,7 +720,7 @@ async function reserveDestination(destination: string): Promise<string> {
 		await writeFile(reservationPath, "gji clone reservation\n", {
 			flag: "wx",
 		});
-		return reservationPath;
+		return await inspectOwnedCloneEntry(reservationPath, "file");
 	} catch (error) {
 		await rmdir(destination).catch(() => undefined);
 		throw error;
@@ -572,20 +729,31 @@ async function reserveDestination(destination: string): Promise<string> {
 
 async function cleanupReservedDestination(
 	destination: string,
-	reservationPath: string,
-	reservationEntries: readonly string[],
+	reservation: OwnedCloneEntry,
+	publishedEntries: readonly OwnedCloneEntry[],
 ): Promise<void> {
+	for (const entry of [...publishedEntries, reservation].reverse()) {
+		await removeOwnedCloneEntry(entry);
+	}
+	await rmdir(destination).catch(() => undefined);
+}
+
+async function inspectOwnedCloneEntry(
+	path: string,
+	kind: OwnedCloneEntry["kind"],
+): Promise<OwnedCloneEntry> {
+	const stats = await lstat(path, { bigint: true });
+	return { dev: stats.dev, ino: stats.ino, kind, path };
+}
+
+async function removeOwnedCloneEntry(entry: OwnedCloneEntry): Promise<void> {
 	try {
-		const entries = await readdir(destination);
-		const ownedEntries = new Set([
-			basename(reservationPath),
-			...reservationEntries,
-		]);
-		if (entries.every((entry) => ownedEntries.has(entry))) {
-			await rm(destination, { force: true, recursive: true });
-		}
+		const current = await lstat(entry.path, { bigint: true });
+		if (current.dev !== entry.dev || current.ino !== entry.ino) return;
+		if (entry.kind === "directory") await rmdir(entry.path);
+		else await unlink(entry.path);
 	} catch {
-		// Preserve a destination that was changed by another process.
+		// Missing, replaced, or non-empty entries are no longer exclusively ours.
 	}
 }
 
@@ -599,44 +767,52 @@ async function destinationExists(path: string): Promise<boolean> {
 	}
 }
 
-function startLockHeartbeat(lockPath: string, lockToken: string): () => void {
+function startLockHeartbeat(lock: CloneLock): () => void {
 	const timer = setInterval(() => {
-		void refreshCloneLock(lockPath, lockToken);
+		void refreshCloneLock(lock);
 	}, CLONE_LOCK_TTL_MS / 3);
 	timer.unref?.();
 	return () => clearInterval(timer);
 }
 
-async function refreshCloneLock(
-	lockPath: string,
-	lockToken: string,
-): Promise<void> {
+async function refreshCloneLock(lock: CloneLock): Promise<void> {
 	try {
-		const ownerPath = join(lockPath, ownerFileName(lockToken));
-		await readFile(ownerPath, "utf8");
 		const now = new Date();
-		await utimes(ownerPath, now, now);
+		await utimes(lock.markerPath, now, now);
 	} catch {
-		// Lock refresh is advisory; the owner check prevents touching a replacement lock.
+		// A missing marker means this owner was already fenced out as stale.
 	}
 }
 
-async function releaseCloneLock(
-	lockPath: string,
-	lockToken: string,
-): Promise<void> {
+async function releaseCloneLock(lock: CloneLock): Promise<void> {
+	const releaseGuard = await acquireCloneLockGuard(
+		lock.lockPath,
+		lock.lockPath,
+	);
 	try {
-		const ownerPath = join(lockPath, ownerFileName(lockToken));
-		await unlink(ownerPath);
-		await rmdir(lockPath);
-	} catch (error) {
-		if (!isNotFoundError(error) && !isDirectoryNotEmptyError(error))
-			throw error;
+		await releaseCloneLockWithGuard(lock);
+	} finally {
+		await releaseGuard();
 	}
 }
 
-function ownerFileName(lockToken: string): string {
-	return `owner-${lockToken}`;
+async function releaseCloneLockWithGuard(lock: CloneLock): Promise<void> {
+	try {
+		await unlink(join(lock.lockPath, lock.token));
+	} catch (error) {
+		if (!isNotFoundError(error)) throw error;
+	}
+	try {
+		await rmdir(lock.lockPath);
+	} catch (error) {
+		const code =
+			"code" in (error as object)
+				? (error as NodeJS.ErrnoException).code
+				: undefined;
+		if (!isNotFoundError(error) && code !== "ENOTEMPTY" && code !== "EEXIST") {
+			throw error;
+		}
+	}
 }
 
 function isUnsupportedCloneError(error: unknown): boolean {
@@ -649,23 +825,11 @@ function isUnsupportedCloneError(error: unknown): boolean {
 		return true;
 	}
 
-	return /clonefile|reflink|unsupported|operation not supported|not supported|invalid cross-device|cross-device/iu.test(
+	return /reflink|unsupported|operation not supported|not supported|invalid cross-device|cross-device/iu.test(
 		error.message,
-	);
-}
-
-function isDirectoryNotEmptyError(error: unknown): boolean {
-	return (
-		error instanceof Error &&
-		"code" in error &&
-		(error as NodeJS.ErrnoException).code === "ENOTEMPTY"
 	);
 }
 
 function toErrorMessage(error: unknown): string {
 	return error instanceof Error ? error.message : String(error);
-}
-
-function platformIsDarwin(platform: NodeJS.Platform): boolean {
-	return platform === "darwin";
 }

@@ -23,8 +23,18 @@ export async function openDestinationDirectory(
 	path: string,
 ): Promise<OpenDestinationDirectory> {
 	const segments = destinationSegments(root, path);
+	if (process.platform === "darwin") {
+		await ensureDestinationDirectory(root, path);
+		const handle = await open(path, destinationDirectoryFlags());
+		return {
+			path: resolve(path),
+			close: async () => handle.close(),
+		};
+	}
 	if (process.platform !== "linux") {
 		await ensureDestinationDirectory(root, path);
+		const handle = await open(path, destinationDirectoryFlags());
+		await handle.close();
 		return { path: resolve(path), close: async () => undefined };
 	}
 	let handle = await open(root, destinationDirectoryFlags());

@@ -71,7 +71,6 @@ export async function bootstrapWorktree(
 	);
 	const outcomes = await executeSyncDirectoryPlan(syncPlan, {
 		cloneDirectory: options.cloneDirectory ?? cloneDir,
-		repoRoot: options.repoRoot,
 		reporter: options.reporter,
 	});
 	const clonedDirs = outcomes.flatMap((outcome) =>
@@ -109,7 +108,6 @@ export async function bootstrapWorktree(
 			? { mode: dependencyMode, ready: false, events: [] }
 			: await executeDependencyBootstrap(dependencyPlan, {
 					cloneDirectory: options.cloneDirectory,
-					repoRoot: options.repoRoot,
 					reporter: options.reporter,
 					stderr: options.commandStderr ?? options.reporter.write,
 					stdout: options.commandStdout,

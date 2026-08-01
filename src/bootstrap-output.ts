@@ -11,7 +11,6 @@ export function createBootstrapReporter(
 	measureCloneSize = false,
 ): SyncDirectoryReporter & DependencyBootstrapReporter {
 	return {
-		emitCachedFailureWarnings: !json,
 		measureCloneSize: measureCloneSize && !json,
 		write,
 		cloned: (directory) => {
