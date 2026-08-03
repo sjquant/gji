@@ -963,9 +963,11 @@ function virtualEnvironmentPrefixes(text: string): string[] {
 	const prefixes: string[] = [];
 	for (const line of text.split(/\r?\n/u)) {
 		if (!/\bVIRTUAL_ENV\b/u.test(line)) continue;
-		for (const match of line.matchAll(/["']([^"']+)["']/gu)) {
-			if (match[1] && isAbsolute(match[1])) prefixes.push(match[1]);
-		}
+		const quotedAssignment = line.match(
+			/\bVIRTUAL_ENV(?:\s*=|\s+)\s*(?:"([^"]+)"|'([^']+)')/u,
+		);
+		const quotedPrefix = quotedAssignment?.[1] ?? quotedAssignment?.[2];
+		if (quotedPrefix && isAbsolute(quotedPrefix)) prefixes.push(quotedPrefix);
 		const unquoted = line.match(/\bVIRTUAL_ENV(?:\s*=|\s+)\s*([^\s"']+)/u)?.[1];
 		if (unquoted && isAbsolute(unquoted)) prefixes.push(unquoted);
 	}
