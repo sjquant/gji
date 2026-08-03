@@ -707,6 +707,52 @@ describe("dependencyBootstrap adapters", () => {
 		]);
 	});
 
+	it("accepts uv activation scripts whose PATH line reuses VIRTUAL_ENV", async () => {
+		// Given a cloned uv environment with a valid Fish activation assignment and PATH update.
+		const repoRoot = await mkdtemp(
+			join(tmpdir(), "gji-bootstrap-uv-fish-repo-"),
+		);
+		const worktreePath = await mkdtemp(
+			join(tmpdir(), "gji-bootstrap-uv-fish-worktree-"),
+		);
+		await writeFile(join(repoRoot, "uv.lock"), "versioned\n");
+		await mkdir(join(repoRoot, ".venv", "bin"), { recursive: true });
+		const plan = await prepareDependencyBootstrap("cow-then-repair", {
+			checkUvRuntime: async () => true,
+			repoRoot,
+			worktreePath,
+		});
+
+		// When uv bootstrap validates the repaired activation scripts.
+		const result = await executeDependencyBootstrap(plan, {
+			cloneDirectory: async (_source, destination) => {
+				await mkdir(join(destination, "bin"), { recursive: true });
+				await writeFile(
+					join(destination, "bin", "activate.fish"),
+					[
+						`set -gx VIRTUAL_ENV '${join(worktreePath, ".venv")}'`,
+						`set -gx PATH "$VIRTUAL_ENV"'/bin' $PATH`,
+						"",
+					].join("\n"),
+				);
+				return { ms: 1 };
+			},
+			reporter: createReporter(),
+			runCommand: async () =>
+				writeUvTestInterpreter(
+					join(worktreePath, ".venv"),
+					join(worktreePath, ".venv"),
+				),
+		});
+
+		// Then the valid activation script is accepted and the repaired environment is ready.
+		expect(result.ready).toBe(true);
+		expect(result.events.map(({ state }) => state)).toEqual([
+			"seeded",
+			"repaired",
+		]);
+	});
+
 	it("rejects oversized uv launchers without reading them as validation text", async () => {
 		// Given a seed containing a launcher larger than the bounded relocation budget.
 		const repoRoot = await mkdtemp(
