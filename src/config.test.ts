@@ -11,14 +11,11 @@ import {
 	KNOWN_CONFIG_KEYS,
 	loadConfig,
 	loadEffectiveConfig,
-	loadEffectiveConfigResult,
 	normalizeDependencyBootstrap,
 	resolveConfigString,
 	saveLocalConfig,
 	updateGlobalRepoConfigKey,
 	updateLocalConfigKey,
-	validateSyncDirPattern,
-	validateSyncDirsConfig,
 } from "./config.js";
 
 const originalHome = process.env.HOME;
@@ -55,29 +52,13 @@ describe("resolveConfigString", () => {
 	});
 });
 
-describe("syncDirs validation", () => {
-	it.each([
-		["an absolute path", "/tmp/node_modules", "relative path"],
-		["a parent traversal", "../node_modules", "'..' segments"],
-		["a nested Git path", "cache/.git/objects", ".git"],
-		["a Windows absolute path", "C:\\node_modules", "relative path"],
-	])("rejects %s", (_description, pattern, reason) => {
-		// Given a syncDirs entry that could escape or clone Git metadata.
-		// When the entry is validated.
-		// Then validation rejects it with a safety-specific message.
-		expect(() => validateSyncDirPattern(pattern)).toThrow(reason);
-	});
-
-	it("rejects non-array syncDirs values", () => {
-		// Given a scalar syncDirs configuration value.
-		// When the value is loaded through a local config file.
-		// Then configuration loading rejects the malformed shape.
-		expect(() => validateSyncDirsConfig("node_modules")).toThrow("array");
-	});
-});
-
 describe("dependencyBootstrap validation", () => {
-	it.each(["auto", "copy", true])("rejects unsupported mode %s", (mode) => {
+	it.each([
+		"auto",
+		"copy",
+		"install-only",
+		true,
+	])("rejects unsupported mode %s", (mode) => {
 		// Given a dependency bootstrap value outside the supported explicit modes.
 		// When the value is normalized.
 		// Then configuration validation rejects the ambiguous or malformed mode.
@@ -86,15 +67,11 @@ describe("dependencyBootstrap validation", () => {
 		);
 	});
 
-	it("accepts off, cow-then-repair, and install-only", () => {
-		// Given the three supported dependency bootstrap policies.
-		// When each policy is normalized.
-		// Then it is preserved exactly for deterministic configuration behavior.
+	it("accepts only the persistent opt-out mode", () => {
+		// Given the only supported explicit dependency bootstrap setting.
+		// When the setting is normalized.
+		// Then opting out is preserved while automatic install remains the default.
 		expect(normalizeDependencyBootstrap("off")).toBe("off");
-		expect(normalizeDependencyBootstrap("cow-then-repair")).toBe(
-			"cow-then-repair",
-		);
-		expect(normalizeDependencyBootstrap("install-only")).toBe("install-only");
 	});
 });
 
@@ -136,89 +113,45 @@ describe("loadConfig", () => {
 			path: join(root, CONFIG_FILE_NAME),
 		});
 	});
-
-	it("rejects unsafe syncDirs in a local config file", async () => {
-		// Given a local config with a path that escapes the repository.
-		const root = await mkdtemp(join(tmpdir(), "gji-config-"));
-		await writeFile(
-			join(root, CONFIG_FILE_NAME),
-			JSON.stringify({ syncDirs: ["../node_modules"] }),
-			"utf8",
-		);
-
-		// When the local config is loaded.
-		// Then loading fails before the unsafe value can be used.
-		await expect(loadConfig(root)).rejects.toThrow("'..' segments");
-	});
-
-	it("validates syncDirs in both global config layers", async () => {
-		// Given a repository and a per-repository global config with an unsafe path.
-		const home = await mkdtemp(join(tmpdir(), "gji-home-"));
-		const repoRoot = await mkdtemp(join(tmpdir(), "gji-repo-"));
-		const globalConfigPath = GLOBAL_CONFIG_FILE_PATH(home);
-		await mkdir(dirname(globalConfigPath), { recursive: true });
-		await writeFile(
-			globalConfigPath,
-			JSON.stringify({ repos: { [repoRoot]: { syncDirs: [".git"] } } }),
-			"utf8",
-		);
-
-		// When effective configuration is loaded.
-		// Then the per-repository layer is rejected with the same safety rule.
-		await expect(loadEffectiveConfig(repoRoot, home)).rejects.toThrow(".git");
-	});
-
-	it("rejects unsafe syncDirs in global defaults", async () => {
-		// Given a global config with an absolute syncDirs path.
-		const home = await mkdtemp(join(tmpdir(), "gji-home-"));
-		const repoRoot = await mkdtemp(join(tmpdir(), "gji-repo-"));
-		const globalConfigPath = GLOBAL_CONFIG_FILE_PATH(home);
-		await mkdir(dirname(globalConfigPath), { recursive: true });
-		await writeFile(
-			globalConfigPath,
-			JSON.stringify({ syncDirs: ["/tmp/node_modules"] }),
-			"utf8",
-		);
-
-		// When effective configuration is loaded.
-		// Then global validation rejects the absolute path.
-		await expect(loadEffectiveConfig(repoRoot, home)).rejects.toThrow(
-			"relative path",
-		);
-	});
 });
 
 describe("saveLocalConfig", () => {
-	it("creates the config file and returns its path when it does not exist", async () => {
-		// Given
+	it("creates a config file with the supported values", async () => {
+		// Given a repository root and a local configuration.
 		const root = await mkdtemp(join(tmpdir(), "gji-config-"));
-		const config = { branchPrefix: "feat/" };
 
-		// When
-		const savedPath = await saveLocalConfig(root, config);
+		// When the configuration is saved.
+		const configPath = await saveLocalConfig(root, {
+			branchPrefix: "new/",
+			dependencyBootstrap: "off",
+		});
 
-		// Then
-		expect(savedPath).toBe(join(root, CONFIG_FILE_NAME));
-		const written = JSON.parse(await readFile(savedPath, "utf8")) as unknown;
-		expect(written).toEqual(config);
+		// Then the file contains exactly the requested values.
+		expect(JSON.parse(await readFile(configPath, "utf8"))).toEqual({
+			branchPrefix: "new/",
+			dependencyBootstrap: "off",
+		});
 	});
 
-	it("overwrites an existing config file", async () => {
-		// Given
+	it("overwrites an existing config file and returns its path", async () => {
+		// Given an existing local config with an obsolete value.
 		const root = await mkdtemp(join(tmpdir(), "gji-config-"));
-		const configPath = join(root, CONFIG_FILE_NAME);
 		await writeFile(
-			configPath,
-			JSON.stringify({ branchPrefix: "old/" }),
+			join(root, CONFIG_FILE_NAME),
+			JSON.stringify({ branchPrefix: "old/", syncRemote: "origin" }),
 			"utf8",
 		);
 
-		// When
-		await saveLocalConfig(root, { branchPrefix: "new/" });
+		// When the supported configuration is saved.
+		const configPath = await saveLocalConfig(root, {
+			branchPrefix: "new/",
+		});
 
-		// Then
-		const written = JSON.parse(await readFile(configPath, "utf8")) as unknown;
-		expect(written).toEqual({ branchPrefix: "new/" });
+		// Then the old file contents are replaced and the path is returned.
+		expect(configPath).toBe(join(root, CONFIG_FILE_NAME));
+		expect(JSON.parse(await readFile(configPath, "utf8"))).toEqual({
+			branchPrefix: "new/",
+		});
 	});
 });
 
@@ -272,51 +205,6 @@ describe("updateLocalConfigKey", () => {
 });
 
 describe("loadEffectiveConfig – per-repo global config", () => {
-	it("tracks explicit bootstrap policy across all config layers", async () => {
-		// Given global, per-repo global, and local policies with local precedence.
-		const home = await mkdtemp(join(tmpdir(), "gji-home-"));
-		const repoRoot = await mkdtemp(join(tmpdir(), "gji-repo-"));
-		const globalConfigPath = GLOBAL_CONFIG_FILE_PATH(home);
-		process.env.HOME = home;
-
-		await mkdir(dirname(globalConfigPath), { recursive: true });
-		await writeFile(
-			globalConfigPath,
-			JSON.stringify({
-				dependencyBootstrap: "off",
-				repos: {
-					[repoRoot]: { dependencyBootstrap: "install-only" },
-				},
-			}),
-			"utf8",
-		);
-		await writeFile(
-			join(repoRoot, CONFIG_FILE_NAME),
-			JSON.stringify({ dependencyBootstrap: "cow-then-repair" }),
-			"utf8",
-		);
-
-		// When the effective config is resolved.
-		const result = await loadEffectiveConfigResult(repoRoot, home);
-
-		// Then local precedence is preserved and prompting is disabled because a layer was explicit.
-		expect(result.config.dependencyBootstrap).toBe("cow-then-repair");
-		expect(result.dependencyBootstrapExplicit).toBe(true);
-	});
-
-	it("defaults bootstrap provenance to implicit when no layer configures it", async () => {
-		// Given a repository with no dependencyBootstrap key in any config layer.
-		const home = await mkdtemp(join(tmpdir(), "gji-home-"));
-		const repoRoot = await mkdtemp(join(tmpdir(), "gji-repo-"));
-
-		// When the effective config is resolved.
-		const result = await loadEffectiveConfigResult(repoRoot, home);
-
-		// Then the safe default remains off and the command may offer the interactive policy prompt.
-		expect(result.config.dependencyBootstrap).toBeUndefined();
-		expect(result.dependencyBootstrapExplicit).toBe(false);
-	});
-
 	it("applies per-repo global config when the repo path matches", async () => {
 		// Given a global config that has a repos entry keyed by the repo root.
 		const home = await mkdtemp(join(tmpdir(), "gji-home-"));

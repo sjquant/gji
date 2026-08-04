@@ -10,7 +10,7 @@ import {
 } from "./bootstrap-preview.js";
 import {
 	type EffectiveGjiConfig,
-	loadEffectiveConfigResult,
+	loadEffectiveConfig,
 	resolveConfigString,
 } from "./config.js";
 import {
@@ -18,17 +18,14 @@ import {
 	pathExists,
 	promptForPathConflict,
 } from "./conflict.js";
-import {
-	type DependencyBootstrapPromptDependencies,
-	resolveDependencyBootstrapPolicy,
-} from "./dependency-bootstrap-prompt.js";
-import { type CloneDirectory, cloneDir } from "./dir-clone.js";
+import type {
+	BootstrapCommandRunner,
+	DependencyBootstrapMode,
+} from "./dependency-bootstrap.js";
 import { defaultSpawnEditor, EDITORS } from "./editor.js";
-import { formatBytes } from "./format-bytes.js";
 import { resolveRemoteBase, runGit } from "./git.js";
 import { isHeadless } from "./headless.js";
 import { recordWorktreeUsage } from "./history.js";
-import type { InstallPromptDependencies } from "./install-prompt.js";
 import {
 	createNavigationRepository,
 	createNavigationTarget,
@@ -39,7 +36,6 @@ import {
 	validateBranchName,
 } from "./repo.js";
 import { writeShellOutput } from "./shell-handoff.js";
-import { estimateSyncDirectories } from "./sync-plan.js";
 import { writeTask } from "./task.js";
 import { bootstrapWorktree } from "./worktree-bootstrap.js";
 
@@ -63,6 +59,7 @@ export interface NewCommandOptions {
 	noFetch?: boolean;
 	json?: boolean;
 	mode?: NewWorktreeMode;
+	noInstall?: boolean;
 	open?: boolean;
 	outputEnv?: string;
 	remote?: string;
@@ -72,14 +69,12 @@ export interface NewCommandOptions {
 	task?: string;
 }
 
-export interface NewCommandDependencies
-	extends InstallPromptDependencies,
-		DependencyBootstrapPromptDependencies {
-	cloneDir: CloneDirectory;
+export interface NewCommandDependencies {
 	createBranchPlaceholder: () => string;
 	promptForBranch: (placeholder: string) => Promise<string | null>;
 	promptForFetchFailure: (message: string) => Promise<boolean>;
 	promptForPathConflict: (path: string) => Promise<PathConflictChoice>;
+	runCommand: BootstrapCommandRunner;
 	spawnEditor: (cli: string, args: string[]) => Promise<void>;
 }
 
@@ -88,7 +83,6 @@ export function createNewCommand(
 ): (options: NewCommandOptions) => Promise<number> {
 	const createBranchPlaceholder =
 		dependencies.createBranchPlaceholder ?? generateBranchPlaceholder;
-	const cloneDirectory = dependencies.cloneDir ?? cloneDir;
 	const promptForBranch =
 		dependencies.promptForBranch ?? defaultPromptForBranch;
 	const promptForFetchFailure =
@@ -113,15 +107,12 @@ export function createNewCommand(
 
 		const repository = await detectRepository(options.cwd);
 		let config: EffectiveGjiConfig;
-		let dependencyBootstrapExplicit: boolean;
 		try {
-			const loaded = await loadEffectiveConfigResult(
+			config = await loadEffectiveConfig(
 				repository.repoRoot,
 				undefined,
 				options.json ? undefined : options.stderr,
 			);
-			config = loaded.config;
-			dependencyBootstrapExplicit = loaded.dependencyBootstrapExplicit;
 		} catch (error) {
 			return emitNewError(
 				options,
@@ -263,27 +254,11 @@ export function createNewCommand(
 			}
 		}
 
-		const dependencyPolicy = await resolveDependencyBootstrapPolicy(
-			{
-				currentRoot: repository.currentRoot,
-				repoRoot: repository.repoRoot,
-				worktreePath,
-			},
-			config,
-			dependencyBootstrapExplicit,
-			{
-				dependencies,
-				dryRun: options.dryRun,
-				legacyInstallPromptConfigured:
-					dependencies.promptForInstallChoice !== undefined,
-				nonInteractive: !!options.json,
-				stderr: options.stderr,
-			},
-		);
-		config = {
-			...config,
-			dependencyBootstrap: dependencyPolicy.mode,
-		};
+		const dependencyMode: DependencyBootstrapMode = options.noInstall
+			? "off"
+			: config.dependencyBootstrap === "off"
+				? "off"
+				: "install";
 
 		if (options.dryRun) {
 			if (options.take) {
@@ -316,13 +291,8 @@ export function createNewCommand(
 				}
 				return 0;
 			}
-			const dryRunSyncDirs = await estimateSyncDirectories(
-				repository.repoRoot,
-				worktreePath,
-				config.syncDirs ?? [],
-			);
 			const dryRunDependencyBootstrap = await createDependencyBootstrapPreview(
-				config.dependencyBootstrap ?? "off",
+				dependencyMode,
 				{
 					currentRoot: repository.currentRoot,
 					repoRoot: repository.repoRoot,
@@ -342,7 +312,6 @@ export function createNewCommand(
 					),
 					dryRun: true,
 				};
-				if (dryRunSyncDirs.length > 0) output.syncDirs = dryRunSyncDirs;
 				if (dryRunDependencyBootstrap.targets.length > 0)
 					output.dependencyBootstrap = dryRunDependencyBootstrap;
 				options.stdout(`${JSON.stringify(output, null, 2)}\n`);
@@ -354,7 +323,7 @@ export function createNewCommand(
 					? `, then open in ${resolvedEditor}`
 					: "";
 				options.stdout(
-					`Would create worktree at ${worktreePath} (branch: ${worktreeName}${openNote})\n${dryRunSyncDirs.map(({ dir, bytes }) => `Would clone ${dir} (${formatBytes(bytes)})\n`).join("")}${formatDependencyBootstrapPreview(dryRunDependencyBootstrap)}`,
+					`Would create worktree at ${worktreePath} (branch: ${worktreeName}${openNote})\n${formatDependencyBootstrapPreview(dryRunDependencyBootstrap)}`,
 				);
 			}
 			return 0;
@@ -510,25 +479,21 @@ export function createNewCommand(
 
 		const bootstrap = await bootstrapWorktree({
 			branch: worktreeName,
-			cloneDirectory,
 			config,
 			currentRoot: repository.currentRoot,
-			nonInteractive: !!options.json,
+			dependencyMode,
 			repoRoot: repository.repoRoot,
 			reporter: createBootstrapReporter(options.stderr, !!options.json),
-			runCommand: dependencies.runInstallCommand,
+			runCommand: dependencies.runCommand,
 			commandStdout: options.json ? () => undefined : options.stdout,
 			commandStderr: options.json ? () => undefined : options.stderr,
 			json: options.json,
 			worktreePath,
-			installDependencies: dependencies,
-			dependencyBootstrapPolicy: dependencyPolicy,
 		});
 		if (!bootstrap.ready) {
 			return emitNewError(options, "worktree bootstrap failed", {
 				dependencyBootstrap: bootstrap.dependencyBootstrap,
 				path: worktreePath,
-				skipped: bootstrap.skippedDirs,
 				syncFiles: bootstrap.syncFileFailures,
 			});
 		}
@@ -549,15 +514,7 @@ export function createNewCommand(
 						},
 					}
 				: { ...navigation };
-			if (bootstrap.clonedDirs.length > 0) {
-				output.cloned = bootstrap.clonedDirs.map(({ dir, ms }) => ({
-					dir,
-					ms,
-				}));
-			}
-			if (bootstrap.skippedDirs.length > 0)
-				output.skipped = bootstrap.skippedDirs;
-			if (bootstrap.dependencyBootstrap.mode !== "off")
+			if (bootstrap.dependencyBootstrap.events.length > 0)
 				output.dependencyBootstrap = bootstrap.dependencyBootstrap;
 			options.stdout(`${JSON.stringify(output, null, 2)}\n`);
 		} else {

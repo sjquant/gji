@@ -86,36 +86,6 @@ describe("headless mode (GJI_NO_TUI=1)", () => {
 			expect(result).toBe(1);
 			expect(stderr.join("")).toMatch(/non-interactive|GJI_NO_TUI/i);
 		});
-
-		it("suppresses the install prompt when a package manager is detected", async () => {
-			// Given GJI_NO_TUI=1 is set and the new worktree has a detected package manager.
-			process.env.GJI_NO_TUI = "1";
-			const repoRoot = await createRepository();
-			const branch = "feature/new-headless-install";
-			let promptCalled = false;
-			const runNewCommand = createNewCommand({
-				detectInstallPackageManager: async () => ({
-					name: "pnpm",
-					installCommand: "pnpm install",
-				}),
-				promptForInstallChoice: async () => {
-					promptCalled = true;
-					return "yes";
-				},
-			});
-
-			// When gji new runs and a package manager is found.
-			const result = await runNewCommand({
-				branch,
-				cwd: repoRoot,
-				stderr: () => undefined,
-				stdout: () => undefined,
-			});
-
-			// Then it succeeds and the install prompt was never shown.
-			expect(result).toBe(0);
-			expect(promptCalled).toBe(false);
-		});
 	});
 
 	describe("gji go", () => {

@@ -226,9 +226,7 @@ async function maybeRegisterCurrentRepo(cwd: string): Promise<void> {
 function registerCommands(program: Command): void {
 	program
 		.command("new [branch]")
-		.description(
-			"create a new branch or detached linked worktree and CoW-bootstrap configured directories",
-		)
+		.description("create a new branch or detached linked worktree")
 		.option(
 			"-f, --force",
 			"remove and recreate the worktree if the target path already exists",
@@ -256,6 +254,10 @@ function registerCommands(program: Command): void {
 		.option(
 			"--dry-run",
 			"show what would be created without executing any git commands or writing files",
+		)
+		.option(
+			"--no-install",
+			"skip automatic dependency setup in the new worktree",
 		)
 		.option(
 			"--json",
@@ -314,6 +316,10 @@ function registerCommands(program: Command): void {
 		.option(
 			"--dry-run",
 			"show what would be created without executing any git commands or writing files",
+		)
+		.option(
+			"--no-install",
+			"skip automatic dependency setup in the PR worktree",
 		)
 		.option(
 			"--json",
@@ -524,6 +530,7 @@ function attachCommandActions(
 					force?: boolean;
 					fetch?: boolean;
 					json?: boolean;
+					install?: boolean;
 					open?: boolean;
 					take?: boolean;
 					task?: string;
@@ -540,6 +547,7 @@ function attachCommandActions(
 					force: commandOptions.force,
 					noFetch: commandOptions.fetch === false,
 					json: commandOptions.json,
+					noInstall: commandOptions.install === false,
 					open: commandOptions.open,
 					take: commandOptions.take,
 					task: commandOptions.task,
@@ -657,12 +665,17 @@ function attachCommandActions(
 		?.action(
 			async (
 				number: string,
-				commandOptions: { dryRun?: boolean; json?: boolean },
+				commandOptions: {
+					dryRun?: boolean;
+					install?: boolean;
+					json?: boolean;
+				},
 			) => {
 				const exitCode = await runPrCommand({
 					cwd: options.cwd,
 					dryRun: commandOptions.dryRun,
 					json: commandOptions.json,
+					noInstall: commandOptions.install === false,
 					number,
 					stderr: options.stderr,
 					stdout: options.stdout,

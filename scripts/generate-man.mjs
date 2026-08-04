@@ -132,8 +132,8 @@ function subcommandManPage(cmd) {
 
 	out += `.SH DESCRIPTION\n${esc(desc)}\n`;
 	if (cmd.name() === "new" || cmd.name() === "pr") {
-		out += `.SH BOOTSTRAP_POLICY\n${esc("dependencyBuildCommand overrides Cargo's default cargo check. Supported lockfiles trigger an interactive dependencyBootstrap choice when no explicit policy exists; the choice is saved according to installSaveTarget. JSON and headless modes never prompt and keep off. npm is always install-only, and sync-file failures stop dependency repair, install prompts, and after-create hooks. JSON bootstrap events include structured reasons, and failed setup reports the created worktree path.\n")}\n`;
-		out += `.SH BOOTSTRAP\n${esc("syncDirs performs generic copy-on-write directory seeding before syncFiles. It never falls back to ordinary copying and never suppresses installation or repair. Set dependencyBootstrap to off, cow-then-repair, or install-only to enable deterministic project-local package-manager or build-cache repair. The lifecycle is CoW seed, syncFiles, repair or install, then after-create. CoW failures fall back to repair from an empty target; partial clones are removed and existing targets are never deleted. Bundler uses vendor/bundle only; global gem stores and caches are not cloned.\n")}\n`;
+		out += `.SH BOOTSTRAP_POLICY\n${esc("dependencyBuildCommand overrides Cargo's default cargo check. Supported lockfiles are installed automatically in new worktrees; set dependencyBootstrap to off or pass --no-install to skip setup. Sync-file failures stop dependency installation and after-create hooks. JSON bootstrap events include structured reasons, and failed setup reports the created worktree path.\n")}\n`;
+		out += `.SH BOOTSTRAP\n${esc("Dependency bootstrap never copies dependency trees or build caches. pnpm, Yarn, Bun, and npm install JavaScript dependencies; uv, Poetry, and Pipenv install Python environments; Bundler uses vendor/bundle; Composer uses vendor; Go runs go mod download; and Cargo runs cargo check. Failed setup is reported directly without an ordinary-copy fallback or automatic retry.\n")}\n`;
 	}
 
 	out += optionsSection(cmd);

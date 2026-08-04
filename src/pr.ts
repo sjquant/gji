@@ -9,7 +9,7 @@ import {
 } from "./bootstrap-preview.js";
 import {
 	type EffectiveGjiConfig,
-	loadEffectiveConfigResult,
+	loadEffectiveConfig,
 	resolveConfigString,
 } from "./config.js";
 import {
@@ -17,23 +17,18 @@ import {
 	pathExists,
 	promptForPathConflict,
 } from "./conflict.js";
-import {
-	type DependencyBootstrapPolicyResolution,
-	type DependencyBootstrapPromptDependencies,
-	resolveDependencyBootstrapPolicy,
-} from "./dependency-bootstrap-prompt.js";
-import type { CloneDirectory } from "./dir-clone.js";
-import { formatBytes } from "./format-bytes.js";
+import type {
+	BootstrapCommandRunner,
+	DependencyBootstrapMode,
+} from "./dependency-bootstrap.js";
 import { isHeadless } from "./headless.js";
 import { recordWorktreeUsage } from "./history.js";
-import type { InstallPromptDependencies } from "./install-prompt.js";
 import {
 	createNavigationRepository,
 	createNavigationTarget,
 } from "./navigation-output.js";
 import { detectRepository, resolveWorktreePath } from "./repo.js";
 import { writeShellOutput } from "./shell-handoff.js";
-import { estimateSyncDirectories } from "./sync-plan.js";
 import { bootstrapWorktree } from "./worktree-bootstrap.js";
 
 const execFileAsync = promisify(execFile);
@@ -46,17 +41,16 @@ export interface PrCommandOptions {
 	cwd: string;
 	dryRun?: boolean;
 	json?: boolean;
+	noInstall?: boolean;
 	number: string;
 	outputEnv?: string;
 	stderr: (chunk: string) => void;
 	stdout: (chunk: string) => void;
 }
 
-export interface PrCommandDependencies
-	extends InstallPromptDependencies,
-		DependencyBootstrapPromptDependencies {
-	cloneDir?: CloneDirectory;
+export interface PrCommandDependencies {
 	promptForPathConflict: (path: string) => Promise<PathConflictChoice>;
+	runCommand: BootstrapCommandRunner;
 }
 
 type PullRequestForge = "bitbucket" | "github" | "gitlab" | "unknown";
@@ -97,15 +91,12 @@ export function createPrCommand(
 
 		const repository = await detectRepository(options.cwd);
 		let config: EffectiveGjiConfig;
-		let dependencyBootstrapExplicit: boolean;
 		try {
-			const loaded = await loadEffectiveConfigResult(
+			config = await loadEffectiveConfig(
 				repository.repoRoot,
 				undefined,
 				options.json ? undefined : options.stderr,
 			);
-			config = loaded.config;
-			dependencyBootstrapExplicit = loaded.dependencyBootstrapExplicit;
 		} catch (error) {
 			const message = error instanceof Error ? error.message : String(error);
 			if (options.json) {
@@ -158,52 +149,19 @@ export function createPrCommand(
 			return 1;
 		}
 
-		let dependencyPolicy: DependencyBootstrapPolicyResolution = {
-			mode: config.dependencyBootstrap ?? "off",
-			prompted: false,
-			source: dependencyBootstrapExplicit ? "explicit" : "default",
-		};
-		if (options.dryRun) {
-			dependencyPolicy = await resolveDependencyBootstrapPolicy(
-				{
+		const dependencyMode: DependencyBootstrapMode = options.noInstall
+			? "off"
+			: config.dependencyBootstrap === "off"
+				? "off"
+				: "install";
+
+		const dryRunDependencyBootstrap = options.dryRun
+			? await createDependencyBootstrapPreview(dependencyMode, {
 					currentRoot: repository.currentRoot,
 					repoRoot: repository.repoRoot,
+					cargoBuildCommand: config.dependencyBuildCommand,
 					worktreePath,
-				},
-				config,
-				dependencyBootstrapExplicit,
-				{
-					dependencies,
-					dryRun: true,
-					legacyInstallPromptConfigured:
-						dependencies.promptForInstallChoice !== undefined,
-					nonInteractive: !!options.json,
-					stderr: options.stderr,
-				},
-			);
-			config = {
-				...config,
-				dependencyBootstrap: dependencyPolicy.mode,
-			};
-		}
-
-		const dryRunSyncDirs = options.dryRun
-			? await estimateSyncDirectories(
-					repository.repoRoot,
-					worktreePath,
-					config.syncDirs ?? [],
-				)
-			: [];
-		const dryRunDependencyBootstrap = options.dryRun
-			? await createDependencyBootstrapPreview(
-					config.dependencyBootstrap ?? "off",
-					{
-						currentRoot: repository.currentRoot,
-						repoRoot: repository.repoRoot,
-						cargoBuildCommand: config.dependencyBuildCommand,
-						worktreePath,
-					},
-				)
+				})
 			: undefined;
 
 		if (options.dryRun) {
@@ -219,13 +177,12 @@ export function createPrCommand(
 					),
 					dryRun: true,
 				};
-				if (dryRunSyncDirs.length > 0) output.syncDirs = dryRunSyncDirs;
 				if (dryRunDependencyBootstrap?.targets.length)
 					output.dependencyBootstrap = dryRunDependencyBootstrap;
 				options.stdout(`${JSON.stringify(output, null, 2)}\n`);
 			} else {
 				options.stdout(
-					`Would create worktree at ${worktreePath} (branch: ${branchName})\n${dryRunSyncDirs.map(({ dir, bytes }) => `Would clone ${dir} (${formatBytes(bytes)})\n`).join("")}${formatDependencyBootstrapPreview(dryRunDependencyBootstrap)}`,
+					`Would create worktree at ${worktreePath} (branch: ${branchName})\n${formatDependencyBootstrapPreview(dryRunDependencyBootstrap)}`,
 				);
 			}
 			return 0;
@@ -263,52 +220,24 @@ export function createPrCommand(
 
 		await execFileAsync("git", worktreeArgs, { cwd: repository.repoRoot });
 
-		if (!dependencyBootstrapExplicit) {
-			dependencyPolicy = await resolveDependencyBootstrapPolicy(
-				{
-					currentRoot: repository.currentRoot,
-					detectionRoot: worktreePath,
-					repoRoot: repository.repoRoot,
-					worktreePath,
-				},
-				config,
-				false,
-				{
-					dependencies,
-					legacyInstallPromptConfigured:
-						dependencies.promptForInstallChoice !== undefined,
-					nonInteractive: !!options.json,
-					stderr: options.stderr,
-				},
-			);
-			config = {
-				...config,
-				dependencyBootstrap: dependencyPolicy.mode,
-			};
-		}
-
 		const bootstrap = await bootstrapWorktree({
 			branch: branchName,
-			cloneDirectory: dependencies.cloneDir,
 			config,
 			currentRoot: repository.currentRoot,
 			dependencyDetectionRoot: worktreePath,
-			nonInteractive: !!options.json,
+			dependencyMode,
 			repoRoot: repository.repoRoot,
 			reporter: createBootstrapReporter(options.stderr, !!options.json),
-			runCommand: dependencies.runInstallCommand,
+			runCommand: dependencies.runCommand,
 			commandStdout: options.json ? () => undefined : options.stdout,
 			commandStderr: options.json ? () => undefined : options.stderr,
 			json: options.json,
 			worktreePath,
-			installDependencies: dependencies,
-			dependencyBootstrapPolicy: dependencyPolicy,
 		});
 		if (!bootstrap.ready) {
 			const details = {
 				dependencyBootstrap: bootstrap.dependencyBootstrap,
 				path: worktreePath,
-				skipped: bootstrap.skippedDirs,
 				syncFiles: bootstrap.syncFileFailures,
 			};
 			if (options.json) {
@@ -334,15 +263,7 @@ export function createPrCommand(
 					branchName,
 				),
 			};
-			if (bootstrap.clonedDirs.length > 0) {
-				output.cloned = bootstrap.clonedDirs.map(({ dir, ms }) => ({
-					dir,
-					ms,
-				}));
-			}
-			if (bootstrap.skippedDirs.length > 0)
-				output.skipped = bootstrap.skippedDirs;
-			if (bootstrap.dependencyBootstrap.mode !== "off")
+			if (bootstrap.dependencyBootstrap.events.length > 0)
 				output.dependencyBootstrap = bootstrap.dependencyBootstrap;
 			options.stdout(`${JSON.stringify(output, null, 2)}\n`);
 		} else {

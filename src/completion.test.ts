@@ -94,9 +94,11 @@ describe("gji completion", () => {
 		expect(stdout.join("")).toContain("command_entries");
 		expect(stdout.join("")).toContain('branch = ($1 == "*" ? $2 : $1)');
 		expect(stdout.join("")).toContain("_values 'config action' get set unset");
-		expect(stdout.join("")).toContain(
-			"_values 'config key' branchPrefix dependencyBuildCommand dependencyBootstrap editor hooks installSaveTarget shellIntegration skipInstallPrompt syncDirs syncDefaultBranch syncFiles syncRemote worktreePath repos",
-		);
+		const completion = stdout.join("");
+		expect(completion).toContain("_values 'config key'");
+		expect(completion).toContain("dependencyBootstrap");
+		expect(completion).toContain("worktreePath");
+		expect(completion).not.toContain("skipInstallPrompt");
 		expect(stdout.join("")).toContain(`case "\${words[3]}" in`);
 		expect(stdout.join("")).toContain("get|unset)");
 		expect(stdout.join("")).toContain("_arguments '3:key:->config_keys'");

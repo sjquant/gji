@@ -36,7 +36,7 @@ describe("runCommand", () => {
 			stderr.push(chunk),
 		);
 
-		// Then the failure rejects instead of being mistaken for a successful repair.
+		// Then the failure rejects instead of being mistaken for a successful install.
 		await expect(result).rejects.toThrow("exited with code 7");
 		expect(stderr.join("")).toBe("failure");
 	});

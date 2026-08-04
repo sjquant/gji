@@ -4,59 +4,40 @@ import type { EffectiveGjiConfig } from "./config.js";
 import {
 	type BootstrapCommandRunner,
 	type BootstrapEvent,
+	type DependencyBootstrapMode,
 	type DependencyBootstrapReport,
 	type DependencyBootstrapReporter,
 	executeDependencyBootstrap,
 	prepareDependencyBootstrap,
 } from "./dependency-bootstrap.js";
-import type { DependencyBootstrapPolicyResolution } from "./dependency-bootstrap-prompt.js";
-import { type CloneDirectory, cloneDir } from "./dir-clone.js";
 import { syncFiles } from "./file-sync.js";
 import { extractHooks, runHook } from "./hooks.js";
-import {
-	type InstallPromptDependencies,
-	maybeRunInstallPrompt,
-} from "./install-prompt.js";
 import { assignWorktreeSlot } from "./slots.js";
-import {
-	type ClonedDirectory,
-	executeSyncDirectoryPlan,
-	type SyncDirectoryReporter,
-} from "./sync-directories.js";
-import { prepareSyncDirectoryPlan } from "./sync-plan.js";
-
-export type { ClonedDirectory as ClonedDir } from "./sync-directories.js";
-
 export interface WorktreeBootstrapOptions {
 	branch: string;
-	cloneDirectory?: CloneDirectory;
 	config: EffectiveGjiConfig;
 	currentRoot?: string;
 	dependencyDetectionRoot?: string;
-	installDependencies?: InstallPromptDependencies;
+	dependencyMode?: DependencyBootstrapMode;
 	runCommand?: BootstrapCommandRunner;
 	commandStdout?: (chunk: string) => void;
 	commandStderr?: (chunk: string) => void;
-	dependencyBootstrapPolicy?: DependencyBootstrapPolicyResolution;
 	json?: boolean;
-	nonInteractive: boolean;
 	repoRoot: string;
-	reporter: SyncDirectoryReporter & DependencyBootstrapReporter;
+	reporter: DependencyBootstrapReporter & { write: (chunk: string) => void };
 	worktreePath: string;
 }
 
 export interface WorktreeBootstrapResult {
-	clonedDirs: readonly ClonedDirectory[];
 	dependencyBootstrap: DependencyBootstrapReport;
 	ready: boolean;
 	syncFileFailures: readonly BootstrapEvent[];
-	skippedDirs: readonly { dir: string; reason: string }[];
 }
 
 export async function bootstrapWorktree(
 	options: WorktreeBootstrapOptions,
 ): Promise<WorktreeBootstrapResult> {
-	const dependencyMode = options.config.dependencyBootstrap ?? "off";
+	const dependencyMode = options.dependencyMode ?? "install";
 	const dependencyPlan = await prepareDependencyBootstrap(dependencyMode, {
 		currentRoot: options.currentRoot,
 		detectionRoot: options.dependencyDetectionRoot,
@@ -64,24 +45,6 @@ export async function bootstrapWorktree(
 		cargoBuildCommand: options.config.dependencyBuildCommand,
 		worktreePath: options.worktreePath,
 	});
-	const syncPlan = await prepareSyncDirectoryPlan(
-		options.repoRoot,
-		options.worktreePath,
-		options.config.syncDirs ?? [],
-	);
-	const outcomes = await executeSyncDirectoryPlan(syncPlan, {
-		cloneDirectory: options.cloneDirectory ?? cloneDir,
-		reporter: options.reporter,
-	});
-	const clonedDirs = outcomes.flatMap((outcome) =>
-		outcome.kind === "cloned" ? [outcome.directory] : [],
-	);
-	const skippedDirs = outcomes.flatMap((outcome) =>
-		outcome.kind === "skipped"
-			? [{ dir: outcome.dir, reason: outcome.reason }]
-			: [],
-	);
-
 	const syncFileFailures: BootstrapEvent[] = [];
 	for (const pattern of options.config.syncFiles ?? []) {
 		try {
@@ -107,38 +70,18 @@ export async function bootstrapWorktree(
 		syncFileFailures.length > 0
 			? { mode: dependencyMode, ready: false, events: [] }
 			: await executeDependencyBootstrap(dependencyPlan, {
-					cloneDirectory: options.cloneDirectory,
 					reporter: options.reporter,
 					stderr: options.commandStderr ?? options.reporter.write,
 					stdout: options.commandStdout,
-					seededDirectories: clonedDirs.map(({ dir }) => dir),
 					runCommand: options.runCommand,
 				});
 
 	if (!dependencyBootstrap.ready) {
 		return {
-			clonedDirs,
 			dependencyBootstrap,
 			ready: false,
 			syncFileFailures,
-			skippedDirs,
 		};
-	}
-
-	if (
-		dependencyMode === "off" &&
-		["default", "legacy"].includes(
-			options.dependencyBootstrapPolicy?.source ?? "default",
-		)
-	) {
-		await maybeRunInstallPrompt(
-			options.worktreePath,
-			options.repoRoot,
-			options.config,
-			options.reporter.write,
-			options.installDependencies,
-			options.nonInteractive,
-		);
 	}
 
 	const hooks = extractHooks(options.config);
@@ -159,11 +102,9 @@ export async function bootstrapWorktree(
 	);
 
 	return {
-		clonedDirs,
 		dependencyBootstrap,
 		ready: true,
 		syncFileFailures: [],
-		skippedDirs,
 	};
 }
 
