@@ -17,9 +17,10 @@ import {
 	pathExists,
 	promptForPathConflict,
 } from "./conflict.js";
-import type {
-	BootstrapCommandRunner,
-	DependencyBootstrapMode,
+import {
+	type BootstrapCommandRunner,
+	type DependencyBootstrapMode,
+	resolveDependencyBootstrapMode,
 } from "./dependency-bootstrap.js";
 import { isHeadless } from "./headless.js";
 import { recordWorktreeUsage } from "./history.js";
@@ -149,11 +150,11 @@ export function createPrCommand(
 			return 1;
 		}
 
-		const dependencyMode: DependencyBootstrapMode = options.noInstall
-			? "off"
-			: config.dependencyBootstrap === "off"
-				? "off"
-				: "install";
+		const dependencyMode: DependencyBootstrapMode =
+			resolveDependencyBootstrapMode(
+				config.dependencyBootstrap,
+				options.noInstall,
+			);
 
 		const dryRunDependencyBootstrap = options.dryRun
 			? await createDependencyBootstrapPreview(dependencyMode, {

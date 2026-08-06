@@ -1096,6 +1096,153 @@ describe("gji new", () => {
 		expect(commands).toEqual(["pnpm install --frozen-lockfile"]);
 	});
 
+	it("detects dependencies from the newly created worktree", async () => {
+		// Given a remote default branch with a lockfile absent from the current checkout.
+		const { originRoot, repoRoot } = await createRepositoryWithOrigin();
+		const remoteClone = await cloneRepository(originRoot);
+		await commitFile(
+			remoteClone,
+			"pnpm-lock.yaml",
+			"lockfileVersion: '9'\n",
+			"Add remote dependency lockfile",
+		);
+		await runGit(remoteClone, ["push", "origin", "HEAD"]);
+		const commands: string[] = [];
+
+		// When gji new creates a worktree from the refreshed remote base.
+		const result = await createNewCommand({
+			runCommand: async (command) => {
+				commands.push(command);
+			},
+		})({
+			branch: "feature/worktree-detection",
+			cwd: repoRoot,
+			stderr: () => undefined,
+			stdout: () => undefined,
+		});
+
+		// Then the dependency manifest in that worktree drives installation.
+		expect(result).toBe(0);
+		expect(commands).toEqual(["pnpm install --frozen-lockfile"]);
+	});
+
+	it("respects repository dependency opt-out configuration", async () => {
+		// Given a repository configured to disable automatic dependency setup.
+		const repoRoot = await createRepository();
+		await commitFile(
+			repoRoot,
+			"pnpm-lock.yaml",
+			"lockfileVersion: '9'\n",
+			"Add pnpm lockfile",
+		);
+		await writeFile(
+			join(repoRoot, ".gji.json"),
+			JSON.stringify({ dependencyBootstrap: "off" }),
+			"utf8",
+		);
+		let installCalled = false;
+
+		// When gji new creates a worktree.
+		const result = await createNewCommand({
+			runCommand: async () => {
+				installCalled = true;
+			},
+		})({
+			branch: "feature/config-no-install",
+			cwd: repoRoot,
+			noFetch: true,
+			stderr: () => undefined,
+			stdout: () => undefined,
+		});
+
+		// Then the repository policy prevents dependency commands from running.
+		expect(result).toBe(0);
+		expect(installCalled).toBe(false);
+	});
+
+	it("runs after-create only after dependency installation succeeds", async () => {
+		// Given a locked dependency and an after-create hook that requires installation first.
+		const repoRoot = await createRepository();
+		await commitFile(
+			repoRoot,
+			"pnpm-lock.yaml",
+			"lockfileVersion: '9'\n",
+			"Add pnpm lockfile",
+		);
+		await writeFile(
+			join(repoRoot, ".gji.json"),
+			JSON.stringify({
+				hooks: {
+					"after-create":
+						"test -f dependency-installed && touch after-create-ran",
+				},
+			}),
+			"utf8",
+		);
+		const worktreePath = resolveWorktreePath(
+			repoRoot,
+			"feature/hook-after-install",
+		);
+
+		// When dependency installation creates its completion marker.
+		const result = await createNewCommand({
+			runCommand: async (_command, cwd) => {
+				await writeFile(join(cwd, "dependency-installed"), "done\n", "utf8");
+			},
+		})({
+			branch: "feature/hook-after-install",
+			cwd: repoRoot,
+			noFetch: true,
+			stderr: () => undefined,
+			stdout: () => undefined,
+		});
+
+		// Then the hook observes the completed installation.
+		expect(result).toBe(0);
+		await expect(
+			pathExists(join(worktreePath, "after-create-ran")),
+		).resolves.toBe(true);
+	});
+
+	it("skips after-create when dependency installation fails", async () => {
+		// Given a locked dependency and an after-create hook.
+		const repoRoot = await createRepository();
+		await commitFile(
+			repoRoot,
+			"pnpm-lock.yaml",
+			"lockfileVersion: '9'\n",
+			"Add pnpm lockfile",
+		);
+		await writeFile(
+			join(repoRoot, ".gji.json"),
+			JSON.stringify({ hooks: { "after-create": "touch after-create-ran" } }),
+			"utf8",
+		);
+		const worktreePath = resolveWorktreePath(
+			repoRoot,
+			"feature/hook-after-failure",
+		);
+
+		// When dependency installation fails.
+		const result = await createNewCommand({
+			runCommand: async () => {
+				throw new Error("dependency unavailable");
+			},
+		})({
+			branch: "feature/hook-after-failure",
+			cwd: repoRoot,
+			noFetch: true,
+			stderr: () => undefined,
+			stdout: () => undefined,
+		});
+
+		// Then bootstrap fails and the hook is not invoked.
+		expect(result).toBe(1);
+		await expect(
+			pathExists(join(worktreePath, "after-create-ran")),
+		).resolves.toBe(false);
+	});
+
 	it("skips automatic dependency setup only when --no-install is passed", async () => {
 		// Given a repository with a pnpm lockfile.
 		const repoRoot = await createRepository();

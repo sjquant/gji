@@ -18,9 +18,10 @@ import {
 	pathExists,
 	promptForPathConflict,
 } from "./conflict.js";
-import type {
-	BootstrapCommandRunner,
-	DependencyBootstrapMode,
+import {
+	type BootstrapCommandRunner,
+	type DependencyBootstrapMode,
+	resolveDependencyBootstrapMode,
 } from "./dependency-bootstrap.js";
 import { defaultSpawnEditor, EDITORS } from "./editor.js";
 import { resolveRemoteBase, runGit } from "./git.js";
@@ -254,11 +255,11 @@ export function createNewCommand(
 			}
 		}
 
-		const dependencyMode: DependencyBootstrapMode = options.noInstall
-			? "off"
-			: config.dependencyBootstrap === "off"
-				? "off"
-				: "install";
+		const dependencyMode: DependencyBootstrapMode =
+			resolveDependencyBootstrapMode(
+				config.dependencyBootstrap,
+				options.noInstall,
+			);
 
 		if (options.dryRun) {
 			if (options.take) {
@@ -481,6 +482,7 @@ export function createNewCommand(
 			branch: worktreeName,
 			config,
 			currentRoot: repository.currentRoot,
+			dependencyDetectionRoot: worktreePath,
 			dependencyMode,
 			repoRoot: repository.repoRoot,
 			reporter: createBootstrapReporter(options.stderr, !!options.json),

@@ -1,4 +1,4 @@
-import { mkdir, readFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { basename, join } from "node:path";
 
 import { describe, expect, it } from "vitest";
@@ -91,6 +91,42 @@ describe("gji pr", () => {
 		// Then the adapter installs directly without a prompt or copy fallback.
 		expect(result).toBe(0);
 		expect(commands).toEqual(["pnpm install --frozen-lockfile"]);
+	});
+
+	it("respects repository dependency opt-out configuration", async () => {
+		// Given a PR whose source branch contains a dependency lockfile.
+		const { repoRoot } = await createRepositoryWithOrigin();
+		await runGit(repoRoot, ["checkout", "-b", "feature/pr-config-no-install"]);
+		await commitFile(
+			repoRoot,
+			"pnpm-lock.yaml",
+			"lockfileVersion: '9'\n",
+			"add PR dependencies",
+		);
+		await pushPullRequestRef(repoRoot, "125");
+		await runGit(repoRoot, ["checkout", "-"]);
+		await writeFile(
+			join(repoRoot, ".gji.json"),
+			JSON.stringify({ dependencyBootstrap: "off" }),
+			"utf8",
+		);
+		let installCalled = false;
+
+		// When gji pr creates the worktree.
+		const result = await createPrCommand({
+			runCommand: async () => {
+				installCalled = true;
+			},
+		})({
+			cwd: repoRoot,
+			number: "125",
+			stderr: () => undefined,
+			stdout: () => undefined,
+		});
+
+		// Then the repository policy prevents dependency commands from running.
+		expect(result).toBe(0);
+		expect(installCalled).toBe(false);
 	});
 
 	it("works from inside an existing linked worktree", async () => {

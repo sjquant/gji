@@ -150,6 +150,14 @@ export async function validateUvRelocation(
 	}
 }
 
+export async function validateUvInstallation(
+	target: BootstrapTarget,
+	context: BootstrapExecutionContext,
+): Promise<void> {
+	await validateUvStructure(target, context);
+	await validateUvRelocation(target, context);
+}
+
 export async function validateUvStructure(
 	target: BootstrapTarget,
 	context: BootstrapExecutionContext,

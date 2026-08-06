@@ -154,6 +154,9 @@ describe("dependency bootstrap", () => {
 		}
 		const invocations: Array<{
 			command: string;
+			cwd: string;
+			stderr: (chunk: string) => void;
+			stdout: ((chunk: string) => void) | undefined;
 			options: { env?: NodeJS.ProcessEnv; shell?: boolean } | undefined;
 		}> = [];
 		const reporter = createReporter();
@@ -166,15 +169,35 @@ describe("dependency bootstrap", () => {
 		// When bootstrap executes through the public command-runner boundary.
 		const result = await executeDependencyBootstrap(plan, {
 			reporter,
-			runCommand: async (runCommand, _cwd, _stderr, _stdout, options) => {
-				invocations.push({ command: runCommand, options });
+			runCommand: async (runCommand, cwd, stderr, stdout, options) => {
+				invocations.push({ command: runCommand, cwd, stderr, stdout, options });
 			},
 		});
 
 		// Then the adapter's command and lifecycle state remain explicit.
 		expect(result.ready).toBe(true);
 		expect(invocations.map(({ command: actual }) => actual)).toEqual([command]);
+		expect(invocations[0]?.cwd).toBe(worktreePath);
+		expect(invocations[0]?.stderr).toEqual(expect.any(Function));
+		expect(invocations[0]?.stdout).toEqual(expect.any(Function));
+		expect(invocations[0]?.options?.shell).toBe(Boolean(cargoBuildCommand));
 		expect(result.events.map(({ state }) => state)).toEqual([state]);
+		expect(result.events[0]).toMatchObject({
+			adapter,
+			kind: adapter === "cargo" ? "build-cache" : "dependency",
+			target:
+				adapter === "bundler"
+					? "vendor/bundle"
+					: adapter === "cargo"
+						? "target"
+						: adapter === "poetry" || adapter === "pipenv"
+							? ".venv"
+							: adapter === "go"
+								? ""
+								: adapter === "composer"
+									? "vendor"
+									: "node_modules",
+		});
 		if (adapter === "bundler") {
 			expect(invocations[0]?.options?.env).toMatchObject({
 				BUNDLE_PATH: "vendor/bundle",
@@ -284,6 +307,43 @@ describe("dependency bootstrap", () => {
 		);
 	});
 
+	it("fails when uv creates a symlinked scripts directory", async () => {
+		// Given a locked uv project with a fresh target environment.
+		const repoRoot = await mkdtemp(join(tmpdir(), "gji-bootstrap-repo-"));
+		const worktreePath = await mkdtemp(
+			join(tmpdir(), "gji-bootstrap-worktree-"),
+		);
+		await writeFile(join(repoRoot, "uv.lock"), "version = 1\n");
+		const plan = await prepareDependencyBootstrap("install", {
+			repoRoot,
+			worktreePath,
+		});
+		const reporter = createReporter();
+
+		// When uv creates an environment whose scripts directory escapes the target.
+		const result = await executeDependencyBootstrap(plan, {
+			reporter,
+			runCommand: async (_command, cwd) => {
+				const externalBin = join(cwd, "external-bin");
+				await mkdir(externalBin, { recursive: true });
+				const interpreter = join(externalBin, "python");
+				await writeFile(
+					interpreter,
+					`#!/bin/sh\nprintf '%s\\n' '${join(cwd, ".venv")}'\n`,
+				);
+				await chmod(interpreter, 0o755);
+				await mkdir(join(cwd, ".venv"), { recursive: true });
+				await symlink(externalBin, join(cwd, ".venv", "bin"), "dir");
+			},
+		});
+
+		// Then validation rejects the escaped scripts directory before executing it.
+		expect(result.ready).toBe(false);
+		expect(reporter.events[0]).toContain(
+			"uv scripts path must be a real directory",
+		);
+	});
+
 	it("installs independent dependency targets in one worktree", async () => {
 		// Given a repository containing JavaScript, Go, and Rust dependency manifests.
 		const repoRoot = await mkdtemp(join(tmpdir(), "gji-bootstrap-repo-"));
@@ -309,11 +369,14 @@ describe("dependency bootstrap", () => {
 
 		// Then each independent target is installed without copying another target.
 		expect(result.ready).toBe(true);
-		expect(commands).toEqual([
-			"pnpm install --frozen-lockfile",
-			"go mod download",
-			"cargo check",
-		]);
+		expect(commands).toHaveLength(3);
+		expect(commands).toEqual(
+			expect.arrayContaining([
+				"pnpm install --frozen-lockfile",
+				"go mod download",
+				"cargo check",
+			]),
+		);
 	});
 
 	it("installs into a clean target when a new worktree has no dependency tree", async () => {

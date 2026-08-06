@@ -3,13 +3,24 @@ import { join, relative, resolve, sep } from "node:path";
 import { type CommandRunner, runCommand } from "./command-runner.js";
 import { pathExists } from "./fs-utils.js";
 import { inspectDestination } from "./safe-destination.js";
-import { validateUvRelocation, validateUvStructure } from "./uv-validation.js";
+import {
+	validateUvInstallation,
+	validateUvStructure,
+} from "./uv-validation.js";
 
 export type BootstrapKind = "dependency" | "build-cache" | "sync-file";
 export type BootstrapState = "installed" | "failed";
 export type DependencyBootstrapMode = "off" | "install";
 
 export type BootstrapCommandRunner = CommandRunner;
+
+export function resolveDependencyBootstrapMode(
+	dependencyBootstrap: "off" | undefined,
+	noInstall = false,
+): DependencyBootstrapMode {
+	if (noInstall || dependencyBootstrap === "off") return "off";
+	return "install";
+}
 
 export interface BootstrapPreparationContext {
 	detectionRoot?: string;
@@ -29,7 +40,6 @@ export interface BootstrapExecutionContext
 }
 
 export interface BootstrapTarget {
-	adapter: string;
 	kind: BootstrapKind;
 	relativePath: string;
 	sourceRoot: string;
@@ -56,7 +66,12 @@ export interface BootstrapAdapter {
 
 export interface DependencyBootstrapPlan {
 	mode: DependencyBootstrapMode;
-	targets: readonly BootstrapTarget[];
+	targets: readonly PlannedBootstrapTarget[];
+}
+
+export interface PlannedBootstrapTarget {
+	adapter: BootstrapAdapter;
+	target: BootstrapTarget;
 }
 
 export interface BootstrapEvent {
@@ -116,7 +131,7 @@ export async function prepareDependencyBootstrap(
 			sourceRoots.push(sourceRoot);
 		}
 	}
-	const targets: BootstrapTarget[] = [];
+	const targets: PlannedBootstrapTarget[] = [];
 	const plannedRelativePaths = new Set<string>();
 
 	for (const adapter of adapters) {
@@ -130,7 +145,7 @@ export async function prepareDependencyBootstrap(
 			});
 			if (!target) continue;
 
-			targets.push(target);
+			targets.push({ adapter, target });
 			plannedRelativePaths.add(adapter.relativePath);
 			break;
 		}
@@ -144,9 +159,9 @@ export function previewDependencyBootstrap(
 ): DependencyBootstrapPreview {
 	return {
 		mode: plan.mode,
-		targets: plan.targets.map((target) => ({
-			adapter: target.adapter,
-			kind: target.kind,
+		targets: plan.targets.map(({ adapter, target }) => ({
+			adapter: adapter.name,
+			kind: adapter.kind,
 			target: target.relativePath,
 			command: target.installCommand,
 		})),
@@ -172,14 +187,8 @@ export async function executeDependencyBootstrap(
 		return { mode: plan.mode, ready: true, events };
 	}
 
-	for (const target of plan.targets) {
-		await installTarget(
-			adapterForTarget(target),
-			target,
-			execution,
-			events,
-			options.reporter,
-		);
+	for (const { adapter, target } of plan.targets) {
+		await installTarget(adapter, target, execution, events, options.reporter);
 	}
 
 	return {
@@ -272,15 +281,6 @@ function formatInstallFailure(error: unknown): string {
 	return `install failed: ${toErrorMessage(error)}`;
 }
 
-function adapterForTarget(target: BootstrapTarget): BootstrapAdapter {
-	const adapter = createBootstrapAdapters().find(
-		(candidate) => candidate.name === target.adapter,
-	);
-	if (!adapter)
-		throw new Error(`unsupported bootstrap adapter: ${target.adapter}`);
-	return adapter;
-}
-
 function createBootstrapAdapters(
 	cargoBuildCommand?: string,
 ): readonly BootstrapAdapter[] {
@@ -346,7 +346,7 @@ function createBootstrapAdapters(
 			relativePath: ".venv",
 			installCommand: "uv sync --locked",
 			beforeInstall: validateUvStructure,
-			afterInstall: validateUvRelocation,
+			afterInstall: validateUvInstallation,
 		}),
 		new LockfileBootstrapAdapter({
 			name: "pipenv",
@@ -462,7 +462,6 @@ class LockfileBootstrapAdapter implements BootstrapAdapter {
 		const initialInput =
 			destinationInspection?.kind === "exists" ? "preserve" : "clean";
 		const target: BootstrapTarget = {
-			adapter: this.name,
 			kind: this.kind,
 			relativePath: this.relativePath,
 			sourceRoot: context.sourceRoot,

@@ -18,7 +18,7 @@ export interface WorktreeBootstrapOptions {
 	config: EffectiveGjiConfig;
 	currentRoot?: string;
 	dependencyDetectionRoot?: string;
-	dependencyMode?: DependencyBootstrapMode;
+	dependencyMode: DependencyBootstrapMode;
 	runCommand?: BootstrapCommandRunner;
 	commandStdout?: (chunk: string) => void;
 	commandStderr?: (chunk: string) => void;
@@ -37,7 +37,7 @@ export interface WorktreeBootstrapResult {
 export async function bootstrapWorktree(
 	options: WorktreeBootstrapOptions,
 ): Promise<WorktreeBootstrapResult> {
-	const dependencyMode = options.dependencyMode ?? "install";
+	const dependencyMode = options.dependencyMode;
 	const dependencyPlan = await prepareDependencyBootstrap(dependencyMode, {
 		currentRoot: options.currentRoot,
 		detectionRoot: options.dependencyDetectionRoot,
