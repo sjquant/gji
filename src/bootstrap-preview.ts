@@ -1,7 +1,5 @@
-import type { DependencyBootstrapMode } from "./config.js";
+import type { DependencyBootstrapMode } from "./dependency-bootstrap.js";
 import {
-	type BootstrapStrategy,
-	type BootstrapTarget,
 	type DependencyBootstrapPreview,
 	prepareDependencyBootstrap,
 	previewDependencyBootstrap,
@@ -14,7 +12,6 @@ export async function createDependencyBootstrapPreview(
 		currentRoot?: string;
 		worktreePath: string;
 		cargoBuildCommand?: string;
-		checkUvRuntime?: (target: BootstrapTarget) => Promise<boolean>;
 	},
 ): Promise<DependencyBootstrapPreview> {
 	return previewDependencyBootstrap(
@@ -28,19 +25,8 @@ export function formatDependencyBootstrapPreview(
 	if (!preview) return "";
 	return preview.targets
 		.map(
-			({ adapter, target, strategy }) =>
-				`Would ${formatBootstrapStrategy(strategy)} ${target} with ${adapter}\n`,
+			({ adapter, target, command }) =>
+				`Would install ${target || "dependencies"} with ${adapter}: ${command}\n`,
 		)
 		.join("");
-}
-
-function formatBootstrapStrategy(strategy: BootstrapStrategy): string {
-	switch (strategy) {
-		case "cow-then-repair":
-			return "seed and repair";
-		case "repair-only":
-			return "repair";
-		case "install-only":
-			return "install";
-	}
 }

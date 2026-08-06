@@ -102,25 +102,22 @@ describe("gji config", () => {
 		});
 	});
 
-	it("rejects unsafe syncDirs before writing global config", async () => {
-		// Given an isolated home directory and an unsafe syncDirs value.
+	it("rejects the removed syncDirs setting without writing it", async () => {
+		// Given an isolated home directory and the removed CoW configuration key.
 		const home = await mkdtemp(join(tmpdir(), "gji-home-"));
 		const cwd = await mkdtemp(join(tmpdir(), "gji-cwd-"));
 		const stderr: string[] = [];
 		process.env.HOME = home;
 
-		// When gji config attempts to persist a parent traversal.
+		// When gji config attempts to persist syncDirs.
 		const result = await runCli(
-			["config", "set", "syncDirs", '["../escape"]'],
-			{
-				cwd,
-				stderr: (chunk) => stderr.push(chunk),
-			},
+			["config", "set", "syncDirs", '["node_modules"]'],
+			{ cwd, stderr: (chunk) => stderr.push(chunk) },
 		);
 
-		// Then the command rejects the value and leaves no config behind.
+		// Then it reports that the setting is unsupported and leaves no config behind.
 		expect(result.exitCode).toBe(1);
-		expect(stderr.join("")).toContain("'..' segments");
+		expect(stderr.join("")).toContain("no longer supported");
 		await expect(readGlobalConfig(home)).rejects.toThrow();
 	});
 });

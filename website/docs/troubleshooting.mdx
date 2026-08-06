@@ -1,6 +1,6 @@
 ---
 title: Troubleshooting
-description: Common setup, shell handoff, install prompt, and Git worktree troubleshooting tips for gji.
+description: Common setup, shell handoff, dependency setup, and Git worktree troubleshooting tips for gji.
 ---
 
 # Troubleshooting
@@ -85,11 +85,13 @@ gji clean --force
 gji done feature/foo --force
 ```
 
-## Install prompts are not what I want
+## Dependency installation is not what I want
 
-Use config to control them:
+Dependency installation is automatic when a supported lockfile is detected. To skip it for one worktree:
 
-- `skipInstallPrompt`
-- `installSaveTarget`
+```bash
+gji new feature/foo --no-install
+gji pr 123 --no-install
+```
 
-See the [configuration](./configuration) page for the related keys.
+To disable it for a repository, set `dependencyBootstrap` to `off` in `.gji.json`.

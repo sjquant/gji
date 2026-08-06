@@ -1,13 +1,6 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
-import {
-	dirname,
-	isAbsolute,
-	join,
-	normalize,
-	resolve,
-	win32,
-} from "node:path";
+import { dirname, join, resolve } from "node:path";
 
 export const CONFIG_FILE_NAME = ".gji.json";
 export const GLOBAL_CONFIG_DIRECTORY = ".config/gji";
@@ -21,8 +14,6 @@ export const KNOWN_CONFIG_KEYS: ReadonlySet<string> = new Set([
 	"hooks",
 	"installSaveTarget",
 	"shellIntegration",
-	"skipInstallPrompt",
-	"syncDirs",
 	"syncDefaultBranch",
 	"syncFiles",
 	"syncRemote",
@@ -36,21 +27,18 @@ export const KNOWN_GLOBAL_CONFIG_KEYS: ReadonlySet<string> = new Set([
 
 export type GjiConfig = Record<string, unknown>;
 
-export type DependencyBootstrapMode =
-	| "off"
-	| "cow-then-repair"
-	| "install-only";
+export type DependencyBootstrapSetting = "off";
+
+const REMOVED_CONFIG_KEYS = new Set(["syncDirs"]);
 
 export interface EffectiveGjiConfig extends GjiConfig {
 	branchPrefix?: string;
 	dependencyBuildCommand?: string;
-	dependencyBootstrap?: DependencyBootstrapMode;
+	dependencyBootstrap?: DependencyBootstrapSetting;
 	editor?: string;
 	hooks?: Record<string, unknown>;
 	installSaveTarget?: string;
 	shellIntegration?: string;
-	skipInstallPrompt?: boolean;
-	syncDirs?: readonly string[];
 	syncFiles?: readonly string[];
 	syncDefaultBranch?: string;
 	syncRemote?: string;
@@ -61,11 +49,6 @@ export interface LoadedConfig {
 	config: GjiConfig;
 	exists: boolean;
 	path: string;
-}
-
-export interface EffectiveConfigResult {
-	config: EffectiveGjiConfig;
-	dependencyBootstrapExplicit: boolean;
 }
 
 export const DEFAULT_CONFIG: GjiConfig = Object.freeze({});
@@ -81,14 +64,6 @@ export async function loadEffectiveConfig(
 	home: string = homedir(),
 	onWarning?: (message: string) => void,
 ): Promise<EffectiveGjiConfig> {
-	return (await loadEffectiveConfigResult(root, home, onWarning)).config;
-}
-
-export async function loadEffectiveConfigResult(
-	root: string,
-	home: string = homedir(),
-	onWarning?: (message: string) => void,
-): Promise<EffectiveConfigResult> {
 	const [globalConfig, localConfig] = await Promise.all([
 		loadGlobalConfig(home),
 		loadConfig(root),
@@ -100,8 +75,6 @@ export async function loadEffectiveConfigResult(
 	const perRepoConfig: Record<string, unknown> = isPlainObject(repos)
 		? findPerRepoConfig(repos, root, home)
 		: {};
-	validateSyncDirsConfig(perRepoConfig.syncDirs);
-
 	// Strip the internal `repos` registry from the global base before merging.
 	const globalBase: Record<string, unknown> = { ...globalConfig.config };
 	delete globalBase.repos;
@@ -169,13 +142,7 @@ export async function loadEffectiveConfigResult(
 		merged.hooks = { ...globalHooks, ...perRepoHooks, ...localHooks };
 	}
 
-	return {
-		config: toEffectiveConfig(merged),
-		dependencyBootstrapExplicit:
-			Object.hasOwn(globalBase, "dependencyBootstrap") ||
-			Object.hasOwn(perRepoConfig, "dependencyBootstrap") ||
-			Object.hasOwn(localConfig.config, "dependencyBootstrap"),
-	};
+	return toEffectiveConfig(merged);
 }
 
 export async function loadGlobalConfig(
@@ -201,6 +168,7 @@ export async function updateLocalConfigKey(
 	key: string,
 	value: unknown,
 ): Promise<GjiConfig> {
+	assertConfigKeySupported(key);
 	const loaded = await loadConfig(root);
 	const nextConfig = {
 		...loaded.config,
@@ -243,6 +211,7 @@ export async function updateGlobalConfigKey(
 	value: unknown,
 	home: string = homedir(),
 ): Promise<GjiConfig> {
+	assertConfigKeySupported(key);
 	const loaded = await loadGlobalConfig(home);
 	const nextConfig = {
 		...loaded.config,
@@ -260,6 +229,7 @@ export async function updateGlobalRepoConfigKey(
 	value: unknown,
 	home: string = homedir(),
 ): Promise<GjiConfig> {
+	assertConfigKeySupported(key);
 	const loaded = await loadGlobalConfig(home);
 	const repos = isPlainObject(loaded.config.repos)
 		? { ...loaded.config.repos }
@@ -301,47 +271,24 @@ export function resolveConfigString(
 	return typeof value === "string" && value.length > 0 ? value : undefined;
 }
 
-export function validateSyncDirsConfig(value: unknown): void {
-	normalizeSyncDirsConfig(value);
+function assertConfigKeySupported(key: string): void {
+	if (REMOVED_CONFIG_KEYS.has(key)) {
+		throw new Error(`configuration key "${key}" is no longer supported`);
+	}
 }
 
 export function normalizeDependencyBootstrap(
 	value: unknown,
-): DependencyBootstrapMode | undefined {
+): DependencyBootstrapSetting | undefined {
 	if (value === undefined) return;
-	if (
-		value !== "off" &&
-		value !== "cow-then-repair" &&
-		value !== "install-only"
-	) {
-		throw new Error(
-			'dependencyBootstrap: expected "off", "cow-then-repair", or "install-only"',
-		);
+	if (value !== "off") {
+		throw new Error('dependencyBootstrap: expected "off"');
 	}
 
 	return value;
 }
 
-export function normalizeSyncDirsConfig(
-	value: unknown,
-): readonly string[] | undefined {
-	if (value === undefined) return;
-
-	if (!Array.isArray(value)) {
-		throw new Error("syncDirs: expected an array of relative directory paths");
-	}
-
-	return value.map((pattern) => {
-		if (typeof pattern !== "string") {
-			throw new Error("syncDirs: every entry must be a string");
-		}
-
-		return validateSyncDirPattern(pattern);
-	});
-}
-
 function validateConfigValues(config: GjiConfig): void {
-	validateSyncDirsConfig(config.syncDirs);
 	normalizeDependencyBootstrap(config.dependencyBootstrap);
 
 	const repos = config.repos;
@@ -352,38 +299,6 @@ function validateConfigValues(config: GjiConfig): void {
 			validateConfigValues(repoConfig);
 		}
 	}
-}
-
-export function validateSyncDirPattern(pattern: string): string {
-	if (
-		pattern.length === 0 ||
-		isAbsolute(pattern) ||
-		win32.isAbsolute(pattern)
-	) {
-		throw new Error(
-			`syncDirs: pattern must be a relative path, got: ${pattern}`,
-		);
-	}
-
-	const segments = pattern.split(/[\\/]+/u);
-	if (segments.includes("..")) {
-		throw new Error(
-			`syncDirs: pattern must not contain '..' segments, got: ${pattern}`,
-		);
-	}
-
-	if (segments.some((segment) => segment.toLowerCase() === ".git")) {
-		throw new Error(`syncDirs: pattern must not include .git, got: ${pattern}`);
-	}
-
-	const normalized = normalize(pattern);
-	if (normalized === ".") {
-		throw new Error(
-			`syncDirs: pattern must name a directory below the repository root, got: ${pattern}`,
-		);
-	}
-
-	return normalized;
 }
 
 async function loadConfigFile(path: string): Promise<LoadedConfig> {
@@ -437,15 +352,6 @@ function toEffectiveConfig(config: GjiConfig): EffectiveGjiConfig {
 		if (effective[key] !== undefined && typeof effective[key] !== "string") {
 			delete effective[key];
 		}
-	}
-	if (
-		effective.skipInstallPrompt !== undefined &&
-		typeof effective.skipInstallPrompt !== "boolean"
-	) {
-		delete effective.skipInstallPrompt;
-	}
-	if (config.syncDirs !== undefined) {
-		effective.syncDirs = normalizeSyncDirsConfig(config.syncDirs);
 	}
 	if (Array.isArray(config.syncFiles)) {
 		effective.syncFiles = config.syncFiles.filter(

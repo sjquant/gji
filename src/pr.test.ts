@@ -62,6 +62,73 @@ describe("gji pr", () => {
 		await expect(currentBranch(worktreePath)).resolves.toBe("pr/123");
 	});
 
+	it("installs supported dependencies in the created PR worktree", async () => {
+		// Given a PR ref whose source branch contains a pnpm lockfile.
+		const { repoRoot } = await createRepositoryWithOrigin();
+		await runGit(repoRoot, ["checkout", "-b", "feature/pr-dependencies"]);
+		await commitFile(
+			repoRoot,
+			"pnpm-lock.yaml",
+			"lockfileVersion: '9'\n",
+			"add PR dependencies",
+		);
+		await pushPullRequestRef(repoRoot, "124");
+		await runGit(repoRoot, ["checkout", "-"]);
+		const commands: string[] = [];
+
+		// When gji pr creates the worktree with its default dependency setup.
+		const result = await createPrCommand({
+			runCommand: async (command) => {
+				commands.push(command);
+			},
+		})({
+			cwd: repoRoot,
+			number: "124",
+			stderr: () => undefined,
+			stdout: () => undefined,
+		});
+
+		// Then the adapter installs directly without a prompt or copy fallback.
+		expect(result).toBe(0);
+		expect(commands).toEqual(["pnpm install --frozen-lockfile"]);
+	});
+
+	it("respects repository dependency opt-out configuration", async () => {
+		// Given a PR whose source branch contains a dependency lockfile.
+		const { repoRoot } = await createRepositoryWithOrigin();
+		await runGit(repoRoot, ["checkout", "-b", "feature/pr-config-no-install"]);
+		await commitFile(
+			repoRoot,
+			"pnpm-lock.yaml",
+			"lockfileVersion: '9'\n",
+			"add PR dependencies",
+		);
+		await pushPullRequestRef(repoRoot, "125");
+		await runGit(repoRoot, ["checkout", "-"]);
+		await writeFile(
+			join(repoRoot, ".gji.json"),
+			JSON.stringify({ dependencyBootstrap: "off" }),
+			"utf8",
+		);
+		let installCalled = false;
+
+		// When gji pr creates the worktree.
+		const result = await createPrCommand({
+			runCommand: async () => {
+				installCalled = true;
+			},
+		})({
+			cwd: repoRoot,
+			number: "125",
+			stderr: () => undefined,
+			stdout: () => undefined,
+		});
+
+		// Then the repository policy prevents dependency commands from running.
+		expect(result).toBe(0);
+		expect(installCalled).toBe(false);
+	});
+
 	it("works from inside an existing linked worktree", async () => {
 		// Given a repository with both an existing worktree and a PR ref on origin.
 		const { repoRoot } = await createRepositoryWithOrigin();
@@ -492,551 +559,6 @@ describe("gji pr", () => {
 			const json = JSON.parse(stderr.join(""));
 			expect(json).toHaveProperty("error");
 			expect(json.error).toContain("9998");
-		});
-
-		it("suppresses the install prompt in --json mode", async () => {
-			// Given a repository with a PR ref and a detected package manager.
-			const { repoRoot } = await createRepositoryWithOrigin();
-			await runGit(repoRoot, ["checkout", "-b", "feature/json-pr-install"]);
-			await commitFile(
-				repoRoot,
-				"json-install.txt",
-				"content\n",
-				"json install",
-			);
-			await pushPullRequestRef(repoRoot, "3002");
-			await runGit(repoRoot, ["checkout", "-"]);
-			let promptCalled = false;
-			const runPrCmd = createPrCommand({
-				detectInstallPackageManager: async () => ({
-					name: "pnpm",
-					installCommand: "pnpm install",
-				}),
-				promptForInstallChoice: async () => {
-					promptCalled = true;
-					return "yes";
-				},
-			});
-
-			// When gji pr --json runs.
-			const result = await runPrCmd({
-				cwd: repoRoot,
-				json: true,
-				number: "3002",
-				stderr: () => undefined,
-				stdout: () => undefined,
-			});
-
-			// Then the install prompt was never shown.
-			expect(result).toBe(0);
-			expect(promptCalled).toBe(false);
-		});
-	});
-
-	describe("install prompt", () => {
-		const fakePm = { name: "pnpm", installCommand: "pnpm install" };
-
-		async function setupPrRepo(
-			prNumber: string,
-			extraFiles: readonly [string, string][] = [],
-		): Promise<string> {
-			const { repoRoot } = await createRepositoryWithOrigin();
-			await runGit(repoRoot, [
-				"checkout",
-				"-b",
-				`feature/install-pr-${prNumber}`,
-			]);
-			await commitFile(
-				repoRoot,
-				`pr-install-${prNumber}.txt`,
-				"content\n",
-				`pr ${prNumber}`,
-			);
-			for (const [path, content] of extraFiles) {
-				await commitFile(repoRoot, path, content, `pr ${prNumber} ${path}`);
-			}
-			await pushPullRequestRef(repoRoot, prNumber);
-			await runGit(repoRoot, ["checkout", "-"]);
-			return repoRoot;
-		}
-
-		it("reports syncDirs in PR dry-run text and JSON output", async () => {
-			// Given a PR repository with an available but untracked CoW source.
-			const repoRoot = await setupPrRepo("2018");
-			await mkdir(join(repoRoot, "node_modules"));
-			await writeFile(join(repoRoot, "node_modules", "ready.txt"), "ready\n");
-			await writeFile(
-				join(repoRoot, ".gji.json"),
-				JSON.stringify({ syncDirs: ["node_modules"] }),
-				"utf8",
-			);
-			const textOutput: string[] = [];
-			const jsonOutput: string[] = [];
-			const runPrCmd = createPrCommand();
-
-			// When gji pr performs text and JSON dry-runs.
-			const textResult = await runPrCmd({
-				cwd: repoRoot,
-				dryRun: true,
-				number: "2018",
-				stderr: () => undefined,
-				stdout: (chunk) => textOutput.push(chunk),
-			});
-			const jsonResult = await runPrCmd({
-				cwd: repoRoot,
-				dryRun: true,
-				json: true,
-				number: "2018",
-				stderr: () => undefined,
-				stdout: (chunk) => jsonOutput.push(chunk),
-			});
-
-			// Then both output modes describe the clone without creating a worktree.
-			expect(textResult).toBe(0);
-			expect(textOutput.join("")).toContain("Would clone node_modules");
-			expect(jsonResult).toBe(0);
-			expect(JSON.parse(jsonOutput.join(""))).toMatchObject({
-				dryRun: true,
-				syncDirs: [{ dir: "node_modules" }],
-			});
-			await expect(
-				pathExists(resolveWorktreePath(repoRoot, "pr/2018")),
-			).resolves.toBe(false);
-		});
-
-		it("clones syncDirs before the PR install prompt", async () => {
-			// Given a PR repository with a configured node_modules directory.
-			const repoRoot = await setupPrRepo("2017");
-			await mkdir(join(repoRoot, "node_modules"));
-			await writeFile(
-				join(repoRoot, "node_modules", "ready.txt"),
-				"ready\n",
-				"utf8",
-			);
-			await writeFile(
-				join(repoRoot, ".gji.json"),
-				JSON.stringify({ syncDirs: ["node_modules"] }),
-				"utf8",
-			);
-			let promptCalled = false;
-			const stdout: string[] = [];
-			const runPrCmd = createPrCommand({
-				cloneDir: async (_source, destination) => {
-					await mkdir(destination, { recursive: true });
-					await writeFile(join(destination, "ready.txt"), "ready\n", "utf8");
-					return { bytes: 6, ms: 4 };
-				},
-				detectInstallPackageManager: async () => fakePm,
-				promptForInstallChoice: async () => {
-					promptCalled = true;
-					return "yes";
-				},
-			});
-
-			// When gji pr creates the review worktree.
-			const result = await runPrCmd({
-				cwd: repoRoot,
-				json: true,
-				number: "2017",
-				stderr: () => undefined,
-				stdout: (chunk) => stdout.push(chunk),
-			});
-
-			// Then the cloned directory is available and the install prompt is skipped.
-			expect(result).toBe(0);
-			expect(promptCalled).toBe(false);
-			await expect(
-				readFile(
-					join(
-						resolveWorktreePath(repoRoot, "pr/2017"),
-						"node_modules",
-						"ready.txt",
-					),
-					"utf8",
-				),
-			).resolves.toBe("ready\n");
-			expect(JSON.parse(stdout.join(""))).toMatchObject({
-				branch: "pr/2017",
-				path: resolveWorktreePath(repoRoot, "pr/2017"),
-				cloned: [{ dir: "node_modules", ms: 4 }],
-			});
-		});
-
-		it("prompts for dependency policy before bootstrapping a PR worktree", async () => {
-			// Given a PR repository whose base worktree exposes a pnpm lockfile.
-			const repoRoot = await setupPrRepo("2016", [
-				["pnpm-lock.yaml", "lockfileVersion: '9'\n"],
-			]);
-			let prompted = false;
-			const commands: string[] = [];
-
-			// When gji pr selects install-only from the interactive policy prompt.
-			const result = await createPrCommand({
-				promptForDependencyBootstrap: async (candidate) => {
-					prompted = candidate.adapter === "pnpm";
-					return "install-only";
-				},
-				runInstallCommand: async (command) => {
-					commands.push(command);
-				},
-			})({
-				cwd: repoRoot,
-				number: "2016",
-				stderr: () => undefined,
-				stdout: () => undefined,
-			});
-
-			// Then the PR command persists the policy and runs the frozen pnpm repair.
-			expect(result).toBe(0);
-			expect(prompted).toBe(true);
-			expect(commands).toEqual(["pnpm install --frozen-lockfile"]);
-		});
-
-		it("stops before reporting success when PR dependency repair fails", async () => {
-			// Given a PR ref with a supported lockfile and a failing repair command.
-			const repoRoot = await setupPrRepo("2015", [
-				["pnpm-lock.yaml", "lockfileVersion: '9'\n"],
-			]);
-			const stderr: string[] = [];
-
-			// When gji pr bootstraps the worktree.
-			const result = await createPrCommand({
-				promptForDependencyBootstrap: async () => "install-only",
-				runInstallCommand: async () => {
-					throw new Error("repair failed");
-				},
-			})({
-				cwd: repoRoot,
-				number: "2015",
-				stderr: (chunk) => stderr.push(chunk),
-				stdout: () => undefined,
-			});
-
-			// Then the command fails and does not emit a normal navigation success.
-			expect(result).toBe(1);
-			expect(stderr.join("")).toContain("worktree bootstrap failed");
-		});
-
-		it('runs install once and does not persist anything when "yes" is chosen', async () => {
-			// Given a PR repo with a detected package manager and a "yes" prompt choice.
-			const repoRoot = await setupPrRepo("2001");
-			const installCalls: Array<{ command: string; cwd: string }> = [];
-			const runPrCmd = createPrCommand({
-				detectInstallPackageManager: async () => fakePm,
-				promptForInstallChoice: async () => "yes",
-				runInstallCommand: async (command, cwd) => {
-					installCalls.push({ command, cwd });
-				},
-				writeConfigKey: async () => {
-					throw new Error("should not write config");
-				},
-			});
-
-			// When gji pr runs with the "yes" install choice.
-			const result = await runPrCmd({
-				cwd: repoRoot,
-				number: "2001",
-				stderr: () => undefined,
-				stdout: () => undefined,
-			});
-
-			// Then install ran once in the new worktree and nothing was written to config.
-			expect(result).toBe(0);
-			expect(installCalls).toHaveLength(1);
-			expect(installCalls[0].command).toBe("pnpm install");
-			expect(installCalls[0].cwd).toBe(
-				resolveWorktreePath(repoRoot, "pr/2001"),
-			);
-		});
-
-		it('skips install entirely when "no" is chosen', async () => {
-			// Given a PR repo with a detected package manager and a "no" prompt choice.
-			const repoRoot = await setupPrRepo("2002");
-			let installCalled = false;
-			let writeConfigCalled = false;
-			const runPrCmd = createPrCommand({
-				detectInstallPackageManager: async () => fakePm,
-				promptForInstallChoice: async () => "no",
-				runInstallCommand: async () => {
-					installCalled = true;
-				},
-				writeConfigKey: async () => {
-					writeConfigCalled = true;
-				},
-			});
-
-			// When gji pr runs with the "no" install choice.
-			const result = await runPrCmd({
-				cwd: repoRoot,
-				number: "2002",
-				stderr: () => undefined,
-				stdout: () => undefined,
-			});
-
-			// Then neither install nor a config write happened.
-			expect(result).toBe(0);
-			expect(installCalled).toBe(false);
-			expect(writeConfigCalled).toBe(false);
-		});
-
-		it('runs install and writes hooks["after-create"] to local config when "always" is chosen', async () => {
-			// Given a PR repo with a detected package manager and an "always" prompt choice.
-			const repoRoot = await setupPrRepo("2003");
-			const writtenKeys: Array<{ key: string; value: unknown }> = [];
-			const runPrCmd = createPrCommand({
-				detectInstallPackageManager: async () => fakePm,
-				promptForInstallChoice: async () => "always",
-				runInstallCommand: async () => undefined,
-				writeConfigKey: async (_root, key, value) => {
-					writtenKeys.push({ key, value });
-				},
-			});
-
-			// When gji pr runs with the "always" install choice.
-			const result = await runPrCmd({
-				cwd: repoRoot,
-				number: "2003",
-				stderr: () => undefined,
-				stdout: () => undefined,
-			});
-
-			// Then hooks["after-create"] was written to local config with the install command.
-			expect(result).toBe(0);
-			expect(writtenKeys).toHaveLength(1);
-			expect(writtenKeys[0].key).toBe("hooks");
-			expect(
-				(writtenKeys[0].value as Record<string, unknown>)["after-create"],
-			).toBe("pnpm install");
-		});
-
-		it('writes skipInstallPrompt:true to local config when "never" is chosen', async () => {
-			// Given a PR repo with a detected package manager and a "never" prompt choice.
-			const repoRoot = await setupPrRepo("2004");
-			const writtenKeys: Array<{ key: string; value: unknown }> = [];
-			const runPrCmd = createPrCommand({
-				detectInstallPackageManager: async () => fakePm,
-				promptForInstallChoice: async () => "never",
-				runInstallCommand: async () => undefined,
-				writeConfigKey: async (_root, key, value) => {
-					writtenKeys.push({ key, value });
-				},
-			});
-
-			// When gji pr runs with the "never" install choice.
-			const result = await runPrCmd({
-				cwd: repoRoot,
-				number: "2004",
-				stderr: () => undefined,
-				stdout: () => undefined,
-			});
-
-			// Then skipInstallPrompt:true was written to local config.
-			expect(result).toBe(0);
-			expect(writtenKeys).toHaveLength(1);
-			expect(writtenKeys[0].key).toBe("skipInstallPrompt");
-			expect(writtenKeys[0].value).toBe(true);
-		});
-
-		it("suppresses the prompt when skipInstallPrompt is true in effective config", async () => {
-			// Given a PR repo with skipInstallPrompt:true in local config.
-			const repoRoot = await setupPrRepo("2005");
-			let promptCalled = false;
-			await writeFile(
-				join(repoRoot, ".gji.json"),
-				JSON.stringify({ skipInstallPrompt: true }),
-				"utf8",
-			);
-			const runPrCmd = createPrCommand({
-				detectInstallPackageManager: async () => fakePm,
-				promptForInstallChoice: async () => {
-					promptCalled = true;
-					return "yes";
-				},
-			});
-
-			// When gji pr runs with the opt-out flag present.
-			const result = await runPrCmd({
-				cwd: repoRoot,
-				number: "2005",
-				stderr: () => undefined,
-				stdout: () => undefined,
-			});
-
-			// Then no prompt appeared and the command succeeded.
-			expect(result).toBe(0);
-			expect(promptCalled).toBe(false);
-		});
-
-		it('suppresses the prompt when hooks["after-create"] is already set in effective config', async () => {
-			// Given a PR repo with hooks["after-create"] already configured.
-			const repoRoot = await setupPrRepo("2006");
-			let promptCalled = false;
-			await writeFile(
-				join(repoRoot, ".gji.json"),
-				JSON.stringify({ hooks: { "after-create": "true" } }),
-				"utf8",
-			);
-			const runPrCmd = createPrCommand({
-				detectInstallPackageManager: async () => fakePm,
-				promptForInstallChoice: async () => {
-					promptCalled = true;
-					return "yes";
-				},
-			});
-
-			// When gji pr runs with an after-create hook already configured.
-			const result = await runPrCmd({
-				cwd: repoRoot,
-				number: "2006",
-				stderr: () => undefined,
-				stdout: () => undefined,
-			});
-
-			// Then no prompt appeared and the command succeeded.
-			expect(result).toBe(0);
-			expect(promptCalled).toBe(false);
-		});
-
-		it('suppresses the prompt when hooks["after-create"] is an argv command in effective config', async () => {
-			// Given a PR repo with an argv-form hooks["after-create"] already configured.
-			const repoRoot = await setupPrRepo("2016");
-			let promptCalled = false;
-			await writeFile(
-				join(repoRoot, ".gji.json"),
-				JSON.stringify({ hooks: { "after-create": ["npm", "ci"] } }),
-				"utf8",
-			);
-			const runPrCmd = createPrCommand({
-				detectInstallPackageManager: async () => fakePm,
-				promptForInstallChoice: async () => {
-					promptCalled = true;
-					return "yes";
-				},
-			});
-
-			// When gji pr runs with an argv after-create hook already configured.
-			const result = await runPrCmd({
-				cwd: repoRoot,
-				number: "2016",
-				stderr: () => undefined,
-				stdout: () => undefined,
-			});
-
-			// Then no prompt appeared and the command succeeded.
-			expect(result).toBe(0);
-			expect(promptCalled).toBe(false);
-		});
-
-		it('"always" deep-merges into existing local hooks preserving non-after-create keys', async () => {
-			// Given a PR repo with an existing after-enter hook in local config.
-			const repoRoot = await setupPrRepo("2007");
-			const writtenKeys: Array<{ key: string; value: unknown }> = [];
-			await writeFile(
-				join(repoRoot, ".gji.json"),
-				JSON.stringify({ hooks: { "after-enter": "echo entered" } }),
-				"utf8",
-			);
-			const runPrCmd = createPrCommand({
-				detectInstallPackageManager: async () => fakePm,
-				promptForInstallChoice: async () => "always",
-				runInstallCommand: async () => undefined,
-				writeConfigKey: async (_root, key, value) => {
-					writtenKeys.push({ key, value });
-				},
-			});
-
-			// When gji pr runs with the "always" install choice.
-			const result = await runPrCmd({
-				cwd: repoRoot,
-				number: "2007",
-				stderr: () => undefined,
-				stdout: () => undefined,
-			});
-
-			// Then the written hooks object includes both after-create and the preserved after-enter.
-			expect(result).toBe(0);
-			expect(writtenKeys).toHaveLength(1);
-			const hooks = writtenKeys[0].value as Record<string, unknown>;
-			expect(hooks["after-create"]).toBe("pnpm install");
-			expect(hooks["after-enter"]).toBe("echo entered");
-		});
-
-		it("emits a warning and does not abort when writing config fails", async () => {
-			// Given a PR repo where the config write throws on "never".
-			const repoRoot = await setupPrRepo("2008");
-			const stderr: string[] = [];
-			const runPrCmd = createPrCommand({
-				detectInstallPackageManager: async () => fakePm,
-				promptForInstallChoice: async () => "never",
-				runInstallCommand: async () => undefined,
-				writeConfigKey: async () => {
-					throw new Error("read-only filesystem");
-				},
-			});
-
-			// When gji pr runs and the config write fails.
-			const result = await runPrCmd({
-				cwd: repoRoot,
-				number: "2008",
-				stderr: (chunk) => stderr.push(chunk),
-				stdout: () => undefined,
-			});
-
-			// Then the command still succeeds and a warning was emitted to stderr.
-			expect(result).toBe(0);
-			expect(stderr.join("")).toContain("gji:");
-			expect(stderr.join("")).toContain("read-only filesystem");
-		});
-
-		it("suppresses the prompt when no package manager is detected", async () => {
-			// Given a PR repo where package-manager detection returns null.
-			const repoRoot = await setupPrRepo("2009");
-			let promptCalled = false;
-			const runPrCmd = createPrCommand({
-				detectInstallPackageManager: async () => null,
-				promptForInstallChoice: async () => {
-					promptCalled = true;
-					return "yes";
-				},
-			});
-
-			// When gji pr runs and no package manager is found.
-			const result = await runPrCmd({
-				cwd: repoRoot,
-				number: "2009",
-				stderr: () => undefined,
-				stdout: () => undefined,
-			});
-
-			// Then no prompt appeared and the command succeeded.
-			expect(result).toBe(0);
-			expect(promptCalled).toBe(false);
-		});
-
-		it("emits a warning and does not abort when the install command fails", async () => {
-			// Given a PR repo where the install command throws on "yes".
-			const repoRoot = await setupPrRepo("2010");
-			const stderr: string[] = [];
-			const runPrCmd = createPrCommand({
-				detectInstallPackageManager: async () => fakePm,
-				promptForInstallChoice: async () => "yes",
-				runInstallCommand: async () => {
-					throw new Error("command not found");
-				},
-			});
-
-			// When gji pr runs and the install command fails.
-			const result = await runPrCmd({
-				cwd: repoRoot,
-				number: "2010",
-				stderr: (chunk) => stderr.push(chunk),
-				stdout: () => undefined,
-			});
-
-			// Then the command still succeeds and a warning was emitted to stderr.
-			expect(result).toBe(0);
-			expect(stderr.join("")).toContain("gji:");
-			expect(stderr.join("")).toContain("command not found");
 		});
 	});
 

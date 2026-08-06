@@ -24,7 +24,7 @@ gji/
 │   ├── init.ts             # `gji init` command
 │   ├── hooks.ts            # Lifecycle hooks
 │   ├── file-sync.ts        # File syncing across worktrees
-│   ├── package-manager.ts  # Package manager detection
+│   ├── dependency-bootstrap.ts # Dependency adapters and setup execution
 │   └── *.test.ts           # Tests alongside source
 ├── scripts/                # Build helpers
 ├── package.json

@@ -3,8 +3,7 @@ import { KNOWN_GLOBAL_CONFIG_KEYS } from "./config.js";
 const TOP_LEVEL_COMMANDS = [
 	{
 		name: "new",
-		description:
-			"create a new branch or detached linked worktree and CoW-bootstrap configured directories",
+		description: "create a new branch or detached linked worktree",
 	},
 	{
 		name: "done",
@@ -159,7 +158,7 @@ _gji_completion() {
 
   case "$command_name" in
     new)
-				COMPREPLY=( $(compgen -W "--detached --from-current --no-fetch --take --copy --task --force --open --editor --dry-run --json --help" -- "$cur") )
+				COMPREPLY=( $(compgen -W "--detached --from-current --no-fetch --take --copy --task --force --open --editor --dry-run --no-install --json --help" -- "$cur") )
       ;;
     done)
       COMPREPLY=( $(compgen -W "--force --keep-branch --json --help" -- "$cur") )
@@ -197,7 +196,7 @@ _gji_completion() {
           COMPREPLY=( $(compgen -W "$(__gji_pr_targets) --select --help" -- "$cur") )
         fi
       else
-        COMPREPLY=( $(compgen -W "--dry-run --json --help" -- "$cur") )
+        COMPREPLY=( $(compgen -W "--dry-run --no-install --json --help" -- "$cur") )
       fi
       ;;
     back)
@@ -422,6 +421,7 @@ complete -c gji -n '__fish_seen_subcommand_from new' -l force -d 'remove and rec
 complete -c gji -n '__fish_seen_subcommand_from new' -l open -d 'open the new worktree in an editor after creation'
 complete -c gji -n '__fish_seen_subcommand_from new' -l editor -r -d 'editor CLI to use with --open (code, cursor, zed, …)'
 complete -c gji -n '__fish_seen_subcommand_from new' -l dry-run -d 'show what would be created without executing any git commands or writing files'
+complete -c gji -n '__fish_seen_subcommand_from new' -l no-install -d 'skip automatic dependency setup in the new worktree'
 complete -c gji -n '__fish_seen_subcommand_from new' -l json -d 'emit JSON on success or error instead of human-readable output'
 
 complete -c gji -n '__fish_seen_subcommand_from init' -l write -d 'write the integration to the shell config file'
@@ -437,6 +437,7 @@ complete -c gji -n '__fish_seen_subcommand_from completion' -a 'fish' -d 'shell'
 complete -c gji -n '__fish_seen_subcommand_from completion' -a 'zsh' -d 'shell'
 
 complete -c gji -n '__fish_seen_subcommand_from pr; and test (commandline -opc)[3] != open' -l dry-run -d 'show what would be created without executing any git commands or writing files'
+complete -c gji -n '__fish_seen_subcommand_from pr; and test (commandline -opc)[3] != open' -l no-install -d 'skip automatic dependency setup in the PR worktree'
 complete -c gji -n '__fish_seen_subcommand_from pr; and test (commandline -opc)[3] != open' -l json -d 'emit JSON on success or error instead of human-readable output'
 complete -c gji -n '__fish_seen_subcommand_from pr' -a 'open' -d 'open a pull request in the default browser'
 complete -c gji -n '__gji_should_complete_pr_select' -l select -d 'choose a pull request from any linked worktree'
@@ -583,7 +584,7 @@ fi
 
 case "\${words[2]}" in
   new)
-    _arguments '--detached[create a detached worktree without a branch]' '--from-current[base the new branch on the current worktree instead of the main worktree]' '--no-fetch[skip refreshing the remote default branch before creating the new branch]' '--take[move current uncommitted changes into the new worktree]' '--copy[copy current uncommitted changes instead of moving them (requires --take)]' '--task[record the purpose of the new worktree]:description:' '--force[remove and recreate the worktree if the target path already exists]' '--open[open the new worktree in an editor after creation]' '--editor[editor CLI to use with --open (code, cursor, zed, …)]:editor:' '--dry-run[show what would be created without executing any git commands or writing files]' '--json[emit JSON on success or error instead of human-readable output]' '2:branch: '
+    _arguments '--detached[create a detached worktree without a branch]' '--from-current[base the new branch on the current worktree instead of the main worktree]' '--no-fetch[skip refreshing the remote default branch before creating the new branch]' '--take[move current uncommitted changes into the new worktree]' '--copy[copy current uncommitted changes instead of moving them (requires --take)]' '--task[record the purpose of the new worktree]:description:' '--force[remove and recreate the worktree if the target path already exists]' '--open[open the new worktree in an editor after creation]' '--editor[editor CLI to use with --open (code, cursor, zed, …)]:editor:' '--dry-run[show what would be created without executing any git commands or writing files]' '--no-install[skip automatic dependency setup in the new worktree]' '--json[emit JSON on success or error instead of human-readable output]' '2:branch: '
     ;;
   done)
     _arguments '--force[remove dirty or unmerged worktrees without prompting]' '--keep-branch[remove the worktree but preserve its branch]' '--json[emit JSON on success or error instead of human-readable output]' '2:branch: '
@@ -610,7 +611,7 @@ case "\${words[2]}" in
         _arguments '--select[choose a pull request from any linked worktree]' '4:branch or PR number:->pr_targets'
       fi
     else
-      _arguments '--dry-run[show what would be created without executing any git commands or writing files]' '--json[emit JSON on success or error instead of human-readable output]' '2:ref:(open)'
+      _arguments '--dry-run[show what would be created without executing any git commands or writing files]' '--no-install[skip automatic dependency setup in the PR worktree]' '--json[emit JSON on success or error instead of human-readable output]' '2:ref:(open)'
     fi
     ;;
   back)
