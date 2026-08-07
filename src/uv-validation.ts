@@ -13,6 +13,7 @@ const execFileAsync = promisify(execFile);
 const UV_VALIDATION_MAX_ENTRIES = 10_000;
 const UV_VALIDATION_MAX_FILE_BYTES = 1024 * 1024;
 const UV_VALIDATION_MAX_TOTAL_BYTES = 16 * 1024 * 1024;
+const UV_VALIDATION_TEXT_PROBE_BYTES = 4 * 1024;
 
 function virtualEnvironmentPrefixes(text: string): string[] {
 	const prefixes: string[] = [];
@@ -221,6 +222,11 @@ async function readBoundedUvTextFile(
 	try {
 		const stats = await handle.stat();
 		if (!stats.isFile()) return undefined;
+		const probe = await readFilePrefix(
+			handle,
+			Math.min(UV_VALIDATION_TEXT_PROBE_BYTES, stats.size),
+		);
+		if (!isUtf8Text(probe)) return undefined;
 		if (stats.size > UV_VALIDATION_MAX_FILE_BYTES) {
 			throw new Error(`uv launcher exceeds the validation size limit: ${path}`);
 		}
@@ -242,6 +248,12 @@ async function readBoundedUvTextFile(
 	} finally {
 		await handle.close();
 	}
+}
+
+function isUtf8Text(contents: Buffer): boolean {
+	if (contents.includes(0)) return false;
+	const text = contents.toString("utf8");
+	return Buffer.from(text, "utf8").equals(contents);
 }
 
 async function readFilePrefix(
