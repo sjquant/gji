@@ -3,9 +3,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
-
-import { runCli } from "./cli.js";
-import { formatHubOutput, type HubData } from "./hub.js";
+import { formatHubOutput, type HubData } from "./cli/commands/hub.js";
+import { runCli } from "./cli/program.js";
 import { addLinkedWorktree, createRepository } from "./repo.test-helpers.js";
 import { loadRegistry } from "./repo-registry.js";
 import { writeTask } from "./task.js";

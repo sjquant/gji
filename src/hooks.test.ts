@@ -4,7 +4,7 @@ import { dirname, join } from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import { runCli } from "./cli.js";
+import { runCli } from "./cli/program.js";
 import { GLOBAL_CONFIG_FILE_PATH } from "./config.js";
 import { extractHooks, interpolate, runHook } from "./hooks.js";
 import { resolveWorktreePath } from "./repo.js";

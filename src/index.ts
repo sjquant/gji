@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { homedir } from "node:os";
-import { runCli } from "./cli.js";
+import { runCli } from "./cli/program.js";
 import { loadGlobalConfig } from "./config.js";
 import { isHeadless } from "./headless.js";
 

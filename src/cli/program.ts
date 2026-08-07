@@ -1,0 +1,1153 @@
+import { createRequire } from "node:module";
+import { Command } from "commander";
+import updateNotifier from "update-notifier";
+import { isHeadless } from "../headless.js";
+import { detectRepository } from "../repo.js";
+import { registerRepo } from "../repo-registry.js";
+import { runBackCommand } from "./commands/back.js";
+import { runCleanCommand } from "./commands/clean.js";
+import { runCompletionCommand } from "./commands/completion.js";
+import { runConfigCommand } from "./commands/config-command.js";
+import { runDoctorCommand } from "./commands/doctor.js";
+import { runDoneCommand } from "./commands/done.js";
+import { runGoCommand } from "./commands/go.js";
+import { runHistoryCommand } from "./commands/history-command.js";
+import { type HubCommandDependencies, runHubCommand } from "./commands/hub.js";
+import { runInitCommand } from "./commands/init.js";
+import { runLsCommand } from "./commands/ls.js";
+import { runNewCommand } from "./commands/new.js";
+import { runOpenCommand } from "./commands/open.js";
+import { runPrCommand } from "./commands/pr.js";
+import {
+	createPrOpenCommand,
+	type PrOpenCommandDependencies,
+} from "./commands/pr-open.js";
+import { runRemoveCommand } from "./commands/remove.js";
+import { runRootCommand } from "./commands/root.js";
+import { runHookCommand } from "./commands/run-hook.js";
+import { runStatusCommand } from "./commands/status.js";
+import { runSyncCommand } from "./commands/sync.js";
+import { runSyncFilesCommand } from "./commands/sync-files-command.js";
+import { runTaskCommand } from "./commands/task-command.js";
+import { runUndoCommand } from "./commands/undo.js";
+import { runWarpCommand } from "./commands/warp.js";
+
+interface PackageMetadata {
+	name: string;
+	version: string;
+}
+
+export interface RunCliOptions {
+	columns?: number;
+	cwd?: string;
+	now?: number;
+	prOpenDependencies?: Partial<PrOpenCommandDependencies>;
+	hubDependencies?: Partial<HubCommandDependencies>;
+	stderr?: (chunk: string) => void;
+	stdout?: (chunk: string) => void;
+}
+
+export interface RunCliResult {
+	exitCode: number;
+}
+
+interface CommandActionOptions {
+	cwd: string;
+	prOpenDependencies?: Partial<PrOpenCommandDependencies>;
+	stderr: (chunk: string) => void;
+	stdout: (chunk: string) => void;
+}
+
+export function createProgram(): Command {
+	const program = new Command();
+	const packageMetadata = readPackageMetadata();
+
+	program
+		.name("gji")
+		.description("Context switching without the mess.")
+		.version(packageMetadata.version)
+		.showHelpAfterError()
+		.showSuggestionAfterError();
+
+	registerCommands(program);
+	program.addHelpText(
+		"after",
+		"\nCommon workflows:\n" +
+			"  gji new <branch>       create a worktree\n" +
+			"  gji go <branch>        navigate to a worktree\n" +
+			"  gji go                 choose; press Tab for all repositories\n" +
+			"  gji go -               return to the previous worktree\n",
+	);
+
+	return program;
+}
+
+function readPackageMetadata(): PackageMetadata {
+	const require = createRequire(import.meta.url);
+	const packageJson = require("../../package.json") as {
+		name?: unknown;
+		version?: unknown;
+	};
+
+	return {
+		name: typeof packageJson.name === "string" ? packageJson.name : "gji",
+		version:
+			typeof packageJson.version === "string" ? packageJson.version : "0.0.0",
+	};
+}
+
+export async function runCli(
+	argv: string[],
+	options: RunCliOptions = {},
+): Promise<RunCliResult> {
+	await maybeNotifyForUpdates(argv);
+	const cwd = options.cwd ?? process.cwd();
+	const stdout = options.stdout ?? (() => undefined);
+	const stderr = options.stderr ?? (() => undefined);
+
+	if (shouldRegisterCurrentRepo(argv) || isHubInvocation(argv)) {
+		await maybeRegisterCurrentRepo(cwd);
+	}
+
+	const program = createProgram();
+
+	program.configureOutput({
+		writeErr: stderr,
+		writeOut: stdout,
+	});
+	program.exitOverride();
+
+	if (isHubInvocation(argv)) {
+		const exitCode = await runHubCommand(
+			{
+				columns: options.columns,
+				cwd,
+				json: argv.includes("--json"),
+				now: options.now,
+				stderr,
+				stdout,
+			},
+			options.hubDependencies,
+		);
+		return { exitCode };
+	}
+
+	try {
+		attachCommandActions(program, {
+			cwd,
+			prOpenDependencies: options.prOpenDependencies,
+			stderr,
+			stdout,
+		});
+		await program.parseAsync(["node", "gji", ...argv], { from: "node" });
+
+		return { exitCode: 0 };
+	} catch (error) {
+		if (isCommanderExit(error)) {
+			return { exitCode: error.exitCode };
+		}
+
+		throw error;
+	}
+}
+
+async function maybeNotifyForUpdates(argv: string[]): Promise<void> {
+	if (shouldSkipUpdateNotification(argv)) {
+		return;
+	}
+
+	try {
+		defaultNotifyForUpdates(readPackageMetadata());
+	} catch {
+		// Ignore notifier failures so startup behaviour stays stable.
+	}
+}
+
+function shouldSkipUpdateNotification(argv: string[]): boolean {
+	return (
+		argv.length === 0 ||
+		argv.includes("--json") ||
+		argv.some(isHelpOrVersionArgument) ||
+		isHeadless() ||
+		process.stdout.isTTY !== true ||
+		process.stderr.isTTY !== true
+	);
+}
+
+function isHelpOrVersionArgument(argument: string): boolean {
+	return (
+		argument === "--help" ||
+		argument === "-h" ||
+		argument === "help" ||
+		argument === "--version" ||
+		argument === "-V"
+	);
+}
+
+function defaultNotifyForUpdates(pkg: PackageMetadata): void {
+	const notifier = updateNotifier({ pkg });
+
+	notifier.notify();
+}
+
+function shouldRegisterCurrentRepo(argv: string[]): boolean {
+	const command = argv[0];
+
+	return (
+		argv.length > 0 &&
+		![
+			"--help",
+			"-h",
+			"--version",
+			"-V",
+			"completion",
+			"config",
+			"doctor",
+			"help",
+			"init",
+		].includes(command ?? "")
+	);
+}
+
+function isHubInvocation(argv: string[]): boolean {
+	return argv.length === 0 || (argv.length === 1 && argv[0] === "--json");
+}
+
+async function maybeRegisterCurrentRepo(cwd: string): Promise<void> {
+	try {
+		const { repoRoot } = await detectRepository(cwd);
+		await registerRepo(repoRoot);
+	} catch {
+		// Registration is best effort; command behaviour should not depend on it.
+	}
+}
+
+function registerCommands(program: Command): void {
+	program
+		.command("new [branch]")
+		.description("create a new branch or detached linked worktree")
+		.option(
+			"-f, --force",
+			"remove and recreate the worktree if the target path already exists",
+		)
+		.option("--detached", "create a detached worktree without a branch")
+		.option(
+			"--from-current",
+			"base the new branch on the current worktree instead of the main worktree (cannot be combined with --detached)",
+		)
+		.option(
+			"--no-fetch",
+			"skip refreshing the remote default branch before creating the new branch",
+		)
+		.option("--take", "move current uncommitted changes into the new worktree")
+		.option("--task <description>", "record the purpose of the new worktree")
+		.option(
+			"--copy",
+			"copy current uncommitted changes instead of moving them (requires --take)",
+		)
+		.option("--open", "open the new worktree in an editor after creation")
+		.option(
+			"--editor <cli>",
+			"editor CLI to use with --open (code, cursor, zed, …)",
+		)
+		.option(
+			"--dry-run",
+			"show what would be created without executing any git commands or writing files",
+		)
+		.option(
+			"--no-install",
+			"skip automatic dependency setup in the new worktree",
+		)
+		.option(
+			"--json",
+			"emit JSON on success or error instead of human-readable output",
+		)
+		.action(notImplemented("new"));
+
+	program
+		.command("done [branch]")
+		.description("finish the current linked worktree and return safely")
+		.option("--force", "remove dirty or unmerged worktrees without prompting")
+		.option("--keep-branch", "remove the worktree but preserve its branch")
+		.option(
+			"--json",
+			"emit JSON on success or error instead of human-readable output",
+		)
+		.action(notImplemented("done"));
+	program
+		.command("undo [id]")
+		.description("restore the most recent destructive worktree operation")
+		.option("--list", "list recoverable operations")
+		.option(
+			"--json",
+			"emit JSON on success or error instead of human-readable output",
+		)
+		.action(notImplemented("undo"));
+
+	program
+		.command("init [shell]")
+		.description(
+			"set up shell integration interactively or print a shell wrapper",
+		)
+		.option("--write", "write the integration to the shell config file")
+		.option("--json", "emit a JSON error in non-interactive mode")
+		.action(notImplemented("init"));
+
+	program
+		.command("doctor")
+		.description("check gji installation and configuration health")
+		.option("--fix", "apply safe automatic fixes after showing the plan")
+		.option("--yes", "apply --fix without prompting")
+		.option("--json", "emit diagnostic checks as JSON")
+		.action(notImplemented("doctor"));
+
+	program
+		.command("completion [shell]")
+		.description("print shell completion definitions")
+		.action(notImplemented("completion"));
+
+	const prCommand = program
+		.command("pr <ref>")
+		.usage("[options] <ref>")
+		.description(
+			"fetch a pull request by number, #number, or URL into a linked worktree",
+		)
+		.option(
+			"--dry-run",
+			"show what would be created without executing any git commands or writing files",
+		)
+		.option(
+			"--no-install",
+			"skip automatic dependency setup in the PR worktree",
+		)
+		.option(
+			"--json",
+			"emit JSON on success or error instead of human-readable output",
+		)
+		.action(notImplemented("pr"));
+
+	prCommand
+		.command("open [target]")
+		.description("open an existing pull request in the default browser")
+		.option("--select", "choose a pull request from any linked worktree")
+		.action(notImplemented("pr open"));
+
+	program
+		.command("back [n]")
+		.description(
+			"navigate to the previously visited worktree, optionally N steps back",
+		)
+		.option("--print", "print the resolved worktree path explicitly")
+		.action(notImplemented("back"));
+
+	program
+		.command("history")
+		.description("show navigation history")
+		.option("--json", "print history as JSON")
+		.action(notImplemented("history"));
+
+	program
+		.command("open [branch]")
+		.description("open the worktree in an editor")
+		.option("--select", "choose a worktree with the interactive selector")
+		.option(
+			"--editor <cli>",
+			"editor CLI to use (code, cursor, zed, windsurf, subl, …)",
+		)
+		.option("--save", "save the chosen editor to global config")
+		.option(
+			"--workspace",
+			"generate a .code-workspace file before opening (VS Code / Cursor / Windsurf)",
+		)
+		.action(notImplemented("open"));
+
+	program
+		.command("go [branch]")
+		.alias("jump")
+		.description("resolve and jump to a worktree path")
+		.option("--root", "navigate to the main repository root")
+		.option("--print", "print the resolved worktree path explicitly")
+		.option("--quiet", "suppress the context card")
+		.option("--json", "emit JSON for an existing worktree destination")
+		.action(notImplemented("go"));
+
+	program
+		.command("root")
+		.description("print the main repository root path")
+		.option("--print", "print the resolved repository root path explicitly")
+		.action(notImplemented("root"));
+
+	program
+		.command("status")
+		.description("summarize repository and worktree health")
+		.option("--json", "print repository and worktree health as JSON")
+		.action(notImplemented("status"));
+
+	program
+		.command("task [task]")
+		.description("show or update the current worktree task")
+		.option("--clear", "clear the current worktree task")
+		.option("--json", "emit task metadata as JSON")
+		.action(notImplemented("task"));
+
+	program
+		.command("sync")
+		.description("fetch and update one or all worktrees")
+		.option("--all", "sync every worktree in the repository")
+		.option(
+			"--json",
+			"emit JSON on success or error instead of human-readable output",
+		)
+		.action(notImplemented("sync"));
+
+	const syncFilesCommand = program
+		.command("sync-files")
+		.description("manage local files copied into new worktrees")
+		.option("--json", "emit JSON instead of human-readable output")
+		.action(notImplemented("sync-files"));
+
+	syncFilesCommand
+		.command("list")
+		.description("list files synced into new worktrees for this repo")
+		.option("--json", "emit JSON instead of human-readable output")
+		.action(notImplemented("sync-files list"));
+
+	syncFilesCommand
+		.command("add <paths...>")
+		.description("add repo-local sync files to global config")
+		.option("--json", "emit JSON instead of human-readable output")
+		.action(notImplemented("sync-files add"));
+
+	syncFilesCommand
+		.command("remove <paths...>")
+		.alias("rm")
+		.description("remove repo-local sync files from global config")
+		.option("--json", "emit JSON instead of human-readable output")
+		.action(notImplemented("sync-files remove"));
+
+	program
+		.command("ls")
+		.description("list active worktrees")
+		.option("--compact", "show only branch and path columns")
+		.option("--json", "print active worktrees as JSON")
+		.action(notImplemented("ls"));
+
+	program
+		.command("clean")
+		.description("interactively prune linked worktrees")
+		.option(
+			"-f, --force",
+			"bypass prompts, force-remove dirty worktrees, and force-delete unmerged branches",
+		)
+		.option(
+			"--stale",
+			"only target clean worktrees whose upstream is gone and branch is merged into the default branch",
+		)
+		.option("--dry-run", "show what would be deleted without removing anything")
+		.option(
+			"--json",
+			"emit JSON on success or error instead of human-readable output",
+		)
+		.action(notImplemented("clean"));
+
+	program
+		.command("remove [branch]")
+		.alias("rm")
+		.description(
+			"deprecated: use gji done for one worktree or gji clean for bulk cleanup",
+		)
+		.option(
+			"-f, --force",
+			"bypass prompts, force-remove a dirty worktree, and force-delete an unmerged branch",
+		)
+		.option("--dry-run", "show what would be deleted without removing anything")
+		.option(
+			"--json",
+			"emit JSON on success or error instead of human-readable output",
+		)
+		.action(notImplemented("remove"));
+
+	program
+		.command("run-hook <hook>")
+		.alias("trigger-hook")
+		.description(
+			"run a named hook (after-create, after-enter, before-remove) in the current worktree",
+		)
+		.action(notImplemented("run-hook"));
+
+	program
+		.command("warp [branch]")
+		.description("deprecated: use gji go (press Tab for all known repos)")
+		// --print is the shell-wrapper bypass signal (see SHELL_WRAPPED_COMMANDS in init.ts).
+		// The shell omits GJI_WARP_OUTPUT_FILE, so writeShellOutput falls through to stdout.
+		.option(
+			"--print",
+			"print the resolved worktree path without changing directory",
+		)
+		.option(
+			"--json",
+			"emit JSON on success or error instead of human-readable output",
+		)
+		.action(notImplemented("warp"));
+
+	const configCommand = program
+		.command("config")
+		.description("manage global config defaults")
+		.action(notImplemented("config"));
+
+	configCommand
+		.command("get [key]")
+		.description("print the global config or a single key")
+		.action(notImplemented("config get"));
+
+	configCommand
+		.command("set <key> <value>")
+		.description("set a global config value")
+		.action(notImplemented("config set"));
+
+	configCommand
+		.command("unset <key>")
+		.description("remove a global config value")
+		.action(notImplemented("config unset"));
+}
+
+function attachCommandActions(
+	program: Command,
+	options: CommandActionOptions,
+): void {
+	program.commands
+		.find((command) => command.name() === "new")
+		?.action(
+			async (
+				branch: string | undefined,
+				commandOptions: {
+					copy?: boolean;
+					detached?: boolean;
+					dryRun?: boolean;
+					editor?: string;
+					fromCurrent?: boolean;
+					force?: boolean;
+					fetch?: boolean;
+					json?: boolean;
+					install?: boolean;
+					open?: boolean;
+					take?: boolean;
+					task?: string;
+				},
+			) => {
+				const exitCode = await runNewCommand({
+					...options,
+					branch,
+					copy: commandOptions.copy,
+					detached: commandOptions.detached,
+					dryRun: commandOptions.dryRun,
+					editor: commandOptions.editor,
+					fromCurrent: commandOptions.fromCurrent,
+					force: commandOptions.force,
+					noFetch: commandOptions.fetch === false,
+					json: commandOptions.json,
+					noInstall: commandOptions.install === false,
+					open: commandOptions.open,
+					take: commandOptions.take,
+					task: commandOptions.task,
+				});
+
+				if (exitCode !== 0) {
+					throw commanderExit(exitCode);
+				}
+			},
+		);
+
+	program.commands
+		.find((command) => command.name() === "done")
+		?.action(
+			async (
+				branch: string | undefined,
+				commandOptions: {
+					force?: boolean;
+					json?: boolean;
+					keepBranch?: boolean;
+				},
+			) => {
+				const exitCode = await runDoneCommand({
+					branch,
+					cwd: options.cwd,
+					force: commandOptions.force,
+					json: commandOptions.json,
+					keepBranch: commandOptions.keepBranch,
+					stderr: options.stderr,
+					stdout: options.stdout,
+				});
+				if (exitCode !== 0) throw commanderExit(exitCode);
+			},
+		);
+	program.commands
+		.find((command) => command.name() === "undo")
+		?.action(
+			async (
+				id: string | undefined,
+				commandOptions: { json?: boolean; list?: boolean },
+			) => {
+				const exitCode = await runUndoCommand({
+					cwd: options.cwd,
+					id,
+					json: commandOptions.json,
+					list: commandOptions.list,
+					stderr: options.stderr,
+					stdout: options.stdout,
+				});
+				if (exitCode !== 0) throw commanderExit(exitCode);
+			},
+		);
+
+	program.commands
+		.find((command) => command.name() === "init")
+		?.action(
+			async (
+				shell: string | undefined,
+				commandOptions: { json?: boolean; write?: boolean },
+			) => {
+				const exitCode = await runInitCommand({
+					cwd: options.cwd,
+					json: commandOptions.json,
+					shell,
+					stderr: options.stderr,
+					stdout: options.stdout,
+					write: commandOptions.write,
+				});
+
+				if (exitCode !== 0) {
+					throw commanderExit(exitCode);
+				}
+			},
+		);
+
+	program.commands
+		.find((command) => command.name() === "doctor")
+		?.action(
+			async (commandOptions: {
+				fix?: boolean;
+				json?: boolean;
+				yes?: boolean;
+			}) => {
+				const exitCode = await runDoctorCommand({
+					cwd: options.cwd,
+					fix: commandOptions.fix,
+					json: commandOptions.json,
+					stderr: options.stderr,
+					stdout: options.stdout,
+					yes: commandOptions.yes,
+				});
+
+				if (exitCode !== 0) {
+					throw commanderExit(exitCode);
+				}
+			},
+		);
+
+	program.commands
+		.find((command) => command.name() === "completion")
+		?.action(async (shell: string | undefined) => {
+			const exitCode = await runCompletionCommand({
+				shell,
+				stderr: options.stderr,
+				stdout: options.stdout,
+			});
+
+			if (exitCode !== 0) {
+				throw commanderExit(exitCode);
+			}
+		});
+
+	program.commands
+		.find((command) => command.name() === "pr")
+		?.action(
+			async (
+				number: string,
+				commandOptions: {
+					dryRun?: boolean;
+					install?: boolean;
+					json?: boolean;
+				},
+			) => {
+				const exitCode = await runPrCommand({
+					cwd: options.cwd,
+					dryRun: commandOptions.dryRun,
+					json: commandOptions.json,
+					noInstall: commandOptions.install === false,
+					number,
+					stderr: options.stderr,
+					stdout: options.stdout,
+				});
+
+				if (exitCode !== 0) {
+					throw commanderExit(exitCode);
+				}
+			},
+		);
+
+	const prOpenCommand = program.commands
+		.find((command) => command.name() === "pr")
+		?.commands.find((command) => command.name() === "open");
+	const runPrOpenCommand = createPrOpenCommand(options.prOpenDependencies);
+
+	prOpenCommand?.action(
+		async (
+			target: string | undefined,
+			commandOptions: { select?: boolean },
+		) => {
+			const exitCode = await runPrOpenCommand({
+				cwd: options.cwd,
+				stderr: options.stderr,
+				stdout: options.stdout,
+				select: commandOptions.select,
+				target,
+			});
+
+			if (exitCode !== 0) {
+				throw commanderExit(exitCode);
+			}
+		},
+	);
+
+	program.commands
+		.find((command) => command.name() === "back")
+		?.action(
+			async (n: string | undefined, commandOptions: { print?: boolean }) => {
+				if (n !== undefined && !/^\d+$/.test(n)) {
+					options.stderr(`gji back: invalid step count: ${n}\n`);
+					throw commanderExit(1);
+				}
+				const steps = n !== undefined ? parseInt(n, 10) : undefined;
+				const exitCode = await runBackCommand({
+					cwd: options.cwd,
+					n: steps,
+					print: commandOptions.print,
+					stderr: options.stderr,
+					stdout: options.stdout,
+				});
+
+				if (exitCode !== 0) {
+					throw commanderExit(exitCode);
+				}
+			},
+		);
+
+	program.commands
+		.find((command) => command.name() === "history")
+		?.action(async (commandOptions: { json?: boolean }) => {
+			const exitCode = await runHistoryCommand({
+				cwd: options.cwd,
+				json: commandOptions.json,
+				stdout: options.stdout,
+			});
+
+			if (exitCode !== 0) {
+				throw commanderExit(exitCode);
+			}
+		});
+
+	program.commands
+		.find((command) => command.name() === "open")
+		?.action(
+			async (
+				branch: string | undefined,
+				commandOptions: {
+					editor?: string;
+					save?: boolean;
+					select?: boolean;
+					workspace?: boolean;
+				},
+			) => {
+				const exitCode = await runOpenCommand({
+					branch,
+					cwd: options.cwd,
+					editor: commandOptions.editor,
+					save: commandOptions.save,
+					select: commandOptions.select,
+					stderr: options.stderr,
+					stdout: options.stdout,
+					workspace: commandOptions.workspace,
+				});
+
+				if (exitCode !== 0) {
+					throw commanderExit(exitCode);
+				}
+			},
+		);
+
+	program.commands
+		.find((command) => command.name() === "go")
+		?.action(
+			async (
+				branch: string | undefined,
+				commandOptions: {
+					json?: boolean;
+					print?: boolean;
+					quiet?: boolean;
+					root?: boolean;
+				},
+			) => {
+				const exitCode = await runGoCommand({
+					branch,
+					cwd: options.cwd,
+					json: commandOptions.json,
+					print: commandOptions.print,
+					quiet: commandOptions.quiet,
+					root: commandOptions.root,
+					stderr: options.stderr,
+					stdout: options.stdout,
+				});
+
+				if (exitCode !== 0) {
+					throw commanderExit(exitCode);
+				}
+			},
+		);
+
+	program.commands
+		.find((command) => command.name() === "root")
+		?.action(async (commandOptions: { print?: boolean }) => {
+			const exitCode = await runRootCommand({
+				cwd: options.cwd,
+				print: commandOptions.print,
+				stdout: options.stdout,
+			});
+
+			if (exitCode !== 0) {
+				throw commanderExit(exitCode);
+			}
+		});
+
+	program.commands
+		.find((command) => command.name() === "status")
+		?.action(async (commandOptions: { json?: boolean }) => {
+			const exitCode = await runStatusCommand({
+				cwd: options.cwd,
+				json: commandOptions.json,
+				stdout: options.stdout,
+			});
+
+			if (exitCode !== 0) {
+				throw commanderExit(exitCode);
+			}
+		});
+
+	program.commands
+		.find((command) => command.name() === "task")
+		?.action(
+			async (
+				task: string | undefined,
+				commandOptions: { clear?: boolean; json?: boolean },
+			) => {
+				const exitCode = await runTaskCommand({
+					clear: commandOptions.clear,
+					cwd: options.cwd,
+					json: commandOptions.json,
+					stderr: options.stderr,
+					task,
+					stdout: options.stdout,
+				});
+				if (exitCode !== 0) throw commanderExit(exitCode);
+			},
+		);
+
+	program.commands
+		.find((command) => command.name() === "sync")
+		?.action(async (commandOptions: { all?: boolean; json?: boolean }) => {
+			const exitCode = await runSyncCommand({
+				all: commandOptions.all,
+				cwd: options.cwd,
+				json: commandOptions.json,
+				stderr: options.stderr,
+				stdout: options.stdout,
+			});
+
+			if (exitCode !== 0) {
+				throw commanderExit(exitCode);
+			}
+		});
+
+	const syncFilesCommand = program.commands.find(
+		(command) => command.name() === "sync-files",
+	);
+
+	syncFilesCommand?.action(async (commandOptions: { json?: boolean }) => {
+		const exitCode = await runSyncFilesCommand({
+			action: "list",
+			cwd: options.cwd,
+			json: commandOptions.json,
+			stderr: options.stderr,
+			stdout: options.stdout,
+		});
+
+		if (exitCode !== 0) {
+			throw commanderExit(exitCode);
+		}
+	});
+
+	syncFilesCommand?.commands
+		.find((command) => command.name() === "list")
+		?.action(async (commandOptions: { json?: boolean }) => {
+			const exitCode = await runSyncFilesCommand({
+				action: "list",
+				cwd: options.cwd,
+				json: commandOptions.json || syncFilesCommand?.opts().json,
+				stderr: options.stderr,
+				stdout: options.stdout,
+			});
+
+			if (exitCode !== 0) {
+				throw commanderExit(exitCode);
+			}
+		});
+
+	syncFilesCommand?.commands
+		.find((command) => command.name() === "add")
+		?.action(async (paths: string[], commandOptions: { json?: boolean }) => {
+			const exitCode = await runSyncFilesCommand({
+				action: "add",
+				cwd: options.cwd,
+				json: commandOptions.json || syncFilesCommand?.opts().json,
+				paths,
+				stderr: options.stderr,
+				stdout: options.stdout,
+			});
+
+			if (exitCode !== 0) {
+				throw commanderExit(exitCode);
+			}
+		});
+
+	const runSyncFilesRemoveCommand = async (
+		paths: string[],
+		commandOptions: { json?: boolean },
+	) => {
+		const exitCode = await runSyncFilesCommand({
+			action: "remove",
+			cwd: options.cwd,
+			json: commandOptions.json || syncFilesCommand?.opts().json,
+			paths,
+			stderr: options.stderr,
+			stdout: options.stdout,
+		});
+
+		if (exitCode !== 0) {
+			throw commanderExit(exitCode);
+		}
+	};
+
+	syncFilesCommand?.commands
+		.find((command) => command.name() === "remove")
+		?.action(runSyncFilesRemoveCommand);
+
+	program.commands
+		.find((command) => command.name() === "ls")
+		?.action(async (commandOptions: { compact?: boolean; json?: boolean }) => {
+			const exitCode = await runLsCommand({
+				compact: commandOptions.compact,
+				cwd: options.cwd,
+				json: commandOptions.json,
+				stdout: options.stdout,
+			});
+
+			if (exitCode !== 0) {
+				throw commanderExit(exitCode);
+			}
+		});
+
+	program.commands
+		.find((command) => command.name() === "clean")
+		?.action(
+			async (commandOptions: {
+				dryRun?: boolean;
+				force?: boolean;
+				json?: boolean;
+				stale?: boolean;
+			}) => {
+				const exitCode = await runCleanCommand({
+					cwd: options.cwd,
+					dryRun: commandOptions.dryRun,
+					force: commandOptions.force,
+					json: commandOptions.json,
+					stale: commandOptions.stale,
+					stderr: options.stderr,
+					stdout: options.stdout,
+				});
+
+				if (exitCode !== 0) {
+					throw commanderExit(exitCode);
+				}
+			},
+		);
+
+	const runRemovalCommand = async (
+		branch?: string,
+		commandOptions: { dryRun?: boolean; force?: boolean; json?: boolean } = {},
+	) => {
+		const exitCode = await runRemoveCommand({
+			branch,
+			cwd: options.cwd,
+			dryRun: commandOptions.dryRun,
+			force: commandOptions.force,
+			json: commandOptions.json,
+			stderr: options.stderr,
+			stdout: options.stdout,
+		});
+
+		if (exitCode !== 0) {
+			throw commanderExit(exitCode);
+		}
+	};
+
+	program.commands
+		.find((command) => command.name() === "remove")
+		?.action(
+			async (
+				branch: string | undefined,
+				commandOptions: { dryRun?: boolean; force?: boolean; json?: boolean },
+			) => {
+				if (!commandOptions.json) {
+					options.stderr(
+						"gji remove is deprecated; use 'gji done' for one worktree or 'gji clean' for bulk cleanup.\n",
+					);
+				}
+				return runRemovalCommand(branch, commandOptions);
+			},
+		);
+
+	program.commands
+		.find((command) => command.name() === "run-hook")
+		?.action(async (hook: string) => {
+			const exitCode = await runHookCommand({
+				cwd: options.cwd,
+				hook,
+				stderr: options.stderr,
+			});
+
+			if (exitCode !== 0) {
+				throw commanderExit(exitCode);
+			}
+		});
+
+	program.commands
+		.find((command) => command.name() === "warp")
+		?.action(
+			async (
+				branch: string | undefined,
+				commandOptions: { json?: boolean; print?: boolean },
+			) => {
+				if (!commandOptions.json) {
+					options.stderr(
+						"gji warp is deprecated; use 'gji go' (press Tab for all repositories).\n",
+					);
+				}
+
+				const exitCode = await runWarpCommand({
+					branch,
+					cwd: options.cwd,
+					json: commandOptions.json,
+					stderr: options.stderr,
+					stdout: options.stdout,
+				});
+
+				if (exitCode !== 0) {
+					throw commanderExit(exitCode);
+				}
+			},
+		);
+
+	const configCommand = program.commands.find(
+		(command) => command.name() === "config",
+	);
+
+	configCommand?.action(async () => {
+		const exitCode = await runConfigCommand({
+			cwd: options.cwd,
+			stdout: options.stdout,
+		});
+
+		if (exitCode !== 0) {
+			throw commanderExit(exitCode);
+		}
+	});
+
+	configCommand?.commands
+		.find((command) => command.name() === "get")
+		?.action(async (key?: string) => {
+			const exitCode = await runConfigCommand({
+				action: "get",
+				cwd: options.cwd,
+				key,
+				stdout: options.stdout,
+			});
+
+			if (exitCode !== 0) {
+				throw commanderExit(exitCode);
+			}
+		});
+
+	configCommand?.commands
+		.find((command) => command.name() === "set")
+		?.action(async (key: string, value: string) => {
+			const exitCode = await runConfigCommand({
+				action: "set",
+				cwd: options.cwd,
+				key,
+				stderr: options.stderr,
+				stdout: options.stdout,
+				value,
+			});
+
+			if (exitCode !== 0) {
+				throw commanderExit(exitCode);
+			}
+		});
+
+	configCommand?.commands
+		.find((command) => command.name() === "unset")
+		?.action(async (key: string) => {
+			const exitCode = await runConfigCommand({
+				action: "unset",
+				cwd: options.cwd,
+				key,
+				stdout: options.stdout,
+			});
+
+			if (exitCode !== 0) {
+				throw commanderExit(exitCode);
+			}
+		});
+}
+
+function notImplemented(commandName: string): () => never {
+	return () => {
+		throw new Error(`'${commandName}' is not implemented yet.`);
+	};
+}
+
+function commanderExit(
+	exitCode: number,
+): Error & { code: string; exitCode: number } {
+	const error = new Error(`Command exited with code ${exitCode}.`) as Error & {
+		code: string;
+		exitCode: number;
+	};
+
+	error.code = "commander.executeSubCommandAsync";
+	error.exitCode = exitCode;
+
+	return error;
+}
+
+function isCommanderExit(
+	error: unknown,
+): error is Error & { code: string; exitCode: number } {
+	return (
+		error instanceof Error &&
+		"code" in error &&
+		"exitCode" in error &&
+		typeof error.code === "string" &&
+		typeof error.exitCode === "number"
+	);
+}

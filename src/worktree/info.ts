@@ -1,0 +1,208 @@
+import {
+	readBranchLastCommitTimestamp,
+	readWorktreeHealth,
+	type WorktreeHealth,
+} from "../git.js";
+import type { WorktreeEntry } from "../repo.js";
+import { getWorktreeSlot } from "../slots.js";
+import { readTask } from "../task.js";
+
+const MAX_WORKTREE_INFO_READ_CONCURRENCY = 8;
+
+export interface WorktreeInfo extends WorktreeEntry {
+	lastCommitTimestamp: number | null;
+	slot: number | null;
+	status: WorktreeHealth["status"] | "unknown";
+	task: string | null;
+	upstream: UpstreamState;
+}
+
+export interface SerializedWorktreeInfo {
+	branch: string | null;
+	lastCommitTimestamp: number | null;
+	path: string;
+	slot: number | null;
+	status: WorktreeInfo["status"];
+	task: string | null;
+	upstream: UpstreamState;
+}
+
+export type UpstreamState =
+	| { kind: "detached" }
+	| { kind: "no-upstream" }
+	| { kind: "stale" }
+	| { kind: "tracked"; ahead: number; behind: number }
+	| { kind: "unknown" };
+
+export async function readWorktreeInfos(
+	worktrees: WorktreeEntry[],
+): Promise<WorktreeInfo[]> {
+	return mapWithConcurrency(
+		worktrees,
+		MAX_WORKTREE_INFO_READ_CONCURRENCY,
+		readWorktreeInfo,
+	);
+}
+
+async function mapWithConcurrency<Input, Output>(
+	items: Input[],
+	limit: number,
+	mapper: (item: Input) => Promise<Output>,
+): Promise<Output[]> {
+	const results: Output[] = new Array(items.length);
+	let nextIndex = 0;
+
+	async function readNext(): Promise<void> {
+		for (;;) {
+			const index = nextIndex;
+			nextIndex += 1;
+
+			if (index >= items.length) return;
+
+			results[index] = await mapper(items[index]);
+		}
+	}
+
+	await Promise.all(
+		Array.from({ length: Math.min(limit, items.length) }, () => readNext()),
+	);
+
+	return results;
+}
+
+export async function readWorktreeInfo(
+	worktree: WorktreeEntry,
+): Promise<WorktreeInfo> {
+	const [healthResult, lastCommitResult, slotResult, taskResult] =
+		await Promise.allSettled([
+			readWorktreeHealth(worktree.path),
+			worktree.branch === null
+				? null
+				: readBranchLastCommitTimestamp(worktree.path, worktree.branch),
+			getWorktreeSlot(worktree.path),
+			readTask(worktree.path),
+		]);
+	const health =
+		healthResult.status === "fulfilled" ? healthResult.value : null;
+	const lastCommitTimestamp =
+		lastCommitResult.status === "fulfilled" ? lastCommitResult.value : null;
+	const slot = slotResult.status === "fulfilled" ? slotResult.value : null;
+	const task =
+		taskResult.status === "fulfilled" ? (taskResult.value?.task ?? null) : null;
+
+	return {
+		...worktree,
+		lastCommitTimestamp,
+		slot,
+		status: health?.status ?? "unknown",
+		task,
+		upstream: buildUpstreamState(worktree.branch, health),
+	};
+}
+
+function buildUpstreamState(
+	branch: string | null,
+	health: WorktreeHealth | null,
+): UpstreamState {
+	if (branch === null) {
+		return { kind: "detached" };
+	}
+
+	if (health === null) {
+		return { kind: "unknown" };
+	}
+
+	if (!health.hasUpstream) {
+		return { kind: "no-upstream" };
+	}
+
+	if (health.upstreamGone) {
+		return { kind: "stale" };
+	}
+
+	return {
+		ahead: health.ahead,
+		behind: health.behind,
+		kind: "tracked",
+	};
+}
+
+export function serializeWorktreeInfo(
+	info: WorktreeInfo,
+): SerializedWorktreeInfo {
+	return {
+		branch: info.branch,
+		lastCommitTimestamp: info.lastCommitTimestamp,
+		path: info.path,
+		slot: info.slot,
+		status: info.status,
+		task: info.task,
+		upstream: info.upstream,
+	};
+}
+
+export function formatUpstreamState(upstream: UpstreamState): string {
+	if (upstream.kind === "detached") {
+		return "n/a";
+	}
+
+	if (upstream.kind === "no-upstream") {
+		return "no-upstream";
+	}
+
+	if (upstream.kind === "stale") {
+		return "gone";
+	}
+
+	if (upstream.kind === "unknown") {
+		return "unknown";
+	}
+
+	return formatAheadBehind(upstream.ahead, upstream.behind);
+}
+
+function formatAheadBehind(ahead: number, behind: number): string {
+	if (ahead === 0 && behind === 0) {
+		return "up to date";
+	}
+
+	if (ahead === 0) {
+		return `behind ${behind}`;
+	}
+
+	if (behind === 0) {
+		return `ahead ${ahead}`;
+	}
+
+	return `ahead ${ahead}, behind ${behind}`;
+}
+
+export function formatLastCommit(timestampSeconds: number | null): string {
+	return timestampSeconds === null
+		? "n/a"
+		: formatRelativeAge(timestampSeconds);
+}
+
+export function formatRelativeAge(
+	timestampSeconds: number,
+	nowSeconds = Math.floor(Date.now() / 1000),
+): string {
+	const ageSeconds = Math.max(0, nowSeconds - timestampSeconds);
+	const units = [
+		{ label: "y", seconds: 365 * 24 * 60 * 60 },
+		{ label: "mo", seconds: 30 * 24 * 60 * 60 },
+		{ label: "d", seconds: 24 * 60 * 60 },
+		{ label: "h", seconds: 60 * 60 },
+		{ label: "m", seconds: 60 },
+	];
+
+	for (const unit of units) {
+		const value = Math.floor(ageSeconds / unit.seconds);
+
+		if (value > 0) {
+			return `${value}${unit.label} ago`;
+		}
+	}
+
+	return "just now";
+}

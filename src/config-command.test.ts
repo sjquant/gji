@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
-import { runCli } from "./cli.js";
+import { runCli } from "./cli/program.js";
 import { GLOBAL_CONFIG_FILE_PATH, parseConfigValue } from "./config.js";
 
 const originalHome = process.env.HOME;

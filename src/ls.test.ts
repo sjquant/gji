@@ -3,7 +3,7 @@ import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-import { runCli } from "./cli.js";
+import { runCli } from "./cli/program.js";
 import {
 	addLinkedWorktree,
 	createRepository,
