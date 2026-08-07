@@ -2,7 +2,7 @@ import { execFile } from "node:child_process";
 import { constants, type Dirent } from "node:fs";
 import { lstat, open, readdir, realpath } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, resolve, sep } from "node:path";
-import { promisify } from "node:util";
+import { promisify, TextDecoder } from "node:util";
 import type {
 	BootstrapExecutionContext,
 	BootstrapTarget,
@@ -13,6 +13,7 @@ const execFileAsync = promisify(execFile);
 const UV_VALIDATION_MAX_ENTRIES = 10_000;
 const UV_VALIDATION_MAX_FILE_BYTES = 1024 * 1024;
 const UV_VALIDATION_MAX_TOTAL_BYTES = 16 * 1024 * 1024;
+const UV_VALIDATION_TEXT_PROBE_BYTES = 4 * 1024;
 
 function virtualEnvironmentPrefixes(text: string): string[] {
 	const prefixes: string[] = [];
@@ -221,6 +222,14 @@ async function readBoundedUvTextFile(
 	try {
 		const stats = await handle.stat();
 		if (!stats.isFile()) return undefined;
+		const probeBytes = Math.min(UV_VALIDATION_TEXT_PROBE_BYTES, stats.size);
+		if (probeBytes > remainingBytes) {
+			throw new Error("uv launchers exceed the total validation size limit");
+		}
+		const probe = await readFilePrefix(handle, probeBytes);
+		if (!looksLikeUtf8Text(probe, probe.byteLength === stats.size)) {
+			return { bytes: probe.byteLength };
+		}
 		if (stats.size > UV_VALIDATION_MAX_FILE_BYTES) {
 			throw new Error(`uv launcher exceeds the validation size limit: ${path}`);
 		}
@@ -236,11 +245,23 @@ async function readBoundedUvTextFile(
 			throw new Error("uv launchers exceed the total validation size limit");
 		}
 		const text = contents.toString("utf8");
-		return Buffer.from(text, "utf8").equals(contents)
+		return looksLikeUtf8Text(contents, true)
 			? { bytes: contents.byteLength, text }
 			: { bytes: contents.byteLength };
 	} finally {
 		await handle.close();
+	}
+}
+
+function looksLikeUtf8Text(contents: Buffer, complete: boolean): boolean {
+	if (contents.includes(0)) return false;
+	try {
+		new TextDecoder("utf-8", { fatal: true }).decode(contents, {
+			stream: !complete,
+		});
+		return true;
+	} catch {
+		return false;
 	}
 }
 
