@@ -1,6 +1,6 @@
 import { listWorktrees } from "./repo.js";
 import { readTask } from "./task.js";
-import { readWorktreeInfo, type WorktreeInfo } from "./worktree-info.js";
+import { readWorktreeInfo, type WorktreeInfo } from "./worktree/info.js";
 
 export async function renderContextCard(
 	worktreePath: string,

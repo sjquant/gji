@@ -4,7 +4,7 @@ import { dirname, join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-import { createCleanCommand } from "./clean.js";
+import { createCleanCommand } from "./cli/commands/clean.js";
 import { HISTORY_FILE_PATH } from "./history.js";
 import {
 	addLinkedWorktree,

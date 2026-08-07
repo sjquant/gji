@@ -3,9 +3,8 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
 import { describe, expect, it } from "vitest";
-
+import { createRemoveCommand } from "./cli/commands/remove.js";
 import { HISTORY_FILE_PATH } from "./history.js";
-import { createRemoveCommand } from "./remove.js";
 import {
 	addLinkedWorktree,
 	addSubmoduleToRepository,

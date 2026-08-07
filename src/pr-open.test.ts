@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 
-import { createPrOpenCommand } from "./pr-open.js";
+import { createPrOpenCommand } from "./cli/commands/pr-open.js";
 import type { PullRequestInfo } from "./pull-requests.js";
 import { addLinkedWorktree, createRepository } from "./repo.test-helpers.js";
 

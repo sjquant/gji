@@ -3,9 +3,9 @@ import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 
 import { describe, expect, it } from "vitest";
-
-import { runCli } from "./cli.js";
-import { createGoCommand } from "./go.js";
+import { createGoCommand } from "./cli/commands/go.js";
+import { runRootCommand } from "./cli/commands/root.js";
+import { runCli } from "./cli/program.js";
 import { appendHistory, HISTORY_FILE_PATH } from "./history.js";
 import { resolveWorktreePath } from "./repo.js";
 import {
@@ -16,7 +16,6 @@ import {
 	runGit,
 } from "./repo.test-helpers.js";
 import { registerRepo } from "./repo-registry.js";
-import { runRootCommand } from "./root.js";
 
 describe("gji root", () => {
 	it("prints the main repository root from the repository root", async () => {

@@ -1,10 +1,10 @@
 import { afterEach, describe, expect, it } from "vitest";
 
-import { createCleanCommand } from "./clean.js";
-import { createGoCommand } from "./go.js";
+import { createCleanCommand } from "./cli/commands/clean.js";
+import { createGoCommand } from "./cli/commands/go.js";
+import { createNewCommand } from "./cli/commands/new.js";
+import { createRemoveCommand } from "./cli/commands/remove.js";
 import { isHeadless } from "./headless.js";
-import { createNewCommand } from "./new.js";
-import { createRemoveCommand } from "./remove.js";
 import { addLinkedWorktree, createRepository } from "./repo.test-helpers.js";
 
 afterEach(() => {

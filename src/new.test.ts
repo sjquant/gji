@@ -3,14 +3,13 @@ import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-
-import { runCli } from "./cli.js";
-import { GLOBAL_CONFIG_FILE_PATH } from "./config.js";
 import {
 	createNewCommand,
 	generateBranchPlaceholder,
 	runNewCommand,
-} from "./new.js";
+} from "./cli/commands/new.js";
+import { runCli } from "./cli/program.js";
+import { GLOBAL_CONFIG_FILE_PATH } from "./config.js";
 import { resolveWorktreePath } from "./repo.js";
 import {
 	addLinkedWorktree,

@@ -3,9 +3,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
-
+import { runDoneCommand } from "./cli/commands/done.js";
 import { saveLocalConfig } from "./config.js";
-import { runDoneCommand } from "./done.js";
 import {
 	addLinkedWorktree,
 	commitFile,

@@ -3,6 +3,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
+import {
+	finalizeUndoOperation,
+	recordUndoOperation,
+	restoreUndoRecord,
+	runUndoCommand,
+	undoLogPath,
+} from "./cli/commands/undo.js";
 import { listWorktrees } from "./repo.js";
 import {
 	addLinkedWorktree,
@@ -11,13 +18,6 @@ import {
 	pathExists,
 	runGit,
 } from "./repo.test-helpers.js";
-import {
-	finalizeUndoOperation,
-	recordUndoOperation,
-	restoreUndoRecord,
-	runUndoCommand,
-	undoLogPath,
-} from "./undo.js";
 
 describe("gji undo", () => {
 	it("reports an upstream restoration failure as a partial failure", async () => {
