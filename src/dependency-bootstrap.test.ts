@@ -267,7 +267,7 @@ describe("dependency bootstrap", () => {
 					join(bin, "prek"),
 					Buffer.concat([
 						Buffer.from([0xcf, 0xfa, 0xed, 0xfe]),
-						Buffer.alloc(2 * 1024 * 1024),
+						Buffer.alloc(2 * 1024 * 1024, 0xff),
 					]),
 				);
 			},
@@ -303,6 +303,42 @@ describe("dependency bootstrap", () => {
 		});
 
 		// Then setup fails closed instead of reading an unbounded text launcher.
+		expect(result.ready).toBe(false);
+		expect(reporter.events[0]).toContain(
+			"uv launcher exceeds the validation size limit",
+		);
+	});
+
+	it("rejects oversized UTF-8 launchers split at the probe boundary", async () => {
+		// Given a locked uv project whose launcher contains a multi-byte character at the probe boundary.
+		const repoRoot = await mkdtemp(join(tmpdir(), "gji-bootstrap-repo-"));
+		const worktreePath = await mkdtemp(
+			join(tmpdir(), "gji-bootstrap-worktree-"),
+		);
+		await writeFile(join(repoRoot, "uv.lock"), "version = 1\n");
+		const plan = await prepareDependencyBootstrap("install", {
+			repoRoot,
+			worktreePath,
+		});
+		const reporter = createReporter();
+
+		// When uv creates an oversized valid UTF-8 launcher whose character crosses byte 4096.
+		const result = await executeDependencyBootstrap(plan, {
+			reporter,
+			runCommand: async (_command, cwd) => {
+				const bin = await writeUvInterpreter(cwd, join(cwd, ".venv"));
+				await writeFile(
+					join(bin, "huge-tool"),
+					Buffer.concat([
+						Buffer.alloc(4095, 0x78),
+						Buffer.from("😀"),
+						Buffer.alloc(1024 * 1024, 0x78),
+					]),
+				);
+			},
+		});
+
+		// Then setup fails closed instead of treating the launcher as a binary executable.
 		expect(result.ready).toBe(false);
 		expect(reporter.events[0]).toContain(
 			"uv launcher exceeds the validation size limit",
