@@ -3,7 +3,7 @@ import { execSync } from "node:child_process";
 import { access, mkdir, writeFile } from "node:fs/promises";
 /**
  * Generates man pages for gji and each subcommand from the live Commander.js
- * program. Run after `pnpm build` — requires dist/cli.js to exist.
+ * program. Run after `pnpm build` — requires dist/cli/program.js to exist.
  *
  * Output: man/man1/gji.1  +  man/man1/gji-<command>.1 for every subcommand.
  */
@@ -15,15 +15,17 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const projectRoot = join(__dirname, "..");
 const require = createRequire(import.meta.url);
 
-const distCli = join(projectRoot, "dist", "cli.js");
+const distCli = join(projectRoot, "dist", "cli", "program.js");
 try {
 	await access(distCli);
 } catch {
-	console.error("Error: dist/cli.js not found. Run `pnpm build` first.");
+	console.error(
+		"Error: dist/cli/program.js not found. Run `pnpm build` first.",
+	);
 	process.exit(1);
 }
 
-const { createProgram } = await import(`${projectRoot}/dist/cli.js`);
+const { createProgram } = await import(`${projectRoot}/dist/cli/program.js`);
 const pkg = require("../package.json");
 const program = createProgram();
 

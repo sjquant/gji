@@ -16,7 +16,7 @@ vi.mock("update-notifier", () => ({
 }));
 
 import packageJson from "../package.json" with { type: "json" };
-import { createProgram, runCli } from "./cli.js";
+import { createProgram, runCli } from "./cli/program.js";
 import {
 	addLinkedWorktree,
 	createRepository,

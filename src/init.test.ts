@@ -16,9 +16,9 @@ const promptMocks = vi.hoisted(() => ({
 
 vi.mock("@clack/prompts", () => promptMocks);
 
-import { runCli } from "./cli.js";
+import { runInitCommand } from "./cli/commands/init.js";
+import { runCli } from "./cli/program.js";
 import { GLOBAL_CONFIG_FILE_PATH } from "./config.js";
-import { runInitCommand } from "./init.js";
 
 const originalHome = process.env.HOME;
 const originalShell = process.env.SHELL;
