@@ -3,10 +3,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
-
-import { runCli } from "./cli/program.js";
-import { appendHistory } from "./history.js";
-import { addLinkedWorktree, createRepository } from "./repo.test-helpers.js";
+import { appendHistory } from "../../history.js";
+import {
+	addLinkedWorktree,
+	createRepository,
+} from "../../repo.test-helpers.js";
+import { runCli } from "../program.js";
 
 const originalHome = process.env.HOME;
 

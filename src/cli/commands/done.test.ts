@@ -3,15 +3,15 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
-import { runDoneCommand } from "./cli/commands/done.js";
-import { saveLocalConfig } from "./config.js";
+import { saveLocalConfig } from "../../config.js";
 import {
 	addLinkedWorktree,
 	commitFile,
 	createRepository,
 	pathExists,
 	runGit,
-} from "./repo.test-helpers.js";
+} from "../../repo.test-helpers.js";
+import { runDoneCommand } from "./done.js";
 
 afterEach(() => {
 	delete process.env.GJI_DONE_OUTPUT_FILE;

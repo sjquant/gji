@@ -3,12 +3,15 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
-import { formatHubOutput, type HubData } from "./cli/commands/hub.js";
-import { runCli } from "./cli/program.js";
-import { addLinkedWorktree, createRepository } from "./repo.test-helpers.js";
-import { loadRegistry } from "./repo-registry.js";
-import { writeTask } from "./task.js";
-import { terminalWidth } from "./terminal-text.js";
+import {
+	addLinkedWorktree,
+	createRepository,
+} from "../../repo.test-helpers.js";
+import { loadRegistry } from "../../repo-registry.js";
+import { writeTask } from "../../task.js";
+import { terminalWidth } from "../../terminal-text.js";
+import { runCli } from "../program.js";
+import { formatHubOutput, type HubData } from "./hub.js";
 
 describe("repository hub", () => {
 	it("shows the current repository, worktree context, and PR titles", async () => {

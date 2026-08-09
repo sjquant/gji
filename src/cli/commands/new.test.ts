@@ -3,14 +3,8 @@ import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import {
-	createNewCommand,
-	generateBranchPlaceholder,
-	runNewCommand,
-} from "./cli/commands/new.js";
-import { runCli } from "./cli/program.js";
-import { GLOBAL_CONFIG_FILE_PATH } from "./config.js";
-import { resolveWorktreePath } from "./repo.js";
+import { GLOBAL_CONFIG_FILE_PATH } from "../../config.js";
+import { resolveWorktreePath } from "../../repo.js";
 import {
 	addLinkedWorktree,
 	cloneRepository,
@@ -20,7 +14,13 @@ import {
 	currentBranch,
 	pathExists,
 	runGit,
-} from "./repo.test-helpers.js";
+} from "../../repo.test-helpers.js";
+import { runCli } from "../program.js";
+import {
+	createNewCommand,
+	generateBranchPlaceholder,
+	runNewCommand,
+} from "./new.js";
 
 const originalHome = process.env.HOME;
 const originalConfigDir = process.env.GJI_CONFIG_DIR;

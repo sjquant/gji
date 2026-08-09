@@ -15,14 +15,14 @@ vi.mock("update-notifier", () => ({
 	default: notifierMocks.updateNotifier,
 }));
 
-import packageJson from "../package.json" with { type: "json" };
-import { createProgram, runCli } from "./cli/program.js";
+import packageJson from "../../package.json" with { type: "json" };
 import {
 	addLinkedWorktree,
 	createRepository,
 	pathExists,
-} from "./repo.test-helpers.js";
-import { loadRegistry } from "./repo-registry.js";
+} from "../repo.test-helpers.js";
+import { loadRegistry } from "../repo-registry.js";
+import { createProgram, runCli } from "./program.js";
 
 const originalConfigDir = process.env.GJI_CONFIG_DIR;
 

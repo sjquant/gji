@@ -2,8 +2,6 @@ import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
-
-import { runCli } from "./cli/program.js";
 import {
 	addLinkedWorktree,
 	cloneRepository,
@@ -12,7 +10,8 @@ import {
 	createRepositoryWithOrigin,
 	currentBranch,
 	runGit,
-} from "./repo.test-helpers.js";
+} from "../../repo.test-helpers.js";
+import { runCli } from "../program.js";
 
 describe("gji status", () => {
 	it("prints repository metadata and worktree health from the repository root", async () => {
@@ -250,7 +249,7 @@ describe("gji status", () => {
 		const { originRoot, repoRoot } = await createRepositoryWithOrigin();
 		const defaultBranch = await currentBranch(repoRoot);
 		const goneBranch = "feature/status-json-gone";
-		const goneWorktreePath = await addLinkedWorktree(repoRoot, goneBranch);
+		await addLinkedWorktree(repoRoot, goneBranch);
 		const upstreamClone = await cloneRepository(originRoot);
 		const stdout: string[] = [];
 

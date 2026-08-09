@@ -2,14 +2,13 @@ import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
-
-import { runCli } from "./cli/program.js";
 import {
 	addLinkedWorktree,
 	createRepository,
 	currentBranch,
 	runGit,
-} from "./repo.test-helpers.js";
+} from "../../repo.test-helpers.js";
+import { runCli } from "../program.js";
 
 describe("gji ls", () => {
 	it("prints compact active worktrees as structured JSON with --compact --json", async () => {

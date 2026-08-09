@@ -3,8 +3,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
 import { describe, expect, it } from "vitest";
-import { createRemoveCommand } from "./cli/commands/remove.js";
-import { HISTORY_FILE_PATH } from "./history.js";
+import { HISTORY_FILE_PATH } from "../../history.js";
 import {
 	addLinkedWorktree,
 	addSubmoduleToRepository,
@@ -12,7 +11,8 @@ import {
 	createRepository,
 	pathExists,
 	runGit,
-} from "./repo.test-helpers.js";
+} from "../../repo.test-helpers.js";
+import { createRemoveCommand } from "./remove.js";
 
 describe("gji remove", () => {
 	it("force-removes a worktree with an initialized submodule", async () => {

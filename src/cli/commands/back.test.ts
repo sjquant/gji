@@ -3,10 +3,17 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
-import { formatAge, formatHistoryList } from "./cli/commands/back.js";
-import { runCli } from "./cli/program.js";
-import { appendHistory, HISTORY_FILE_PATH, loadHistory } from "./history.js";
-import { addLinkedWorktree, createRepository } from "./repo.test-helpers.js";
+import {
+	appendHistory,
+	HISTORY_FILE_PATH,
+	loadHistory,
+} from "../../history.js";
+import {
+	addLinkedWorktree,
+	createRepository,
+} from "../../repo.test-helpers.js";
+import { runCli } from "../program.js";
+import { formatAge, formatHistoryList } from "./back.js";
 
 const originalHome = process.env.HOME;
 

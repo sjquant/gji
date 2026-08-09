@@ -2,8 +2,6 @@ import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
-
-import { runCli } from "./cli/program.js";
 import {
 	addLinkedWorktree,
 	cloneRepository,
@@ -13,7 +11,8 @@ import {
 	currentBranch,
 	pathExists,
 	runGit,
-} from "./repo.test-helpers.js";
+} from "../../repo.test-helpers.js";
+import { runCli } from "../program.js";
 
 describe("gji sync", () => {
 	it("syncs the current linked worktree onto the latest default branch", async () => {

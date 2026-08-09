@@ -3,11 +3,11 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
-import { runDoctorCommand } from "./cli/commands/doctor.js";
-import { runCli } from "./cli/program.js";
-import { GLOBAL_CONFIG_FILE_PATH } from "./config.js";
-import { createRepository } from "./repo.test-helpers.js";
-import { loadRegistry, REGISTRY_FILE_PATH } from "./repo-registry.js";
+import { GLOBAL_CONFIG_FILE_PATH } from "../../config.js";
+import { createRepository } from "../../repo.test-helpers.js";
+import { loadRegistry, REGISTRY_FILE_PATH } from "../../repo-registry.js";
+import { runCli } from "../program.js";
+import { runDoctorCommand } from "./doctor.js";
 
 const originalConfigDir = process.env.GJI_CONFIG_DIR;
 const originalHome = process.env.HOME;

@@ -3,9 +3,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
 import { describe, expect, it } from "vitest";
-
-import { createCleanCommand } from "./cli/commands/clean.js";
-import { HISTORY_FILE_PATH } from "./history.js";
+import { HISTORY_FILE_PATH } from "../../history.js";
 import {
 	addLinkedWorktree,
 	addSubmoduleToRepository,
@@ -14,7 +12,8 @@ import {
 	createRepositoryWithOrigin,
 	pathExists,
 	runGit,
-} from "./repo.test-helpers.js";
+} from "../../repo.test-helpers.js";
+import { createCleanCommand } from "./clean.js";
 
 describe("gji clean", () => {
 	it("force-cleans a stale worktree with an initialized submodule", async () => {

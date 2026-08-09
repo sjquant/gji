@@ -3,19 +3,19 @@ import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 
 import { describe, expect, it } from "vitest";
-import { createGoCommand } from "./cli/commands/go.js";
-import { runRootCommand } from "./cli/commands/root.js";
-import { runCli } from "./cli/program.js";
-import { appendHistory, HISTORY_FILE_PATH } from "./history.js";
-import { resolveWorktreePath } from "./repo.js";
+import { appendHistory, HISTORY_FILE_PATH } from "../../history.js";
+import { resolveWorktreePath } from "../../repo.js";
 import {
 	addLinkedWorktree,
 	createRepository,
 	createRepositoryWithOrigin,
 	pathExists,
 	runGit,
-} from "./repo.test-helpers.js";
-import { registerRepo } from "./repo-registry.js";
+} from "../../repo.test-helpers.js";
+import { registerRepo } from "../../repo-registry.js";
+import { runCli } from "../program.js";
+import { createGoCommand } from "./go.js";
+import { runRootCommand } from "./root.js";
 
 describe("gji root", () => {
 	it("prints the main repository root from the repository root", async () => {

@@ -2,9 +2,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { basename, join } from "node:path";
 
 import { describe, expect, it } from "vitest";
-import { createPrCommand, runPrCommand } from "./cli/commands/pr.js";
-import { runCli } from "./cli/program.js";
-import { resolveWorktreePath } from "./repo.js";
+import { resolveWorktreePath } from "../../repo.js";
 import {
 	addLinkedWorktree,
 	commitFile,
@@ -14,8 +12,10 @@ import {
 	pathExists,
 	pushPullRequestRef,
 	runGit,
-} from "./repo.test-helpers.js";
-import { parsePrInput } from "./worktree/pr-reference.js";
+} from "../../repo.test-helpers.js";
+import { parsePrInput } from "../../worktree/pr-reference.js";
+import { runCli } from "../program.js";
+import { createPrCommand, runPrCommand } from "./pr.js";
 
 describe("parsePrInput", () => {
 	it.each([

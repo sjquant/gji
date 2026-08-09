@@ -4,8 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { afterEach, describe, expect, it } from "vitest";
-import { runInitCommand } from "./cli/commands/init.js";
-import { runCli } from "./cli/program.js";
+import { runCli } from "../program.js";
+import { runInitCommand } from "./init.js";
 
 const originalShell = process.env.SHELL;
 const execFile = promisify(execFileCallback);
