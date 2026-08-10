@@ -1,8 +1,6 @@
 import { createRequire } from "node:module";
 import { Command } from "commander";
 import updateNotifier from "update-notifier";
-import { detectRepository } from "../infrastructure/repository/context.js";
-import { registerRepo } from "../infrastructure/repository/registry.js";
 import { runBackCommand } from "./commands/back.js";
 import { runCleanCommand } from "./commands/clean.js";
 import { runCompletionCommand } from "./commands/completion.js";
@@ -30,6 +28,7 @@ import { runSyncFilesCommand } from "./commands/sync-files-command.js";
 import { runTaskCommand } from "./commands/task-command.js";
 import { runUndoCommand } from "./commands/undo.js";
 import { runWarpCommand } from "./commands/warp.js";
+import { type CliDependencies, createCliDependencies } from "./dependencies.js";
 import { isHeadless } from "./runtime/headless.js";
 
 interface PackageMetadata {
@@ -45,6 +44,7 @@ export interface RunCliOptions {
 	hubDependencies?: Partial<HubCommandDependencies>;
 	stderr?: (chunk: string) => void;
 	stdout?: (chunk: string) => void;
+	dependencies?: CliDependencies;
 }
 
 export interface RunCliResult {
@@ -56,6 +56,7 @@ interface CommandActionOptions {
 	prOpenDependencies?: Partial<PrOpenCommandDependencies>;
 	stderr: (chunk: string) => void;
 	stdout: (chunk: string) => void;
+	dependencies: CliDependencies;
 }
 
 export function createProgram(): Command {
@@ -104,9 +105,10 @@ export async function runCli(
 	const cwd = options.cwd ?? process.cwd();
 	const stdout = options.stdout ?? (() => undefined);
 	const stderr = options.stderr ?? (() => undefined);
+	const dependencies = options.dependencies ?? createCliDependencies();
 
 	if (shouldRegisterCurrentRepo(argv) || isHubInvocation(argv)) {
-		await maybeRegisterCurrentRepo(cwd);
+		await maybeRegisterCurrentRepo(cwd, dependencies);
 	}
 
 	const program = createProgram();
@@ -126,6 +128,7 @@ export async function runCli(
 				now: options.now,
 				stderr,
 				stdout,
+				runtime: dependencies,
 			},
 			options.hubDependencies,
 		);
@@ -135,6 +138,7 @@ export async function runCli(
 	try {
 		attachCommandActions(program, {
 			cwd,
+			dependencies,
 			prOpenDependencies: options.prOpenDependencies,
 			stderr,
 			stdout,
@@ -213,10 +217,14 @@ function isHubInvocation(argv: string[]): boolean {
 	return argv.length === 0 || (argv.length === 1 && argv[0] === "--json");
 }
 
-async function maybeRegisterCurrentRepo(cwd: string): Promise<void> {
+async function maybeRegisterCurrentRepo(
+	cwd: string,
+	dependencies: CliDependencies,
+): Promise<void> {
 	try {
-		const { repoRoot } = await detectRepository(cwd);
-		await registerRepo(repoRoot);
+		const { repoRoot } =
+			await dependencies.repositoryContext.detectRepository(cwd);
+		await dependencies.registry.registerRepo(repoRoot);
 	} catch {
 		// Registration is best effort; command behaviour should not depend on it.
 	}
@@ -550,6 +558,7 @@ function attachCommandActions(
 					open: commandOptions.open,
 					take: commandOptions.take,
 					task: commandOptions.task,
+					runtime: options.dependencies,
 				});
 
 				if (exitCode !== 0) {
@@ -678,6 +687,7 @@ function attachCommandActions(
 					number,
 					stderr: options.stderr,
 					stdout: options.stdout,
+					runtime: options.dependencies,
 				});
 
 				if (exitCode !== 0) {
@@ -797,6 +807,7 @@ function attachCommandActions(
 					root: commandOptions.root,
 					stderr: options.stderr,
 					stdout: options.stdout,
+					runtime: options.dependencies,
 				});
 
 				if (exitCode !== 0) {
@@ -1065,6 +1076,7 @@ function attachCommandActions(
 		const exitCode = await runConfigCommand({
 			cwd: options.cwd,
 			stdout: options.stdout,
+			runtime: options.dependencies,
 		});
 
 		if (exitCode !== 0) {
@@ -1080,6 +1092,7 @@ function attachCommandActions(
 				cwd: options.cwd,
 				key,
 				stdout: options.stdout,
+				runtime: options.dependencies,
 			});
 
 			if (exitCode !== 0) {
@@ -1096,6 +1109,7 @@ function attachCommandActions(
 				key,
 				stderr: options.stderr,
 				stdout: options.stdout,
+				runtime: options.dependencies,
 				value,
 			});
 
@@ -1112,6 +1126,7 @@ function attachCommandActions(
 				cwd: options.cwd,
 				key,
 				stdout: options.stdout,
+				runtime: options.dependencies,
 			});
 
 			if (exitCode !== 0) {

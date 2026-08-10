@@ -2,13 +2,7 @@ import { isCancel, select } from "@clack/prompts";
 import { resolveWorktreeQuery } from "../../domain/worktree/matching.js";
 import type { WorktreeSource } from "../../domain/worktree/source.js";
 import type { WorktreeEntry } from "../../domain/worktree/types.js";
-import { openBrowser } from "../../infrastructure/integrations/browser.js";
-import {
-	createPullRequestQuery,
-	type PullRequestInfo,
-} from "../../infrastructure/integrations/pull-requests.js";
-import { detectRepository } from "../../infrastructure/repository/context.js";
-import { listWorktrees } from "../../infrastructure/repository/worktrees.js";
+import type { PullRequestInfo } from "../../ports/pull-requests.js";
 import {
 	buildWorktreePromptEntries,
 	promptForSingleWorktree,
@@ -16,7 +10,15 @@ import {
 	type QueryWorktreePullRequests,
 	type WorktreePromptEntry,
 } from "../../presentation/worktree/picker.js";
+import {
+	defaultCliDependencies,
+	withPullRequestQueries,
+} from "../dependencies.js";
 import { isHeadless } from "../runtime/headless.js";
+
+const { openBrowser } = defaultCliDependencies.integrations;
+const { detectRepository } = defaultCliDependencies.repositoryContext;
+const { listWorktrees } = defaultCliDependencies.worktrees;
 
 export interface PrOpenCommandOptions {
 	cwd: string;
@@ -45,7 +47,7 @@ export interface PrOpenCommandDependencies {
 export function createPrOpenCommand(
 	dependencies: Partial<PrOpenCommandDependencies> = {},
 ): (options: PrOpenCommandOptions) => Promise<number> {
-	const query = createPullRequestQuery();
+	const query = defaultCliDependencies.pullRequests;
 	const findOpenPullRequest =
 		dependencies.findOpenPullRequest ?? query.findOpenPullRequest;
 	const openInBrowser = dependencies.openBrowser ?? openBrowser;
@@ -263,8 +265,10 @@ async function openFromWorktreeSelector(
 	}
 	const { pullRequestsByBranch, sources } = connectedWorktrees;
 	const entries = await buildWorktreePromptEntries(sources, {
-		queryPullRequests: async (_root, branch) =>
-			pullRequestsByBranch.get(branch) ?? [],
+		catalog: withPullRequestQueries(
+			defaultCliDependencies,
+			async (_root, branch) => pullRequestsByBranch.get(branch) ?? [],
+		),
 	});
 	const connectedEntries = entries.filter(
 		(entry) => (entry.pullRequests?.length ?? 0) > 0,

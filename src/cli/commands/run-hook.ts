@@ -1,12 +1,11 @@
-import { loadEffectiveConfig } from "../../infrastructure/persistence/config.js";
-import { getWorktreeSlot } from "../../infrastructure/persistence/slots.js";
-import {
-	extractHooks,
-	type GjiHooks,
-	runHook,
-} from "../../infrastructure/process/hooks.js";
-import { detectRepository } from "../../infrastructure/repository/context.js";
-import { listWorktrees } from "../../infrastructure/repository/worktrees.js";
+import type { GjiHooks } from "../../ports/hooks.js";
+import { defaultCliDependencies } from "../dependencies.js";
+
+const { loadEffectiveConfig } = defaultCliDependencies.config;
+const { getWorktreeSlot } = defaultCliDependencies.slots;
+const { extractHooks, runHook } = defaultCliDependencies.hooks;
+const { detectRepository } = defaultCliDependencies.repositoryContext;
+const { listWorktrees } = defaultCliDependencies.worktrees;
 
 const VALID_HOOKS: Array<keyof GjiHooks> = [
 	"after-create",

@@ -3,8 +3,13 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
-
-import { runCli } from "../../cli/program.js";
+import { resolveWorktreePath } from "../../domain/worktree/policy.js";
+import { GLOBAL_CONFIG_FILE_PATH } from "../../infrastructure/persistence/config.js";
+import {
+	extractHooks,
+	interpolate,
+	runHook,
+} from "../../infrastructure/process/hooks.js";
 import {
 	commitFile,
 	createRepository,
@@ -12,9 +17,7 @@ import {
 	pushPullRequestRef,
 	runGit,
 } from "../../test-support/repository.js";
-import { GLOBAL_CONFIG_FILE_PATH } from "../persistence/config.js";
-import { resolveWorktreePath } from "../repository/worktrees.js";
-import { extractHooks, interpolate, runHook } from "./hooks.js";
+import { runCli } from "../program.js";
 
 const originalHome = process.env.HOME;
 

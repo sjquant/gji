@@ -1,37 +1,21 @@
 import { basename } from "node:path";
+import type {
+	BootstrapEvent,
+	WorktreeBootstrapOptions,
+	WorktreeBootstrapResult,
+} from "../../ports/bootstrap.js";
 import {
-	type BootstrapCommandRunner,
-	type BootstrapEvent,
-	type DependencyBootstrapMode,
-	type DependencyBootstrapReport,
-	type DependencyBootstrapReporter,
 	executeDependencyBootstrap,
 	prepareDependencyBootstrap,
 } from "../bootstrap/dependency-bootstrap.js";
 import { syncFiles } from "../filesystem/file-sync.js";
-import type { EffectiveGjiConfig } from "../persistence/config.js";
 import { assignWorktreeSlot } from "../persistence/slots.js";
 import { extractHooks, runHook } from "../process/hooks.js";
-export interface WorktreeBootstrapOptions {
-	branch: string;
-	config: EffectiveGjiConfig;
-	currentRoot?: string;
-	dependencyDetectionRoot?: string;
-	dependencyMode: DependencyBootstrapMode;
-	runCommand?: BootstrapCommandRunner;
-	commandStdout?: (chunk: string) => void;
-	commandStderr?: (chunk: string) => void;
-	json?: boolean;
-	repoRoot: string;
-	reporter: DependencyBootstrapReporter & { write: (chunk: string) => void };
-	worktreePath: string;
-}
 
-export interface WorktreeBootstrapResult {
-	dependencyBootstrap: DependencyBootstrapReport;
-	ready: boolean;
-	syncFileFailures: readonly BootstrapEvent[];
-}
+export type {
+	WorktreeBootstrapOptions,
+	WorktreeBootstrapResult,
+} from "../../ports/bootstrap.js";
 
 export async function bootstrapWorktree(
 	options: WorktreeBootstrapOptions,

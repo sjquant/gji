@@ -1,14 +1,14 @@
 import { access } from "node:fs/promises";
 import { basename } from "node:path";
 
-import { loadEffectiveConfig } from "../../infrastructure/persistence/config.js";
-import {
-	appendHistory,
-	type HistoryEntry,
-	loadHistory,
-} from "../../infrastructure/persistence/history.js";
-import { extractHooks, runHook } from "../../infrastructure/process/hooks.js";
-import { detectRepository } from "../../infrastructure/repository/context.js";
+import type { HistoryEntry } from "../../ports/history.js";
+import { defaultCliDependencies } from "../dependencies.js";
+
+const { loadEffectiveConfig } = defaultCliDependencies.config;
+const { appendHistory, loadHistory } = defaultCliDependencies.historyStore;
+const { extractHooks, runHook } = defaultCliDependencies.hooks;
+const { detectRepository } = defaultCliDependencies.repositoryContext;
+
 import { writeShellOutput } from "../../presentation/shell/handoff.js";
 import {
 	createNavigationRepository,

@@ -6,26 +6,25 @@ import { promisify } from "node:util";
 import { isCancel, select } from "@clack/prompts";
 import { resolveWorktreeQuery } from "../../domain/worktree/matching.js";
 import type { WorktreeEntry } from "../../domain/worktree/types.js";
-import {
-	defaultSpawnEditor,
-	EDITORS,
-	type EditorDefinition,
-} from "../../infrastructure/integrations/editor.js";
-import {
-	loadEffectiveConfig,
-	resolveConfigString,
-	updateGlobalConfigKey,
-} from "../../infrastructure/persistence/config.js";
-import { recordWorktreeUsage } from "../../infrastructure/persistence/history.js";
-import { detectRepository } from "../../infrastructure/repository/context.js";
-import { listWorktrees } from "../../infrastructure/repository/worktrees.js";
+import type { EditorDefinition } from "../../ports/editor.js";
 import {
 	buildWorktreePromptEntries,
 	promptForSingleWorktree,
 	type QueryWorktreePullRequests,
 	type WorktreePromptEntry,
 } from "../../presentation/worktree/picker.js";
+import {
+	defaultCliDependencies,
+	withPullRequestQueries,
+} from "../dependencies.js";
 import { isHeadless } from "../runtime/headless.js";
+
+const { recordWorktreeUsage } = defaultCliDependencies.history;
+const { detectRepository } = defaultCliDependencies.repositoryContext;
+const { listWorktrees } = defaultCliDependencies.worktrees;
+const { defaultSpawnEditor, EDITORS } = defaultCliDependencies.integrations;
+const { loadEffectiveConfig, resolveConfigString, updateGlobalConfigKey } =
+	defaultCliDependencies.configStore;
 
 export type { EditorDefinition };
 
@@ -116,7 +115,12 @@ export function createOpenCommand(
 					repoName: repository.repoName,
 					worktree,
 				})),
-				{ queryPullRequests: dependencies.queryPullRequests },
+				{
+					catalog: withPullRequestQueries(
+						defaultCliDependencies,
+						dependencies.queryPullRequests,
+					),
+				},
 			);
 			const chosen = await promptForWorktree(entries);
 			if (!chosen) {

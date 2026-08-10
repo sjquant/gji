@@ -1,5 +1,7 @@
-import { loadHistory } from "../../infrastructure/persistence/history.js";
+import { defaultCliDependencies } from "../dependencies.js";
 import { formatHistoryList } from "./back.js";
+
+const { loadHistory } = defaultCliDependencies.historyStore;
 
 export interface HistoryCommandOptions {
 	cwd: string;

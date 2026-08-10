@@ -1,23 +1,4 @@
-import type { DependencyBootstrapMode } from "../../infrastructure/bootstrap/dependency-bootstrap.js";
-import {
-	type DependencyBootstrapPreview,
-	prepareDependencyBootstrap,
-	previewDependencyBootstrap,
-} from "../../infrastructure/bootstrap/dependency-bootstrap.js";
-
-export async function createDependencyBootstrapPreview(
-	mode: DependencyBootstrapMode,
-	context: {
-		repoRoot: string;
-		currentRoot?: string;
-		worktreePath: string;
-		cargoBuildCommand?: string;
-	},
-): Promise<DependencyBootstrapPreview> {
-	return previewDependencyBootstrap(
-		await prepareDependencyBootstrap(mode, context),
-	);
-}
+import type { DependencyBootstrapPreview } from "../../ports/bootstrap.js";
 
 export function formatDependencyBootstrapPreview(
 	preview: DependencyBootstrapPreview | undefined,

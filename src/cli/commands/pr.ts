@@ -1,27 +1,10 @@
-import { execFile } from "node:child_process";
 import { mkdir } from "node:fs/promises";
 import { dirname } from "node:path";
-import { promisify } from "node:util";
+import { resolveWorktreePath } from "../../domain/worktree/policy.js";
 import { parsePrInput } from "../../domain/worktree/pr-reference.js";
-import {
-	type BootstrapCommandRunner,
-	type DependencyBootstrapMode,
-	resolveDependencyBootstrapMode,
-} from "../../infrastructure/bootstrap/dependency-bootstrap.js";
-import {
-	type EffectiveGjiConfig,
-	loadEffectiveConfig,
-	resolveConfigString,
-} from "../../infrastructure/persistence/config.js";
-import { recordWorktreeUsage } from "../../infrastructure/persistence/history.js";
-import { detectRepository } from "../../infrastructure/repository/context.js";
-import { resolveWorktreePath } from "../../infrastructure/repository/worktrees.js";
-import { bootstrapWorktree } from "../../infrastructure/worktree/bootstrap.js";
+import type { CommandRunner as BootstrapCommandRunner } from "../../ports/process.js";
 import { createBootstrapReporter } from "../../presentation/bootstrap/output.js";
-import {
-	createDependencyBootstrapPreview,
-	formatDependencyBootstrapPreview,
-} from "../../presentation/bootstrap/preview.js";
+import { formatDependencyBootstrapPreview } from "../../presentation/bootstrap/preview.js";
 import {
 	type PathConflictChoice,
 	pathExists,
@@ -32,9 +15,11 @@ import {
 	createNavigationRepository,
 	createNavigationTarget,
 } from "../../presentation/terminal/navigation.js";
+import {
+	type CliDependencies,
+	defaultCliDependencies,
+} from "../dependencies.js";
 import { isHeadless } from "../runtime/headless.js";
-
-const execFileAsync = promisify(execFile);
 
 export type { PathConflictChoice };
 
@@ -49,6 +34,7 @@ export interface PrCommandOptions {
 	outputEnv?: string;
 	stderr: (chunk: string) => void;
 	stdout: (chunk: string) => void;
+	runtime?: CliDependencies;
 }
 
 export interface PrCommandDependencies {
@@ -57,6 +43,9 @@ export interface PrCommandDependencies {
 }
 
 type PullRequestForge = "bitbucket" | "github" | "gitlab" | "unknown";
+type EffectiveGjiConfig = Awaited<
+	ReturnType<CliDependencies["config"]["loadEffectiveConfig"]>
+>;
 
 export function createPrCommand(
 	dependencies: Partial<PrCommandDependencies> = {},
@@ -66,6 +55,7 @@ export function createPrCommand(
 	return async function runPrCommand(
 		options: PrCommandOptions,
 	): Promise<number> {
+		const runtime = options.runtime ?? defaultCliDependencies;
 		const prNumber = parsePrInput(options.number);
 
 		if (!prNumber) {
@@ -78,10 +68,12 @@ export function createPrCommand(
 			return 1;
 		}
 
-		const repository = await detectRepository(options.cwd);
+		const repository = await runtime.repositoryContext.detectRepository(
+			options.cwd,
+		);
 		let config: EffectiveGjiConfig;
 		try {
-			config = await loadEffectiveConfig(
+			config = await runtime.configStore.loadEffectiveConfig(
 				repository.repoRoot,
 				undefined,
 				options.json ? undefined : options.stderr,
@@ -97,7 +89,10 @@ export function createPrCommand(
 		}
 		const branchName = `pr/${prNumber}`;
 		const remoteRef = `refs/remotes/origin/pull/${prNumber}/head`;
-		const rawBasePath = resolveConfigString(config, "worktreePath");
+		const rawBasePath = runtime.configStore.resolveConfigString(
+			config,
+			"worktreePath",
+		);
 		const configuredBasePath =
 			rawBasePath?.startsWith("/") || rawBasePath?.startsWith("~")
 				? rawBasePath
@@ -127,7 +122,7 @@ export function createPrCommand(
 			const choice = await prompt(worktreePath);
 
 			if (choice === "reuse") {
-				await recordWorktreeUsage(worktreePath, branchName);
+				await runtime.history.recordWorktreeUsage(worktreePath, branchName);
 				await writeOutput(worktreePath, options.stdout, options.outputEnv);
 				return 0;
 			}
@@ -138,14 +133,13 @@ export function createPrCommand(
 			return 1;
 		}
 
-		const dependencyMode: DependencyBootstrapMode =
-			resolveDependencyBootstrapMode(
-				config.dependencyBootstrap,
-				options.noInstall,
-			);
+		const dependencyMode = runtime.bootstrap.resolveMode(
+			config.dependencyBootstrap,
+			options.noInstall,
+		);
 
 		const dryRunDependencyBootstrap = options.dryRun
-			? await createDependencyBootstrapPreview(dependencyMode, {
+			? await runtime.bootstrap.preview(dependencyMode, {
 					currentRoot: repository.currentRoot,
 					repoRoot: repository.repoRoot,
 					cargoBuildCommand: config.dependencyBuildCommand,
@@ -183,6 +177,7 @@ export function createPrCommand(
 				options.number,
 				prNumber,
 				remoteRef,
+				runtime,
 			);
 		} catch {
 			const message = `Failed to fetch PR #${prNumber} from origin`;
@@ -202,14 +197,15 @@ export function createPrCommand(
 		const branchAlreadyExists = await localBranchExists(
 			repository.repoRoot,
 			branchName,
+			runtime,
 		);
 		const worktreeArgs = branchAlreadyExists
 			? ["worktree", "add", worktreePath, branchName]
 			: ["worktree", "add", "-b", branchName, worktreePath, remoteRef];
 
-		await execFileAsync("git", worktreeArgs, { cwd: repository.repoRoot });
+		await runtime.git.runGit(repository.repoRoot, worktreeArgs);
 
-		const bootstrap = await bootstrapWorktree({
+		const bootstrap = await runtime.bootstrap.bootstrapWorktree({
 			branch: branchName,
 			config,
 			currentRoot: repository.currentRoot,
@@ -256,7 +252,7 @@ export function createPrCommand(
 				output.dependencyBootstrap = bootstrap.dependencyBootstrap;
 			options.stdout(`${JSON.stringify(output, null, 2)}\n`);
 		} else {
-			await recordWorktreeUsage(worktreePath, branchName);
+			await runtime.history.recordWorktreeUsage(worktreePath, branchName);
 			await writeOutput(worktreePath, options.stdout, options.outputEnv);
 		}
 
@@ -267,13 +263,15 @@ export function createPrCommand(
 async function localBranchExists(
 	repoRoot: string,
 	branchName: string,
+	runtime: CliDependencies,
 ): Promise<boolean> {
 	try {
-		await execFileAsync(
-			"git",
-			["show-ref", "--verify", "--quiet", `refs/heads/${branchName}`],
-			{ cwd: repoRoot },
-		);
+		await runtime.git.runGit(repoRoot, [
+			"show-ref",
+			"--verify",
+			"--quiet",
+			`refs/heads/${branchName}`,
+		]);
 		return true;
 	} catch {
 		return false;
@@ -287,14 +285,15 @@ async function fetchPullRequestRef(
 	input: string,
 	prNumber: string,
 	remoteRef: string,
+	runtime: CliDependencies,
 ): Promise<void> {
 	for (const sourceRef of listPullRequestSourceRefs(input, prNumber)) {
 		try {
-			await execFileAsync(
-				"git",
-				["fetch", "origin", `${sourceRef}:${remoteRef}`],
-				{ cwd: repoRoot },
-			);
+			await runtime.git.runGit(repoRoot, [
+				"fetch",
+				"origin",
+				`${sourceRef}:${remoteRef}`,
+			]);
 			return;
 		} catch {
 			// Try the next forge-specific ref namespace before failing the command.

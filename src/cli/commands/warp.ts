@@ -1,9 +1,5 @@
 import { listRegisteredWorktreeSources } from "../../application/worktree/sources.js";
 import { resolveWorktreeQuery } from "../../domain/worktree/matching.js";
-import { recordWorktreeUsage } from "../../infrastructure/persistence/history.js";
-import { repositoryPort } from "../../infrastructure/repository/adapters.js";
-import { detectRepository } from "../../infrastructure/repository/context.js";
-import { loadRegistry } from "../../infrastructure/repository/registry.js";
 import { writeShellOutput } from "../../presentation/shell/handoff.js";
 import {
 	createNavigationRepository,
@@ -16,7 +12,20 @@ import {
 	type QueryWorktreePullRequests,
 	type WorktreePromptEntry,
 } from "../../presentation/worktree/picker.js";
+import {
+	defaultCliDependencies,
+	withPullRequestQueries,
+} from "../dependencies.js";
 import { isHeadless } from "../runtime/headless.js";
+
+const { recordWorktreeUsage } = defaultCliDependencies.history;
+const { detectRepository } = defaultCliDependencies.repositoryContext;
+const { loadRegistry } = defaultCliDependencies.repositoryRegistry;
+const sourceDependencies = {
+	...defaultCliDependencies.repositoryContext,
+	...defaultCliDependencies.repositoryRegistry,
+	...defaultCliDependencies.worktrees,
+};
 
 const WARP_OUTPUT_FILE_ENV = "GJI_WARP_OUTPUT_FILE";
 
@@ -110,7 +119,7 @@ export async function resolveWarpTarget(options: {
 
 	let skippedRegisteredRepos = 0;
 	const allItems = (
-		await listRegisteredWorktreeSources(options.cwd, repositoryPort, () => {
+		await listRegisteredWorktreeSources(options.cwd, sourceDependencies, () => {
 			skippedRegisteredRepos++;
 		})
 	).filter((item) => item.repoRoot !== options.excludeRepoRoot);
@@ -155,7 +164,10 @@ export async function resolveWarpTarget(options: {
 
 	const promptEntries = await buildWorktreePromptEntries(promptSources, {
 		metadata: "fast",
-		queryPullRequests: options.queryPullRequests,
+		catalog: withPullRequestQueries(
+			defaultCliDependencies,
+			options.queryPullRequests,
+		),
 	});
 	const path = await promptForWarpTarget(promptEntries);
 	if (!path) {

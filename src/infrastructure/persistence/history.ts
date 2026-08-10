@@ -1,17 +1,13 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
-
+import type { HistoryEntry } from "../../ports/history.js";
 import { GLOBAL_CONFIG_DIRECTORY } from "./config.js";
+
+export type { HistoryEntry } from "../../ports/history.js";
 
 export const HISTORY_FILE_NAME = "history.json";
 const MAX_HISTORY_ENTRIES = 50;
-
-export interface HistoryEntry {
-	branch: string | null;
-	path: string;
-	timestamp: number;
-}
 
 export function HISTORY_FILE_PATH(home: string = homedir()): string {
 	const configDir = process.env.GJI_CONFIG_DIR;

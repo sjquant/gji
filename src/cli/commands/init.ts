@@ -12,14 +12,6 @@ import {
 	select,
 	text,
 } from "@clack/prompts";
-import { EDITORS } from "../../infrastructure/integrations/editor.js";
-import {
-	loadConfig,
-	loadGlobalConfig,
-	saveGlobalConfig,
-	saveLocalConfig,
-	updateGlobalConfigKey,
-} from "../../infrastructure/persistence/config.js";
 import { renderShellCompletion } from "../../presentation/shell/completion.js";
 import {
 	SHELL_INTEGRATION_END_MARKER as END_MARKER,
@@ -35,7 +27,17 @@ import {
 	resolveSupportedShell,
 	type SupportedShell,
 } from "../../presentation/shell/shell.js";
+import { defaultCliDependencies } from "../dependencies.js";
 import { isHeadless } from "../runtime/headless.js";
+
+const { EDITORS } = defaultCliDependencies.integrations;
+const {
+	loadConfig,
+	loadGlobalConfig,
+	saveGlobalConfig,
+	saveLocalConfig,
+	updateGlobalConfigKey,
+} = defaultCliDependencies.configStore;
 
 const ZSH_COMPLETION_PATH_LINE = "fpath=(~/.zsh/completions $fpath)";
 

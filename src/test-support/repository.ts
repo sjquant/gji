@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 
-import { resolveWorktreePath } from "../infrastructure/repository/worktrees.js";
+import { resolveWorktreePath } from "../domain/worktree/policy.js";
 
 const execFileAsync = promisify(execFile);
 type PullRequestForge = "bitbucket" | "github" | "gitlab";

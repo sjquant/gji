@@ -1,37 +1,13 @@
-import { execFile } from "node:child_process";
 import { access, mkdir } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
-import { promisify } from "node:util";
 import { confirm, isCancel, text } from "@clack/prompts";
-import {
-	type BootstrapCommandRunner,
-	type DependencyBootstrapMode,
-	resolveDependencyBootstrapMode,
-} from "../../infrastructure/bootstrap/dependency-bootstrap.js";
-import { resolveRemoteBase } from "../../infrastructure/git/refs.js";
-import { runGit } from "../../infrastructure/git/runner.js";
-import {
-	defaultSpawnEditor,
-	EDITORS,
-} from "../../infrastructure/integrations/editor.js";
-import {
-	type EffectiveGjiConfig,
-	loadEffectiveConfig,
-	resolveConfigString,
-} from "../../infrastructure/persistence/config.js";
-import { recordWorktreeUsage } from "../../infrastructure/persistence/history.js";
-import { writeTask } from "../../infrastructure/persistence/task.js";
-import { detectRepository } from "../../infrastructure/repository/context.js";
 import {
 	resolveWorktreePath,
 	validateBranchName,
-} from "../../infrastructure/repository/worktrees.js";
-import { bootstrapWorktree } from "../../infrastructure/worktree/bootstrap.js";
+} from "../../domain/worktree/policy.js";
+import type { CommandRunner as BootstrapCommandRunner } from "../../ports/process.js";
 import { createBootstrapReporter } from "../../presentation/bootstrap/output.js";
-import {
-	createDependencyBootstrapPreview,
-	formatDependencyBootstrapPreview,
-} from "../../presentation/bootstrap/preview.js";
+import { formatDependencyBootstrapPreview } from "../../presentation/bootstrap/preview.js";
 import {
 	type PathConflictChoice,
 	pathExists,
@@ -42,9 +18,11 @@ import {
 	createNavigationRepository,
 	createNavigationTarget,
 } from "../../presentation/terminal/navigation.js";
+import {
+	type CliDependencies,
+	defaultCliDependencies,
+} from "../dependencies.js";
 import { isHeadless } from "../runtime/headless.js";
-
-const execFileAsync = promisify(execFile);
 
 export type { PathConflictChoice };
 
@@ -72,7 +50,12 @@ export interface NewCommandOptions {
 	stderr: (chunk: string) => void;
 	stdout: (chunk: string) => void;
 	task?: string;
+	runtime?: CliDependencies;
 }
+
+type EffectiveGjiConfig = Awaited<
+	ReturnType<CliDependencies["config"]["loadEffectiveConfig"]>
+>;
 
 export interface NewCommandDependencies {
 	createBranchPlaceholder: () => string;
@@ -93,11 +76,14 @@ export function createNewCommand(
 	const promptForFetchFailure =
 		dependencies.promptForFetchFailure ?? defaultPromptForFetchFailure;
 	const prompt = dependencies.promptForPathConflict ?? promptForPathConflict;
-	const spawnEditor = dependencies.spawnEditor ?? defaultSpawnEditor;
+	const spawnEditor =
+		dependencies.spawnEditor ??
+		defaultCliDependencies.integrations.defaultSpawnEditor;
 
 	return async function runNewCommand(
 		options: NewCommandOptions,
 	): Promise<number> {
+		const runtime = options.runtime ?? defaultCliDependencies;
 		if (options.copy && !options.take)
 			return emitNewError(options, "--copy requires --take");
 		if (options.detached && options.fromCurrent) {
@@ -110,10 +96,12 @@ export function createNewCommand(
 			return 1;
 		}
 
-		const repository = await detectRepository(options.cwd);
+		const repository = await runtime.repositoryContext.detectRepository(
+			options.cwd,
+		);
 		let config: EffectiveGjiConfig;
 		try {
-			config = await loadEffectiveConfig(
+			config = await runtime.configStore.loadEffectiveConfig(
 				repository.repoRoot,
 				undefined,
 				options.json ? undefined : options.stderr,
@@ -174,7 +162,10 @@ export function createNewCommand(
 			}
 		}
 
-		const rawBasePath = resolveConfigString(config, "worktreePath");
+		const rawBasePath = runtime.configStore.resolveConfigString(
+			config,
+			"worktreePath",
+		);
 		const configuredBasePath =
 			rawBasePath?.startsWith("/") || rawBasePath?.startsWith("~")
 				? rawBasePath
@@ -200,11 +191,12 @@ export function createNewCommand(
 			if (options.force) {
 				if (!options.dryRun) {
 					try {
-						await execFileAsync(
-							"git",
-							["worktree", "remove", "--force", worktreePath],
-							{ cwd: repository.repoRoot },
-						);
+						await runtime.git.runGit(repository.repoRoot, [
+							"worktree",
+							"remove",
+							"--force",
+							worktreePath,
+						]);
 					} catch (err) {
 						if (!isNotRegisteredWorktreeError(err)) {
 							const msg = `could not remove existing worktree at ${worktreePath}: ${toExecMessage(err)}`;
@@ -219,9 +211,11 @@ export function createNewCommand(
 					}
 					if (!options.detached) {
 						try {
-							await execFileAsync("git", ["branch", "-D", worktreeName], {
-								cwd: repository.repoRoot,
-							});
+							await runtime.git.runGit(repository.repoRoot, [
+								"branch",
+								"-D",
+								worktreeName,
+							]);
 						} catch {
 							// Branch may not exist; proceed anyway.
 						}
@@ -247,7 +241,7 @@ export function createNewCommand(
 				const choice = await prompt(worktreePath);
 
 				if (choice === "reuse") {
-					await recordWorktreeUsage(worktreePath, worktreeName);
+					await runtime.history.recordWorktreeUsage(worktreePath, worktreeName);
 					await writeOutput(worktreePath, options.stdout, options.outputEnv);
 					return 0;
 				}
@@ -259,23 +253,29 @@ export function createNewCommand(
 			}
 		}
 
-		const dependencyMode: DependencyBootstrapMode =
-			resolveDependencyBootstrapMode(
-				config.dependencyBootstrap,
-				options.noInstall,
-			);
+		const dependencyMode = runtime.bootstrap.resolveMode(
+			config.dependencyBootstrap,
+			options.noInstall,
+		);
 
 		if (options.dryRun) {
 			if (options.take) {
-				const changedFiles = await listTakeFiles(options.cwd);
+				const changedFiles = await listTakeFiles(
+					options.cwd,
+					runtime.git.runGitRaw,
+				);
 				const submoduleFiles = await listSubmoduleFiles(
 					options.cwd,
 					changedFiles,
+					runtime.git.runGitRaw,
 				);
 				const transferableFiles = changedFiles.filter(
 					(file) => !submoduleFiles.includes(file),
 				);
-				const ignoredFiles = await listIgnoredFiles(options.cwd);
+				const ignoredFiles = await listIgnoredFiles(
+					options.cwd,
+					runtime.git.runGitRaw,
+				);
 				if (transferableFiles.length === 0)
 					return emitNewError(
 						options,
@@ -296,7 +296,7 @@ export function createNewCommand(
 				}
 				return 0;
 			}
-			const dryRunDependencyBootstrap = await createDependencyBootstrapPreview(
+			const dryRunDependencyBootstrap = await runtime.bootstrap.preview(
 				dependencyMode,
 				{
 					currentRoot: repository.currentRoot,
@@ -322,7 +322,8 @@ export function createNewCommand(
 				options.stdout(`${JSON.stringify(output, null, 2)}\n`);
 			} else {
 				const resolvedEditor = options.open
-					? (options.editor ?? resolveConfigString(config, "editor"))
+					? (options.editor ??
+						runtime.configStore.resolveConfigString(config, "editor"))
 					: undefined;
 				const openNote = resolvedEditor
 					? `, then open in ${resolvedEditor}`
@@ -337,22 +338,26 @@ export function createNewCommand(
 		await mkdir(dirname(worktreePath), { recursive: true });
 		const startPoint =
 			options.fromCurrent && !options.detached
-				? await resolveCurrentWorktreeHead(options.cwd)
+				? await resolveCurrentWorktreeHead(options.cwd, runtime.git.runGit)
 				: undefined;
 		const takeStartPoint = options.take
-			? await resolveCurrentWorktreeHead(options.cwd)
+			? await resolveCurrentWorktreeHead(options.cwd, runtime.git.runGit)
 			: undefined;
 		const changedTakeFiles = options.take
-			? await listTakeFiles(options.cwd)
+			? await listTakeFiles(options.cwd, runtime.git.runGitRaw)
 			: [];
 		const submoduleFiles = options.take
-			? await listSubmoduleFiles(options.cwd, changedTakeFiles)
+			? await listSubmoduleFiles(
+					options.cwd,
+					changedTakeFiles,
+					runtime.git.runGitRaw,
+				)
 			: [];
 		const takeFiles = changedTakeFiles.filter(
 			(file) => !submoduleFiles.includes(file),
 		);
 		const takeUntracked = options.take
-			? await countUntrackedFiles(options.cwd)
+			? await countUntrackedFiles(options.cwd, runtime.git.runGitRaw)
 			: 0;
 		if (options.take && takeFiles.length === 0)
 			return emitNewError(
@@ -368,6 +373,7 @@ export function createNewCommand(
 		const existingLocalBranch = await localBranchExists(
 			repository.repoRoot,
 			worktreeName,
+			runtime,
 		);
 		const shouldRefreshBase =
 			!options.noFetch &&
@@ -383,19 +389,27 @@ export function createNewCommand(
 					config,
 					options,
 					promptForFetchFailure,
+					runtime,
 				)
 			: undefined;
 		if (freshBaseRef === null) return 1;
 		let stashSha: string | null = null;
 		if (options.take) {
 			try {
-				const inProgressState = await detectInProgressGitState(options.cwd);
+				const inProgressState = await detectInProgressGitState(
+					options.cwd,
+					runtime.git.runGit,
+				);
 				if (inProgressState)
 					return emitNewError(
 						options,
 						`cannot take changes while Git is in progress (${inProgressState})`,
 					);
-				stashSha = await createTakeStash(options.cwd, worktreeName);
+				stashSha = await createTakeStash(
+					options.cwd,
+					worktreeName,
+					runtime.git.runGit,
+				);
 			} catch (error) {
 				return emitNewError(
 					options,
@@ -438,10 +452,15 @@ export function createNewCommand(
 										: []),
 						];
 		try {
-			await execFileAsync("git", gitArgs, { cwd: repository.repoRoot });
+			await runtime.git.runGit(repository.repoRoot, gitArgs);
 		} catch (error) {
 			if (stashSha)
-				await restoreTakeStash(options.cwd, stashSha, options.stderr);
+				await restoreTakeStash(
+					options.cwd,
+					stashSha,
+					options.stderr,
+					runtime.git.runGit,
+				);
 			return emitNewError(
 				options,
 				`failed to create worktree: ${toExecMessage(error)}`,
@@ -455,14 +474,16 @@ export function createNewCommand(
 				stashSha,
 				!!options.copy,
 				options.stderr,
+				runtime.git.runGit,
 			))
 		) {
 			try {
-				await execFileAsync(
-					"git",
-					["worktree", "remove", "--force", worktreePath],
-					{ cwd: repository.repoRoot },
-				);
+				await runtime.git.runGit(repository.repoRoot, [
+					"worktree",
+					"remove",
+					"--force",
+					worktreePath,
+				]);
 			} catch {
 				/* rollback best effort */
 			}
@@ -474,7 +495,7 @@ export function createNewCommand(
 
 		if (options.task !== undefined) {
 			try {
-				await writeTask(worktreePath, options.task);
+				await runtime.tasks.writeTask(worktreePath, options.task);
 			} catch (error) {
 				options.stderr(
 					`Warning: could not save task metadata: ${error instanceof Error ? error.message : String(error)}\n`,
@@ -482,7 +503,7 @@ export function createNewCommand(
 			}
 		}
 
-		const bootstrap = await bootstrapWorktree({
+		const bootstrap = await runtime.bootstrap.bootstrapWorktree({
 			branch: worktreeName,
 			config,
 			currentRoot: repository.currentRoot,
@@ -528,18 +549,20 @@ export function createNewCommand(
 				options.stderr(
 					`✓ took ${takeFiles.length} changed file${takeFiles.length === 1 ? "" : "s"} (${takeUntracked} untracked) → ${worktreeName}\n`,
 				);
-			await recordWorktreeUsage(worktreePath, worktreeName);
+			await runtime.history.recordWorktreeUsage(worktreePath, worktreeName);
 			await writeOutput(worktreePath, options.stdout, options.outputEnv);
 		}
 
 		if (options.open) {
 			const resolvedEditor =
-				options.editor ?? resolveConfigString(config, "editor");
+				options.editor ??
+				runtime.configStore.resolveConfigString(config, "editor");
 			await openWorktree(
 				worktreePath,
 				resolvedEditor,
 				spawnEditor,
 				options.stderr,
+				runtime.integrations.EDITORS,
 			);
 		}
 
@@ -554,19 +577,36 @@ async function resolveFreshBaseRef(
 	config: EffectiveGjiConfig,
 	options: NewCommandOptions,
 	promptForFetchFailure: (message: string) => Promise<boolean>,
+	runtime: CliDependencies,
 ): Promise<string | null> {
-	const remote = resolveConfigString(config, "syncRemote") ?? "origin";
-	const configuredRemote = resolveConfigString(config, "syncRemote");
-	let baseBranch = resolveConfigString(config, "syncDefaultBranch");
+	const remote =
+		runtime.configStore.resolveConfigString(config, "syncRemote") ?? "origin";
+	const configuredRemote = runtime.configStore.resolveConfigString(
+		config,
+		"syncRemote",
+	);
+	let baseBranch = runtime.configStore.resolveConfigString(
+		config,
+		"syncDefaultBranch",
+	);
 
 	try {
-		const remoteBase = await resolveRemoteBase(repoRoot, remote, baseBranch);
+		const remoteBase = await runtime.git.resolveRemoteBase(
+			repoRoot,
+			remote,
+			baseBranch,
+		);
 		if (!remoteBase) {
 			if (!configuredRemote) return "HEAD";
 			throw new Error("the remote default branch is unknown");
 		}
 		baseBranch = remoteBase.branch;
-		await runGit(repoRoot, ["fetch", "--prune", remote, remoteBase.branch]);
+		await runtime.git.runGit(repoRoot, [
+			"fetch",
+			"--prune",
+			remote,
+			remoteBase.branch,
+		]);
 		return remoteBase.ref;
 	} catch (error) {
 		const detail = error instanceof Error ? error.message : String(error);
@@ -587,7 +627,11 @@ async function resolveFreshBaseRef(
 
 		if (
 			baseBranch &&
-			(await localRefExists(repoRoot, `refs/remotes/${remote}/${baseBranch}`))
+			(await localRefExists(
+				repoRoot,
+				`refs/remotes/${remote}/${baseBranch}`,
+				runtime,
+			))
 		) {
 			options.stderr(`Continuing with the cached ${remote}/${baseBranch}.\n`);
 			return `${remote}/${baseBranch}`;
@@ -609,9 +653,18 @@ async function defaultPromptForFetchFailure(message: string): Promise<boolean> {
 	return !isCancel(choice) && choice;
 }
 
-async function localRefExists(repoRoot: string, ref: string): Promise<boolean> {
+async function localRefExists(
+	repoRoot: string,
+	ref: string,
+	runtime: CliDependencies,
+): Promise<boolean> {
 	try {
-		await runGit(repoRoot, ["rev-parse", "--verify", "--quiet", ref]);
+		await runtime.git.runGit(repoRoot, [
+			"rev-parse",
+			"--verify",
+			"--quiet",
+			ref,
+		]);
 		return true;
 	} catch {
 		return false;
@@ -797,41 +850,37 @@ async function defaultPromptForBranch(
 async function localBranchExists(
 	repoRoot: string,
 	branchName: string,
+	runtime: CliDependencies,
 ): Promise<boolean> {
 	try {
-		await execFileAsync(
-			"git",
-			["show-ref", "--verify", "--quiet", `refs/heads/${branchName}`],
-			{ cwd: repoRoot },
-		);
+		await runtime.git.runGit(repoRoot, [
+			"show-ref",
+			"--verify",
+			"--quiet",
+			`refs/heads/${branchName}`,
+		]);
 		return true;
 	} catch {
 		return false;
 	}
 }
 
-async function resolveCurrentWorktreeHead(cwd: string): Promise<string> {
-	return execFileAsync("git", ["rev-parse", "--verify", "HEAD"], { cwd }).then(
-		({ stdout }) => stdout.trim(),
-	);
+async function resolveCurrentWorktreeHead(
+	cwd: string,
+	runGit: CliDependencies["git"]["runGit"],
+): Promise<string> {
+	return runGit(cwd, ["rev-parse", "--verify", "HEAD"]);
 }
 
 async function createTakeStash(
 	cwd: string,
 	worktreeName: string,
+	runGit: CliDependencies["git"]["runGit"],
 ): Promise<string> {
 	const message = `gji-take: ${worktreeName}:${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-	await execFileAsync(
-		"git",
-		["stash", "push", "--include-untracked", "-m", message],
-		{ cwd },
-	);
-	const { stdout } = await execFileAsync(
-		"git",
-		["stash", "list", "--format=%H%x00%s"],
-		{ cwd },
-	);
-	const line = stdout
+	await runGit(cwd, ["stash", "push", "--include-untracked", "-m", message]);
+	const output = await runGit(cwd, ["stash", "list", "--format=%H%x00%s"]);
+	const line = output
 		.split("\n")
 		.map((candidate) => candidate.split("\0"))
 		.find(([, subject]) => subject?.endsWith(message));
@@ -840,7 +889,10 @@ async function createTakeStash(
 	return line[0];
 }
 
-async function detectInProgressGitState(cwd: string): Promise<string | null> {
+async function detectInProgressGitState(
+	cwd: string,
+	runGit: CliDependencies["git"]["runGit"],
+): Promise<string | null> {
 	const markers = [
 		["MERGE_HEAD", "merge"],
 		["rebase-merge", "rebase"],
@@ -851,12 +903,8 @@ async function detectInProgressGitState(cwd: string): Promise<string | null> {
 	] as const;
 	for (const [marker, name] of markers) {
 		try {
-			const { stdout } = await execFileAsync(
-				"git",
-				["rev-parse", "--git-path", marker],
-				{ cwd },
-			);
-			await access(resolve(cwd, stdout.trim()));
+			const gitPath = await runGit(cwd, ["rev-parse", "--git-path", marker]);
+			await access(resolve(cwd, gitPath));
 			return name;
 		} catch {
 			/* marker is absent */
@@ -878,23 +926,15 @@ async function writeOutput(
 }
 
 function isNotRegisteredWorktreeError(error: unknown): boolean {
-	const stderr = hasExecStderr(error) ? error.stderr : String(error);
+	const stderr = error instanceof Error ? error.message : String(error);
 	return (
 		stderr.includes("is not a working tree") ||
 		stderr.includes("not a linked working tree")
 	);
 }
 
-function hasExecStderr(error: unknown): error is { stderr: string } {
-	return (
-		error instanceof Error &&
-		"stderr" in error &&
-		typeof (error as { stderr: unknown }).stderr === "string"
-	);
-}
-
 function toExecMessage(error: unknown): string {
-	return hasExecStderr(error) ? error.stderr.trim() : String(error);
+	return error instanceof Error ? error.message : String(error);
 }
 
 async function openWorktree(
@@ -902,6 +942,7 @@ async function openWorktree(
 	editorCli: string | undefined,
 	spawnFn: (cli: string, args: string[]) => Promise<void>,
 	stderr: (chunk: string) => void,
+	editors: ReadonlyArray<{ cli: string; newWindowFlag?: string }>,
 ): Promise<void> {
 	if (!editorCli) {
 		stderr(
@@ -910,7 +951,7 @@ async function openWorktree(
 		return;
 	}
 
-	const editorDef = EDITORS.find((e) => e.cli === editorCli);
+	const editorDef = editors.find((e) => e.cli === editorCli);
 	const args: string[] = [];
 	if (editorDef?.newWindowFlag) {
 		args.push(editorDef.newWindowFlag);
@@ -925,14 +966,13 @@ async function openWorktree(
 	}
 }
 
-async function listTakeFiles(cwd: string): Promise<string[]> {
+async function listTakeFiles(
+	cwd: string,
+	runGit: CliDependencies["git"]["runGitRaw"],
+): Promise<string[]> {
 	try {
-		const { stdout } = await execFileAsync(
-			"git",
-			["status", "--porcelain=v1"],
-			{ cwd },
-		);
-		return stdout
+		const output = await runGit(cwd, ["status", "--porcelain=v1"]);
+		return output
 			.split("\n")
 			.filter((line) => line.length > 3)
 			.map((line) => line.slice(3).replace(/^"|"$/g, ""));
@@ -941,14 +981,18 @@ async function listTakeFiles(cwd: string): Promise<string[]> {
 	}
 }
 
-async function listIgnoredFiles(cwd: string): Promise<string[]> {
+async function listIgnoredFiles(
+	cwd: string,
+	runGit: CliDependencies["git"]["runGitRaw"],
+): Promise<string[]> {
 	try {
-		const { stdout } = await execFileAsync(
-			"git",
-			["status", "--porcelain=v1", "--ignored", "--untracked-files=all"],
-			{ cwd },
-		);
-		return stdout
+		const output = await runGit(cwd, [
+			"status",
+			"--porcelain=v1",
+			"--ignored",
+			"--untracked-files=all",
+		]);
+		return output
 			.split("\n")
 			.filter((line) => line.startsWith("!! "))
 			.map((line) => line.slice(3).replace(/^"|"$/g, ""));
@@ -960,14 +1004,13 @@ async function listIgnoredFiles(cwd: string): Promise<string[]> {
 async function listSubmoduleFiles(
 	cwd: string,
 	changedFiles: string[],
+	runGit: CliDependencies["git"]["runGitRaw"],
 ): Promise<string[]> {
 	if (changedFiles.length === 0) return [];
 	try {
-		const { stdout } = await execFileAsync("git", ["ls-files", "--stage"], {
-			cwd,
-		});
+		const output = await runGit(cwd, ["ls-files", "--stage"]);
 		const submodules = new Set(
-			stdout
+			output
 				.split("\n")
 				.filter((line) => line.startsWith("160000 "))
 				.map((line) => line.slice(line.indexOf("\t") + 1)),
@@ -977,14 +1020,17 @@ async function listSubmoduleFiles(
 		return [];
 	}
 }
-async function countUntrackedFiles(cwd: string): Promise<number> {
+async function countUntrackedFiles(
+	cwd: string,
+	runGit: CliDependencies["git"]["runGitRaw"],
+): Promise<number> {
 	try {
-		const { stdout } = await execFileAsync(
-			"git",
-			["status", "--porcelain=v1", "--untracked-files=all"],
-			{ cwd },
-		);
-		return stdout.split("\n").filter((line) => line.startsWith("?? ")).length;
+		const output = await runGit(cwd, [
+			"status",
+			"--porcelain=v1",
+			"--untracked-files=all",
+		]);
+		return output.split("\n").filter((line) => line.startsWith("?? ")).length;
 	} catch {
 		return 0;
 	}
@@ -995,21 +1041,18 @@ async function applyTakeStash(
 	stashSha: string,
 	copy: boolean,
 	stderr: (chunk: string) => void,
+	runGit: CliDependencies["git"]["runGit"],
 ): Promise<boolean> {
 	try {
-		await execFileAsync("git", ["stash", "apply", stashSha], {
-			cwd: worktreePath,
-		});
+		await runGit(worktreePath, ["stash", "apply", stashSha]);
 	} catch (error) {
 		stderr(`Warning: stash apply failed: ${toExecMessage(error)}\n`);
-		await restoreTakeStash(sourcePath, stashSha, stderr);
+		await restoreTakeStash(sourcePath, stashSha, stderr, runGit);
 		return false;
 	}
 	if (copy) {
 		try {
-			await execFileAsync("git", ["stash", "apply", stashSha], {
-				cwd: sourcePath,
-			});
+			await runGit(sourcePath, ["stash", "apply", stashSha]);
 		} catch (error) {
 			stderr(
 				`Warning: could not restore copied changes to the source: ${toExecMessage(error)}\n`,
@@ -1018,17 +1061,16 @@ async function applyTakeStash(
 		}
 	}
 	try {
-		const { stdout } = await execFileAsync(
-			"git",
-			["stash", "list", "--format=%H %gd"],
-			{ cwd: sourcePath },
-		);
-		const line = stdout
+		const output = await runGit(sourcePath, [
+			"stash",
+			"list",
+			"--format=%H %gd",
+		]);
+		const line = output
 			.split("\n")
 			.find((candidate) => candidate.startsWith(stashSha));
 		const ref = line?.trim().split(/\s+/).at(1);
-		if (ref)
-			await execFileAsync("git", ["stash", "drop", ref], { cwd: sourcePath });
+		if (ref) await runGit(sourcePath, ["stash", "drop", ref]);
 	} catch {
 		/* preserving the stash is safer */
 	}
@@ -1038,11 +1080,10 @@ async function restoreTakeStash(
 	sourcePath: string,
 	stashSha: string,
 	stderr: (chunk: string) => void,
+	runGit: CliDependencies["git"]["runGit"],
 ): Promise<void> {
 	try {
-		await execFileAsync("git", ["stash", "apply", stashSha], {
-			cwd: sourcePath,
-		});
+		await runGit(sourcePath, ["stash", "apply", stashSha]);
 	} catch {
 		stderr(
 			`Your changes are safe in stash: ${stashSha} — run "git stash apply ${stashSha}" to restore\n`,

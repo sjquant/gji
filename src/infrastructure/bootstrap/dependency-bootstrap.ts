@@ -1,18 +1,32 @@
 import { readFile, realpath } from "node:fs/promises";
 import { join, relative, resolve, sep } from "node:path";
+import type {
+	BootstrapEvent,
+	BootstrapKind,
+	DependencyBootstrapMode,
+	DependencyBootstrapPreview,
+	DependencyBootstrapReport,
+	DependencyBootstrapReporter,
+} from "../../ports/bootstrap.js";
+import type { CommandRunner } from "../../ports/process.js";
 import { pathExists } from "../filesystem/fs-utils.js";
 import { inspectDestination } from "../filesystem/safe-destination.js";
-import { type CommandRunner, runCommand } from "../process/command-runner.js";
+import { runCommand } from "../process/command-runner.js";
 import {
 	validateUvInstallation,
 	validateUvStructure,
 } from "../validation/uv.js";
 
-export type BootstrapKind = "dependency" | "build-cache" | "sync-file";
-export type BootstrapState = "installed" | "failed";
-export type DependencyBootstrapMode = "off" | "install";
-
 export type BootstrapCommandRunner = CommandRunner;
+
+export type {
+	BootstrapEvent,
+	BootstrapKind,
+	DependencyBootstrapMode,
+	DependencyBootstrapPreview,
+	DependencyBootstrapReport,
+	DependencyBootstrapReporter,
+} from "../../ports/bootstrap.js";
 
 export function resolveDependencyBootstrapMode(
 	dependencyBootstrap: "off" | undefined,
@@ -74,39 +88,10 @@ export interface PlannedBootstrapTarget {
 	target: BootstrapTarget;
 }
 
-export interface BootstrapEvent {
-	adapter: string;
-	kind: BootstrapKind;
-	reason?: string;
-	state: BootstrapState;
-	target: string;
-	message: string;
-}
-
-export interface DependencyBootstrapReporter {
-	dependency(event: BootstrapEvent): void;
-}
-
-export interface DependencyBootstrapReport {
-	mode: DependencyBootstrapMode;
-	ready: boolean;
-	events: readonly BootstrapEvent[];
-}
-
 export interface DependencyBootstrapDependencies {
 	runCommand?: BootstrapCommandRunner;
 	stderr?: (chunk: string) => void;
 	stdout?: (chunk: string) => void;
-}
-
-export interface DependencyBootstrapPreview {
-	mode: DependencyBootstrapMode;
-	targets: readonly {
-		adapter: string;
-		kind: BootstrapKind;
-		target: string;
-		command: string;
-	}[];
 }
 
 export async function prepareDependencyBootstrap(

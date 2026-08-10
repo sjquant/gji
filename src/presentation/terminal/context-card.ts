@@ -1,22 +1,10 @@
-import { readTask } from "../../infrastructure/persistence/task.js";
-import { listWorktrees } from "../../infrastructure/repository/worktrees.js";
-import {
-	readWorktreeInfo,
-	type WorktreeInfo,
-} from "../../infrastructure/worktree/info.js";
+import type { ContextCardModel } from "../../application/worktree/context-card.js";
+import type { WorktreeInfo } from "../../domain/worktree/types.js";
 
-export async function renderContextCard(
-	worktreePath: string,
-): Promise<string | null> {
-	const worktree = (await listWorktrees(worktreePath)).find(
-		(entry) => entry.path === worktreePath,
-	);
-	if (!worktree) return null;
-	const info = await readWorktreeInfo(worktree);
-	const task = await readTask(worktreePath);
-	if (!task) return null;
+export function renderContextCard(model: ContextCardModel): string {
+	const { info, task } = model;
 	const rows = [`┌ ${info.branch ?? "(detached)"}`];
-	rows.push(`│ task   ${task.task}`);
+	rows.push(`│ task   ${task}`);
 	rows.push(`│ state  ${formatState(info)}`);
 	if (info.lastCommitTimestamp !== null)
 		rows.push(`│ last   ${formatLastCommit(info)}`);

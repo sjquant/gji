@@ -1,11 +1,7 @@
 import { spawn } from "node:child_process";
+import type { EditorDefinition } from "../../ports/editor.js";
 
-export interface EditorDefinition {
-	cli: string;
-	name: string;
-	newWindowFlag?: string;
-	supportsWorkspace: boolean;
-}
+export type { EditorDefinition } from "../../ports/editor.js";
 
 // Ordered by likely popularity among the target audience.
 export const EDITORS: EditorDefinition[] = [

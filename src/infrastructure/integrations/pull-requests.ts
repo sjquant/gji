@@ -1,5 +1,6 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import type { PullRequestInfo as PortPullRequestInfo } from "../../ports/pull-requests.js";
 
 const execFileAsync = promisify(execFile);
 const PULL_REQUEST_QUERY_TIMEOUT_MS = 2500;
@@ -7,12 +8,9 @@ const PULL_REQUEST_CACHE_TTL_MS = 30_000;
 
 export type PullRequestForge = "bitbucket" | "github" | "gitlab";
 
-export interface PullRequestInfo {
-	number: number;
-	sourceBranch: string;
-	title?: string;
-	url: string;
-}
+export type { PullRequestInfo } from "../../ports/pull-requests.js";
+
+type PullRequestInfo = PortPullRequestInfo;
 
 export interface PullRequestRemote {
 	forge: PullRequestForge;

@@ -7,21 +7,7 @@ import { promisify } from "node:util";
 
 import { confirm, isCancel } from "@clack/prompts";
 import type { RepositoryContext } from "../../domain/repository/context.js";
-import { EDITORS } from "../../infrastructure/integrations/editor.js";
-import {
-	CONFIG_FILE_NAME,
-	type GjiConfig,
-	GLOBAL_CONFIG_FILE_PATH,
-	KNOWN_CONFIG_KEYS,
-	KNOWN_GLOBAL_CONFIG_KEYS,
-} from "../../infrastructure/persistence/config.js";
-import { loadSlots } from "../../infrastructure/persistence/slots.js";
-import { detectRepository } from "../../infrastructure/repository/context.js";
-import {
-	loadRegistry,
-	REGISTRY_FILE_PATH,
-	removeMissingRegistryEntries,
-} from "../../infrastructure/repository/registry.js";
+import type { GjiConfig } from "../../ports/config.js";
 import {
 	executableExists,
 	hasShellIntegration,
@@ -32,7 +18,20 @@ import {
 	resolveSupportedShell,
 	type SupportedShell,
 } from "../../presentation/shell/shell.js";
+import { defaultCliDependencies } from "../dependencies.js";
 import { isHeadless } from "../runtime/headless.js";
+
+const { EDITORS } = defaultCliDependencies.integrations;
+const { loadSlots } = defaultCliDependencies.slots;
+const { detectRepository } = defaultCliDependencies.repositoryContext;
+const {
+	CONFIG_FILE_NAME,
+	GLOBAL_CONFIG_FILE_PATH,
+	KNOWN_CONFIG_KEYS,
+	KNOWN_GLOBAL_CONFIG_KEYS,
+} = defaultCliDependencies.configStore;
+const { loadRegistry, REGISTRY_FILE_PATH, removeMissingRegistryEntries } =
+	defaultCliDependencies.registry;
 
 const execFileAsync = promisify(execFile);
 const MINIMUM_GIT_VERSION = { major: 2, minor: 17 };

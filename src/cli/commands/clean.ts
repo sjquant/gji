@@ -1,23 +1,36 @@
 import { confirm, isCancel } from "@clack/prompts";
 import { loadLinkedWorktrees } from "../../application/worktree/catalog.js";
-import type { WorktreeEntry } from "../../domain/worktree/types.js";
-import { readWorktreeHealth } from "../../infrastructure/git/health.js";
+import type {
+	WorktreeEntry,
+	WorktreeInfo,
+} from "../../domain/worktree/types.js";
 import {
+	buildWorktreePromptEntries,
+	promptForMultipleWorktrees,
+	type WorktreePromptEntry,
+} from "../../presentation/worktree/picker.js";
+import { defaultCliDependencies } from "../dependencies.js";
+
+const {
+	readWorktreeHealth,
 	isBranchMergedInto,
 	resolveRemoteDefaultBranch,
-} from "../../infrastructure/git/refs.js";
-import { runGit } from "../../infrastructure/git/runner.js";
-import { loadEffectiveConfig } from "../../infrastructure/persistence/config.js";
-import { releaseWorktreeSlot } from "../../infrastructure/persistence/slots.js";
-import { repositoryPort } from "../../infrastructure/repository/adapters.js";
-import {
+	runGit,
+} = defaultCliDependencies.git;
+const { loadEffectiveConfig } = defaultCliDependencies.config;
+const { releaseWorktreeSlot } = defaultCliDependencies.slots;
+const sourceDependencies = {
+	...defaultCliDependencies.repositoryContext,
+	...defaultCliDependencies.repositoryRegistry,
+	...defaultCliDependencies.worktrees,
+};
+const {
 	formatLastCommit,
 	formatUpstreamState,
 	readWorktreeInfos,
 	serializeWorktreeInfo,
-	type WorktreeInfo,
-} from "../../infrastructure/worktree/info.js";
-import {
+} = defaultCliDependencies.worktreeInfo;
+const {
 	deleteBranch,
 	forceDeleteBranch,
 	forceRemoveWorktree,
@@ -26,12 +39,8 @@ import {
 	isWorktreeDeletionError,
 	isWorktreeForceRemovalError,
 	removeWorktree,
-} from "../../infrastructure/worktree/lifecycle.js";
-import {
-	buildWorktreePromptEntries,
-	promptForMultipleWorktrees,
-	type WorktreePromptEntry,
-} from "../../presentation/worktree/picker.js";
+} = defaultCliDependencies.worktreeLifecycle;
+
 import {
 	defaultConfirmForceDeleteBranch,
 	defaultConfirmForceRemoveWorktree,
@@ -81,7 +90,7 @@ export function createCleanCommand(
 	): Promise<number> {
 		const { linkedWorktrees, repository } = await loadLinkedWorktrees(
 			options.cwd,
-			repositoryPort,
+			sourceDependencies,
 		);
 		const linkedCleanupCandidates = linkedWorktrees.filter(
 			(worktree) => worktree.path !== repository.currentRoot,
@@ -131,6 +140,7 @@ export function createCleanCommand(
 							repoName: repository.repoName,
 							worktree,
 						})),
+						{ catalog: defaultCliDependencies.worktreeCatalog },
 					),
 				);
 

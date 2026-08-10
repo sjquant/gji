@@ -4,24 +4,21 @@ import { stdin, stdout } from "node:process";
 import { spinner } from "@clack/prompts";
 import { listDiscoverableWorktreeSources } from "../../application/worktree/sources.js";
 import type { WorktreeSource } from "../../domain/worktree/source.js";
-import {
-	createPullRequestQuery,
-	type PullRequestInfo,
-} from "../../infrastructure/integrations/pull-requests.js";
-import { loadHistory } from "../../infrastructure/persistence/history.js";
-import { repositoryPort } from "../../infrastructure/repository/adapters.js";
-import { detectRepository } from "../../infrastructure/repository/context.js";
-import {
-	formatRelativeAge,
-	formatUpstreamState,
-	readWorktreeInfos,
-	type WorktreeInfo,
-} from "../../infrastructure/worktree/info.js";
+import type { WorktreeInfo } from "../../domain/worktree/types.js";
+import type { PullRequestInfo } from "../../ports/pull-requests.js";
 import {
 	middleEllipsize,
 	sanitizeTerminalText,
 	terminalWidth,
 } from "../../presentation/terminal/text.js";
+import {
+	formatRelativeAge,
+	formatUpstreamState,
+} from "../../presentation/worktree/format.js";
+import {
+	type CliDependencies,
+	defaultCliDependencies,
+} from "../dependencies.js";
 
 const MAX_HUB_REPOSITORY_CONCURRENCY = 4;
 
@@ -32,6 +29,7 @@ export interface HubCommandOptions {
 	now?: number;
 	stderr: (chunk: string) => void;
 	stdout: (chunk: string) => void;
+	runtime?: CliDependencies;
 }
 
 export interface HubCommandDependencies {
@@ -56,24 +54,31 @@ export interface HubData {
 	repositories: HubRepository[];
 }
 
-const defaultDependencies: HubCommandDependencies = {
-	queryRepositoryPullRequests:
-		createPullRequestQuery().listOpenPullRequestsForRepository,
-};
-
 export async function buildHubData(
 	cwd: string,
 	dependencies: Partial<HubCommandDependencies> = {},
+	runtime: CliDependencies = defaultCliDependencies,
 ): Promise<HubData> {
+	const { loadHistory } = runtime.historyStore;
+	const { detectRepository } = runtime.repositoryContext;
+	const sourceDependencies = {
+		...runtime.repositoryContext,
+		...runtime.repositoryRegistry,
+		...runtime.worktrees,
+	};
+	const { readWorktreeInfos } = runtime.worktreeInfo;
 	const queryRepositoryPullRequests =
 		dependencies.queryRepositoryPullRequests ??
-		defaultDependencies.queryRepositoryPullRequests;
+		runtime.pullRequests.listOpenPullRequestsForRepository;
 	const currentRepository = await detectRepository(cwd).catch(() => null);
 	const history = await loadHistory();
 	const lastUsedByPath = new Map(
 		history.map((entry) => [entry.path, entry.timestamp]),
 	);
-	const sources = await listDiscoverableWorktreeSources(cwd, repositoryPort);
+	const sources = await listDiscoverableWorktreeSources(
+		cwd,
+		sourceDependencies,
+	);
 	const groups = new Map<string, { name: string; sources: WorktreeSource[] }>();
 
 	for (const source of sources) {
@@ -144,7 +149,7 @@ export async function runHubCommand(
 
 	let data: HubData;
 	try {
-		data = await buildHubData(options.cwd, dependencies);
+		data = await buildHubData(options.cwd, dependencies, options.runtime);
 	} finally {
 		loading?.stop();
 	}

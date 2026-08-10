@@ -1,31 +1,31 @@
 import { basename } from "node:path";
 import { confirm, isCancel } from "@clack/prompts";
-import { readWorktreeHealth } from "../../infrastructure/git/health.js";
-import {
+import { writeShellOutput } from "../../presentation/shell/handoff.js";
+import { defaultCliDependencies } from "../dependencies.js";
+import { isHeadless } from "../runtime/headless.js";
+import { finalizeUndoOperation, recordUndoOperation } from "./undo.js";
+
+const {
+	readWorktreeHealth,
 	isBranchMergedInto,
 	resolveRemoteDefaultBranch,
-} from "../../infrastructure/git/refs.js";
-import { runGit } from "../../infrastructure/git/runner.js";
-import {
-	loadEffectiveConfig,
-	resolveConfigString,
-} from "../../infrastructure/persistence/config.js";
-import { loadHistory } from "../../infrastructure/persistence/history.js";
-import { releaseWorktreeSlot } from "../../infrastructure/persistence/slots.js";
-import { extractHooks, runHook } from "../../infrastructure/process/hooks.js";
-import { detectRepository } from "../../infrastructure/repository/context.js";
-import { listWorktrees } from "../../infrastructure/repository/worktrees.js";
-import {
+	runGit,
+} = defaultCliDependencies.git;
+const { loadEffectiveConfig, resolveConfigString } =
+	defaultCliDependencies.config;
+const { loadHistory } = defaultCliDependencies.historyStore;
+const { releaseWorktreeSlot } = defaultCliDependencies.slots;
+const { extractHooks, runHook } = defaultCliDependencies.hooks;
+const { detectRepository } = defaultCliDependencies.repositoryContext;
+const { listWorktrees } = defaultCliDependencies.worktrees;
+const {
 	deleteBranch,
 	forceDeleteBranch,
 	forceRemoveWorktree,
 	isBranchUnmergedError,
 	isWorktreeForceRemovalError,
 	removeWorktree,
-} from "../../infrastructure/worktree/lifecycle.js";
-import { writeShellOutput } from "../../presentation/shell/handoff.js";
-import { isHeadless } from "../runtime/headless.js";
-import { finalizeUndoOperation, recordUndoOperation } from "./undo.js";
+} = defaultCliDependencies.worktreeLifecycle;
 
 const DONE_OUTPUT_FILE_ENV = "GJI_DONE_OUTPUT_FILE";
 export interface DoneCommandOptions {

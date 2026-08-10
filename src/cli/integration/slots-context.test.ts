@@ -2,15 +2,14 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
-
-import { runCli } from "../../cli/program.js";
+import { resolveWorktreePath } from "../../domain/worktree/policy.js";
+import { SLOTS_FILE_PATH } from "../../infrastructure/persistence/slots.js";
 import {
 	createRepository,
 	currentBranch,
 	pathExists,
 } from "../../test-support/repository.js";
-import { resolveWorktreePath } from "../repository/worktrees.js";
-import { SLOTS_FILE_PATH } from "./slots.js";
+import { runCli } from "../program.js";
 
 const originalConfigDir = process.env.GJI_CONFIG_DIR;
 

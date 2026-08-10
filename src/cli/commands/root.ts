@@ -1,5 +1,7 @@
-import { detectRepository } from "../../infrastructure/repository/context.js";
 import { writeShellOutput } from "../../presentation/shell/handoff.js";
+import { defaultCliDependencies } from "../dependencies.js";
+
+const { detectRepository } = defaultCliDependencies.repositoryContext;
 
 export interface RootCommandOptions {
 	cwd: string;

@@ -2,8 +2,8 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { basename, join } from "node:path";
 
 import { describe, expect, it } from "vitest";
+import { resolveWorktreePath } from "../../domain/worktree/policy.js";
 import { parsePrInput } from "../../domain/worktree/pr-reference.js";
-import { resolveWorktreePath } from "../../infrastructure/repository/worktrees.js";
 import {
 	addLinkedWorktree,
 	commitFile,

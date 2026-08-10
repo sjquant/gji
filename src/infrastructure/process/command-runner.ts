@@ -1,17 +1,10 @@
 import { spawn } from "node:child_process";
+import type { CommandRunner } from "../../ports/process.js";
 
-export type CommandRunner = (
-	command: string,
-	cwd: string,
-	stderr: (chunk: string) => void,
-	stdout?: (chunk: string) => void,
-	options?: CommandRunnerOptions,
-) => Promise<void>;
-
-export interface CommandRunnerOptions {
-	env?: NodeJS.ProcessEnv;
-	shell?: boolean;
-}
+export type {
+	CommandRunner,
+	CommandRunnerOptions,
+} from "../../ports/process.js";
 
 export const runCommand: CommandRunner = async (
 	command,

@@ -1,7 +1,7 @@
 import type {
 	BootstrapEvent,
 	DependencyBootstrapReporter,
-} from "../../infrastructure/bootstrap/dependency-bootstrap.js";
+} from "../../ports/bootstrap.js";
 
 export function createBootstrapReporter(
 	write: (chunk: string) => void,

@@ -1,9 +1,7 @@
 import {
-	loadGlobalConfig,
-	parseConfigValue,
-	unsetGlobalConfigKey,
-	updateGlobalConfigKey,
-} from "../../infrastructure/persistence/config.js";
+	type CliDependencies,
+	defaultCliDependencies,
+} from "../dependencies.js";
 
 export interface ConfigCommandOptions {
 	action?: string;
@@ -12,19 +10,23 @@ export interface ConfigCommandOptions {
 	stderr?: (chunk: string) => void;
 	stdout: (chunk: string) => void;
 	value?: string;
+	runtime?: CliDependencies;
 }
 
 export async function runConfigCommand(
 	options: ConfigCommandOptions,
 ): Promise<number> {
+	const runtime = options.runtime ?? defaultCliDependencies;
+	const config = runtime.configStore;
+
 	switch (options.action) {
 		case undefined: {
-			const loaded = await loadGlobalConfig();
+			const loaded = await config.loadGlobalConfig();
 			writeJson(options.stdout, loaded.config);
 			return 0;
 		}
 		case "get": {
-			const loaded = await loadGlobalConfig();
+			const loaded = await config.loadGlobalConfig();
 
 			writeJson(
 				options.stdout,
@@ -35,9 +37,9 @@ export async function runConfigCommand(
 		case "set":
 			if (options.key && options.value !== undefined) {
 				try {
-					await updateGlobalConfigKey(
+					await config.updateGlobalConfigKey(
 						options.key,
-						parseConfigValue(options.value),
+						config.parseConfigValue(options.value),
 					);
 				} catch (error) {
 					options.stderr?.(
@@ -50,7 +52,7 @@ export async function runConfigCommand(
 			break;
 		case "unset":
 			if (options.key) {
-				await unsetGlobalConfigKey(options.key);
+				await config.unsetGlobalConfigKey(options.key);
 				return 0;
 			}
 			break;

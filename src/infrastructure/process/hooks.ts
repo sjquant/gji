@@ -1,19 +1,15 @@
 import { spawn } from "node:child_process";
+import type {
+	GjiHookCommand,
+	GjiHooks,
+	HookContext,
+} from "../../ports/hooks.js";
 
-export type GjiHookCommand = string | string[];
-
-export interface GjiHooks {
-	"after-create"?: GjiHookCommand;
-	"after-enter"?: GjiHookCommand;
-	"before-remove"?: GjiHookCommand;
-}
-
-export interface HookContext {
-	branch?: string;
-	path: string;
-	repo: string;
-	slot?: number | null;
-}
+export type {
+	GjiHookCommand,
+	GjiHooks,
+	HookContext,
+} from "../../ports/hooks.js";
 
 export async function runHook(
 	hookCmd: GjiHookCommand | undefined,

@@ -1,14 +1,11 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-
+import type { RemoteBase } from "../../ports/git.js";
 import { runGit } from "./runner.js";
 
-const execFileAsync = promisify(execFile);
+export type { RemoteBase } from "../../ports/git.js";
 
-export interface RemoteBase {
-	branch: string;
-	ref: string;
-}
+const execFileAsync = promisify(execFile);
 
 export async function isBranchMergedInto(
 	cwd: string,

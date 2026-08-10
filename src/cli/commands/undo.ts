@@ -12,11 +12,12 @@ import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { confirm, isCancel } from "@clack/prompts";
 import type { WorktreeEntry } from "../../domain/worktree/types.js";
-import { isDirtyWorktree } from "../../infrastructure/git/health.js";
-import { runGit } from "../../infrastructure/git/runner.js";
-import { GLOBAL_CONFIG_DIRECTORY } from "../../infrastructure/persistence/config.js";
-import { detectRepository } from "../../infrastructure/repository/context.js";
+import { defaultCliDependencies } from "../dependencies.js";
 import { isHeadless } from "../runtime/headless.js";
+
+const { isDirtyWorktree, runGit } = defaultCliDependencies.git;
+const { GLOBAL_CONFIG_DIRECTORY } = defaultCliDependencies.configStore;
+const { detectRepository } = defaultCliDependencies.repositoryContext;
 
 const MAX_UNDO_RECORDS = 20;
 const UNDO_LOCK_STALE_AFTER_MS = 60_000;

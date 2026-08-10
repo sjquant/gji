@@ -1,13 +1,15 @@
 import { comparePaths } from "../../domain/shared/paths.js";
 import type { WorktreeEntry } from "../../domain/worktree/types.js";
-import {
-	readWorktreeHealth,
-	type WorktreeHealth,
-} from "../../infrastructure/git/health.js";
-import { getWorktreeSlot } from "../../infrastructure/persistence/slots.js";
-import { readTask } from "../../infrastructure/persistence/task.js";
-import { detectRepository } from "../../infrastructure/repository/context.js";
-import { listWorktrees } from "../../infrastructure/repository/worktrees.js";
+import { defaultCliDependencies } from "../dependencies.js";
+
+const { detectRepository } = defaultCliDependencies.repositoryContext;
+const { listWorktrees } = defaultCliDependencies.worktrees;
+const { getWorktreeSlot } = defaultCliDependencies.slots;
+const { readTask } = defaultCliDependencies.tasks;
+const { readWorktreeHealth } = defaultCliDependencies.git;
+type WorktreeHealth = Awaited<
+	ReturnType<typeof defaultCliDependencies.git.readWorktreeHealth>
+>;
 
 export interface StatusCommandOptions {
 	cwd: string;

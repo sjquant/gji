@@ -3,12 +3,12 @@ import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 
 import { describe, expect, it } from "vitest";
+import { resolveWorktreePath } from "../../domain/worktree/policy.js";
 import {
 	appendHistory,
 	HISTORY_FILE_PATH,
 } from "../../infrastructure/persistence/history.js";
 import { registerRepo } from "../../infrastructure/repository/registry.js";
-import { resolveWorktreePath } from "../../infrastructure/repository/worktrees.js";
 import {
 	addLinkedWorktree,
 	createRepository,

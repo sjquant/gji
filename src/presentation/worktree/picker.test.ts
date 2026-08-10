@@ -2,19 +2,52 @@ import { PassThrough, Writable } from "node:stream";
 import { stripVTControlCharacters } from "node:util";
 
 import { describe, expect, it } from "vitest";
-import { writeTask } from "../../infrastructure/persistence/task.js";
+import { createPullRequestQuery } from "../../infrastructure/integrations/pull-requests.js";
+import { loadHistory } from "../../infrastructure/persistence/history.js";
+import { readTask, writeTask } from "../../infrastructure/persistence/task.js";
+import { readWorktreeInfos } from "../../infrastructure/worktree/info.js";
 import {
 	addLinkedWorktree,
 	createRepository,
 } from "../../test-support/repository.js";
 import {
-	buildWorktreePromptEntries,
+	type BuildWorktreePromptEntriesDependencies,
 	promptForMultipleWorktrees,
 	promptForSingleWorktree,
+	buildWorktreePromptEntries as renderWorktreePromptEntries,
 	type WorktreePickerIO,
 	type WorktreePromptEntry,
 	type WorktreePromptScopeResult,
 } from "./picker.js";
+
+const pullRequestQuery = createPullRequestQuery();
+const defaultCatalog = {
+	loadHistory: () => loadHistory(),
+	readTask,
+	readWorktreeInfos,
+	queryPullRequests: pullRequestQuery.listOpenPullRequests,
+	queryRepositoryPullRequests:
+		pullRequestQuery.listOpenPullRequestsForRepository,
+};
+
+function buildWorktreePromptEntries(
+	sources: Parameters<typeof renderWorktreePromptEntries>[0],
+	dependencies: Omit<BuildWorktreePromptEntriesDependencies, "catalog"> = {},
+) {
+	return renderWorktreePromptEntries(sources, {
+		...dependencies,
+		catalog: {
+			...defaultCatalog,
+			queryPullRequests:
+				dependencies.queryPullRequests ?? defaultCatalog.queryPullRequests,
+			queryRepositoryPullRequests:
+				dependencies.queryRepositoryPullRequests ??
+				(dependencies.queryPullRequests === undefined
+					? defaultCatalog.queryRepositoryPullRequests
+					: undefined),
+		},
+	});
+}
 
 describe("worktree picker search", () => {
 	it("renders and searches PR numbers attached to a worktree", async () => {

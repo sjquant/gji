@@ -7,7 +7,12 @@ import {
 import { parsePrInput } from "../../domain/worktree/pr-reference.js";
 import type { WorktreeSource } from "../../domain/worktree/source.js";
 import type { ConfigPort } from "../../ports/config.js";
-import type { RepositoryPort } from "../../ports/repository.js";
+import type {
+	RepositoryContextPort,
+	RepositoryRefPort,
+	RepositoryRegistryPort,
+	WorktreePort,
+} from "../../ports/repository.js";
 import { listRegisteredWorktreeSources } from "./sources.js";
 
 export type GoBranchResolution =
@@ -31,7 +36,10 @@ export async function resolveGoBranch(options: {
 	cwd: string;
 	currentSources: WorktreeSource[];
 	repository: RepositoryContext | null;
-	repositoryPort: RepositoryPort;
+	repositoryPort: RepositoryRefPort;
+	sourceDependencies: RepositoryContextPort &
+		RepositoryRegistryPort &
+		WorktreePort;
 	configPort: ConfigPort;
 }): Promise<GoBranchResolution> {
 	const {
@@ -42,6 +50,7 @@ export async function resolveGoBranch(options: {
 		currentSources,
 		repository,
 		repositoryPort,
+		sourceDependencies,
 	} = options;
 	const pullRequestNumber = parsePrInput(branch);
 	const exactCurrentMatches = resolveExistingExactWorktreeMatches(
@@ -120,7 +129,7 @@ export async function resolveGoBranch(options: {
 	let skippedRegisteredRepos = 0;
 	const registeredSources = await listRegisteredWorktreeSources(
 		cwd,
-		repositoryPort,
+		sourceDependencies,
 		() => {
 			skippedRegisteredRepos++;
 		},
@@ -204,7 +213,7 @@ async function resolveExistingWorktreeMatches(
 	sources: WorktreeSource[],
 	query: string,
 	allowPullRequestFallback: boolean,
-	repositoryPort: RepositoryPort,
+	repositoryPort: RepositoryRefPort,
 ): Promise<WorktreeSource[]> {
 	const exactMatches = resolveExactWorktreeQueryMatches(sources, query);
 	if (exactMatches.length > 0) return exactMatches;
@@ -247,7 +256,7 @@ function isPullRequestUrl(input: string): boolean {
 async function isPullRequestForRepository(
 	repoRoot: string,
 	input: string,
-	repositoryPort: RepositoryPort,
+	repositoryPort: RepositoryRefPort,
 ): Promise<boolean> {
 	if (/^\d+$/.test(input) || /^#\d+$/.test(input)) return true;
 

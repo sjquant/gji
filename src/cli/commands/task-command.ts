@@ -1,9 +1,7 @@
-import {
-	clearTask,
-	readTask,
-	writeTask,
-} from "../../infrastructure/persistence/task.js";
-import { detectRepository } from "../../infrastructure/repository/context.js";
+import { defaultCliDependencies } from "../dependencies.js";
+
+const { clearTask, readTask, writeTask } = defaultCliDependencies.tasks;
+const { detectRepository } = defaultCliDependencies.repositoryContext;
 
 export interface TaskCommandOptions {
 	clear?: boolean;

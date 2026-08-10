@@ -1,14 +1,13 @@
 import { comparePaths } from "../../domain/shared/paths.js";
 import type { WorktreeEntry } from "../../domain/worktree/types.js";
-import { isDirtyWorktree } from "../../infrastructure/git/health.js";
-import {
-	type RemoteBase,
-	resolveRemoteBase,
-} from "../../infrastructure/git/refs.js";
-import { runGit } from "../../infrastructure/git/runner.js";
-import { loadEffectiveConfig } from "../../infrastructure/persistence/config.js";
-import { detectRepository } from "../../infrastructure/repository/context.js";
-import { listWorktrees } from "../../infrastructure/repository/worktrees.js";
+import type { RemoteBase } from "../../ports/git.js";
+import { defaultCliDependencies } from "../dependencies.js";
+
+const { isDirtyWorktree, resolveRemoteBase, runGit } =
+	defaultCliDependencies.git;
+const { loadEffectiveConfig } = defaultCliDependencies.config;
+const { detectRepository } = defaultCliDependencies.repositoryContext;
+const { listWorktrees } = defaultCliDependencies.worktrees;
 
 export interface SyncCommandOptions {
 	all?: boolean;

@@ -3,18 +3,6 @@ import { basename } from "node:path";
 import { confirm, isCancel } from "@clack/prompts";
 import { loadLinkedWorktrees } from "../../application/worktree/catalog.js";
 import type { WorktreeEntry } from "../../domain/worktree/types.js";
-import { loadEffectiveConfig } from "../../infrastructure/persistence/config.js";
-import { releaseWorktreeSlot } from "../../infrastructure/persistence/slots.js";
-import { extractHooks, runHook } from "../../infrastructure/process/hooks.js";
-import { repositoryPort } from "../../infrastructure/repository/adapters.js";
-import {
-	deleteBranch,
-	forceDeleteBranch,
-	forceRemoveWorktree,
-	isBranchUnmergedError,
-	isWorktreeForceRemovalError,
-	removeWorktree,
-} from "../../infrastructure/worktree/lifecycle.js";
 import { writeShellOutput } from "../../presentation/shell/handoff.js";
 import {
 	buildWorktreePromptEntries,
@@ -25,7 +13,26 @@ import {
 	defaultConfirmForceDeleteBranch,
 	defaultConfirmForceRemoveWorktree,
 } from "../../presentation/worktree/prompts.js";
+import { defaultCliDependencies } from "../dependencies.js";
 import { isHeadless } from "../runtime/headless.js";
+
+const { loadEffectiveConfig } = defaultCliDependencies.config;
+const { releaseWorktreeSlot } = defaultCliDependencies.slots;
+const { extractHooks, runHook } = defaultCliDependencies.hooks;
+const sourceDependencies = {
+	...defaultCliDependencies.repositoryContext,
+	...defaultCliDependencies.repositoryRegistry,
+	...defaultCliDependencies.worktrees,
+};
+const {
+	deleteBranch,
+	forceDeleteBranch,
+	forceRemoveWorktree,
+	isBranchUnmergedError,
+	isWorktreeForceRemovalError,
+	removeWorktree,
+} = defaultCliDependencies.worktreeLifecycle;
+
 import { finalizeUndoOperation, recordUndoOperation } from "./undo.js";
 
 export interface RemoveCommandOptions {
@@ -66,7 +73,7 @@ export function createRemoveCommand(
 	): Promise<number> {
 		const { linkedWorktrees, repository } = await loadLinkedWorktrees(
 			options.cwd,
-			repositoryPort,
+			sourceDependencies,
 		);
 
 		if (linkedWorktrees.length === 0) {
@@ -94,6 +101,7 @@ export function createRemoveCommand(
 						repoName: repository.repoName,
 						worktree,
 					})),
+					{ catalog: defaultCliDependencies.worktreeCatalog },
 				),
 			));
 

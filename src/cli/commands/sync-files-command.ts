@@ -1,12 +1,12 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { validateSyncFilePattern } from "../../infrastructure/filesystem/file-sync.js";
-import {
-	type GjiConfig,
-	loadGlobalConfig,
-	saveGlobalConfig,
-} from "../../infrastructure/persistence/config.js";
-import { detectRepository } from "../../infrastructure/repository/context.js";
+import type { GjiConfig } from "../../ports/config.js";
+import { defaultCliDependencies } from "../dependencies.js";
+
+const { validateSyncFilePattern } = defaultCliDependencies.filesystem;
+const { loadGlobalConfig, saveGlobalConfig } =
+	defaultCliDependencies.configStore;
+const { detectRepository } = defaultCliDependencies.repositoryContext;
 
 export interface SyncFilesCommandOptions {
 	action?: string;

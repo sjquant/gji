@@ -1,6 +1,7 @@
 import { basename } from "node:path";
 
 import { confirm, isCancel } from "@clack/prompts";
+import { loadContextCardModel } from "../../application/worktree/context-card.js";
 import {
 	type GoBranchResolution,
 	resolveGoBranch,
@@ -9,16 +10,6 @@ import { listRegisteredWorktreeSources } from "../../application/worktree/source
 import type { RepositoryContext } from "../../domain/repository/context.js";
 import type { WorktreeSource } from "../../domain/worktree/source.js";
 import type { WorktreeEntry } from "../../domain/worktree/types.js";
-import { loadEffectiveConfig } from "../../infrastructure/persistence/config.js";
-import { recordWorktreeUsage } from "../../infrastructure/persistence/history.js";
-import { getWorktreeSlot } from "../../infrastructure/persistence/slots.js";
-import { extractHooks, runHook } from "../../infrastructure/process/hooks.js";
-import {
-	configPort,
-	repositoryPort,
-} from "../../infrastructure/repository/adapters.js";
-import { detectRepository } from "../../infrastructure/repository/context.js";
-import { listWorktrees } from "../../infrastructure/repository/worktrees.js";
 import { writeShellOutput } from "../../presentation/shell/handoff.js";
 import { renderContextCard } from "../../presentation/terminal/context-card.js";
 import {
@@ -32,6 +23,11 @@ import {
 	type WorktreePromptEntry,
 	type WorktreePromptScope,
 } from "../../presentation/worktree/picker.js";
+import {
+	type CliDependencies,
+	defaultCliDependencies,
+	withPullRequestQueries,
+} from "../dependencies.js";
 import { isHeadless } from "../runtime/headless.js";
 import { runBackCommand } from "./back.js";
 import { runNewCommand } from "./new.js";
@@ -46,6 +42,7 @@ export interface GoCommandOptions {
 	quiet?: boolean;
 	stderr: (chunk: string) => void;
 	stdout: (chunk: string) => void;
+	runtime?: CliDependencies;
 }
 
 export interface GoCommandDependencies {
@@ -55,6 +52,7 @@ export interface GoCommandDependencies {
 		scope?: WorktreePromptScope,
 	) => Promise<string | null>;
 	queryPullRequests: QueryWorktreePullRequests;
+	runtime: CliDependencies;
 }
 
 const GO_OUTPUT_FILE_ENV = "GJI_GO_OUTPUT_FILE";
@@ -65,16 +63,19 @@ export function createGoCommand(
 	const confirmBranchCreation =
 		dependencies.confirmBranchCreation ?? defaultConfirmBranchCreation;
 	const prompt = dependencies.promptForWorktree ?? promptForWorktree;
+	const configuredRuntime = dependencies.runtime;
 
 	return async function runGoCommand(
 		options: GoCommandOptions,
 	): Promise<number> {
+		const runtime =
+			configuredRuntime ?? options.runtime ?? defaultCliDependencies;
 		if (options.root) {
 			if (options.branch !== undefined) {
 				return emitError(options, "--root cannot be combined with a branch");
 			}
 
-			return navigateToRepositoryRoot(options);
+			return navigateToRepositoryRoot(options, runtime);
 		}
 
 		if (options.branch === "-") {
@@ -90,6 +91,7 @@ export function createGoCommand(
 
 		const [repository, currentWorktrees] = await readCurrentRepository(
 			options.cwd,
+			runtime,
 		);
 		const currentSources = repository
 			? toPromptSources(
@@ -114,7 +116,11 @@ export function createGoCommand(
 				if (registeredSources === null) {
 					registeredSources = await listRegisteredWorktreeSources(
 						options.cwd,
-						repositoryPort,
+						{
+							...runtime.repositoryContext,
+							...runtime.repositoryRegistry,
+							...runtime.worktrees,
+						},
 						() => {
 							skippedRegisteredRepos++;
 						},
@@ -148,7 +154,10 @@ export function createGoCommand(
 						return {
 							entries: await buildWorktreePromptEntries(promptSources, {
 								metadata: currentRepositoryScope ? "full" : "fast",
-								queryPullRequests: dependencies.queryPullRequests,
+								catalog: withPullRequestQueries(
+									runtime,
+									dependencies.queryPullRequests,
+								),
 							}),
 							label: currentRepositoryScope
 								? "current repository"
@@ -162,7 +171,10 @@ export function createGoCommand(
 			}
 			const promptEntries = await buildWorktreePromptEntries(promptSources, {
 				metadata: repository ? "full" : "fast",
-				queryPullRequests: dependencies.queryPullRequests,
+				catalog: withPullRequestQueries(
+					runtime,
+					dependencies.queryPullRequests,
+				),
 			});
 			const selectedPath = await prompt(promptEntries, scope);
 			if (!selectedPath) {
@@ -177,6 +189,7 @@ export function createGoCommand(
 				options,
 				selectedPath,
 				selected?.worktree,
+				runtime,
 			);
 		}
 
@@ -186,14 +199,20 @@ export function createGoCommand(
 			cwd: options.cwd,
 			currentSources,
 			repository,
-			repositoryPort,
-			configPort,
+			repositoryPort: runtime.repositoryRefs,
+			sourceDependencies: {
+				...runtime.repositoryContext,
+				...runtime.repositoryRegistry,
+				...runtime.worktrees,
+			},
+			configPort: runtime.config,
 		});
 		return handleGoBranchResolution(
 			options,
 			resolution,
 			confirmBranchCreation,
 			prompt,
+			runtime,
 			dependencies.queryPullRequests,
 		);
 	};
@@ -206,6 +225,7 @@ async function handleGoBranchResolution(
 	resolution: GoBranchResolution,
 	confirmBranchCreation: GoCommandDependencies["confirmBranchCreation"],
 	prompt: GoCommandDependencies["promptForWorktree"],
+	runtime: CliDependencies,
 	queryPullRequests?: QueryWorktreePullRequests,
 ): Promise<number> {
 	switch (resolution.kind) {
@@ -214,6 +234,7 @@ async function handleGoBranchResolution(
 				options,
 				resolution.source.worktree.path,
 				resolution.source.worktree,
+				runtime,
 			);
 		case "ambiguous": {
 			if (options.json || isHeadless() || options.print) {
@@ -222,7 +243,7 @@ async function handleGoBranchResolution(
 
 			const candidates = await buildWorktreePromptEntries(resolution.matches, {
 				metadata: "fast",
-				queryPullRequests,
+				catalog: withPullRequestQueries(runtime, queryPullRequests),
 			});
 			const selectedPath = await prompt(candidates);
 			if (!selectedPath) {
@@ -236,6 +257,7 @@ async function handleGoBranchResolution(
 				options,
 				selectedPath,
 				selected?.worktree,
+				runtime,
 			);
 		}
 		case "create":
@@ -246,6 +268,7 @@ async function handleGoBranchResolution(
 				resolution.branch,
 				resolution.mode,
 				resolution.remote,
+				runtime,
 			);
 		case "pull-request":
 			if (options.json || isHeadless() || options.print) {
@@ -261,6 +284,7 @@ async function handleGoBranchResolution(
 				outputEnv: GO_OUTPUT_FILE_ENV,
 				stderr: options.stderr,
 				stdout: options.stdout,
+				runtime,
 			});
 		case "no-repository":
 			return emitNoRepositoryError(options, resolution.staleRegisteredRepos);
@@ -273,11 +297,12 @@ async function handleGoBranchResolution(
 
 async function readCurrentRepository(
 	cwd: string,
+	runtime: CliDependencies,
 ): Promise<[RepositoryContext | null, WorktreeEntry[]]> {
 	try {
 		const [repository, worktrees] = await Promise.all([
-			detectRepository(cwd),
-			listWorktrees(cwd),
+			runtime.repositoryContext.detectRepository(cwd),
+			runtime.worktrees.listWorktrees(cwd),
 		]);
 		return [repository, worktrees];
 	} catch {
@@ -311,6 +336,7 @@ async function createExistingBranchWorktree(
 	branch: string,
 	mode: "checkout" | "track",
 	remote?: string,
+	runtime?: CliDependencies,
 ): Promise<number> {
 	if (options.json || isHeadless() || options.print) {
 		return emitError(
@@ -332,6 +358,7 @@ async function createExistingBranchWorktree(
 		remote,
 		stderr: options.stderr,
 		stdout: options.stdout,
+		runtime,
 	});
 }
 
@@ -339,8 +366,9 @@ async function navigateToExistingWorktree(
 	options: GoCommandOptions,
 	path: string,
 	worktree: WorktreeEntry | undefined,
+	runtime: CliDependencies,
 ): Promise<number> {
-	const repository = await detectRepository(path);
+	const repository = await runtime.repositoryContext.detectRepository(path);
 
 	if (options.json) {
 		options.stdout(
@@ -357,47 +385,48 @@ async function navigateToExistingWorktree(
 		return 0;
 	}
 
-	const config = await loadEffectiveConfig(
+	const config = await runtime.config.loadEffectiveConfig(
 		repository.repoRoot,
 		undefined,
 		options.stderr,
 	);
-	const hooks = extractHooks(config);
-	await runHook(
+	const hooks = runtime.hooks.extractHooks(config);
+	await runtime.hooks.runHook(
 		hooks["after-enter"],
 		path,
 		{
 			branch: worktree?.branch ?? undefined,
 			path,
 			repo: basename(repository.repoRoot),
-			slot: await getWorktreeSlot(path),
+			slot: await runtime.slots.getWorktreeSlot(path),
 		},
 		options.stderr,
 	);
 	if (!options.quiet) {
-		const card = await renderContextCard(path);
-		if (card) options.stderr(`${card}\n`);
+		const card = await loadContextCardModel(path, runtime.contextCard);
+		if (card) options.stderr(`${renderContextCard(card)}\n`);
 	}
 
-	await recordWorktreeUsage(path, worktree?.branch ?? null);
+	await runtime.history.recordWorktreeUsage(path, worktree?.branch ?? null);
 	await writeShellOutput(GO_OUTPUT_FILE_ENV, path, options.stdout);
 	return 0;
 }
 
 async function navigateToRepositoryRoot(
 	options: GoCommandOptions,
+	runtime: CliDependencies,
 ): Promise<number> {
 	let repository: RepositoryContext;
 	try {
-		repository = await detectRepository(options.cwd);
+		repository = await runtime.repositoryContext.detectRepository(options.cwd);
 	} catch {
 		return emitError(options, "not inside a git repository");
 	}
 
 	if (options.json) {
-		const rootWorktree = (await listWorktrees(repository.repoRoot)).find(
-			(worktree) => worktree.path === repository.repoRoot,
-		);
+		const rootWorktree = (
+			await runtime.worktrees.listWorktrees(repository.repoRoot)
+		).find((worktree) => worktree.path === repository.repoRoot);
 		options.stdout(
 			`${JSON.stringify(
 				createNavigationTarget(

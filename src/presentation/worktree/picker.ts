@@ -3,28 +3,24 @@ import type { Readable, Writable } from "node:stream";
 
 import { isCancel, Prompt } from "@clack/core";
 import { spinner } from "@clack/prompts";
+import {
+	loadWorktreeCatalog,
+	type WorktreeCatalogDependencies,
+	type WorktreeMetadataMode,
+} from "../../application/worktree/catalog.js";
 import type { WorktreeSource } from "../../domain/worktree/source.js";
-import type { WorktreeEntry } from "../../domain/worktree/types.js";
-import {
-	createPullRequestQuery,
-	type PullRequestInfo,
-} from "../../infrastructure/integrations/pull-requests.js";
-import { loadHistory } from "../../infrastructure/persistence/history.js";
-import { readTask } from "../../infrastructure/persistence/task.js";
-import {
-	readWorktreeInfos,
-	type UpstreamState,
-	type WorktreeInfo,
-} from "../../infrastructure/worktree/info.js";
+import type {
+	UpstreamState,
+	WorktreeEntry,
+	WorktreeInfo,
+} from "../../domain/worktree/types.js";
+import type { PullRequestInfo } from "../../ports/pull-requests.js";
 import {
 	middleEllipsize,
 	sanitizeTerminalText,
 	startEllipsize,
 	terminalWidth,
 } from "../terminal/text.js";
-
-const MAX_PULL_REQUEST_REPOSITORY_QUERY_CONCURRENCY = 4;
-const MAX_TASK_READ_CONCURRENCY = 8;
 
 export type WorktreePromptSource = WorktreeSource;
 
@@ -48,11 +44,10 @@ export type QueryRepositoryPullRequests = (
 
 export interface BuildWorktreePromptEntriesDependencies {
 	metadata?: WorktreeMetadataMode;
+	catalog?: WorktreeCatalogDependencies;
 	queryPullRequests?: QueryWorktreePullRequests;
 	queryRepositoryPullRequests?: QueryRepositoryPullRequests;
 }
-
-export type WorktreeMetadataMode = "full" | "fast";
 
 export interface WorktreePickerIO {
 	input?: Readable & {
@@ -106,49 +101,20 @@ async function buildWorktreePromptEntriesWithoutLoading(
 	dependencies: BuildWorktreePromptEntriesDependencies,
 ): Promise<WorktreePromptEntry[]> {
 	const metadataMode = dependencies.metadata ?? "full";
-	const includeMetadata = metadataMode === "full";
-	const pullRequestQuery = createPullRequestQuery();
-	const queryPullRequests =
-		dependencies.queryPullRequests ?? pullRequestQuery.listOpenPullRequests;
-	const queryRepositoryPullRequests = includeMetadata
-		? (dependencies.queryRepositoryPullRequests ??
-			(dependencies.queryPullRequests === undefined
-				? pullRequestQuery.listOpenPullRequestsForRepository
-				: undefined))
-		: undefined;
-	const repositoryPullRequests =
-		queryRepositoryPullRequests === undefined
-			? Promise.resolve(null)
-			: readRepositoryPullRequests(sources, queryRepositoryPullRequests);
-	const [history, infos, pullRequestsByRepository] = await Promise.all([
-		loadHistory(),
-		includeMetadata
-			? readWorktreeInfos(sources.map((source) => source.worktree))
-			: mapWithConcurrency(sources, MAX_TASK_READ_CONCURRENCY, (source) =>
-					createUnhydratedWorktreeInfo(source.worktree),
-				),
-		repositoryPullRequests,
-	]);
-	const pullRequests = includeMetadata
-		? await Promise.all(
-				sources.map((source) =>
-					readSourcePullRequests(
-						source,
-						queryPullRequests,
-						pullRequestsByRepository,
-					),
-				),
-			)
-		: sources.map(() => []);
-	const historyByPath = new Map(history.map((entry) => [entry.path, entry]));
-	const entries = sources.map((source, index) =>
-		buildWorktreePromptEntry(
-			source,
-			infos[index],
-			pullRequests[index],
-			historyByPath.get(source.worktree.path)?.timestamp ?? null,
-			Date.now(),
-		),
+	const hydrated = await loadWorktreeCatalog(
+		sources,
+		metadataMode,
+		dependencies.catalog ?? missingCatalogDependencies(),
+	);
+	const entries = hydrated.map(
+		({ info, lastUsedTimestamp, pullRequests, source }) =>
+			buildWorktreePromptEntry(
+				source,
+				info,
+				pullRequests,
+				lastUsedTimestamp,
+				Date.now(),
+			),
 	);
 
 	return entries
@@ -158,24 +124,10 @@ async function buildWorktreePromptEntriesWithoutLoading(
 		);
 }
 
-async function createUnhydratedWorktreeInfo(
-	worktree: WorktreeEntry,
-): Promise<WorktreeInfo> {
-	let task: string | null = null;
-	try {
-		task = (await readTask(worktree.path))?.task ?? null;
-	} catch {
-		// Task metadata is optional picker decoration.
-	}
-
-	return {
-		...worktree,
-		lastCommitTimestamp: null,
-		slot: null,
-		status: "unknown",
-		task,
-		upstream: { kind: "unknown" },
-	};
+function missingCatalogDependencies(): WorktreeCatalogDependencies {
+	throw new Error(
+		"Worktree picker hydration must be supplied by the application composition root",
+	);
 }
 
 export async function promptForSingleWorktree(
@@ -1335,97 +1287,6 @@ function buildWorktreePromptEntry(
 		repoName: source.repoName,
 		task: info.task,
 	};
-}
-
-async function readSourcePullRequests(
-	source: WorktreeSource,
-	queryPullRequests: QueryWorktreePullRequests,
-	pullRequestsByRepository: Map<string, PullRequestInfo[]> | null,
-): Promise<PullRequestInfo[]> {
-	if (source.repoRoot === undefined || source.worktree.branch === null) {
-		return [];
-	}
-
-	if (pullRequestsByRepository !== null) {
-		return sortSourcePullRequests(
-			pullRequestsByRepository
-				.get(source.repoRoot)
-				?.filter(
-					(pullRequest) => pullRequest.sourceBranch === source.worktree.branch,
-				),
-		);
-	}
-
-	try {
-		const pullRequests = await queryPullRequests(
-			source.repoRoot,
-			source.worktree.branch,
-		);
-		return sortSourcePullRequests(pullRequests);
-	} catch {
-		// PR metadata is optional selector decoration; preserve the worktree entry on lookup failures.
-		return [];
-	}
-}
-
-async function readRepositoryPullRequests(
-	sources: WorktreeSource[],
-	queryPullRequests: QueryRepositoryPullRequests,
-): Promise<Map<string, PullRequestInfo[]>> {
-	const repoRoots = [
-		...new Set(
-			sources.flatMap((source) =>
-				source.repoRoot === undefined || source.worktree.branch === null
-					? []
-					: [source.repoRoot],
-			),
-		),
-	];
-	const results = await mapWithConcurrency(
-		repoRoots,
-		MAX_PULL_REQUEST_REPOSITORY_QUERY_CONCURRENCY,
-		async (repoRoot): Promise<[string, PullRequestInfo[]]> => {
-			try {
-				return [
-					repoRoot,
-					sortSourcePullRequests(await queryPullRequests(repoRoot)),
-				];
-			} catch {
-				return [repoRoot, []];
-			}
-		},
-	);
-
-	return new Map(results);
-}
-
-async function mapWithConcurrency<Input, Output>(
-	items: Input[],
-	limit: number,
-	mapper: (item: Input) => Promise<Output>,
-): Promise<Output[]> {
-	const results: Output[] = new Array(items.length);
-	let nextIndex = 0;
-
-	async function readNext(): Promise<void> {
-		for (;;) {
-			const index = nextIndex;
-			nextIndex += 1;
-			if (index >= items.length) return;
-			results[index] = await mapper(items[index]);
-		}
-	}
-
-	await Promise.all(
-		Array.from({ length: Math.min(limit, items.length) }, () => readNext()),
-	);
-	return results;
-}
-
-function sortSourcePullRequests(
-	pullRequests: PullRequestInfo[] | undefined,
-): PullRequestInfo[] {
-	return [...(pullRequests ?? [])].sort((a, b) => a.number - b.number);
 }
 
 export function formatWorktreeBranchLabel(

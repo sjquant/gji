@@ -1,12 +1,20 @@
 import type { RepoRegistryEntry } from "../../domain/repository/registry.js";
 import type { WorktreeSource } from "../../domain/worktree/source.js";
-import type { RepositoryPort } from "../../ports/repository.js";
+import type {
+	RepositoryContextPort,
+	RepositoryRegistryPort,
+	WorktreePort,
+} from "../../ports/repository.js";
 
 const MAX_REPOSITORY_DISCOVERY_CONCURRENCY = 4;
 
+type WorktreeSourceDependencies = RepositoryContextPort &
+	RepositoryRegistryPort &
+	WorktreePort;
+
 export async function listRegisteredWorktreeSources(
 	cwd: string,
-	repositoryPort: RepositoryPort,
+	repositoryPort: WorktreeSourceDependencies,
 	onSkipped?: (entry: RepoRegistryEntry) => void,
 ): Promise<WorktreeSource[]> {
 	const registry = await repositoryPort.loadRegistry();
@@ -49,7 +57,7 @@ export async function listRegisteredWorktreeSources(
 
 export async function listDiscoverableWorktreeSources(
 	cwd: string,
-	repositoryPort: RepositoryPort,
+	repositoryPort: WorktreeSourceDependencies,
 	onSkipped?: (entry: RepoRegistryEntry) => void,
 ): Promise<WorktreeSource[]> {
 	const currentRepository = await repositoryPort

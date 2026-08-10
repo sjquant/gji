@@ -3,8 +3,8 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
+import { resolveWorktreePath } from "../../domain/worktree/policy.js";
 import { GLOBAL_CONFIG_FILE_PATH } from "../../infrastructure/persistence/config.js";
-import { resolveWorktreePath } from "../../infrastructure/repository/worktrees.js";
 import { createRepository } from "../../test-support/repository.js";
 import { runCli } from "../program.js";
 

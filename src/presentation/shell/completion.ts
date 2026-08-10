@@ -1,4 +1,4 @@
-import { KNOWN_GLOBAL_CONFIG_KEYS } from "../../infrastructure/persistence/config.js";
+import { KNOWN_GLOBAL_CONFIG_KEYS } from "../../ports/config.js";
 
 const TOP_LEVEL_COMMANDS = [
 	{

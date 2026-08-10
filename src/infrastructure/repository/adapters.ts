@@ -1,5 +1,10 @@
 import type { ConfigPort } from "../../ports/config.js";
-import type { RepositoryPort } from "../../ports/repository.js";
+import type {
+	RepositoryContextPort,
+	RepositoryRefPort,
+	RepositoryRegistryPort,
+	WorktreePort,
+} from "../../ports/repository.js";
 import {
 	loadEffectiveConfig,
 	resolveConfigString,
@@ -18,11 +23,20 @@ export const configPort: ConfigPort = {
 	resolveConfigString,
 };
 
-export const repositoryPort: RepositoryPort = {
+export const repositoryContextPort: RepositoryContextPort = {
 	detectRepository,
+};
+
+export const worktreePort: WorktreePort = {
+	listWorktrees,
+};
+
+export const repositoryRefPort: RepositoryRefPort = {
 	getRepositoryRemoteUrl,
 	hasLocalBranch,
 	hasRemoteBranch,
-	listWorktrees,
+};
+
+export const repositoryRegistryPort: RepositoryRegistryPort = {
 	loadRegistry,
 };

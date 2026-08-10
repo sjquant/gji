@@ -1,49 +1,31 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
+import type {
+	DependencyBootstrapSetting,
+	EffectiveGjiConfig,
+	GjiConfig,
+} from "../../ports/config.js";
+import {
+	KNOWN_CONFIG_KEYS,
+	KNOWN_GLOBAL_CONFIG_KEYS,
+} from "../../ports/config.js";
+
+export type {
+	DependencyBootstrapSetting,
+	EffectiveGjiConfig,
+	GjiConfig,
+} from "../../ports/config.js";
+export {
+	KNOWN_CONFIG_KEYS,
+	KNOWN_GLOBAL_CONFIG_KEYS,
+} from "../../ports/config.js";
 
 export const CONFIG_FILE_NAME = ".gji.json";
 export const GLOBAL_CONFIG_DIRECTORY = ".config/gji";
 export const GLOBAL_CONFIG_NAME = "config.json";
 
-export const KNOWN_CONFIG_KEYS: ReadonlySet<string> = new Set([
-	"branchPrefix",
-	"dependencyBuildCommand",
-	"dependencyBootstrap",
-	"editor",
-	"hooks",
-	"installSaveTarget",
-	"shellIntegration",
-	"syncDefaultBranch",
-	"syncFiles",
-	"syncRemote",
-	"worktreePath",
-]);
-
-export const KNOWN_GLOBAL_CONFIG_KEYS: ReadonlySet<string> = new Set([
-	...KNOWN_CONFIG_KEYS,
-	"repos",
-]);
-
-export type GjiConfig = Record<string, unknown>;
-
-export type DependencyBootstrapSetting = "off";
-
 const REMOVED_CONFIG_KEYS = new Set(["syncDirs"]);
-
-export interface EffectiveGjiConfig extends GjiConfig {
-	branchPrefix?: string;
-	dependencyBuildCommand?: string;
-	dependencyBootstrap?: DependencyBootstrapSetting;
-	editor?: string;
-	hooks?: Record<string, unknown>;
-	installSaveTarget?: string;
-	shellIntegration?: string;
-	syncFiles?: readonly string[];
-	syncDefaultBranch?: string;
-	syncRemote?: string;
-	worktreePath?: string;
-}
 
 export interface LoadedConfig {
 	config: GjiConfig;
