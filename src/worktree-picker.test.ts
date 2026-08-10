@@ -276,6 +276,28 @@ describe("worktree picker search", () => {
 		expect(output.text()).toContain("/auth");
 	});
 
+	it("filters when the terminal reports printable keys through sequences", async () => {
+		// Given a searchable worktree picker with two branches.
+		const { input, output } = createPromptIO();
+		const worktrees = [
+			worktreeEntry("feature/billing", "/repo/billing"),
+			worktreeEntry("feature/auth", "/repo/auth"),
+		];
+		const choice = promptForSingleWorktree("Choose a worktree", worktrees, {
+			input,
+			output,
+		});
+
+		// When the terminal omits character values and supplies key sequences instead.
+		for (const sequence of ["/", "a", "u", "t", "h"]) {
+			input.emit("keypress", undefined, { sequence });
+		}
+		input.emit("keypress", undefined, { name: "return", sequence: "\r" });
+
+		// Then slash search still filters to the matching worktree.
+		expect(await choice).toBe("/repo/auth");
+	});
+
 	it("toggles from the current repository to all repositories with Tab", async () => {
 		// Given a scoped worktree picker with a worktree outside the initial repository.
 		const { input, output } = createPromptIO();

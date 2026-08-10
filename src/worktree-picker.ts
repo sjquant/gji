@@ -87,7 +87,7 @@ export async function buildWorktreePromptEntries(
 	dependencies: BuildWorktreePromptEntriesDependencies = {},
 ): Promise<WorktreePromptEntry[]> {
 	const loading =
-		stdin.isTTY === true && stdout.isTTY === true
+		stdin.isTTY === true && stdout.isTTY === true && stdin.isRaw !== true
 			? spinner({ indicator: "timer" })
 			: null;
 	loading?.start("Loading worktrees");
@@ -523,13 +523,13 @@ class SearchablePrompt {
 			return;
 		}
 
-		if (this.searchActive && this.handleSearchKey(character, key?.name)) {
+		if (this.searchActive && this.handleSearchKey(character, key)) {
 			this.syncValue();
 			renderPrompt(prompt);
 			return;
 		}
 
-		if (character === "/" && !this.searchActive) {
+		if (isSearchToggleKey(character, key) && !this.searchActive) {
 			this.searchActive = true;
 			this.query = "";
 			this.cursor = this.firstSelectableIndex();
@@ -592,9 +592,11 @@ class SearchablePrompt {
 
 	private handleSearchKey(
 		character: string | undefined,
-		keyName?: string,
+		key?: { ctrl?: boolean; name?: string; sequence?: string },
 	): boolean {
-		if (keyName === "space" || character === " ") {
+		const keyName = key?.name;
+		const input = character ?? key?.sequence;
+		if (keyName === "space" || input === " ") {
 			return false;
 		}
 
@@ -604,8 +606,8 @@ class SearchablePrompt {
 			return true;
 		}
 
-		if (isPrintableSearchCharacter(character)) {
-			this.query += character;
+		if (isPrintableSearchCharacter(input)) {
+			this.query += input;
 			this.cursor = this.firstSelectableIndex();
 			return true;
 		}
@@ -1019,7 +1021,14 @@ function isScopeToggleKey(
 	character: string | undefined,
 	key?: { ctrl?: boolean; name?: string; sequence?: string },
 ): boolean {
-	return key?.name === "tab" || character === "\t";
+	return key?.name === "tab" || character === "\t" || key?.sequence === "\t";
+}
+
+function isSearchToggleKey(
+	character: string | undefined,
+	key?: { ctrl?: boolean; name?: string; sequence?: string },
+): boolean {
+	return character === "/" || key?.sequence === "/";
 }
 
 function resolvePromptAction(
