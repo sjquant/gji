@@ -1,19 +1,19 @@
 import { access } from "node:fs/promises";
 import { basename } from "node:path";
 
-import { loadEffectiveConfig } from "../../config.js";
+import { loadEffectiveConfig } from "../../infrastructure/persistence/config.js";
 import {
 	appendHistory,
 	type HistoryEntry,
 	loadHistory,
-} from "../../history.js";
-import { extractHooks, runHook } from "../../hooks.js";
+} from "../../infrastructure/persistence/history.js";
+import { extractHooks, runHook } from "../../infrastructure/process/hooks.js";
+import { detectRepository } from "../../infrastructure/repository/context.js";
+import { writeShellOutput } from "../../presentation/shell/handoff.js";
 import {
 	createNavigationRepository,
 	createNavigationTarget,
-} from "../../navigation-output.js";
-import { detectRepository } from "../../repo.js";
-import { writeShellOutput } from "../../shell-handoff.js";
+} from "../../presentation/terminal/navigation.js";
 
 export const BACK_OUTPUT_FILE_ENV = "GJI_BACK_OUTPUT_FILE";
 

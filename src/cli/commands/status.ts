@@ -1,12 +1,13 @@
-import { readWorktreeHealth, type WorktreeHealth } from "../../git.js";
-import { comparePaths } from "../../paths.js";
+import { comparePaths } from "../../domain/shared/paths.js";
+import type { WorktreeEntry } from "../../domain/worktree/types.js";
 import {
-	detectRepository,
-	listWorktrees,
-	type WorktreeEntry,
-} from "../../repo.js";
-import { getWorktreeSlot } from "../../slots.js";
-import { readTask } from "../../task.js";
+	readWorktreeHealth,
+	type WorktreeHealth,
+} from "../../infrastructure/git/health.js";
+import { getWorktreeSlot } from "../../infrastructure/persistence/slots.js";
+import { readTask } from "../../infrastructure/persistence/task.js";
+import { detectRepository } from "../../infrastructure/repository/context.js";
+import { listWorktrees } from "../../infrastructure/repository/worktrees.js";
 
 export interface StatusCommandOptions {
 	cwd: string;

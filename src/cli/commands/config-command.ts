@@ -3,7 +3,7 @@ import {
 	parseConfigValue,
 	unsetGlobalConfigKey,
 	updateGlobalConfigKey,
-} from "../../config.js";
+} from "../../infrastructure/persistence/config.js";
 
 export interface ConfigCommandOptions {
 	action?: string;

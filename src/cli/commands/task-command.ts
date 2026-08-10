@@ -1,5 +1,9 @@
-import { detectRepository } from "../../repo.js";
-import { clearTask, readTask, writeTask } from "../../task.js";
+import {
+	clearTask,
+	readTask,
+	writeTask,
+} from "../../infrastructure/persistence/task.js";
+import { detectRepository } from "../../infrastructure/repository/context.js";
 
 export interface TaskCommandOptions {
 	clear?: boolean;

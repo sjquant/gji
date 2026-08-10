@@ -3,12 +3,15 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { HISTORY_FILE_PATH, loadHistory } from "../../history.js";
+import {
+	HISTORY_FILE_PATH,
+	loadHistory,
+} from "../../infrastructure/persistence/history.js";
 import {
 	addLinkedWorktree,
 	createRepository,
 	pathExists,
-} from "../../repo.test-helpers.js";
+} from "../../test-support/repository.js";
 import { createOpenCommand } from "./open.js";
 
 beforeEach(async () => {

@@ -12,18 +12,15 @@ import {
 	select,
 	text,
 } from "@clack/prompts";
-
+import { EDITORS } from "../../infrastructure/integrations/editor.js";
 import {
 	loadConfig,
 	loadGlobalConfig,
 	saveGlobalConfig,
 	saveLocalConfig,
 	updateGlobalConfigKey,
-} from "../../config.js";
-import { EDITORS } from "../../editor.js";
-import { isHeadless } from "../../headless.js";
-import { resolveSupportedShell, type SupportedShell } from "../../shell.js";
-import { renderShellCompletion } from "../../shell-completion.js";
+} from "../../infrastructure/persistence/config.js";
+import { renderShellCompletion } from "../../presentation/shell/completion.js";
 import {
 	SHELL_INTEGRATION_END_MARKER as END_MARKER,
 	executableExists,
@@ -33,7 +30,12 @@ import {
 	resolveCompletionPath,
 	resolveShellConfigPath,
 	SHELL_INTEGRATION_START_MARKER as START_MARKER,
-} from "../../shell-setup.js";
+} from "../../presentation/shell/setup.js";
+import {
+	resolveSupportedShell,
+	type SupportedShell,
+} from "../../presentation/shell/shell.js";
+import { isHeadless } from "../runtime/headless.js";
 
 const ZSH_COMPLETION_PATH_LINE = "fpath=(~/.zsh/completions $fpath)";
 

@@ -3,42 +3,46 @@ import { access, mkdir } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { promisify } from "node:util";
 import { confirm, isCancel, text } from "@clack/prompts";
-import { createBootstrapReporter } from "../../bootstrap-output.js";
-import {
-	createDependencyBootstrapPreview,
-	formatDependencyBootstrapPreview,
-} from "../../bootstrap-preview.js";
-import {
-	type EffectiveGjiConfig,
-	loadEffectiveConfig,
-	resolveConfigString,
-} from "../../config.js";
-import {
-	type PathConflictChoice,
-	pathExists,
-	promptForPathConflict,
-} from "../../conflict.js";
 import {
 	type BootstrapCommandRunner,
 	type DependencyBootstrapMode,
 	resolveDependencyBootstrapMode,
-} from "../../dependency-bootstrap.js";
-import { defaultSpawnEditor, EDITORS } from "../../editor.js";
-import { resolveRemoteBase, runGit } from "../../git.js";
-import { isHeadless } from "../../headless.js";
-import { recordWorktreeUsage } from "../../history.js";
+} from "../../infrastructure/bootstrap/dependency-bootstrap.js";
+import { resolveRemoteBase } from "../../infrastructure/git/refs.js";
+import { runGit } from "../../infrastructure/git/runner.js";
+import {
+	defaultSpawnEditor,
+	EDITORS,
+} from "../../infrastructure/integrations/editor.js";
+import {
+	type EffectiveGjiConfig,
+	loadEffectiveConfig,
+	resolveConfigString,
+} from "../../infrastructure/persistence/config.js";
+import { recordWorktreeUsage } from "../../infrastructure/persistence/history.js";
+import { writeTask } from "../../infrastructure/persistence/task.js";
+import { detectRepository } from "../../infrastructure/repository/context.js";
+import {
+	resolveWorktreePath,
+	validateBranchName,
+} from "../../infrastructure/repository/worktrees.js";
+import { bootstrapWorktree } from "../../infrastructure/worktree/bootstrap.js";
+import { createBootstrapReporter } from "../../presentation/bootstrap/output.js";
+import {
+	createDependencyBootstrapPreview,
+	formatDependencyBootstrapPreview,
+} from "../../presentation/bootstrap/preview.js";
+import {
+	type PathConflictChoice,
+	pathExists,
+	promptForPathConflict,
+} from "../../presentation/prompts/path-conflict.js";
+import { writeShellOutput } from "../../presentation/shell/handoff.js";
 import {
 	createNavigationRepository,
 	createNavigationTarget,
-} from "../../navigation-output.js";
-import {
-	detectRepository,
-	resolveWorktreePath,
-	validateBranchName,
-} from "../../repo.js";
-import { writeShellOutput } from "../../shell-handoff.js";
-import { writeTask } from "../../task.js";
-import { bootstrapWorktree } from "../../worktree/bootstrap.js";
+} from "../../presentation/terminal/navigation.js";
+import { isHeadless } from "../runtime/headless.js";
 
 const execFileAsync = promisify(execFile);
 

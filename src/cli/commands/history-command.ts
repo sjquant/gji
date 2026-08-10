@@ -1,4 +1,4 @@
-import { loadHistory } from "../../history.js";
+import { loadHistory } from "../../infrastructure/persistence/history.js";
 import { formatHistoryList } from "./back.js";
 
 export interface HistoryCommandOptions {

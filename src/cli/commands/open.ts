@@ -4,30 +4,28 @@ import { join } from "node:path";
 import { promisify } from "node:util";
 
 import { isCancel, select } from "@clack/prompts";
-import {
-	loadEffectiveConfig,
-	resolveConfigString,
-	updateGlobalConfigKey,
-} from "../../config.js";
+import { resolveWorktreeQuery } from "../../domain/worktree/matching.js";
+import type { WorktreeEntry } from "../../domain/worktree/types.js";
 import {
 	defaultSpawnEditor,
 	EDITORS,
 	type EditorDefinition,
-} from "../../editor.js";
-import { isHeadless } from "../../headless.js";
-import { recordWorktreeUsage } from "../../history.js";
+} from "../../infrastructure/integrations/editor.js";
 import {
-	detectRepository,
-	listWorktrees,
-	type WorktreeEntry,
-} from "../../repo.js";
-import { resolveWorktreeQuery } from "../../worktree/matching.js";
+	loadEffectiveConfig,
+	resolveConfigString,
+	updateGlobalConfigKey,
+} from "../../infrastructure/persistence/config.js";
+import { recordWorktreeUsage } from "../../infrastructure/persistence/history.js";
+import { detectRepository } from "../../infrastructure/repository/context.js";
+import { listWorktrees } from "../../infrastructure/repository/worktrees.js";
 import {
 	buildWorktreePromptEntries,
 	promptForSingleWorktree,
 	type QueryWorktreePullRequests,
 	type WorktreePromptEntry,
-} from "../../worktree/picker.js";
+} from "../../presentation/worktree/picker.js";
+import { isHeadless } from "../runtime/headless.js";
 
 export type { EditorDefinition };
 

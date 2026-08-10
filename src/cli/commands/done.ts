@@ -1,18 +1,20 @@
 import { basename } from "node:path";
 import { confirm, isCancel } from "@clack/prompts";
-import { loadEffectiveConfig, resolveConfigString } from "../../config.js";
+import { readWorktreeHealth } from "../../infrastructure/git/health.js";
 import {
 	isBranchMergedInto,
-	readWorktreeHealth,
 	resolveRemoteDefaultBranch,
-	runGit,
-} from "../../git.js";
-import { isHeadless } from "../../headless.js";
-import { loadHistory } from "../../history.js";
-import { extractHooks, runHook } from "../../hooks.js";
-import { detectRepository, listWorktrees } from "../../repo.js";
-import { writeShellOutput } from "../../shell-handoff.js";
-import { releaseWorktreeSlot } from "../../slots.js";
+} from "../../infrastructure/git/refs.js";
+import { runGit } from "../../infrastructure/git/runner.js";
+import {
+	loadEffectiveConfig,
+	resolveConfigString,
+} from "../../infrastructure/persistence/config.js";
+import { loadHistory } from "../../infrastructure/persistence/history.js";
+import { releaseWorktreeSlot } from "../../infrastructure/persistence/slots.js";
+import { extractHooks, runHook } from "../../infrastructure/process/hooks.js";
+import { detectRepository } from "../../infrastructure/repository/context.js";
+import { listWorktrees } from "../../infrastructure/repository/worktrees.js";
 import {
 	deleteBranch,
 	forceDeleteBranch,
@@ -20,7 +22,9 @@ import {
 	isBranchUnmergedError,
 	isWorktreeForceRemovalError,
 	removeWorktree,
-} from "../../worktree/lifecycle.js";
+} from "../../infrastructure/worktree/lifecycle.js";
+import { writeShellOutput } from "../../presentation/shell/handoff.js";
+import { isHeadless } from "../runtime/headless.js";
 import { finalizeUndoOperation, recordUndoOperation } from "./undo.js";
 
 const DONE_OUTPUT_FILE_ENV = "GJI_DONE_OUTPUT_FILE";

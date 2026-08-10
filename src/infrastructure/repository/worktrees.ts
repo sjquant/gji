@@ -1,0 +1,132 @@
+import { access } from "node:fs/promises";
+import { homedir } from "node:os";
+import { basename, dirname, join } from "node:path";
+import type { WorktreeEntry } from "../../domain/worktree/types.js";
+import { runGit } from "../git/runner.js";
+
+export function resolveWorktreePath(
+	repoRoot: string,
+	branch: string,
+	basePath?: string,
+): string {
+	const segments = branch.split("/").filter(Boolean);
+
+	if (segments.length === 0) {
+		throw new Error("Branch name must not be empty.");
+	}
+
+	if (segments.some((segment) => segment === "." || segment === "..")) {
+		throw new Error(
+			`Branch name '${branch}' contains an invalid path segment.`,
+		);
+	}
+
+	const base = basePath
+		? expandTildeInPath(basePath)
+		: join(dirname(repoRoot), "worktrees", basename(repoRoot));
+
+	return join(base, ...segments);
+}
+
+export function validateBranchName(name: string): string | null {
+	if (name.length === 0) {
+		return "Branch name must not be empty.";
+	}
+	// biome-ignore lint/suspicious/noControlCharactersInRegex: intentional control chars to reject in git branch names
+	if (/[\x00-\x1f\x7f ~^:?*[\\\s]/.test(name)) {
+		return `Branch name '${name}' contains an invalid character.`;
+	}
+	if (name.startsWith("-")) {
+		return `Branch name '${name}' must not start with a dash.`;
+	}
+	if (name.startsWith("/") || name.endsWith("/") || name.includes("//")) {
+		return `Branch name '${name}' has invalid slash placement.`;
+	}
+	if (name.includes("..")) {
+		return `Branch name '${name}' must not contain '..'.`;
+	}
+	if (name.endsWith(".")) {
+		return `Branch name '${name}' must not end with '.'.`;
+	}
+	if (name.includes("@{")) {
+		return `Branch name '${name}' must not contain '@{'.`;
+	}
+	if (name === "@") {
+		return "Branch name cannot be '@'.";
+	}
+	for (const segment of name.split("/")) {
+		if (segment.startsWith(".")) {
+			return `Branch name '${name}' contains a path component starting with '.'.`;
+		}
+		if (segment.endsWith(".lock")) {
+			return `Branch name '${name}' contains a path component ending with '.lock'.`;
+		}
+	}
+	return null;
+}
+
+function expandTildeInPath(p: string): string {
+	if (p === "~") return homedir();
+	if (p.startsWith("~/")) return join(homedir(), p.slice(2));
+	return p;
+}
+
+export async function listWorktrees(cwd: string): Promise<WorktreeEntry[]> {
+	const [output, currentRoot] = await Promise.all([
+		runGit(cwd, ["worktree", "list", "--porcelain"]),
+		runGit(cwd, ["rev-parse", "--show-toplevel"]),
+	]);
+	const entries = output.split("\n\n").filter(Boolean);
+
+	const worktrees = entries.flatMap((entry) => {
+		if (findOptionalPorcelainValue(entry, "prunable") !== null) return [];
+
+		const path = findPorcelainValue(entry, "worktree");
+		const branchRef = findOptionalPorcelainValue(entry, "branch");
+
+		return [
+			{
+				branch: branchRef ? branchRef.replace("refs/heads/", "") : null,
+				isCurrent: path === currentRoot,
+				path,
+			},
+		];
+	});
+
+	const accessible = await Promise.all(
+		worktrees.map(async (worktree) => {
+			try {
+				await access(worktree.path);
+				return worktree;
+			} catch {
+				return null;
+			}
+		}),
+	);
+
+	return accessible.filter(
+		(worktree): worktree is WorktreeEntry => worktree !== null,
+	);
+}
+
+function findPorcelainValue(block: string, key: string): string {
+	const value = findOptionalPorcelainValue(block, key);
+
+	if (!value) {
+		throw new Error(`Missing '${key}' in git worktree output.`);
+	}
+
+	return value;
+}
+
+function findOptionalPorcelainValue(block: string, key: string): string | null {
+	const line = block
+		.split("\n")
+		.find((candidate) => candidate.startsWith(`${key} `));
+
+	if (!line) {
+		return null;
+	}
+
+	return line.slice(key.length + 1);
+}

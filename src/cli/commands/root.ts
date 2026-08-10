@@ -1,5 +1,5 @@
-import { detectRepository } from "../../repo.js";
-import { writeShellOutput } from "../../shell-handoff.js";
+import { detectRepository } from "../../infrastructure/repository/context.js";
+import { writeShellOutput } from "../../presentation/shell/handoff.js";
 
 export interface RootCommandOptions {
 	cwd: string;

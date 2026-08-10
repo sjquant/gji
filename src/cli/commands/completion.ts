@@ -1,5 +1,5 @@
-import { resolveSupportedShell } from "../../shell.js";
-import { renderShellCompletion } from "../../shell-completion.js";
+import { renderShellCompletion } from "../../presentation/shell/completion.js";
+import { resolveSupportedShell } from "../../presentation/shell/shell.js";
 
 export interface CompletionCommandOptions {
 	shell?: string;

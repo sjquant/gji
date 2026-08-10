@@ -1,25 +1,22 @@
 import { isCancel, select } from "@clack/prompts";
-
-import { openBrowser } from "../../browser.js";
-import { isHeadless } from "../../headless.js";
+import { resolveWorktreeQuery } from "../../domain/worktree/matching.js";
+import type { WorktreeSource } from "../../domain/worktree/source.js";
+import type { WorktreeEntry } from "../../domain/worktree/types.js";
+import { openBrowser } from "../../infrastructure/integrations/browser.js";
 import {
 	createPullRequestQuery,
 	type PullRequestInfo,
-} from "../../pull-requests.js";
-import {
-	detectRepository,
-	listWorktrees,
-	type WorktreeEntry,
-} from "../../repo.js";
-import { resolveWorktreeQuery } from "../../worktree/matching.js";
+} from "../../infrastructure/integrations/pull-requests.js";
+import { detectRepository } from "../../infrastructure/repository/context.js";
+import { listWorktrees } from "../../infrastructure/repository/worktrees.js";
 import {
 	buildWorktreePromptEntries,
 	promptForSingleWorktree,
 	type QueryRepositoryPullRequests,
 	type QueryWorktreePullRequests,
 	type WorktreePromptEntry,
-} from "../../worktree/picker.js";
-import type { WorktreeSource } from "../../worktree/source.js";
+} from "../../presentation/worktree/picker.js";
+import { isHeadless } from "../runtime/headless.js";
 
 export interface PrOpenCommandOptions {
 	cwd: string;

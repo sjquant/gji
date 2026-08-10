@@ -2,36 +2,37 @@ import { execFile } from "node:child_process";
 import { mkdir } from "node:fs/promises";
 import { dirname } from "node:path";
 import { promisify } from "node:util";
-import { createBootstrapReporter } from "../../bootstrap-output.js";
-import {
-	createDependencyBootstrapPreview,
-	formatDependencyBootstrapPreview,
-} from "../../bootstrap-preview.js";
-import {
-	type EffectiveGjiConfig,
-	loadEffectiveConfig,
-	resolveConfigString,
-} from "../../config.js";
-import {
-	type PathConflictChoice,
-	pathExists,
-	promptForPathConflict,
-} from "../../conflict.js";
+import { parsePrInput } from "../../domain/worktree/pr-reference.js";
 import {
 	type BootstrapCommandRunner,
 	type DependencyBootstrapMode,
 	resolveDependencyBootstrapMode,
-} from "../../dependency-bootstrap.js";
-import { isHeadless } from "../../headless.js";
-import { recordWorktreeUsage } from "../../history.js";
+} from "../../infrastructure/bootstrap/dependency-bootstrap.js";
+import {
+	type EffectiveGjiConfig,
+	loadEffectiveConfig,
+	resolveConfigString,
+} from "../../infrastructure/persistence/config.js";
+import { recordWorktreeUsage } from "../../infrastructure/persistence/history.js";
+import { detectRepository } from "../../infrastructure/repository/context.js";
+import { resolveWorktreePath } from "../../infrastructure/repository/worktrees.js";
+import { bootstrapWorktree } from "../../infrastructure/worktree/bootstrap.js";
+import { createBootstrapReporter } from "../../presentation/bootstrap/output.js";
+import {
+	createDependencyBootstrapPreview,
+	formatDependencyBootstrapPreview,
+} from "../../presentation/bootstrap/preview.js";
+import {
+	type PathConflictChoice,
+	pathExists,
+	promptForPathConflict,
+} from "../../presentation/prompts/path-conflict.js";
+import { writeShellOutput } from "../../presentation/shell/handoff.js";
 import {
 	createNavigationRepository,
 	createNavigationTarget,
-} from "../../navigation-output.js";
-import { detectRepository, resolveWorktreePath } from "../../repo.js";
-import { writeShellOutput } from "../../shell-handoff.js";
-import { bootstrapWorktree } from "../../worktree/bootstrap.js";
-import { parsePrInput } from "../../worktree/pr-reference.js";
+} from "../../presentation/terminal/navigation.js";
+import { isHeadless } from "../runtime/headless.js";
 
 const execFileAsync = promisify(execFile);
 

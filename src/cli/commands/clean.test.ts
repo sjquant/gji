@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
 import { describe, expect, it } from "vitest";
-import { HISTORY_FILE_PATH } from "../../history.js";
+import { HISTORY_FILE_PATH } from "../../infrastructure/persistence/history.js";
 import {
 	addLinkedWorktree,
 	addSubmoduleToRepository,
@@ -12,7 +12,7 @@ import {
 	createRepositoryWithOrigin,
 	pathExists,
 	runGit,
-} from "../../repo.test-helpers.js";
+} from "../../test-support/repository.js";
 import { createCleanCommand } from "./clean.js";
 
 describe("gji clean", () => {

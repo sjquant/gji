@@ -3,16 +3,19 @@ import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 
 import { describe, expect, it } from "vitest";
-import { appendHistory, HISTORY_FILE_PATH } from "../../history.js";
-import { resolveWorktreePath } from "../../repo.js";
+import {
+	appendHistory,
+	HISTORY_FILE_PATH,
+} from "../../infrastructure/persistence/history.js";
+import { registerRepo } from "../../infrastructure/repository/registry.js";
+import { resolveWorktreePath } from "../../infrastructure/repository/worktrees.js";
 import {
 	addLinkedWorktree,
 	createRepository,
 	createRepositoryWithOrigin,
 	pathExists,
 	runGit,
-} from "../../repo.test-helpers.js";
-import { registerRepo } from "../../repo-registry.js";
+} from "../../test-support/repository.js";
 import { runCli } from "../program.js";
 import { createGoCommand } from "./go.js";
 import { runRootCommand } from "./root.js";

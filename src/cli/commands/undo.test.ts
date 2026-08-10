@@ -3,14 +3,14 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
-import { listWorktrees } from "../../repo.js";
+import { listWorktrees } from "../../infrastructure/repository/worktrees.js";
 import {
 	addLinkedWorktree,
 	createRepository,
 	createRepositoryWithOrigin,
 	pathExists,
 	runGit,
-} from "../../repo.test-helpers.js";
+} from "../../test-support/repository.js";
 import {
 	finalizeUndoOperation,
 	recordUndoOperation,

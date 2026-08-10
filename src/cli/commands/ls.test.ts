@@ -7,7 +7,7 @@ import {
 	createRepository,
 	currentBranch,
 	runGit,
-} from "../../repo.test-helpers.js";
+} from "../../test-support/repository.js";
 import { runCli } from "../program.js";
 
 describe("gji ls", () => {

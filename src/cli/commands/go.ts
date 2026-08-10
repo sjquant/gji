@@ -1,36 +1,38 @@
 import { basename } from "node:path";
 
 import { confirm, isCancel } from "@clack/prompts";
-import { loadEffectiveConfig } from "../../config.js";
-import { renderContextCard } from "../../context-card.js";
-import { isHeadless } from "../../headless.js";
-import { recordWorktreeUsage } from "../../history.js";
-import { extractHooks, runHook } from "../../hooks.js";
-import {
-	createNavigationRepository,
-	createNavigationTarget,
-} from "../../navigation-output.js";
-import {
-	detectRepository,
-	listWorktrees,
-	type RepositoryContext,
-	type WorktreeEntry,
-} from "../../repo.js";
-import { writeShellOutput } from "../../shell-handoff.js";
-import { getWorktreeSlot } from "../../slots.js";
 import {
 	type GoBranchResolution,
 	resolveGoBranch,
-} from "../../worktree/application/go-resolution.js";
+} from "../../application/worktree/go-resolution.js";
+import { listRegisteredWorktreeSources } from "../../application/worktree/sources.js";
+import type { RepositoryContext } from "../../domain/repository/context.js";
+import type { WorktreeSource } from "../../domain/worktree/source.js";
+import type { WorktreeEntry } from "../../domain/worktree/types.js";
+import { loadEffectiveConfig } from "../../infrastructure/persistence/config.js";
+import { recordWorktreeUsage } from "../../infrastructure/persistence/history.js";
+import { getWorktreeSlot } from "../../infrastructure/persistence/slots.js";
+import { extractHooks, runHook } from "../../infrastructure/process/hooks.js";
+import {
+	configPort,
+	repositoryPort,
+} from "../../infrastructure/repository/adapters.js";
+import { detectRepository } from "../../infrastructure/repository/context.js";
+import { listWorktrees } from "../../infrastructure/repository/worktrees.js";
+import { writeShellOutput } from "../../presentation/shell/handoff.js";
+import { renderContextCard } from "../../presentation/terminal/context-card.js";
+import {
+	createNavigationRepository,
+	createNavigationTarget,
+} from "../../presentation/terminal/navigation.js";
 import {
 	buildWorktreePromptEntries,
 	promptForSingleWorktree,
 	type QueryWorktreePullRequests,
 	type WorktreePromptEntry,
 	type WorktreePromptScope,
-} from "../../worktree/picker.js";
-import type { WorktreeSource } from "../../worktree/source.js";
-import { listRegisteredWorktreeSources } from "../../worktree/sources.js";
+} from "../../presentation/worktree/picker.js";
+import { isHeadless } from "../runtime/headless.js";
 import { runBackCommand } from "./back.js";
 import { runNewCommand } from "./new.js";
 import { runPrCommand } from "./pr.js";
@@ -112,6 +114,7 @@ export function createGoCommand(
 				if (registeredSources === null) {
 					registeredSources = await listRegisteredWorktreeSources(
 						options.cwd,
+						repositoryPort,
 						() => {
 							skippedRegisteredRepos++;
 						},
@@ -183,6 +186,8 @@ export function createGoCommand(
 			cwd: options.cwd,
 			currentSources,
 			repository,
+			repositoryPort,
+			configPort,
 		});
 		return handleGoBranchResolution(
 			options,

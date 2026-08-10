@@ -3,13 +3,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
+import { writeTask } from "../../infrastructure/persistence/task.js";
+import { loadRegistry } from "../../infrastructure/repository/registry.js";
+import { terminalWidth } from "../../presentation/terminal/text.js";
 import {
 	addLinkedWorktree,
 	createRepository,
-} from "../../repo.test-helpers.js";
-import { loadRegistry } from "../../repo-registry.js";
-import { writeTask } from "../../task.js";
-import { terminalWidth } from "../../terminal-text.js";
+} from "../../test-support/repository.js";
 import { runCli } from "../program.js";
 import { formatHubOutput, type HubData } from "./hub.js";
 

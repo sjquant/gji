@@ -1,11 +1,12 @@
-import { comparePaths } from "../../paths.js";
-import { listWorktrees, type WorktreeEntry } from "../../repo.js";
+import { comparePaths } from "../../domain/shared/paths.js";
+import type { WorktreeEntry } from "../../domain/worktree/types.js";
+import { listWorktrees } from "../../infrastructure/repository/worktrees.js";
 import {
 	formatLastCommit,
 	formatUpstreamState,
 	readWorktreeInfos,
 	type WorktreeInfo,
-} from "../../worktree/info.js";
+} from "../../infrastructure/worktree/info.js";
 
 export interface LsCommandOptions {
 	compact?: boolean;

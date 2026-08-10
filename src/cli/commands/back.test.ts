@@ -7,11 +7,11 @@ import {
 	appendHistory,
 	HISTORY_FILE_PATH,
 	loadHistory,
-} from "../../history.js";
+} from "../../infrastructure/persistence/history.js";
 import {
 	addLinkedWorktree,
 	createRepository,
-} from "../../repo.test-helpers.js";
+} from "../../test-support/repository.js";
 import { runCli } from "../program.js";
 import { formatAge, formatHistoryList } from "./back.js";
 

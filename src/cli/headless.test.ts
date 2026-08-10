@@ -1,10 +1,13 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { isHeadless } from "../headless.js";
-import { addLinkedWorktree, createRepository } from "../repo.test-helpers.js";
+import {
+	addLinkedWorktree,
+	createRepository,
+} from "../test-support/repository.js";
 import { createCleanCommand } from "./commands/clean.js";
 import { createGoCommand } from "./commands/go.js";
 import { createNewCommand } from "./commands/new.js";
 import { createRemoveCommand } from "./commands/remove.js";
+import { isHeadless } from "./runtime/headless.js";
 
 afterEach(() => {
 	delete process.env.GJI_NO_TUI;

@@ -1,21 +1,22 @@
-import { isHeadless } from "../../headless.js";
-import { recordWorktreeUsage } from "../../history.js";
+import { listRegisteredWorktreeSources } from "../../application/worktree/sources.js";
+import { resolveWorktreeQuery } from "../../domain/worktree/matching.js";
+import { recordWorktreeUsage } from "../../infrastructure/persistence/history.js";
+import { repositoryPort } from "../../infrastructure/repository/adapters.js";
+import { detectRepository } from "../../infrastructure/repository/context.js";
+import { loadRegistry } from "../../infrastructure/repository/registry.js";
+import { writeShellOutput } from "../../presentation/shell/handoff.js";
 import {
 	createNavigationRepository,
 	createNavigationTarget,
 	type NavigationRepository,
-} from "../../navigation-output.js";
-import { detectRepository } from "../../repo.js";
-import { loadRegistry } from "../../repo-registry.js";
-import { writeShellOutput } from "../../shell-handoff.js";
-import { resolveWorktreeQuery } from "../../worktree/matching.js";
+} from "../../presentation/terminal/navigation.js";
 import {
 	buildWorktreePromptEntries,
 	promptForSingleWorktree,
 	type QueryWorktreePullRequests,
 	type WorktreePromptEntry,
-} from "../../worktree/picker.js";
-import { listRegisteredWorktreeSources } from "../../worktree/sources.js";
+} from "../../presentation/worktree/picker.js";
+import { isHeadless } from "../runtime/headless.js";
 
 const WARP_OUTPUT_FILE_ENV = "GJI_WARP_OUTPUT_FILE";
 
@@ -109,7 +110,7 @@ export async function resolveWarpTarget(options: {
 
 	let skippedRegisteredRepos = 0;
 	const allItems = (
-		await listRegisteredWorktreeSources(options.cwd, () => {
+		await listRegisteredWorktreeSources(options.cwd, repositoryPort, () => {
 			skippedRegisteredRepos++;
 		})
 	).filter((item) => item.repoRoot !== options.excludeRepoRoot);

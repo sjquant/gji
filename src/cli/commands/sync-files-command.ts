@@ -1,13 +1,12 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
-
+import { validateSyncFilePattern } from "../../infrastructure/filesystem/file-sync.js";
 import {
 	type GjiConfig,
 	loadGlobalConfig,
 	saveGlobalConfig,
-} from "../../config.js";
-import { validateSyncFilePattern } from "../../file-sync.js";
-import { detectRepository } from "../../repo.js";
+} from "../../infrastructure/persistence/config.js";
+import { detectRepository } from "../../infrastructure/repository/context.js";
 
 export interface SyncFilesCommandOptions {
 	action?: string;

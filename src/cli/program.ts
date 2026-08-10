@@ -1,9 +1,8 @@
 import { createRequire } from "node:module";
 import { Command } from "commander";
 import updateNotifier from "update-notifier";
-import { isHeadless } from "../headless.js";
-import { detectRepository } from "../repo.js";
-import { registerRepo } from "../repo-registry.js";
+import { detectRepository } from "../infrastructure/repository/context.js";
+import { registerRepo } from "../infrastructure/repository/registry.js";
 import { runBackCommand } from "./commands/back.js";
 import { runCleanCommand } from "./commands/clean.js";
 import { runCompletionCommand } from "./commands/completion.js";
@@ -31,6 +30,7 @@ import { runSyncFilesCommand } from "./commands/sync-files-command.js";
 import { runTaskCommand } from "./commands/task-command.js";
 import { runUndoCommand } from "./commands/undo.js";
 import { runWarpCommand } from "./commands/warp.js";
+import { isHeadless } from "./runtime/headless.js";
 
 interface PackageMetadata {
 	name: string;

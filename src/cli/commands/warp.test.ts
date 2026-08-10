@@ -3,13 +3,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
-import { HISTORY_FILE_PATH } from "../../history.js";
+import { HISTORY_FILE_PATH } from "../../infrastructure/persistence/history.js";
+import { registerRepo } from "../../infrastructure/repository/registry.js";
 import {
 	addLinkedWorktree,
 	createRepository,
 	currentBranch,
-} from "../../repo.test-helpers.js";
-import { registerRepo } from "../../repo-registry.js";
+} from "../../test-support/repository.js";
 import { resolveWarpTarget, runWarpCommand } from "./warp.js";
 
 const originalConfigDir = process.env.GJI_CONFIG_DIR;

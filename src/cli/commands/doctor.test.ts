@@ -3,9 +3,12 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
-import { GLOBAL_CONFIG_FILE_PATH } from "../../config.js";
-import { createRepository } from "../../repo.test-helpers.js";
-import { loadRegistry, REGISTRY_FILE_PATH } from "../../repo-registry.js";
+import { GLOBAL_CONFIG_FILE_PATH } from "../../infrastructure/persistence/config.js";
+import {
+	loadRegistry,
+	REGISTRY_FILE_PATH,
+} from "../../infrastructure/repository/registry.js";
+import { createRepository } from "../../test-support/repository.js";
 import { runCli } from "../program.js";
 import { runDoctorCommand } from "./doctor.js";
 

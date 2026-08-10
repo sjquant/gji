@@ -3,14 +3,14 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
-import { saveLocalConfig } from "../../config.js";
+import { saveLocalConfig } from "../../infrastructure/persistence/config.js";
 import {
 	addLinkedWorktree,
 	commitFile,
 	createRepository,
 	pathExists,
 	runGit,
-} from "../../repo.test-helpers.js";
+} from "../../test-support/repository.js";
 import { runDoneCommand } from "./done.js";
 
 afterEach(() => {

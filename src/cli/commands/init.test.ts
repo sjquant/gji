@@ -16,7 +16,7 @@ const promptMocks = vi.hoisted(() => ({
 
 vi.mock("@clack/prompts", () => promptMocks);
 
-import { GLOBAL_CONFIG_FILE_PATH } from "../../config.js";
+import { GLOBAL_CONFIG_FILE_PATH } from "../../infrastructure/persistence/config.js";
 import { runCli } from "../program.js";
 import { runInitCommand } from "./init.js";
 

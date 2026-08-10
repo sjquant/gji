@@ -1,14 +1,12 @@
 import { basename } from "node:path";
 
 import { confirm, isCancel } from "@clack/prompts";
-
-import { loadEffectiveConfig } from "../../config.js";
-import { isHeadless } from "../../headless.js";
-import { extractHooks, runHook } from "../../hooks.js";
-import type { WorktreeEntry } from "../../repo.js";
-import { writeShellOutput } from "../../shell-handoff.js";
-import { releaseWorktreeSlot } from "../../slots.js";
-import { loadLinkedWorktrees } from "../../worktree/catalog.js";
+import { loadLinkedWorktrees } from "../../application/worktree/catalog.js";
+import type { WorktreeEntry } from "../../domain/worktree/types.js";
+import { loadEffectiveConfig } from "../../infrastructure/persistence/config.js";
+import { releaseWorktreeSlot } from "../../infrastructure/persistence/slots.js";
+import { extractHooks, runHook } from "../../infrastructure/process/hooks.js";
+import { repositoryPort } from "../../infrastructure/repository/adapters.js";
 import {
 	deleteBranch,
 	forceDeleteBranch,
@@ -16,16 +14,18 @@ import {
 	isBranchUnmergedError,
 	isWorktreeForceRemovalError,
 	removeWorktree,
-} from "../../worktree/lifecycle.js";
+} from "../../infrastructure/worktree/lifecycle.js";
+import { writeShellOutput } from "../../presentation/shell/handoff.js";
 import {
 	buildWorktreePromptEntries,
 	promptForSingleWorktree,
 	type WorktreePromptEntry,
-} from "../../worktree/picker.js";
+} from "../../presentation/worktree/picker.js";
 import {
 	defaultConfirmForceDeleteBranch,
 	defaultConfirmForceRemoveWorktree,
-} from "../../worktree/prompts.js";
+} from "../../presentation/worktree/prompts.js";
+import { isHeadless } from "../runtime/headless.js";
 import { finalizeUndoOperation, recordUndoOperation } from "./undo.js";
 
 export interface RemoveCommandOptions {
@@ -66,6 +66,7 @@ export function createRemoveCommand(
 	): Promise<number> {
 		const { linkedWorktrees, repository } = await loadLinkedWorktrees(
 			options.cwd,
+			repositoryPort,
 		);
 
 		if (linkedWorktrees.length === 0) {

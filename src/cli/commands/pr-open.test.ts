@@ -1,9 +1,9 @@
 import { afterEach, describe, expect, it } from "vitest";
-import type { PullRequestInfo } from "../../pull-requests.js";
+import type { PullRequestInfo } from "../../infrastructure/integrations/pull-requests.js";
 import {
 	addLinkedWorktree,
 	createRepository,
-} from "../../repo.test-helpers.js";
+} from "../../test-support/repository.js";
 import { createPrOpenCommand } from "./pr-open.js";
 
 afterEach(() => {

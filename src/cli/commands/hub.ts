@@ -2,25 +2,26 @@ import { basename } from "node:path";
 import { stdin, stdout } from "node:process";
 
 import { spinner } from "@clack/prompts";
-import { loadHistory } from "../../history.js";
+import { listDiscoverableWorktreeSources } from "../../application/worktree/sources.js";
+import type { WorktreeSource } from "../../domain/worktree/source.js";
 import {
 	createPullRequestQuery,
 	type PullRequestInfo,
-} from "../../pull-requests.js";
-import { detectRepository } from "../../repo.js";
-import {
-	middleEllipsize,
-	sanitizeTerminalText,
-	terminalWidth,
-} from "../../terminal-text.js";
+} from "../../infrastructure/integrations/pull-requests.js";
+import { loadHistory } from "../../infrastructure/persistence/history.js";
+import { repositoryPort } from "../../infrastructure/repository/adapters.js";
+import { detectRepository } from "../../infrastructure/repository/context.js";
 import {
 	formatRelativeAge,
 	formatUpstreamState,
 	readWorktreeInfos,
 	type WorktreeInfo,
-} from "../../worktree/info.js";
-import type { WorktreeSource } from "../../worktree/source.js";
-import { listDiscoverableWorktreeSources } from "../../worktree/sources.js";
+} from "../../infrastructure/worktree/info.js";
+import {
+	middleEllipsize,
+	sanitizeTerminalText,
+	terminalWidth,
+} from "../../presentation/terminal/text.js";
 
 const MAX_HUB_REPOSITORY_CONCURRENCY = 4;
 
@@ -72,7 +73,7 @@ export async function buildHubData(
 	const lastUsedByPath = new Map(
 		history.map((entry) => [entry.path, entry.timestamp]),
 	);
-	const sources = await listDiscoverableWorktreeSources(cwd);
+	const sources = await listDiscoverableWorktreeSources(cwd, repositoryPort);
 	const groups = new Map<string, { name: string; sources: WorktreeSource[] }>();
 
 	for (const source of sources) {

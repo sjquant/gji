@@ -2,7 +2,8 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { basename, join } from "node:path";
 
 import { describe, expect, it } from "vitest";
-import { resolveWorktreePath } from "../../repo.js";
+import { parsePrInput } from "../../domain/worktree/pr-reference.js";
+import { resolveWorktreePath } from "../../infrastructure/repository/worktrees.js";
 import {
 	addLinkedWorktree,
 	commitFile,
@@ -12,8 +13,7 @@ import {
 	pathExists,
 	pushPullRequestRef,
 	runGit,
-} from "../../repo.test-helpers.js";
-import { parsePrInput } from "../../worktree/pr-reference.js";
+} from "../../test-support/repository.js";
 import { runCli } from "../program.js";
 import { createPrCommand, runPrCommand } from "./pr.js";
 

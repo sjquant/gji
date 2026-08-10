@@ -6,30 +6,33 @@ import { basename, dirname, join } from "node:path";
 import { promisify } from "node:util";
 
 import { confirm, isCancel } from "@clack/prompts";
-
+import type { RepositoryContext } from "../../domain/repository/context.js";
+import { EDITORS } from "../../infrastructure/integrations/editor.js";
 import {
 	CONFIG_FILE_NAME,
 	type GjiConfig,
 	GLOBAL_CONFIG_FILE_PATH,
 	KNOWN_CONFIG_KEYS,
 	KNOWN_GLOBAL_CONFIG_KEYS,
-} from "../../config.js";
-import { EDITORS } from "../../editor.js";
-import { isHeadless } from "../../headless.js";
-import { detectRepository, type RepositoryContext } from "../../repo.js";
+} from "../../infrastructure/persistence/config.js";
+import { loadSlots } from "../../infrastructure/persistence/slots.js";
+import { detectRepository } from "../../infrastructure/repository/context.js";
 import {
 	loadRegistry,
 	REGISTRY_FILE_PATH,
 	removeMissingRegistryEntries,
-} from "../../repo-registry.js";
-import { resolveSupportedShell, type SupportedShell } from "../../shell.js";
+} from "../../infrastructure/repository/registry.js";
 import {
 	executableExists,
 	hasShellIntegration,
 	resolveCompletionPath,
 	resolveShellConfigPath,
-} from "../../shell-setup.js";
-import { loadSlots } from "../../slots.js";
+} from "../../presentation/shell/setup.js";
+import {
+	resolveSupportedShell,
+	type SupportedShell,
+} from "../../presentation/shell/shell.js";
+import { isHeadless } from "../runtime/headless.js";
 
 const execFileAsync = promisify(execFile);
 const MINIMUM_GIT_VERSION = { major: 2, minor: 17 };
