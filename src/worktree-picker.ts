@@ -87,7 +87,7 @@ export async function buildWorktreePromptEntries(
 	dependencies: BuildWorktreePromptEntriesDependencies = {},
 ): Promise<WorktreePromptEntry[]> {
 	const loading =
-		stdin.isTTY === true && stdout.isTTY === true
+		stdin.isTTY === true && stdout.isTTY === true && stdin.isRaw !== true
 			? spinner({ indicator: "timer" })
 			: null;
 	loading?.start("Loading worktrees");
@@ -461,6 +461,7 @@ class SearchablePrompt {
 	private selected = new Set<string>();
 	private scope: WorktreePromptScope | undefined;
 	private scopeTogglePending = false;
+	private promptClosed = false;
 	private readonly prompt: WorktreeCorePrompt;
 
 	constructor(
@@ -508,6 +509,8 @@ class SearchablePrompt {
 			return;
 		}
 
+		if (this.scopeTogglePending) return;
+
 		if (action === "escape") {
 			this.handleEscapeKey(prompt);
 			return;
@@ -523,13 +526,13 @@ class SearchablePrompt {
 			return;
 		}
 
-		if (this.searchActive && this.handleSearchKey(character, key?.name)) {
+		if (this.searchActive && this.handleSearchKey(character, key)) {
 			this.syncValue();
 			renderPrompt(prompt);
 			return;
 		}
 
-		if (character === "/" && !this.searchActive) {
+		if (isSearchToggleKey(character, key) && !this.searchActive) {
 			this.searchActive = true;
 			this.query = "";
 			this.cursor = this.firstSelectableIndex();
@@ -552,6 +555,8 @@ class SearchablePrompt {
 
 		try {
 			const nextScope = await currentScope.toggle();
+			if (this.promptClosed) return;
+
 			this.entries = nextScope.entries.map(buildSearchableWorktreeEntry);
 			this.scope = {
 				label: nextScope.label,
@@ -562,12 +567,14 @@ class SearchablePrompt {
 			this.cursor = this.firstSelectableIndex();
 			this.syncValue();
 		} catch (error) {
+			if (this.promptClosed) return;
+
 			prompt.error =
 				error instanceof Error ? error.message : "Could not load worktrees";
 			prompt.state = "error";
 		} finally {
 			this.scopeTogglePending = false;
-			renderPrompt(prompt);
+			if (!this.promptClosed) renderPrompt(prompt);
 		}
 	}
 
@@ -585,6 +592,7 @@ class SearchablePrompt {
 	}
 
 	private cancel(prompt: WorktreeCorePrompt): void {
+		this.promptClosed = true;
 		prompt.state = "cancel";
 		renderPrompt(prompt);
 		closePrompt(prompt);
@@ -592,9 +600,11 @@ class SearchablePrompt {
 
 	private handleSearchKey(
 		character: string | undefined,
-		keyName?: string,
+		key?: { ctrl?: boolean; name?: string; sequence?: string },
 	): boolean {
-		if (keyName === "space" || character === " ") {
+		const keyName = key?.name;
+		const input = character ?? key?.sequence;
+		if (keyName === "space" || input === " ") {
 			return false;
 		}
 
@@ -604,8 +614,8 @@ class SearchablePrompt {
 			return true;
 		}
 
-		if (isPrintableSearchCharacter(character)) {
-			this.query += character;
+		if (isPrintableSearchCharacter(input)) {
+			this.query += input;
 			this.cursor = this.firstSelectableIndex();
 			return true;
 		}
@@ -660,6 +670,7 @@ class SearchablePrompt {
 		const entry = this.visibleEntries()[this.cursor];
 
 		if (!this.options.multiple) {
+			this.promptClosed = true;
 			prompt.value = isSelectableEntry(entry) ? entry.value : null;
 			prompt.state = "submit";
 			renderPrompt(prompt);
@@ -675,6 +686,7 @@ class SearchablePrompt {
 		}
 
 		prompt.value = [...this.selected];
+		this.promptClosed = true;
 		prompt.state = "submit";
 		renderPrompt(prompt);
 		closePrompt(prompt);
@@ -1019,7 +1031,14 @@ function isScopeToggleKey(
 	character: string | undefined,
 	key?: { ctrl?: boolean; name?: string; sequence?: string },
 ): boolean {
-	return key?.name === "tab" || character === "\t";
+	return key?.name === "tab" || character === "\t" || key?.sequence === "\t";
+}
+
+function isSearchToggleKey(
+	character: string | undefined,
+	key?: { ctrl?: boolean; name?: string; sequence?: string },
+): boolean {
+	return character === "/" || key?.sequence === "/";
 }
 
 function resolvePromptAction(

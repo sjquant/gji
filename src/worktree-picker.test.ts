@@ -10,6 +10,7 @@ import {
 	promptForSingleWorktree,
 	type WorktreePickerIO,
 	type WorktreePromptEntry,
+	type WorktreePromptScopeResult,
 } from "./worktree-picker.js";
 
 describe("worktree picker search", () => {
@@ -276,6 +277,28 @@ describe("worktree picker search", () => {
 		expect(output.text()).toContain("/auth");
 	});
 
+	it("filters when the terminal reports printable keys through sequences", async () => {
+		// Given a searchable worktree picker with two branches.
+		const { input, output } = createPromptIO();
+		const worktrees = [
+			worktreeEntry("feature/billing", "/repo/billing"),
+			worktreeEntry("feature/auth", "/repo/auth"),
+		];
+		const choice = promptForSingleWorktree("Choose a worktree", worktrees, {
+			input,
+			output,
+		});
+
+		// When the terminal omits character values and supplies key sequences instead.
+		for (const sequence of ["/", "a", "u", "t", "h"]) {
+			input.emit("keypress", undefined, { sequence });
+		}
+		input.emit("keypress", undefined, { name: "return", sequence: "\r" });
+
+		// Then slash search still filters to the matching worktree.
+		expect(await choice).toBe("/repo/auth");
+	});
+
 	it("toggles from the current repository to all repositories with Tab", async () => {
 		// Given a scoped worktree picker with a worktree outside the initial repository.
 		const { input, output } = createPromptIO();
@@ -308,6 +331,51 @@ describe("worktree picker search", () => {
 		expect(await choice).toBe(global.path);
 		expect(toggleCount).toBe(1);
 		expect(output.text()).toContain("all repositories");
+	});
+
+	it("keeps the picker open when Enter arrives during a scope reload", async () => {
+		// Given a scoped picker whose all-repositories reload is still pending.
+		const { input, output } = createPromptIO();
+		const current = worktreeEntry("feature/current", "/repo/current");
+		const global = worktreeEntry("feature/other", "/other/feature");
+		let resolveToggle!: (result: WorktreePromptScopeResult) => void;
+		const reload = new Promise<WorktreePromptScopeResult>((resolve) => {
+			resolveToggle = resolve;
+		});
+		let selected = false;
+		const choice = promptForSingleWorktree("Choose a worktree", [current], {
+			input,
+			output,
+			scope: {
+				label: "current repository",
+				toggleLabel: "all repositories",
+				toggle: () => reload,
+			},
+		});
+		void choice.then(() => {
+			selected = true;
+		});
+
+		// When Enter arrives before the new scope has finished loading.
+		input.write("\t");
+		await nextTick();
+		input.write("\r");
+		await nextTick();
+
+		// Then Enter does not close the picker on the stale scope.
+		expect(selected).toBe(false);
+
+		// When the reload finishes and the user submits again.
+		resolveToggle({
+			entries: [global],
+			label: "all repositories",
+			toggleLabel: "current repository",
+		});
+		await nextTick();
+		input.write("\r");
+
+		// Then the newly loaded scope can be selected normally.
+		expect(await choice).toBe(global.path);
 	});
 
 	it("filters multi-select choices after slash search", async () => {
