@@ -461,6 +461,7 @@ class SearchablePrompt {
 	private selected = new Set<string>();
 	private scope: WorktreePromptScope | undefined;
 	private scopeTogglePending = false;
+	private promptClosed = false;
 	private readonly prompt: WorktreeCorePrompt;
 
 	constructor(
@@ -508,6 +509,8 @@ class SearchablePrompt {
 			return;
 		}
 
+		if (this.scopeTogglePending) return;
+
 		if (action === "escape") {
 			this.handleEscapeKey(prompt);
 			return;
@@ -552,6 +555,8 @@ class SearchablePrompt {
 
 		try {
 			const nextScope = await currentScope.toggle();
+			if (this.promptClosed) return;
+
 			this.entries = nextScope.entries.map(buildSearchableWorktreeEntry);
 			this.scope = {
 				label: nextScope.label,
@@ -562,12 +567,14 @@ class SearchablePrompt {
 			this.cursor = this.firstSelectableIndex();
 			this.syncValue();
 		} catch (error) {
+			if (this.promptClosed) return;
+
 			prompt.error =
 				error instanceof Error ? error.message : "Could not load worktrees";
 			prompt.state = "error";
 		} finally {
 			this.scopeTogglePending = false;
-			renderPrompt(prompt);
+			if (!this.promptClosed) renderPrompt(prompt);
 		}
 	}
 
@@ -585,6 +592,7 @@ class SearchablePrompt {
 	}
 
 	private cancel(prompt: WorktreeCorePrompt): void {
+		this.promptClosed = true;
 		prompt.state = "cancel";
 		renderPrompt(prompt);
 		closePrompt(prompt);
@@ -662,6 +670,7 @@ class SearchablePrompt {
 		const entry = this.visibleEntries()[this.cursor];
 
 		if (!this.options.multiple) {
+			this.promptClosed = true;
 			prompt.value = isSelectableEntry(entry) ? entry.value : null;
 			prompt.state = "submit";
 			renderPrompt(prompt);
@@ -677,6 +686,7 @@ class SearchablePrompt {
 		}
 
 		prompt.value = [...this.selected];
+		this.promptClosed = true;
 		prompt.state = "submit";
 		renderPrompt(prompt);
 		closePrompt(prompt);
