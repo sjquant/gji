@@ -1,13 +1,11 @@
-import { defaultCliDependencies } from "../dependencies.js";
-
-const { clearTask, readTask, writeTask } = defaultCliDependencies.tasks;
-const { detectRepository } = defaultCliDependencies.repositoryContext;
+import { type CliRuntime, defaultCliDependencies } from "../dependencies.js";
 
 export interface TaskCommandOptions {
 	clear?: boolean;
 	cwd: string;
 	json?: boolean;
 	task?: string;
+	runtime?: CliRuntime<"tasks" | "repositoryContext">;
 	stderr: (chunk: string) => void;
 	stdout: (chunk: string) => void;
 }
@@ -15,6 +13,9 @@ export interface TaskCommandOptions {
 export async function runTaskCommand(
 	options: TaskCommandOptions,
 ): Promise<number> {
+	const runtime = options.runtime ?? defaultCliDependencies;
+	const { clearTask, readTask, writeTask } = runtime.tasks;
+	const { detectRepository } = runtime.repositoryContext;
 	const repository = await detectRepository(options.cwd);
 	if (options.clear && options.task !== undefined)
 		return emitTaskError(options, "--clear cannot be combined with a task");

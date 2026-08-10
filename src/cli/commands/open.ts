@@ -14,17 +14,11 @@ import {
 	type WorktreePromptEntry,
 } from "../../presentation/worktree/picker.js";
 import {
+	type CliRuntime,
 	defaultCliDependencies,
 	withPullRequestQueries,
 } from "../dependencies.js";
 import { isHeadless } from "../runtime/headless.js";
-
-const { recordWorktreeUsage } = defaultCliDependencies.history;
-const { detectRepository } = defaultCliDependencies.repositoryContext;
-const { listWorktrees } = defaultCliDependencies.worktrees;
-const { defaultSpawnEditor, EDITORS } = defaultCliDependencies.integrations;
-const { loadEffectiveConfig, resolveConfigString, updateGlobalConfigKey } =
-	defaultCliDependencies.configStore;
 
 export type { EditorDefinition };
 
@@ -36,6 +30,14 @@ export interface OpenCommandOptions {
 	editor?: string;
 	save?: boolean;
 	select?: boolean;
+	runtime?: CliRuntime<
+		| "history"
+		| "repositoryContext"
+		| "worktrees"
+		| "integrations"
+		| "configStore"
+		| "worktreeCatalog"
+	>;
 	stderr: (chunk: string) => void;
 	stdout: (chunk: string) => void;
 	workspace?: boolean;
@@ -54,16 +56,25 @@ export interface OpenCommandDependencies {
 export function createOpenCommand(
 	dependencies: Partial<OpenCommandDependencies> = {},
 ): (options: OpenCommandOptions) => Promise<number> {
-	const detectEditors = dependencies.detectEditors ?? detectInstalledEditors;
 	const promptForEditor =
 		dependencies.promptForEditor ?? defaultPromptForEditor;
 	const promptForWorktree =
 		dependencies.promptForWorktree ?? defaultPromptForWorktree;
-	const spawnEditor = dependencies.spawnEditor ?? defaultSpawnEditor;
 
 	return async function runOpenCommand(
 		options: OpenCommandOptions,
 	): Promise<number> {
+		const runtime = options.runtime ?? defaultCliDependencies;
+		const { recordWorktreeUsage } = runtime.history;
+		const { detectRepository } = runtime.repositoryContext;
+		const { listWorktrees } = runtime.worktrees;
+		const { defaultSpawnEditor, EDITORS } = runtime.integrations;
+		const detectEditors =
+			dependencies.detectEditors ?? (() => detectInstalledEditors(EDITORS));
+		const { loadEffectiveConfig, resolveConfigString, updateGlobalConfigKey } =
+			runtime.configStore;
+		const spawnEditorWithRuntime =
+			dependencies.spawnEditor ?? defaultSpawnEditor;
 		if (options.select && options.branch !== undefined) {
 			options.stderr("gji open: --select cannot be used with a branch\n");
 			return 1;
@@ -117,7 +128,7 @@ export function createOpenCommand(
 				})),
 				{
 					catalog: withPullRequestQueries(
-						defaultCliDependencies,
+						runtime,
 						dependencies.queryPullRequests,
 					),
 				},
@@ -194,7 +205,7 @@ export function createOpenCommand(
 		args.push(openTarget);
 
 		try {
-			await spawnEditor(editorCli, args);
+			await spawnEditorWithRuntime(editorCli, args);
 		} catch (error) {
 			const message = error instanceof Error ? error.message : String(error);
 			options.stderr(`gji open: failed to launch editor: ${message}\n`);
@@ -210,9 +221,11 @@ export function createOpenCommand(
 
 export const runOpenCommand = createOpenCommand();
 
-async function detectInstalledEditors(): Promise<EditorDefinition[]> {
+async function detectInstalledEditors(
+	editors: readonly EditorDefinition[],
+): Promise<EditorDefinition[]> {
 	const results = await Promise.all(
-		EDITORS.map(async (editor) => ({
+		editors.map(async (editor) => ({
 			editor,
 			available: await isCommandAvailable(editor.cli),
 		})),

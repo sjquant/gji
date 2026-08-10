@@ -17,6 +17,7 @@ import {
 } from "../../presentation/terminal/navigation.js";
 import {
 	type CliDependencies,
+	type CliRuntime,
 	defaultCliDependencies,
 } from "../dependencies.js";
 import { isHeadless } from "../runtime/headless.js";
@@ -34,8 +35,12 @@ export interface PrCommandOptions {
 	outputEnv?: string;
 	stderr: (chunk: string) => void;
 	stdout: (chunk: string) => void;
-	runtime?: CliDependencies;
+	runtime?: PrRuntime;
 }
+
+type PrRuntime = CliRuntime<
+	"bootstrap" | "configStore" | "git" | "history" | "repositoryContext"
+>;
 
 export interface PrCommandDependencies {
 	promptForPathConflict: (path: string) => Promise<PathConflictChoice>;
@@ -216,7 +221,6 @@ export function createPrCommand(
 			runCommand: dependencies.runCommand,
 			commandStdout: options.json ? () => undefined : options.stdout,
 			commandStderr: options.json ? () => undefined : options.stderr,
-			json: options.json,
 			worktreePath,
 		});
 		if (!bootstrap.ready) {
@@ -263,7 +267,7 @@ export function createPrCommand(
 async function localBranchExists(
 	repoRoot: string,
 	branchName: string,
-	runtime: CliDependencies,
+	runtime: PrRuntime,
 ): Promise<boolean> {
 	try {
 		await runtime.git.runGit(repoRoot, [
@@ -285,7 +289,7 @@ async function fetchPullRequestRef(
 	input: string,
 	prNumber: string,
 	remoteRef: string,
-	runtime: CliDependencies,
+	runtime: PrRuntime,
 ): Promise<void> {
 	for (const sourceRef of listPullRequestSourceRefs(input, prNumber)) {
 		try {

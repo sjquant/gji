@@ -1,18 +1,19 @@
-import { defaultCliDependencies } from "../dependencies.js";
+import { type CliRuntime, defaultCliDependencies } from "../dependencies.js";
 import { formatHistoryList } from "./back.js";
-
-const { loadHistory } = defaultCliDependencies.historyStore;
 
 export interface HistoryCommandOptions {
 	cwd: string;
 	home?: string;
 	json?: boolean;
+	runtime?: CliRuntime<"historyStore">;
 	stdout: (chunk: string) => void;
 }
 
 export async function runHistoryCommand(
 	options: HistoryCommandOptions,
 ): Promise<number> {
+	const { loadHistory } = (options.runtime ?? defaultCliDependencies)
+		.historyStore;
 	const history = await loadHistory(options.home);
 
 	if (options.json) {

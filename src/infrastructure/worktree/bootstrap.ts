@@ -34,7 +34,7 @@ export async function bootstrapWorktree(
 			await syncFiles(options.repoRoot, options.worktreePath, [pattern]);
 		} catch (error) {
 			const message = `failed to sync file "${pattern}": ${toErrorMessage(error)}`;
-			if (!options.json) options.reporter.write(`Warning: ${message}\n`);
+			options.commandStderr?.(`Warning: ${message}\n`);
 			syncFileFailures.push({
 				adapter: "syncFiles",
 				kind: "sync-file",
@@ -54,7 +54,7 @@ export async function bootstrapWorktree(
 			? { mode: dependencyMode, ready: false, events: [] }
 			: await executeDependencyBootstrap(dependencyPlan, {
 					reporter: options.reporter,
-					stderr: options.commandStderr ?? options.reporter.write,
+					stderr: options.commandStderr,
 					stdout: options.commandStdout,
 					runCommand: options.runCommand,
 				});
@@ -78,10 +78,8 @@ export async function bootstrapWorktree(
 			repo: basename(options.repoRoot),
 			slot,
 		},
-		options.reporter.write,
-		options.json
-			? () => undefined
-			: (options.commandStdout ?? ((chunk) => process.stdout.write(chunk))),
+		options.commandStderr ?? (() => undefined),
+		options.commandStdout ?? (() => undefined),
 	);
 
 	return {

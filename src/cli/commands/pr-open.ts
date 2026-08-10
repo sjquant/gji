@@ -11,14 +11,12 @@ import {
 	type WorktreePromptEntry,
 } from "../../presentation/worktree/picker.js";
 import {
+	type CliDependencies,
+	type CliRuntime,
 	defaultCliDependencies,
 	withPullRequestQueries,
 } from "../dependencies.js";
 import { isHeadless } from "../runtime/headless.js";
-
-const { openBrowser } = defaultCliDependencies.integrations;
-const { detectRepository } = defaultCliDependencies.repositoryContext;
-const { listWorktrees } = defaultCliDependencies.worktrees;
 
 export interface PrOpenCommandOptions {
 	cwd: string;
@@ -26,6 +24,13 @@ export interface PrOpenCommandOptions {
 	stdout: (chunk: string) => void;
 	select?: boolean;
 	target?: string;
+	runtime?: CliRuntime<
+		| "pullRequests"
+		| "repositoryContext"
+		| "worktrees"
+		| "integrations"
+		| "worktreeCatalog"
+	>;
 }
 
 export interface PrOpenCommandDependencies {
@@ -47,25 +52,28 @@ export interface PrOpenCommandDependencies {
 export function createPrOpenCommand(
 	dependencies: Partial<PrOpenCommandDependencies> = {},
 ): (options: PrOpenCommandOptions) => Promise<number> {
-	const query = defaultCliDependencies.pullRequests;
-	const findOpenPullRequest =
-		dependencies.findOpenPullRequest ?? query.findOpenPullRequest;
-	const openInBrowser = dependencies.openBrowser ?? openBrowser;
 	const promptForPullRequest =
 		dependencies.promptForPullRequest ?? defaultPromptForPullRequest;
 	const promptForWorktree =
 		dependencies.promptForWorktree ?? defaultPromptForWorktree;
-	const queryPullRequests =
-		dependencies.queryPullRequests ?? query.listOpenPullRequests;
-	const queryRepositoryPullRequests =
-		dependencies.queryRepositoryPullRequests ??
-		(dependencies.queryPullRequests === undefined
-			? query.listOpenPullRequestsForRepository
-			: undefined);
-
 	return async function runPrOpenCommand(
 		options: PrOpenCommandOptions,
 	): Promise<number> {
+		const runtime = options.runtime ?? defaultCliDependencies;
+		const query = runtime.pullRequests;
+		const { detectRepository } = runtime.repositoryContext;
+		const { listWorktrees } = runtime.worktrees;
+		const openInBrowser =
+			dependencies.openBrowser ?? runtime.integrations.openBrowser;
+		const findOpenPullRequest =
+			dependencies.findOpenPullRequest ?? query.findOpenPullRequest;
+		const queryPullRequests =
+			dependencies.queryPullRequests ?? query.listOpenPullRequests;
+		const queryRepositoryPullRequests =
+			dependencies.queryRepositoryPullRequests ??
+			(dependencies.queryPullRequests === undefined
+				? query.listOpenPullRequestsForRepository
+				: undefined);
 		if (options.select && options.target !== undefined) {
 			options.stderr("gji pr open: --select cannot be used with a target\n");
 			return 1;
@@ -91,6 +99,7 @@ export function createPrOpenCommand(
 				return openCurrentWorktree(
 					repository.repoRoot,
 					options,
+					listWorktrees,
 					queryPullRequests,
 					promptForPullRequest,
 					openInBrowser,
@@ -101,11 +110,13 @@ export function createPrOpenCommand(
 				repository.repoRoot,
 				repository.repoName,
 				options,
+				listWorktrees,
 				promptForWorktree,
 				promptForPullRequest,
 				queryPullRequests,
 				queryRepositoryPullRequests,
 				openInBrowser,
+				runtime,
 			);
 		}
 
@@ -159,6 +170,7 @@ export const runPrOpenCommand = createPrOpenCommand();
 async function openCurrentWorktree(
 	repoRoot: string,
 	options: PrOpenCommandOptions,
+	listWorktrees: CliDependencies["worktrees"]["listWorktrees"],
 	queryPullRequests: QueryWorktreePullRequests,
 	promptForPullRequest: PrOpenCommandDependencies["promptForPullRequest"],
 	openInBrowser: (url: string) => Promise<void>,
@@ -215,11 +227,19 @@ async function openFromWorktreeSelector(
 	repoRoot: string,
 	repoName: string,
 	options: PrOpenCommandOptions,
+	listWorktrees: CliDependencies["worktrees"]["listWorktrees"],
 	promptForWorktree: PrOpenCommandDependencies["promptForWorktree"],
 	promptForPullRequest: PrOpenCommandDependencies["promptForPullRequest"],
 	queryPullRequests: QueryWorktreePullRequests,
 	queryRepositoryPullRequests: QueryRepositoryPullRequests | undefined,
 	openInBrowser: (url: string) => Promise<void>,
+	runtime: CliRuntime<
+		| "pullRequests"
+		| "repositoryContext"
+		| "worktrees"
+		| "integrations"
+		| "worktreeCatalog"
+	>,
 ): Promise<number> {
 	const worktrees = await listWorktrees(options.cwd).catch((error) => {
 		options.stderr(
@@ -266,7 +286,7 @@ async function openFromWorktreeSelector(
 	const { pullRequestsByBranch, sources } = connectedWorktrees;
 	const entries = await buildWorktreePromptEntries(sources, {
 		catalog: withPullRequestQueries(
-			defaultCliDependencies,
+			runtime,
 			async (_root, branch) => pullRequestsByBranch.get(branch) ?? [],
 		),
 	});

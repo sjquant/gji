@@ -1,31 +1,13 @@
 import { basename } from "node:path";
 import { confirm, isCancel } from "@clack/prompts";
 import { writeShellOutput } from "../../presentation/shell/handoff.js";
-import { defaultCliDependencies } from "../dependencies.js";
+import {
+	type CliDependencies,
+	type CliRuntime,
+	defaultCliDependencies,
+} from "../dependencies.js";
 import { isHeadless } from "../runtime/headless.js";
 import { finalizeUndoOperation, recordUndoOperation } from "./undo.js";
-
-const {
-	readWorktreeHealth,
-	isBranchMergedInto,
-	resolveRemoteDefaultBranch,
-	runGit,
-} = defaultCliDependencies.git;
-const { loadEffectiveConfig, resolveConfigString } =
-	defaultCliDependencies.config;
-const { loadHistory } = defaultCliDependencies.historyStore;
-const { releaseWorktreeSlot } = defaultCliDependencies.slots;
-const { extractHooks, runHook } = defaultCliDependencies.hooks;
-const { detectRepository } = defaultCliDependencies.repositoryContext;
-const { listWorktrees } = defaultCliDependencies.worktrees;
-const {
-	deleteBranch,
-	forceDeleteBranch,
-	forceRemoveWorktree,
-	isBranchUnmergedError,
-	isWorktreeForceRemovalError,
-	removeWorktree,
-} = defaultCliDependencies.worktreeLifecycle;
 
 const DONE_OUTPUT_FILE_ENV = "GJI_DONE_OUTPUT_FILE";
 export interface DoneCommandOptions {
@@ -34,6 +16,17 @@ export interface DoneCommandOptions {
 	force?: boolean;
 	json?: boolean;
 	keepBranch?: boolean;
+	runtime?: CliRuntime<
+		| "git"
+		| "config"
+		| "configStore"
+		| "historyStore"
+		| "slots"
+		| "hooks"
+		| "repositoryContext"
+		| "worktrees"
+		| "worktreeLifecycle"
+	>;
 	stderr: (chunk: string) => void;
 	stdout: (chunk: string) => void;
 }
@@ -41,6 +34,27 @@ export interface DoneCommandOptions {
 export async function runDoneCommand(
 	options: DoneCommandOptions,
 ): Promise<number> {
+	const runtime = options.runtime ?? defaultCliDependencies;
+	const {
+		readWorktreeHealth,
+		isBranchMergedInto,
+		resolveRemoteDefaultBranch,
+		runGit,
+	} = runtime.git;
+	const { loadEffectiveConfig, resolveConfigString } = runtime.config;
+	const { loadHistory } = runtime.historyStore;
+	const { releaseWorktreeSlot } = runtime.slots;
+	const { extractHooks, runHook } = runtime.hooks;
+	const { detectRepository } = runtime.repositoryContext;
+	const { listWorktrees } = runtime.worktrees;
+	const {
+		deleteBranch,
+		forceDeleteBranch,
+		forceRemoveWorktree,
+		isBranchUnmergedError,
+		isWorktreeForceRemovalError,
+		removeWorktree,
+	} = runtime.worktreeLifecycle;
 	const repository = await detectRepository(options.cwd);
 	if (!repository.isWorktree && !options.branch)
 		return doneError(options, "gji done: not inside a linked worktree");
@@ -65,7 +79,7 @@ export async function runDoneCommand(
 		undefined,
 		options.stderr,
 	);
-	await refreshUpstream(repository.repoRoot, target.path);
+	await refreshUpstream(repository.repoRoot, target.path, runGit);
 	const health = await readWorktreeHealth(target.path);
 	if (
 		target.branch &&
@@ -76,6 +90,10 @@ export async function runDoneCommand(
 			target.branch,
 			health,
 			config,
+			resolveConfigString,
+			resolveRemoteDefaultBranch,
+			isBranchMergedInto,
+			runGit,
 		))
 	) {
 		if (options.json || isHeadless())
@@ -107,7 +125,13 @@ export async function runDoneCommand(
 	}
 	let journal: Awaited<ReturnType<typeof recordUndoOperation>>;
 	try {
-		journal = await recordUndoOperation("done", repository.repoRoot, [target]);
+		journal = await recordUndoOperation(
+			"done",
+			repository.repoRoot,
+			[target],
+			undefined,
+			runtime,
+		);
 	} catch (error) {
 		return doneError(
 			options,
@@ -133,7 +157,12 @@ export async function runDoneCommand(
 		await removeWorktree(repository.repoRoot, target.path);
 	} catch (error) {
 		if (!isWorktreeForceRemovalError(error)) {
-			await finalizeUndoOperation(journal, []);
+			await finalizeUndoOperation(
+				journal,
+				[],
+				undefined,
+				runtime.configStore.GLOBAL_CONFIG_DIRECTORY,
+			);
 			return doneError(
 				options,
 				`Failed to remove worktree at ${target.path}: ${toMessage(error)}`,
@@ -141,7 +170,12 @@ export async function runDoneCommand(
 		}
 		if (!options.force) {
 			if (options.json || isHeadless()) {
-				await finalizeUndoOperation(journal, []);
+				await finalizeUndoOperation(
+					journal,
+					[],
+					undefined,
+					runtime.configStore.GLOBAL_CONFIG_DIRECTORY,
+				);
 				return doneError(
 					options,
 					"worktree requires force removal; use --force",
@@ -154,14 +188,24 @@ export async function runDoneCommand(
 				initialValue: false,
 			});
 			if (isCancel(choice) || !choice) {
-				await finalizeUndoOperation(journal, []);
+				await finalizeUndoOperation(
+					journal,
+					[],
+					undefined,
+					runtime.configStore.GLOBAL_CONFIG_DIRECTORY,
+				);
 				return doneError(options, "Aborted");
 			}
 		}
 		try {
 			await forceRemoveWorktree(repository.repoRoot, target.path);
 		} catch (forceError) {
-			await finalizeUndoOperation(journal, []);
+			await finalizeUndoOperation(
+				journal,
+				[],
+				undefined,
+				runtime.configStore.GLOBAL_CONFIG_DIRECTORY,
+			);
 			return doneError(
 				options,
 				`Failed to remove worktree at ${target.path}: ${toMessage(forceError)}`,
@@ -196,7 +240,12 @@ export async function runDoneCommand(
 			}
 		}
 	}
-	await finalizeUndoOperation(journal, [target]);
+	await finalizeUndoOperation(
+		journal,
+		[target],
+		undefined,
+		runtime.configStore.GLOBAL_CONFIG_DIRECTORY,
+	);
 	await releaseWorktreeSlot(target.path);
 	await runGit(repository.repoRoot, ["worktree", "prune"]).catch(
 		() => undefined,
@@ -204,7 +253,12 @@ export async function runDoneCommand(
 	const shouldMove =
 		options.branch === undefined || target.path === repository.currentRoot;
 	const movedTo = shouldMove
-		? await resolveDoneDestination(repository.repoRoot, target.path)
+		? await resolveDoneDestination(
+				repository.repoRoot,
+				target.path,
+				loadHistory,
+				runGit,
+			)
 		: null;
 	if (!options.json && movedTo)
 		await writeShellOutput(DONE_OUTPUT_FILE_ENV, movedTo, options.stdout);
@@ -224,8 +278,12 @@ export async function runDoneCommand(
 async function isSafeToComplete(
 	repoRoot: string,
 	branch: string,
-	health: Awaited<ReturnType<typeof readWorktreeHealth>>,
+	health: Awaited<ReturnType<CliDependencies["git"]["readWorktreeHealth"]>>,
 	config: Record<string, unknown>,
+	resolveConfigString: CliDependencies["config"]["resolveConfigString"],
+	resolveRemoteDefaultBranch: CliDependencies["git"]["resolveRemoteDefaultBranch"],
+	isBranchMergedInto: CliDependencies["git"]["isBranchMergedInto"],
+	runGit: CliDependencies["git"]["runGit"],
 ): Promise<boolean> {
 	if (health.upstreamGone) return true;
 	const remote = resolveConfigString(config, "syncRemote") ?? "origin";
@@ -235,7 +293,7 @@ async function isSafeToComplete(
 		(await resolveRemoteDefaultBranch(repoRoot, remote).catch(() => null));
 	if (remoteDefault) {
 		for (const base of [`${remote}/${remoteDefault}`, remoteDefault]) {
-			if (await gitRefExists(repoRoot, base))
+			if (await gitRefExists(repoRoot, base, runGit))
 				return isBranchMergedInto(repoRoot, branch, base).catch(() => false);
 		}
 		return false;
@@ -250,7 +308,11 @@ async function isSafeToComplete(
 		: isBranchMergedInto(repoRoot, branch, base).catch(() => false);
 }
 
-async function gitRefExists(repoRoot: string, ref: string): Promise<boolean> {
+async function gitRefExists(
+	repoRoot: string,
+	ref: string,
+	runGit: CliDependencies["git"]["runGit"],
+): Promise<boolean> {
 	try {
 		await runGit(repoRoot, ["rev-parse", "--verify", ref]);
 		return true;
@@ -262,6 +324,7 @@ async function gitRefExists(repoRoot: string, ref: string): Promise<boolean> {
 async function refreshUpstream(
 	repoRoot: string,
 	worktreePath: string,
+	runGit: CliDependencies["git"]["runGit"],
 ): Promise<void> {
 	const upstream = await runGit(worktreePath, [
 		"rev-parse",
@@ -278,6 +341,8 @@ async function refreshUpstream(
 async function resolveDoneDestination(
 	repoRoot: string,
 	removedPath: string,
+	loadHistory: CliDependencies["historyStore"]["loadHistory"],
+	runGit: CliDependencies["git"]["runGit"],
 ): Promise<string> {
 	const history = await loadHistory();
 	for (const entry of history) {

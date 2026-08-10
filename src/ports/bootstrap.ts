@@ -61,9 +61,8 @@ export interface WorktreeBootstrapOptions {
 	runCommand?: CommandRunner;
 	commandStdout?: (chunk: string) => void;
 	commandStderr?: (chunk: string) => void;
-	json?: boolean;
 	repoRoot: string;
-	reporter: DependencyBootstrapReporter & { write: (chunk: string) => void };
+	reporter: DependencyBootstrapReporter;
 	worktreePath: string;
 }
 

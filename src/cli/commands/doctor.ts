@@ -18,20 +18,12 @@ import {
 	resolveSupportedShell,
 	type SupportedShell,
 } from "../../presentation/shell/shell.js";
-import { defaultCliDependencies } from "../dependencies.js";
+import {
+	type CliDependencies,
+	type CliRuntime,
+	defaultCliDependencies,
+} from "../dependencies.js";
 import { isHeadless } from "../runtime/headless.js";
-
-const { EDITORS } = defaultCliDependencies.integrations;
-const { loadSlots } = defaultCliDependencies.slots;
-const { detectRepository } = defaultCliDependencies.repositoryContext;
-const {
-	CONFIG_FILE_NAME,
-	GLOBAL_CONFIG_FILE_PATH,
-	KNOWN_CONFIG_KEYS,
-	KNOWN_GLOBAL_CONFIG_KEYS,
-} = defaultCliDependencies.configStore;
-const { loadRegistry, REGISTRY_FILE_PATH, removeMissingRegistryEntries } =
-	defaultCliDependencies.registry;
 
 const execFileAsync = promisify(execFile);
 const MINIMUM_GIT_VERSION = { major: 2, minor: 17 };
@@ -69,6 +61,9 @@ export interface DoctorCommandOptions {
 	confirmFixes?: (fixes: DoctorFix[]) => Promise<boolean>;
 	shell?: string;
 	yes?: boolean;
+	runtime?: CliRuntime<
+		"integrations" | "slots" | "repositoryContext" | "configStore" | "registry"
+	>;
 	stderr?: (chunk: string) => void;
 	stdout: (chunk: string) => void;
 }
@@ -86,6 +81,7 @@ interface DoctorInspection {
 export async function runDoctorCommand(
 	options: DoctorCommandOptions,
 ): Promise<number> {
+	const runtime = options.runtime ?? defaultCliDependencies;
 	if (options.yes && !options.fix) {
 		const message = "--yes requires --fix";
 		if (options.json) {
@@ -103,7 +99,12 @@ export async function runDoctorCommand(
 		undefined,
 		options.shell ?? process.env.SHELL,
 	);
-	let inspection = await collectDoctorInspection(options.cwd, home, shell);
+	let inspection = await collectDoctorInspection(
+		options.cwd,
+		home,
+		shell,
+		runtime,
+	);
 	let fixes: DoctorFix[] = [];
 
 	if (options.fix) {
@@ -111,7 +112,7 @@ export async function runDoctorCommand(
 		if (fixes.length > 0) {
 			const approval = await requestFixApproval(fixes, options);
 			if (approval === "apply") {
-				fixes = await applyDoctorFixes(fixes, home);
+				fixes = await applyDoctorFixes(fixes, home, runtime.registry);
 			} else {
 				fixes = fixes.map((fix) => ({
 					...fix,
@@ -123,7 +124,12 @@ export async function runDoctorCommand(
 				}));
 			}
 		}
-		inspection = await collectDoctorInspection(options.cwd, home, shell);
+		inspection = await collectDoctorInspection(
+			options.cwd,
+			home,
+			shell,
+			runtime,
+		);
 	}
 
 	const problems = inspection.checks.filter(
@@ -149,8 +155,20 @@ async function collectDoctorInspection(
 	cwd: string,
 	home: string,
 	shell: SupportedShell | null,
+	runtime: CliRuntime<
+		"integrations" | "slots" | "repositoryContext" | "configStore" | "registry"
+	>,
 ): Promise<DoctorInspection> {
-	const repository = await detectRepositoryOrSkip(cwd);
+	const {
+		CONFIG_FILE_NAME,
+		GLOBAL_CONFIG_FILE_PATH,
+		KNOWN_CONFIG_KEYS,
+		KNOWN_GLOBAL_CONFIG_KEYS,
+	} = runtime.configStore;
+	const repository = await detectRepositoryOrSkip(
+		cwd,
+		runtime.repositoryContext.detectRepository,
+	);
 	const globalConfig = await inspectConfig(
 		GLOBAL_CONFIG_FILE_PATH(home),
 		"global",
@@ -169,7 +187,7 @@ async function collectDoctorInspection(
 		repository?.repoRoot,
 		home,
 	);
-	const registry = await inspectRegistry(home);
+	const registry = await inspectRegistry(home, runtime.registry);
 
 	return {
 		checks: [
@@ -184,14 +202,17 @@ async function collectDoctorInspection(
 				),
 			await checkWorktreeBase(repository, effectiveConfig, home),
 			registry.check,
-			await checkEditor(effectiveConfig),
-			await checkOrphanSlots(home),
+			await checkEditor(effectiveConfig, runtime.integrations.EDITORS),
+			await checkOrphanSlots(home, runtime.slots.loadSlots),
 		],
 		missingRegistryPaths: registry.missingPaths,
 	};
 }
 
-async function checkOrphanSlots(home: string): Promise<DoctorCheck> {
+async function checkOrphanSlots(
+	home: string,
+	loadSlots: CliDependencies["slots"]["loadSlots"],
+): Promise<DoctorCheck> {
 	const slots = await loadSlots(home);
 	const missing = (
 		await Promise.all(
@@ -255,11 +276,12 @@ function isDoctorInteractive(options: DoctorCommandOptions): boolean {
 async function applyDoctorFixes(
 	fixes: DoctorFix[],
 	home: string,
+	registry: CliDependencies["registry"],
 ): Promise<DoctorFix[]> {
 	return Promise.all(
 		fixes.map(async (fix) => {
 			try {
-				const result = await removeMissingRegistryEntries(
+				const result = await registry.removeMissingRegistryEntries(
 					new Set(fix.paths ?? []),
 					home,
 				);
@@ -291,6 +313,7 @@ async function applyDoctorFixes(
 
 async function detectRepositoryOrSkip(
 	cwd: string,
+	detectRepository: CliDependencies["repositoryContext"]["detectRepository"],
 ): Promise<RepositoryContext | null> {
 	try {
 		return await detectRepository(cwd);
@@ -593,11 +616,14 @@ async function findNearestExistingPath(path: string): Promise<string | null> {
 	}
 }
 
-async function inspectRegistry(home: string): Promise<{
+async function inspectRegistry(
+	home: string,
+	registry: CliDependencies["registry"],
+): Promise<{
 	check: DoctorCheck;
 	missingPaths: string[];
 }> {
-	const entries = await loadRegistry(home);
+	const entries = await registry.loadRegistry(home);
 	const missingEntries = await Promise.all(
 		entries.map(async (entry) => ({
 			entry,
@@ -641,7 +667,7 @@ async function inspectRegistry(home: string): Promise<{
 			"repo-registry",
 			`${entries.length} repos registered, ${messageParts.join(", ")}`,
 			missingCount > 0
-				? `remove confirmed stale entries from ${REGISTRY_FILE_PATH(home)}; check permissions for inaccessible paths`
+				? `remove confirmed stale entries from ${registry.REGISTRY_FILE_PATH(home)}; check permissions for inaccessible paths`
 				: "check permissions for inaccessible paths before removing registry entries",
 		),
 		missingPaths,
@@ -676,7 +702,10 @@ async function pathExists(path: string): Promise<boolean> {
 	}
 }
 
-async function checkEditor(config: GjiConfig): Promise<DoctorCheck> {
+async function checkEditor(
+	config: GjiConfig,
+	editors: CliDependencies["integrations"]["EDITORS"],
+): Promise<DoctorCheck> {
 	const editor = config.editor;
 	if (typeof editor !== "string" || editor.length === 0) {
 		return skippedCheck("editor", "editor not configured (optional)");
@@ -686,7 +715,7 @@ async function checkEditor(config: GjiConfig): Promise<DoctorCheck> {
 		return okCheck("editor", `editor "${editor}" found on PATH`);
 	}
 
-	const knownEditor = EDITORS.some(({ cli }) => cli === editor);
+	const knownEditor = editors.some(({ cli }) => cli === editor);
 	return failedCheck(
 		"editor",
 		`editor "${editor}" was not found on PATH`,

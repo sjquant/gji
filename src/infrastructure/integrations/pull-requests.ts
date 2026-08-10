@@ -1,6 +1,9 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import type { PullRequestInfo as PortPullRequestInfo } from "../../ports/pull-requests.js";
+import type {
+	PullRequestInfo as PortPullRequestInfo,
+	PullRequestPort,
+} from "../../ports/pull-requests.js";
 
 const execFileAsync = promisify(execFile);
 const PULL_REQUEST_QUERY_TIMEOUT_MS = 2500;
@@ -40,19 +43,7 @@ export interface PullRequestQueryDependencies {
 	runCommand?: PullRequestCommandRunner;
 }
 
-export interface PullRequestQuery {
-	findOpenPullRequest: (
-		repoRoot: string,
-		number: number,
-	) => Promise<PullRequestInfo | null>;
-	listOpenPullRequests: (
-		repoRoot: string,
-		sourceBranch: string,
-	) => Promise<PullRequestInfo[]>;
-	listOpenPullRequestsForRepository: (
-		repoRoot: string,
-	) => Promise<PullRequestInfo[]>;
-}
+export type PullRequestQuery = PullRequestPort;
 
 export function parsePullRequestRemote(
 	remoteUrl: string,

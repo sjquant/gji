@@ -2,49 +2,64 @@ import { PassThrough, Writable } from "node:stream";
 import { stripVTControlCharacters } from "node:util";
 
 import { describe, expect, it } from "vitest";
-import { createPullRequestQuery } from "../../infrastructure/integrations/pull-requests.js";
-import { loadHistory } from "../../infrastructure/persistence/history.js";
-import { readTask, writeTask } from "../../infrastructure/persistence/task.js";
-import { readWorktreeInfos } from "../../infrastructure/worktree/info.js";
+import type { WorktreeMetadataMode } from "../../application/worktree/catalog.js";
+import type { WorktreeEntry } from "../../domain/worktree/types.js";
 import {
 	addLinkedWorktree,
 	createRepository,
 } from "../../test-support/repository.js";
 import {
-	type BuildWorktreePromptEntriesDependencies,
 	promptForMultipleWorktrees,
 	promptForSingleWorktree,
+	type QueryRepositoryPullRequests,
+	type QueryWorktreePullRequests,
 	buildWorktreePromptEntries as renderWorktreePromptEntries,
 	type WorktreePickerIO,
 	type WorktreePromptEntry,
 	type WorktreePromptScopeResult,
 } from "./picker.js";
 
-const pullRequestQuery = createPullRequestQuery();
+interface PickerTestDependencies {
+	metadata?: WorktreeMetadataMode;
+	queryPullRequests?: QueryWorktreePullRequests;
+	queryRepositoryPullRequests?: QueryRepositoryPullRequests;
+}
+
+const tasks = new Map<string, string>();
 const defaultCatalog = {
-	loadHistory: () => loadHistory(),
-	readTask,
-	readWorktreeInfos,
-	queryPullRequests: pullRequestQuery.listOpenPullRequests,
-	queryRepositoryPullRequests:
-		pullRequestQuery.listOpenPullRequestsForRepository,
+	loadHistory: async () => [],
+	readTask: async (path: string) => {
+		const task = tasks.get(path);
+		return task === undefined ? null : { task };
+	},
+	readWorktreeInfos: async (worktrees: WorktreeEntry[]) =>
+		worktrees.map((worktree) => ({
+			...worktree,
+			lastCommitTimestamp: null,
+			slot: null,
+			status: "unknown" as const,
+			task: tasks.get(worktree.path) ?? null,
+			upstream: { kind: "unknown" as const },
+		})),
 };
 
 function buildWorktreePromptEntries(
 	sources: Parameters<typeof renderWorktreePromptEntries>[0],
-	dependencies: Omit<BuildWorktreePromptEntriesDependencies, "catalog"> = {},
+	dependencies: PickerTestDependencies = {},
 ) {
 	return renderWorktreePromptEntries(sources, {
-		...dependencies,
+		metadata: dependencies.metadata,
 		catalog: {
 			...defaultCatalog,
-			queryPullRequests:
-				dependencies.queryPullRequests ?? defaultCatalog.queryPullRequests,
-			queryRepositoryPullRequests:
-				dependencies.queryRepositoryPullRequests ??
-				(dependencies.queryPullRequests === undefined
-					? defaultCatalog.queryRepositoryPullRequests
-					: undefined),
+			...(dependencies.queryPullRequests === undefined
+				? {}
+				: { queryPullRequests: dependencies.queryPullRequests }),
+			...(dependencies.queryRepositoryPullRequests === undefined
+				? {}
+				: {
+						queryRepositoryPullRequests:
+							dependencies.queryRepositoryPullRequests,
+					}),
 		},
 	});
 }
@@ -147,7 +162,7 @@ describe("worktree picker search", () => {
 		const repoRoot = await createRepository();
 		const task =
 			"Fix the login redirect after the session expires without losing the original destination";
-		await writeTask(repoRoot, task);
+		tasks.set(repoRoot, task);
 		const entries = await buildWorktreePromptEntries(
 			[
 				{
@@ -218,7 +233,7 @@ describe("worktree picker search", () => {
 	it("keeps task metadata searchable in a fast all-repositories scope", async () => {
 		// Given a worktree with task metadata and a fast picker scope.
 		const repoRoot = await createRepository();
-		await writeTask(repoRoot, "find the login redirect");
+		tasks.set(repoRoot, "find the login redirect");
 		const entries = await buildWorktreePromptEntries(
 			[
 				{

@@ -13,19 +13,11 @@ import {
 	type WorktreePromptEntry,
 } from "../../presentation/worktree/picker.js";
 import {
+	type CliRuntime,
 	defaultCliDependencies,
 	withPullRequestQueries,
 } from "../dependencies.js";
 import { isHeadless } from "../runtime/headless.js";
-
-const { recordWorktreeUsage } = defaultCliDependencies.history;
-const { detectRepository } = defaultCliDependencies.repositoryContext;
-const { loadRegistry } = defaultCliDependencies.repositoryRegistry;
-const sourceDependencies = {
-	...defaultCliDependencies.repositoryContext,
-	...defaultCliDependencies.repositoryRegistry,
-	...defaultCliDependencies.worktrees,
-};
 
 const WARP_OUTPUT_FILE_ENV = "GJI_WARP_OUTPUT_FILE";
 
@@ -34,6 +26,13 @@ export interface WarpCommandOptions {
 	cwd: string;
 	json?: boolean;
 	queryPullRequests?: QueryWorktreePullRequests;
+	runtime?: CliRuntime<
+		| "history"
+		| "repositoryContext"
+		| "repositoryRegistry"
+		| "worktrees"
+		| "worktreeCatalog"
+	>;
 	stderr: (chunk: string) => void;
 	stdout: (chunk: string) => void;
 }
@@ -45,6 +44,8 @@ export async function runWarpCommand(
 }
 
 async function runWarpNavigate(options: WarpCommandOptions): Promise<number> {
+	const runtime = options.runtime ?? defaultCliDependencies;
+	const { recordWorktreeUsage } = runtime.history;
 	if ((isHeadless() || options.json) && !options.branch) {
 		const message = "branch argument is required";
 		if (options.json) {
@@ -62,6 +63,7 @@ async function runWarpNavigate(options: WarpCommandOptions): Promise<number> {
 		commandName: "gji warp",
 		json: options.json,
 		queryPullRequests: options.queryPullRequests,
+		runtime,
 	});
 	if (!target) return 1;
 
@@ -95,9 +97,24 @@ export async function resolveWarpTarget(options: {
 	excludeRepoRoot?: string;
 	json?: boolean;
 	queryPullRequests?: QueryWorktreePullRequests;
+	runtime?: CliRuntime<
+		| "history"
+		| "repositoryContext"
+		| "repositoryRegistry"
+		| "worktrees"
+		| "worktreeCatalog"
+	>;
 	stderr: (chunk: string) => void;
 }): Promise<WarpTarget | null> {
 	const cmd = options.commandName ?? "gji";
+	const runtime = options.runtime ?? defaultCliDependencies;
+	const { detectRepository } = runtime.repositoryContext;
+	const { loadRegistry } = runtime.repositoryRegistry;
+	const sourceDependencies = {
+		...runtime.repositoryContext,
+		...runtime.repositoryRegistry,
+		...runtime.worktrees,
+	};
 
 	const emitError = (message: string, hint?: string): void => {
 		if (options.json) {
@@ -164,10 +181,7 @@ export async function resolveWarpTarget(options: {
 
 	const promptEntries = await buildWorktreePromptEntries(promptSources, {
 		metadata: "fast",
-		catalog: withPullRequestQueries(
-			defaultCliDependencies,
-			options.queryPullRequests,
-		),
+		catalog: withPullRequestQueries(runtime, options.queryPullRequests),
 	});
 	const path = await promptForWarpTarget(promptEntries);
 	if (!path) {

@@ -1,5 +1,5 @@
 import type { ContextCardModel } from "../../application/worktree/context-card.js";
-import type { WorktreeInfo } from "../../domain/worktree/types.js";
+import type { WorktreeInfo } from "../../application/worktree/read-models.js";
 
 export function renderContextCard(model: ContextCardModel): string {
 	const { info, task } = model;

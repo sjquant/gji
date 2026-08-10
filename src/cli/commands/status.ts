@@ -1,19 +1,21 @@
 import { comparePaths } from "../../domain/shared/paths.js";
 import type { WorktreeEntry } from "../../domain/worktree/types.js";
-import { defaultCliDependencies } from "../dependencies.js";
+import {
+	type CliDependencies,
+	type CliRuntime,
+	defaultCliDependencies,
+} from "../dependencies.js";
 
-const { detectRepository } = defaultCliDependencies.repositoryContext;
-const { listWorktrees } = defaultCliDependencies.worktrees;
-const { getWorktreeSlot } = defaultCliDependencies.slots;
-const { readTask } = defaultCliDependencies.tasks;
-const { readWorktreeHealth } = defaultCliDependencies.git;
 type WorktreeHealth = Awaited<
-	ReturnType<typeof defaultCliDependencies.git.readWorktreeHealth>
+	ReturnType<CliDependencies["git"]["readWorktreeHealth"]>
 >;
 
 export interface StatusCommandOptions {
 	cwd: string;
 	json?: boolean;
+	runtime?: CliRuntime<
+		"repositoryContext" | "worktrees" | "slots" | "tasks" | "git"
+	>;
 	stdout: (chunk: string) => void;
 }
 
@@ -38,10 +40,18 @@ type UpstreamState =
 export async function runStatusCommand(
 	options: StatusCommandOptions,
 ): Promise<number> {
+	const runtime = options.runtime ?? defaultCliDependencies;
+	const { detectRepository } = runtime.repositoryContext;
+	const { listWorktrees } = runtime.worktrees;
+	const { getWorktreeSlot } = runtime.slots;
+	const { readTask } = runtime.tasks;
+	const { readWorktreeHealth } = runtime.git;
 	const repository = await detectRepository(options.cwd);
 	const worktrees = sortWorktreesByPath(await listWorktrees(options.cwd));
 	const rows = await Promise.all(
-		worktrees.map(async (worktree) => buildStatusRow(worktree)),
+		worktrees.map(async (worktree) =>
+			buildStatusRow(worktree, readWorktreeHealth, getWorktreeSlot, readTask),
+		),
 	);
 
 	if (options.json) {
@@ -113,6 +123,9 @@ export function formatStatusJson(
 
 async function buildStatusRow(
 	worktree: WorktreeEntry,
+	readWorktreeHealth: CliDependencies["git"]["readWorktreeHealth"],
+	getWorktreeSlot: CliDependencies["slots"]["getWorktreeSlot"],
+	readTask: CliDependencies["tasks"]["readTask"],
 ): Promise<WorktreeStatusRow> {
 	const [health, slot, task] = await Promise.all([
 		readWorktreeHealth(worktree.path),

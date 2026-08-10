@@ -1,22 +1,24 @@
+import type { WorktreeInfo } from "../../application/worktree/read-models.js";
 import { comparePaths } from "../../domain/shared/paths.js";
-import type {
-	WorktreeEntry,
-	WorktreeInfo,
-} from "../../domain/worktree/types.js";
-import { defaultCliDependencies } from "../dependencies.js";
-
-const { listWorktrees } = defaultCliDependencies.worktrees;
-const { formatLastCommit, formatUpstreamState, readWorktreeInfos } =
-	defaultCliDependencies.worktreeInfo;
+import type { WorktreeEntry } from "../../domain/worktree/types.js";
+import {
+	formatLastCommit,
+	formatUpstreamState,
+} from "../../presentation/worktree/format.js";
+import { type CliRuntime, defaultCliDependencies } from "../dependencies.js";
 
 export interface LsCommandOptions {
 	compact?: boolean;
 	cwd: string;
 	json?: boolean;
+	runtime?: CliRuntime<"worktrees" | "worktreeInfo">;
 	stdout: (chunk: string) => void;
 }
 
 export async function runLsCommand(options: LsCommandOptions): Promise<number> {
+	const runtime = options.runtime ?? defaultCliDependencies;
+	const { listWorktrees } = runtime.worktrees;
+	const { readWorktreeInfos } = runtime.worktreeInfo;
 	const worktrees = sortWorktrees(await listWorktrees(options.cwd));
 
 	if (options.compact) {
@@ -81,7 +83,7 @@ export function formatDetailedWorktreeTable(worktrees: WorktreeInfo[]): string {
 			"UPSTREAM".padEnd(upstreamWidth, " ") +
 			" " +
 			"LAST".padEnd(lastCommitWidth, " ") +
-			(hasTasks ? " " + "TASK".padEnd(taskWidth, " ") : "") +
+			(hasTasks ? ` ${"TASK".padEnd(taskWidth, " ")}` : "") +
 			" PATH",
 	];
 
@@ -113,7 +115,7 @@ export function formatWorktreeTable(worktrees: WorktreeEntry[]): string {
 		"BRANCH".length,
 		...rows.map((row) => row.branch.length),
 	);
-	const lines = ["  " + "BRANCH".padEnd(branchWidth, " ") + " PATH"];
+	const lines = [`  ${"BRANCH".padEnd(branchWidth, " ")} PATH`];
 
 	for (const row of rows) {
 		lines.push(

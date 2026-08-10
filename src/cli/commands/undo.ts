@@ -12,12 +12,12 @@ import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { confirm, isCancel } from "@clack/prompts";
 import type { WorktreeEntry } from "../../domain/worktree/types.js";
-import { defaultCliDependencies } from "../dependencies.js";
+import {
+	type CliDependencies,
+	type CliRuntime,
+	defaultCliDependencies,
+} from "../dependencies.js";
 import { isHeadless } from "../runtime/headless.js";
-
-const { isDirtyWorktree, runGit } = defaultCliDependencies.git;
-const { GLOBAL_CONFIG_DIRECTORY } = defaultCliDependencies.configStore;
-const { detectRepository } = defaultCliDependencies.repositoryContext;
 
 const MAX_UNDO_RECORDS = 20;
 const UNDO_LOCK_STALE_AFTER_MS = 60_000;
@@ -49,24 +49,31 @@ export interface UndoCommandOptions {
 	id?: string;
 	list?: boolean;
 	json?: boolean;
+	runtime?: CliRuntime<"git" | "configStore" | "repositoryContext">;
 	stderr: (chunk: string) => void;
 	stdout: (chunk: string) => void;
 }
 
-export function undoLogPath(home: string = homedir()): string {
+export function undoLogPath(
+	home: string = homedir(),
+	globalConfigDirectory = defaultCliDependencies.configStore
+		.GLOBAL_CONFIG_DIRECTORY,
+): string {
 	const configured = process.env.GJI_CONFIG_DIR;
 	return join(
-		configured ? resolve(configured) : join(home, GLOBAL_CONFIG_DIRECTORY),
+		configured ? resolve(configured) : join(home, globalConfigDirectory),
 		"undo-log.json",
 	);
 }
 
 export async function loadUndoRecords(
 	home: string = homedir(),
+	globalConfigDirectory = defaultCliDependencies.configStore
+		.GLOBAL_CONFIG_DIRECTORY,
 ): Promise<UndoRecord[]> {
 	try {
 		const parsed = JSON.parse(
-			await readFile(undoLogPath(home), "utf8"),
+			await readFile(undoLogPath(home, globalConfigDirectory), "utf8"),
 		) as unknown;
 		return Array.isArray(parsed) ? parsed.filter(isUndoRecord) : [];
 	} catch {
@@ -79,7 +86,10 @@ export async function recordUndoOperation(
 	repoRoot: string,
 	worktrees: WorktreeEntry[],
 	home: string = homedir(),
+	runtime: CliRuntime<"git" | "configStore"> = defaultCliDependencies,
 ): Promise<UndoRecord | null> {
+	const globalConfigDirectory = runtime.configStore.GLOBAL_CONFIG_DIRECTORY;
+	const { isDirtyWorktree, runGit } = runtime.git;
 	const entries: UndoEntry[] = [];
 	for (const worktree of worktrees) {
 		try {
@@ -115,47 +125,64 @@ export async function recordUndoOperation(
 		timestamp,
 		entries,
 	};
-	return enqueueUndoLogWrite(home, async () => {
-		const existing = await loadUndoRecords(home);
-		await writeUndoRecords(
-			home,
-			[record, ...existing].slice(0, MAX_UNDO_RECORDS),
-		);
-		return record;
-	});
+	return enqueueUndoLogWrite(
+		home,
+		async () => {
+			const existing = await loadUndoRecords(home, globalConfigDirectory);
+			await writeUndoRecords(
+				home,
+				[record, ...existing].slice(0, MAX_UNDO_RECORDS),
+				globalConfigDirectory,
+			);
+			return record;
+		},
+		globalConfigDirectory,
+	);
 }
 
 export async function finalizeUndoOperation(
 	record: UndoRecord,
 	removedWorktrees: WorktreeEntry[],
 	home: string = homedir(),
+	globalConfigDirectory = defaultCliDependencies.configStore
+		.GLOBAL_CONFIG_DIRECTORY,
 ): Promise<void> {
 	const removedPaths = new Set(
 		removedWorktrees.map((worktree) => worktree.path),
 	);
-	await enqueueUndoLogWrite(home, async () => {
-		const records = await loadUndoRecords(home);
-		const remaining = records.flatMap((candidate) => {
-			if (candidate.id !== record.id) return [candidate];
-			const entries = candidate.entries.filter((entry) =>
-				removedPaths.has(entry.path),
-			);
-			return entries.length === 0 ? [] : [{ ...candidate, entries }];
-		});
-		await writeUndoRecords(home, remaining);
-	});
+	await enqueueUndoLogWrite(
+		home,
+		async () => {
+			const records = await loadUndoRecords(home, globalConfigDirectory);
+			const remaining = records.flatMap((candidate) => {
+				if (candidate.id !== record.id) return [candidate];
+				const entries = candidate.entries.filter((entry) =>
+					removedPaths.has(entry.path),
+				);
+				return entries.length === 0 ? [] : [{ ...candidate, entries }];
+			});
+			await writeUndoRecords(home, remaining, globalConfigDirectory);
+		},
+		globalConfigDirectory,
+	);
 }
 
 export async function restoreUndoRecord(
 	record: UndoRecord,
 	home: string = homedir(),
+	runtime: CliRuntime<"git" | "configStore"> = defaultCliDependencies,
 ): Promise<UndoRestoreResult> {
+	const globalConfigDirectory = runtime.configStore.GLOBAL_CONFIG_DIRECTORY;
 	const restored: UndoEntry[] = [];
 	const failed: Array<UndoEntry & { message: string }> = [];
 	const unresolved: UndoEntry[] = [];
 	for (const entry of record.entries) {
 		try {
-			const upstreamFailure = await restoreUndoEntry(record.repoRoot, entry);
+			const upstreamFailure = await restoreUndoEntry(
+				record.repoRoot,
+				entry,
+				runtime.git.runGit,
+			);
 			restored.push(entry);
 			if (upstreamFailure) {
 				failed.push({ ...entry, message: upstreamFailure });
@@ -166,26 +193,33 @@ export async function restoreUndoRecord(
 			unresolved.push(entry);
 		}
 	}
-	await enqueueUndoLogWrite(home, async () => {
-		const records = await loadUndoRecords(home);
-		const remaining = records.flatMap((candidate) => {
-			if (candidate.id !== record.id) return [candidate];
-			if (unresolved.length === 0) return [];
-			return [{ ...candidate, entries: unresolved }];
-		});
-		await writeUndoRecords(home, remaining);
-	});
+	await enqueueUndoLogWrite(
+		home,
+		async () => {
+			const records = await loadUndoRecords(home, globalConfigDirectory);
+			const remaining = records.flatMap((candidate) => {
+				if (candidate.id !== record.id) return [candidate];
+				if (unresolved.length === 0) return [];
+				return [{ ...candidate, entries: unresolved }];
+			});
+			await writeUndoRecords(home, remaining, globalConfigDirectory);
+		},
+		globalConfigDirectory,
+	);
 	return { restored, failed };
 }
 
 export async function runUndoCommand(
 	options: UndoCommandOptions,
 ): Promise<number> {
-	if (await hasMalformedUndoLog())
+	const runtime = options.runtime ?? defaultCliDependencies;
+	const globalConfigDirectory = runtime.configStore.GLOBAL_CONFIG_DIRECTORY;
+	const { detectRepository } = runtime.repositoryContext;
+	if (await hasMalformedUndoLog(globalConfigDirectory))
 		options.stderr(
 			"Warning: undo journal is invalid; starting with an empty journal\n",
 		);
-	const records = await loadUndoRecords();
+	const records = await loadUndoRecords(homedir(), globalConfigDirectory);
 	if (options.list) {
 		if (options.json) options.stdout(`${JSON.stringify(records, null, 2)}\n`);
 		else if (records.length === 0) options.stdout("nothing to undo\n");
@@ -232,7 +266,7 @@ export async function runUndoCommand(
 	}
 	if (!record)
 		return emitUndoError(options, `undo record not found: ${options.id}`);
-	const result = await restoreUndoRecord(record);
+	const result = await restoreUndoRecord(record, homedir(), runtime);
 	if (options.json)
 		options.stdout(
 			`${JSON.stringify({ restored: result.restored.map((entry) => ({ branch: entry.branch, path: entry.path })), failed: result.failed.map((entry) => ({ branch: entry.branch, path: entry.path, error: entry.message })) }, null, 2)}\n`,
@@ -255,9 +289,14 @@ export async function runUndoCommand(
 	return result.failed.length === 0 ? 0 : 1;
 }
 
-async function hasMalformedUndoLog(): Promise<boolean> {
+async function hasMalformedUndoLog(
+	globalConfigDirectory = defaultCliDependencies.configStore
+		.GLOBAL_CONFIG_DIRECTORY,
+): Promise<boolean> {
 	try {
-		const parsed = JSON.parse(await readFile(undoLogPath(), "utf8")) as unknown;
+		const parsed = JSON.parse(
+			await readFile(undoLogPath(homedir(), globalConfigDirectory), "utf8"),
+		) as unknown;
 		return (
 			!Array.isArray(parsed) || parsed.some((entry) => !isUndoRecord(entry))
 		);
@@ -273,6 +312,7 @@ async function hasMalformedUndoLog(): Promise<boolean> {
 async function restoreUndoEntry(
 	repoRoot: string,
 	entry: UndoEntry,
+	runGit: CliDependencies["git"]["runGit"],
 ): Promise<string | null> {
 	try {
 		await access(entry.path);
@@ -285,7 +325,7 @@ async function restoreUndoEntry(
 			throw error;
 	}
 	if (entry.branch === null) {
-		await assertCommitExists(repoRoot, entry.headSha);
+		await assertCommitExists(repoRoot, entry.headSha, runGit);
 		await runGit(repoRoot, [
 			"worktree",
 			"add",
@@ -328,7 +368,7 @@ async function restoreUndoEntry(
 				`branch ${entry.branch} already tracks ${existingUpstream}; refusing to overwrite it`,
 			);
 	} else {
-		await assertCommitExists(repoRoot, entry.headSha);
+		await assertCommitExists(repoRoot, entry.headSha, runGit);
 		await runGit(repoRoot, ["branch", entry.branch, entry.headSha]);
 	}
 	try {
@@ -362,6 +402,7 @@ async function restoreUndoEntry(
 async function assertCommitExists(
 	repoRoot: string,
 	headSha: string,
+	runGit: CliDependencies["git"]["runGit"],
 ): Promise<void> {
 	try {
 		await runGit(repoRoot, ["cat-file", "-e", `${headSha}^{commit}`]);
@@ -373,8 +414,10 @@ async function assertCommitExists(
 async function enqueueUndoLogWrite<T>(
 	home: string,
 	operation: () => Promise<T>,
+	globalConfigDirectory = defaultCliDependencies.configStore
+		.GLOBAL_CONFIG_DIRECTORY,
 ): Promise<T> {
-	const path = undoLogPath(home);
+	const path = undoLogPath(home, globalConfigDirectory);
 	await mkdir(dirname(path), { recursive: true });
 	const previous = undoLogQueues.get(path) ?? Promise.resolve();
 	const runLocked = async (): Promise<T> => {
@@ -429,8 +472,10 @@ async function acquireUndoLogLock(path: string): Promise<() => Promise<void>> {
 async function writeUndoRecords(
 	home: string,
 	records: UndoRecord[],
+	globalConfigDirectory = defaultCliDependencies.configStore
+		.GLOBAL_CONFIG_DIRECTORY,
 ): Promise<void> {
-	const path = undoLogPath(home);
+	const path = undoLogPath(home, globalConfigDirectory);
 	await mkdir(dirname(path), { recursive: true });
 	const temporaryPath = `${path}.${process.pid}.${Math.random().toString(36).slice(2)}.tmp`;
 	try {

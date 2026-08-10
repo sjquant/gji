@@ -22,6 +22,7 @@ import {
 	createRepository,
 	pathExists,
 } from "../test-support/repository.js";
+import { createCliDependencies } from "./dependencies.js";
 import { createProgram, runCli } from "./program.js";
 
 const originalConfigDir = process.env.GJI_CONFIG_DIR;
@@ -40,6 +41,37 @@ afterEach(() => {
 });
 
 describe("runCli", () => {
+	it("routes commands through the supplied runtime dependencies", async () => {
+		// Given a repository boundary that is different from the process cwd.
+		const runtime = createCliDependencies();
+		const detectRepository = vi.fn(async () => ({
+			currentRoot: "/injected/current",
+			isWorktree: false,
+			repoName: "injected",
+			repoRoot: "/injected/root",
+		}));
+		const registerRepo = vi.fn(async () => undefined);
+		runtime.repositoryContext = {
+			...runtime.repositoryContext,
+			detectRepository,
+		};
+		runtime.registry = { ...runtime.registry, registerRepo };
+		const stdout: string[] = [];
+
+		// When the root command runs through the executable composition root.
+		const result = await runCli(["root"], {
+			cwd: "/process/cwd",
+			dependencies: runtime,
+			stdout: (chunk) => stdout.push(chunk),
+		});
+
+		// Then both registration and command behavior use the injected boundary.
+		expect(result.exitCode).toBe(0);
+		expect(stdout).toEqual(["/injected/root\n"]);
+		expect(detectRepository).toHaveBeenCalledWith("/process/cwd");
+		expect(registerRepo).toHaveBeenCalledWith("/injected/root");
+	});
+
 	it("prints help with the planned commands", async () => {
 		// Given output collectors for the CLI help text.
 		const stdout: string[] = [];

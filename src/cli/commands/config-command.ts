@@ -1,7 +1,4 @@
-import {
-	type CliDependencies,
-	defaultCliDependencies,
-} from "../dependencies.js";
+import { type CliRuntime, defaultCliDependencies } from "../dependencies.js";
 
 export interface ConfigCommandOptions {
 	action?: string;
@@ -10,7 +7,7 @@ export interface ConfigCommandOptions {
 	stderr?: (chunk: string) => void;
 	stdout: (chunk: string) => void;
 	value?: string;
-	runtime?: CliDependencies;
+	runtime?: CliRuntime<"configStore">;
 }
 
 export async function runConfigCommand(

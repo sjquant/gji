@@ -27,17 +27,12 @@ import {
 	resolveSupportedShell,
 	type SupportedShell,
 } from "../../presentation/shell/shell.js";
-import { defaultCliDependencies } from "../dependencies.js";
+import {
+	type CliDependencies,
+	type CliRuntime,
+	defaultCliDependencies,
+} from "../dependencies.js";
 import { isHeadless } from "../runtime/headless.js";
-
-const { EDITORS } = defaultCliDependencies.integrations;
-const {
-	loadConfig,
-	loadGlobalConfig,
-	saveGlobalConfig,
-	saveLocalConfig,
-	updateGlobalConfigKey,
-} = defaultCliDependencies.configStore;
 
 const ZSH_COMPLETION_PATH_LINE = "fpath=(~/.zsh/completions $fpath)";
 
@@ -144,6 +139,7 @@ export interface InitCommandOptions {
 	) => Promise<InitOnboardingResult | null>;
 	promptForSetup?: () => Promise<SetupWizardResult | null>;
 	shell?: string;
+	runtime?: CliRuntime<"integrations" | "configStore">;
 	stderr?: (chunk: string) => void;
 	stdout: (chunk: string) => void;
 	write?: boolean;
@@ -152,15 +148,17 @@ export interface InitCommandOptions {
 export async function runInitCommand(
 	options: InitCommandOptions,
 ): Promise<number> {
+	const runtime = options.runtime ?? defaultCliDependencies;
 	if (options.shell === undefined) {
-		return runOnboardingInitCommand(options);
+		return runOnboardingInitCommand(options, runtime);
 	}
 
-	return runLegacyInitCommand(options);
+	return runLegacyInitCommand(options, runtime);
 }
 
 async function runOnboardingInitCommand(
 	options: InitCommandOptions,
+	runtime: CliRuntime<"integrations" | "configStore">,
 ): Promise<number> {
 	if (options.json || isHeadless() || !canRunOnboarding(options)) {
 		return writeNonInteractiveInitError(options);
@@ -173,7 +171,7 @@ async function runOnboardingInitCommand(
 	};
 
 	if (options.promptForOnboarding === undefined) {
-		return runDefaultOnboarding(context);
+		return runDefaultOnboarding(context, runtime);
 	}
 
 	const result = await options.promptForOnboarding(context);
@@ -183,7 +181,7 @@ async function runOnboardingInitCommand(
 		return 1;
 	}
 
-	await applyOnboardingResult(result, home);
+	await applyOnboardingResult(result, home, runtime);
 
 	return 0;
 }
@@ -208,6 +206,7 @@ function writeNonInteractiveInitError(options: InitCommandOptions): number {
 
 async function runDefaultOnboarding(
 	context: InitOnboardingContext,
+	runtime: CliRuntime<"integrations" | "configStore">,
 ): Promise<number> {
 	intro("gji init");
 
@@ -233,7 +232,7 @@ async function runDefaultOnboarding(
 
 	const completionPath = resolveCompletionPath(shell, context.home);
 	const completionAlreadyInstalled = await fileExists(completionPath);
-	await applyShellIntegration(shell, shellIntegration, context.home);
+	await applyShellIntegration(shell, shellIntegration, context.home, runtime);
 
 	const installCompletion = await promptForCompletion(shell, completionPath);
 	if (installCompletion === null) return abortDefaultOnboarding();
@@ -245,10 +244,14 @@ async function runDefaultOnboarding(
 		await ensureZshCompletionPath(rcPath);
 	}
 
-	const editor = await promptForEditor();
+	const editor = await promptForEditor(runtime.integrations.EDITORS);
 	if (editor === null) return abortDefaultOnboarding();
 	if (editor) {
-		await updateGlobalConfigKey("editor", editor, context.home);
+		await runtime.configStore.updateGlobalConfigKey(
+			"editor",
+			editor,
+			context.home,
+		);
 	}
 
 	outro(
@@ -262,13 +265,18 @@ async function applyShellIntegration(
 	shell: SupportedShell,
 	choice: ShellIntegrationChoice,
 	home: string,
+	runtime: CliRuntime<"integrations" | "configStore">,
 ): Promise<void> {
 	if (choice === "install") {
 		await installOnboardingShellIntegration(shell, home);
 	}
 
 	if (choice !== "skip") {
-		await updateGlobalConfigKey("shellIntegration", true, home);
+		await runtime.configStore.updateGlobalConfigKey(
+			"shellIntegration",
+			true,
+			home,
+		);
 	}
 }
 
@@ -323,8 +331,10 @@ async function promptForCompletion(
 	return confirmed;
 }
 
-async function promptForEditor(): Promise<string | null | undefined> {
-	const availableEditors = await findAvailableEditors();
+async function promptForEditor(
+	editors: CliDependencies["integrations"]["EDITORS"],
+): Promise<string | null | undefined> {
+	const availableEditors = await findAvailableEditors(editors);
 	if (availableEditors.length === 0) {
 		log.info("No supported editor CLIs found on PATH; skipping editor setup.");
 		return undefined;
@@ -347,10 +357,12 @@ async function promptForEditor(): Promise<string | null | undefined> {
 	return selected === skipValue ? undefined : selected;
 }
 
-async function findAvailableEditors(): Promise<typeof EDITORS> {
-	const availableEditors = [] as typeof EDITORS;
+async function findAvailableEditors(
+	editors: CliDependencies["integrations"]["EDITORS"],
+): Promise<typeof editors> {
+	const availableEditors = [] as typeof editors;
 
-	for (const editor of EDITORS) {
+	for (const editor of editors) {
 		if (await executableExists(editor.cli)) {
 			availableEditors.push(editor);
 		}
@@ -362,12 +374,18 @@ async function findAvailableEditors(): Promise<typeof EDITORS> {
 async function applyOnboardingResult(
 	result: InitOnboardingResult,
 	home: string,
+	runtime: CliRuntime<"integrations" | "configStore">,
 ): Promise<void> {
 	const rcPath = resolveShellConfigPath(result.shell, home);
 	const completionPath = resolveCompletionPath(result.shell, home);
 	const completionAlreadyInstalled = await fileExists(completionPath);
 
-	await applyShellIntegration(result.shell, result.shellIntegration, home);
+	await applyShellIntegration(
+		result.shell,
+		result.shellIntegration,
+		home,
+		runtime,
+	);
 
 	if (result.installCompletion) {
 		await mkdir(dirname(completionPath), { recursive: true });
@@ -386,7 +404,11 @@ async function applyOnboardingResult(
 	}
 
 	if (result.editor) {
-		await updateGlobalConfigKey("editor", result.editor, home);
+		await runtime.configStore.updateGlobalConfigKey(
+			"editor",
+			result.editor,
+			home,
+		);
 	}
 }
 
@@ -488,6 +510,7 @@ async function fileExists(path: string): Promise<boolean> {
 
 async function runLegacyInitCommand(
 	options: InitCommandOptions,
+	runtime: CliRuntime<"integrations" | "configStore">,
 ): Promise<number> {
 	const shell = resolveSupportedShell(options.shell, process.env.SHELL);
 	const home = options.home ?? homedir();
@@ -516,7 +539,8 @@ async function runLegacyInitCommand(
 	options.stdout(`${rcPath}\n`);
 
 	// Run the setup wizard on the first-ever init (not on subsequent re-runs).
-	const { config: globalConfig } = await loadGlobalConfig(home);
+	const { config: globalConfig } =
+		await runtime.configStore.loadGlobalConfig(home);
 	const alreadyConfigured =
 		"shellIntegration" in globalConfig || "installSaveTarget" in globalConfig;
 	const hasCustomPrompt = options.promptForSetup !== undefined;
@@ -527,17 +551,21 @@ async function runLegacyInitCommand(
 		const prompt = options.promptForSetup ?? defaultPromptForSetup;
 		const result = await prompt();
 		if (result) {
-			await updateGlobalConfigKey(
+			await runtime.configStore.updateGlobalConfigKey(
 				"installSaveTarget",
 				result.installSaveTarget,
 				home,
 			);
-			await saveWizardConfig(result, options.cwd, home);
+			await saveWizardConfig(result, options.cwd, home, runtime);
 		}
 	}
 
 	// Mark shell integration as installed so the first-run nudge is suppressed.
-	await updateGlobalConfigKey("shellIntegration", true, home);
+	await runtime.configStore.updateGlobalConfigKey(
+		"shellIntegration",
+		true,
+		home,
+	);
 
 	return 0;
 }
@@ -599,6 +627,7 @@ async function saveWizardConfig(
 	result: SetupWizardResult,
 	cwd: string,
 	home: string,
+	runtime: CliRuntime<"integrations" | "configStore">,
 ): Promise<void> {
 	const values: Record<string, unknown> = {};
 
@@ -617,11 +646,18 @@ async function saveWizardConfig(
 	if (Object.keys(values).length === 0) return;
 
 	if (result.installSaveTarget === "local") {
-		const loaded = await loadConfig(cwd);
-		await saveLocalConfig(cwd, { ...loaded.config, ...values });
+		const loaded = await runtime.configStore.loadConfig(cwd);
+		await runtime.configStore.saveLocalConfig(cwd, {
+			...loaded.config,
+			...values,
+		});
 	} else {
-		const { config: existing } = await loadGlobalConfig(home);
-		await saveGlobalConfig({ ...existing, ...values }, home);
+		const { config: existing } =
+			await runtime.configStore.loadGlobalConfig(home);
+		await runtime.configStore.saveGlobalConfig(
+			{ ...existing, ...values },
+			home,
+		);
 	}
 }
 async function readExistingConfig(path: string): Promise<string> {

@@ -1,7 +1,5 @@
-import type {
-	WorktreeEntry,
-	WorktreeInfo,
-} from "../../domain/worktree/types.js";
+import type { WorktreeEntry } from "../../domain/worktree/types.js";
+import type { WorktreeInfo } from "./read-models.js";
 
 export interface ContextCardDependencies {
 	listWorktrees: (cwd: string) => Promise<WorktreeEntry[]>;

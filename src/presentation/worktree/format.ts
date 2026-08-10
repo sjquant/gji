@@ -1,4 +1,4 @@
-import type { UpstreamState } from "../../domain/worktree/types.js";
+import type { UpstreamState } from "../../application/worktree/read-models.js";
 
 export function formatUpstreamState(upstream: UpstreamState): string {
 	if (upstream.kind === "detached") return "n/a";

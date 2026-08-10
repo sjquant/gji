@@ -1,14 +1,15 @@
 import type { RepositoryContext } from "../../domain/repository/context.js";
 import type { WorktreeSource } from "../../domain/worktree/source.js";
+import type { WorktreeEntry } from "../../domain/worktree/types.js";
 import type {
-	WorktreeEntry,
-	WorktreeInfo,
-} from "../../domain/worktree/types.js";
-import type { PullRequestInfo } from "../../ports/pull-requests.js";
+	PullRequestInfo,
+	PullRequestPort,
+} from "../../ports/pull-requests.js";
 import type {
 	RepositoryContextPort,
 	WorktreePort,
 } from "../../ports/repository.js";
+import type { WorktreeInfo } from "./read-models.js";
 
 export interface LinkedWorktreeContext {
 	linkedWorktrees: WorktreeEntry[];
@@ -30,13 +31,8 @@ export interface WorktreeCatalogDependencies {
 	>;
 	readTask: (worktreePath: string) => Promise<{ task: string } | null>;
 	readWorktreeInfos: (worktrees: WorktreeEntry[]) => Promise<WorktreeInfo[]>;
-	queryPullRequests?: (
-		repoRoot: string,
-		sourceBranch: string,
-	) => Promise<PullRequestInfo[]>;
-	queryRepositoryPullRequests?: (
-		repoRoot: string,
-	) => Promise<PullRequestInfo[]>;
+	queryPullRequests?: PullRequestPort["listOpenPullRequests"];
+	queryRepositoryPullRequests?: PullRequestPort["listOpenPullRequestsForRepository"];
 }
 
 const MAX_PULL_REQUEST_REPOSITORY_QUERY_CONCURRENCY = 4;

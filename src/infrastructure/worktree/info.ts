@@ -1,9 +1,9 @@
 import type {
 	SerializedWorktreeInfo,
 	UpstreamState,
-	WorktreeEntry,
 	WorktreeInfo,
-} from "../../domain/worktree/types.js";
+} from "../../application/worktree/read-models.js";
+import type { WorktreeEntry } from "../../domain/worktree/types.js";
 import { readWorktreeHealth, type WorktreeHealth } from "../git/health.js";
 import { readBranchLastCommitTimestamp } from "../git/refs.js";
 import { getWorktreeSlot } from "../persistence/slots.js";

@@ -70,6 +70,46 @@ describe("repository hub", () => {
 		}
 	});
 
+	it("keeps repository PRs that are not attached to a visible worktree", async () => {
+		// Given a repository with one visible worktree and an unrelated open PR.
+		const repoRoot = await createRepository();
+		await addLinkedWorktree(repoRoot, "feature/visible");
+		const stdout: string[] = [];
+
+		// When the JSON hub loads repository-level PR metadata.
+		const result = await runCli(["--json"], {
+			cwd: repoRoot,
+			hubDependencies: {
+				queryRepositoryPullRequests: async () => [
+					{
+						number: 7,
+						sourceBranch: "feature/visible",
+						url: "https://example.test/pull/7",
+					},
+					{
+						number: 8,
+						sourceBranch: "feature/not-visible",
+						url: "https://example.test/pull/8",
+					},
+				],
+			},
+			stdout: (chunk) => stdout.push(chunk),
+		});
+
+		// Then the repository projection retains both PRs even though only one can decorate a worktree.
+		expect(result.exitCode).toBe(0);
+		expect(JSON.parse(stdout.join(""))).toMatchObject({
+			repositories: [
+				{
+					pullRequests: [
+						expect.objectContaining({ number: 7 }),
+						expect.objectContaining({ number: 8 }),
+					],
+				},
+			],
+		});
+	});
+
 	it("keeps the dashboard available when repository PR lookup fails", async () => {
 		// Given a repository whose PR provider is unavailable.
 		const repoRoot = await createRepository();

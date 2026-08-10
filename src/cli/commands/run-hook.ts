@@ -1,11 +1,5 @@
 import type { GjiHooks } from "../../ports/hooks.js";
-import { defaultCliDependencies } from "../dependencies.js";
-
-const { loadEffectiveConfig } = defaultCliDependencies.config;
-const { getWorktreeSlot } = defaultCliDependencies.slots;
-const { extractHooks, runHook } = defaultCliDependencies.hooks;
-const { detectRepository } = defaultCliDependencies.repositoryContext;
-const { listWorktrees } = defaultCliDependencies.worktrees;
+import { type CliRuntime, defaultCliDependencies } from "../dependencies.js";
 
 const VALID_HOOKS: Array<keyof GjiHooks> = [
 	"after-create",
@@ -26,12 +20,21 @@ function isValidHook(hook: string): hook is keyof GjiHooks {
 export interface RunHookCommandOptions {
 	cwd: string;
 	hook: string;
+	runtime?: CliRuntime<
+		"config" | "slots" | "hooks" | "repositoryContext" | "worktrees"
+	>;
 	stderr: (chunk: string) => void;
 }
 
 export async function runHookCommand(
 	options: RunHookCommandOptions,
 ): Promise<number> {
+	const runtime = options.runtime ?? defaultCliDependencies;
+	const { loadEffectiveConfig } = runtime.config;
+	const { getWorktreeSlot } = runtime.slots;
+	const { extractHooks, runHook } = runtime.hooks;
+	const { detectRepository } = runtime.repositoryContext;
+	const { listWorktrees } = runtime.worktrees;
 	const normalized = CAMEL_ALIASES[options.hook] ?? options.hook;
 	if (!isValidHook(normalized)) {
 		options.stderr(

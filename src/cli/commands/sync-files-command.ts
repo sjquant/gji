@@ -1,12 +1,11 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
 import type { GjiConfig } from "../../ports/config.js";
-import { defaultCliDependencies } from "../dependencies.js";
-
-const { validateSyncFilePattern } = defaultCliDependencies.filesystem;
-const { loadGlobalConfig, saveGlobalConfig } =
-	defaultCliDependencies.configStore;
-const { detectRepository } = defaultCliDependencies.repositoryContext;
+import {
+	type CliDependencies,
+	type CliRuntime,
+	defaultCliDependencies,
+} from "../dependencies.js";
 
 export interface SyncFilesCommandOptions {
 	action?: string;
@@ -14,6 +13,7 @@ export interface SyncFilesCommandOptions {
 	home?: string;
 	json?: boolean;
 	paths?: string[];
+	runtime?: CliRuntime<"filesystem" | "configStore" | "repositoryContext">;
 	stderr: (chunk: string) => void;
 	stdout: (chunk: string) => void;
 }
@@ -21,6 +21,10 @@ export interface SyncFilesCommandOptions {
 export async function runSyncFilesCommand(
 	options: SyncFilesCommandOptions,
 ): Promise<number> {
+	const runtime = options.runtime ?? defaultCliDependencies;
+	const { validateSyncFilePattern } = runtime.filesystem;
+	const { loadGlobalConfig, saveGlobalConfig } = runtime.configStore;
+	const { detectRepository } = runtime.repositoryContext;
 	const repository = await detectRepository(options.cwd);
 	const home = options.home ?? homedir();
 	const loaded = await loadGlobalConfig(home);
@@ -38,7 +42,11 @@ export async function runSyncFilesCommand(
 			return 0;
 		}
 		case "add": {
-			const paths = validatePaths(options.paths ?? [], options);
+			const paths = validatePaths(
+				options.paths ?? [],
+				options,
+				validateSyncFilePattern,
+			);
 			if (!paths) return 1;
 
 			const nextFiles = mergeSyncFiles(readSyncFiles(repoConfig), paths);
@@ -47,18 +55,29 @@ export async function runSyncFilesCommand(
 				repoEntry?.key ?? repository.repoRoot,
 				nextFiles,
 				home,
+				saveGlobalConfig,
 			);
 			writeSyncFiles(options.stdout, nextFiles, !!options.json);
 			return 0;
 		}
 		case "remove": {
-			const paths = validatePaths(options.paths ?? [], options);
+			const paths = validatePaths(
+				options.paths ?? [],
+				options,
+				validateSyncFilePattern,
+			);
 			if (!paths) return 1;
 
 			const existingFiles = readSyncFiles(repoConfig);
 			const nextFiles = removeSyncFiles(existingFiles, paths);
 			if (repoEntry && nextFiles.length !== existingFiles.length) {
-				await saveRepoSyncFiles(loaded.config, repoEntry.key, nextFiles, home);
+				await saveRepoSyncFiles(
+					loaded.config,
+					repoEntry.key,
+					nextFiles,
+					home,
+					saveGlobalConfig,
+				);
 			}
 			writeSyncFiles(options.stdout, nextFiles, !!options.json);
 			return 0;
@@ -119,6 +138,7 @@ function writeSyncFiles(
 function validatePaths(
 	paths: string[],
 	options: Pick<SyncFilesCommandOptions, "json" | "stderr">,
+	validateSyncFilePattern: CliDependencies["filesystem"]["validateSyncFilePattern"],
 ): string[] | null {
 	if (paths.length === 0) {
 		writeError(options, "at least one path is required");
@@ -163,6 +183,7 @@ async function saveRepoSyncFiles(
 	repoKey: string,
 	syncFiles: string[],
 	home: string,
+	saveGlobalConfig: CliDependencies["configStore"]["saveGlobalConfig"],
 ): Promise<void> {
 	const repos = isPlainObject(config.repos) ? { ...config.repos } : {};
 	const repoConfig = isPlainObject(repos[repoKey])

@@ -584,6 +584,7 @@ function attachCommandActions(
 					force: commandOptions.force,
 					json: commandOptions.json,
 					keepBranch: commandOptions.keepBranch,
+					runtime: options.dependencies,
 					stderr: options.stderr,
 					stdout: options.stdout,
 				});
@@ -602,6 +603,7 @@ function attachCommandActions(
 					id,
 					json: commandOptions.json,
 					list: commandOptions.list,
+					runtime: options.dependencies,
 					stderr: options.stderr,
 					stdout: options.stdout,
 				});
@@ -622,6 +624,7 @@ function attachCommandActions(
 					shell,
 					stderr: options.stderr,
 					stdout: options.stdout,
+					runtime: options.dependencies,
 					write: commandOptions.write,
 				});
 
@@ -645,6 +648,7 @@ function attachCommandActions(
 					json: commandOptions.json,
 					stderr: options.stderr,
 					stdout: options.stdout,
+					runtime: options.dependencies,
 					yes: commandOptions.yes,
 				});
 
@@ -712,6 +716,7 @@ function attachCommandActions(
 				stdout: options.stdout,
 				select: commandOptions.select,
 				target,
+				runtime: options.dependencies,
 			});
 
 			if (exitCode !== 0) {
@@ -733,6 +738,7 @@ function attachCommandActions(
 					cwd: options.cwd,
 					n: steps,
 					print: commandOptions.print,
+					runtime: options.dependencies,
 					stderr: options.stderr,
 					stdout: options.stdout,
 				});
@@ -749,6 +755,7 @@ function attachCommandActions(
 			const exitCode = await runHistoryCommand({
 				cwd: options.cwd,
 				json: commandOptions.json,
+				runtime: options.dependencies,
 				stdout: options.stdout,
 			});
 
@@ -775,6 +782,7 @@ function attachCommandActions(
 					editor: commandOptions.editor,
 					save: commandOptions.save,
 					select: commandOptions.select,
+					runtime: options.dependencies,
 					stderr: options.stderr,
 					stdout: options.stdout,
 					workspace: commandOptions.workspace,
@@ -822,6 +830,7 @@ function attachCommandActions(
 			const exitCode = await runRootCommand({
 				cwd: options.cwd,
 				print: commandOptions.print,
+				runtime: options.dependencies,
 				stdout: options.stdout,
 			});
 
@@ -836,6 +845,7 @@ function attachCommandActions(
 			const exitCode = await runStatusCommand({
 				cwd: options.cwd,
 				json: commandOptions.json,
+				runtime: options.dependencies,
 				stdout: options.stdout,
 			});
 
@@ -856,6 +866,7 @@ function attachCommandActions(
 					cwd: options.cwd,
 					json: commandOptions.json,
 					stderr: options.stderr,
+					runtime: options.dependencies,
 					task,
 					stdout: options.stdout,
 				});
@@ -870,6 +881,7 @@ function attachCommandActions(
 				all: commandOptions.all,
 				cwd: options.cwd,
 				json: commandOptions.json,
+				runtime: options.dependencies,
 				stderr: options.stderr,
 				stdout: options.stdout,
 			});
@@ -888,6 +900,7 @@ function attachCommandActions(
 			action: "list",
 			cwd: options.cwd,
 			json: commandOptions.json,
+			runtime: options.dependencies,
 			stderr: options.stderr,
 			stdout: options.stdout,
 		});
@@ -904,6 +917,7 @@ function attachCommandActions(
 				action: "list",
 				cwd: options.cwd,
 				json: commandOptions.json || syncFilesCommand?.opts().json,
+				runtime: options.dependencies,
 				stderr: options.stderr,
 				stdout: options.stdout,
 			});
@@ -921,6 +935,7 @@ function attachCommandActions(
 				cwd: options.cwd,
 				json: commandOptions.json || syncFilesCommand?.opts().json,
 				paths,
+				runtime: options.dependencies,
 				stderr: options.stderr,
 				stdout: options.stdout,
 			});
@@ -939,6 +954,7 @@ function attachCommandActions(
 			cwd: options.cwd,
 			json: commandOptions.json || syncFilesCommand?.opts().json,
 			paths,
+			runtime: options.dependencies,
 			stderr: options.stderr,
 			stdout: options.stdout,
 		});
@@ -959,6 +975,7 @@ function attachCommandActions(
 				compact: commandOptions.compact,
 				cwd: options.cwd,
 				json: commandOptions.json,
+				runtime: options.dependencies,
 				stdout: options.stdout,
 			});
 
@@ -982,6 +999,7 @@ function attachCommandActions(
 					force: commandOptions.force,
 					json: commandOptions.json,
 					stale: commandOptions.stale,
+					runtime: options.dependencies,
 					stderr: options.stderr,
 					stdout: options.stdout,
 				});
@@ -1002,6 +1020,7 @@ function attachCommandActions(
 			dryRun: commandOptions.dryRun,
 			force: commandOptions.force,
 			json: commandOptions.json,
+			runtime: options.dependencies,
 			stderr: options.stderr,
 			stdout: options.stdout,
 		});
@@ -1033,6 +1052,7 @@ function attachCommandActions(
 			const exitCode = await runHookCommand({
 				cwd: options.cwd,
 				hook,
+				runtime: options.dependencies,
 				stderr: options.stderr,
 			});
 
@@ -1058,6 +1078,7 @@ function attachCommandActions(
 					branch,
 					cwd: options.cwd,
 					json: commandOptions.json,
+					runtime: options.dependencies,
 					stderr: options.stderr,
 					stdout: options.stdout,
 				});

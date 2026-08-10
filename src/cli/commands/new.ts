@@ -20,6 +20,7 @@ import {
 } from "../../presentation/terminal/navigation.js";
 import {
 	type CliDependencies,
+	type CliRuntime,
 	defaultCliDependencies,
 } from "../dependencies.js";
 import { isHeadless } from "../runtime/headless.js";
@@ -50,8 +51,18 @@ export interface NewCommandOptions {
 	stderr: (chunk: string) => void;
 	stdout: (chunk: string) => void;
 	task?: string;
-	runtime?: CliDependencies;
+	runtime?: NewRuntime;
 }
+
+type NewRuntime = CliRuntime<
+	| "bootstrap"
+	| "configStore"
+	| "git"
+	| "history"
+	| "integrations"
+	| "repositoryContext"
+	| "tasks"
+>;
 
 type EffectiveGjiConfig = Awaited<
 	ReturnType<CliDependencies["config"]["loadEffectiveConfig"]>
@@ -76,14 +87,12 @@ export function createNewCommand(
 	const promptForFetchFailure =
 		dependencies.promptForFetchFailure ?? defaultPromptForFetchFailure;
 	const prompt = dependencies.promptForPathConflict ?? promptForPathConflict;
-	const spawnEditor =
-		dependencies.spawnEditor ??
-		defaultCliDependencies.integrations.defaultSpawnEditor;
-
 	return async function runNewCommand(
 		options: NewCommandOptions,
 	): Promise<number> {
 		const runtime = options.runtime ?? defaultCliDependencies;
+		const spawnEditor =
+			dependencies.spawnEditor ?? runtime.integrations.defaultSpawnEditor;
 		if (options.copy && !options.take)
 			return emitNewError(options, "--copy requires --take");
 		if (options.detached && options.fromCurrent) {
@@ -514,7 +523,6 @@ export function createNewCommand(
 			runCommand: dependencies.runCommand,
 			commandStdout: options.json ? () => undefined : options.stdout,
 			commandStderr: options.json ? () => undefined : options.stderr,
-			json: options.json,
 			worktreePath,
 		});
 		if (!bootstrap.ready) {
@@ -577,7 +585,7 @@ async function resolveFreshBaseRef(
 	config: EffectiveGjiConfig,
 	options: NewCommandOptions,
 	promptForFetchFailure: (message: string) => Promise<boolean>,
-	runtime: CliDependencies,
+	runtime: NewRuntime,
 ): Promise<string | null> {
 	const remote =
 		runtime.configStore.resolveConfigString(config, "syncRemote") ?? "origin";
@@ -656,7 +664,7 @@ async function defaultPromptForFetchFailure(message: string): Promise<boolean> {
 async function localRefExists(
 	repoRoot: string,
 	ref: string,
-	runtime: CliDependencies,
+	runtime: NewRuntime,
 ): Promise<boolean> {
 	try {
 		await runtime.git.runGit(repoRoot, [
@@ -850,7 +858,7 @@ async function defaultPromptForBranch(
 async function localBranchExists(
 	repoRoot: string,
 	branchName: string,
-	runtime: CliDependencies,
+	runtime: NewRuntime,
 ): Promise<boolean> {
 	try {
 		await runtime.git.runGit(repoRoot, [

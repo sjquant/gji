@@ -15,7 +15,7 @@ import type {
 } from "../../ports/repository.js";
 import { listRegisteredWorktreeSources } from "./sources.js";
 
-export type GoBranchResolution =
+type GoBranchResolutionBase =
 	| { kind: "existing"; source: WorktreeSource }
 	| { kind: "ambiguous"; matches: WorktreeSource[] }
 	| {
@@ -30,9 +30,12 @@ export type GoBranchResolution =
 	| { kind: "no-match"; staleRegisteredRepos: boolean }
 	| { kind: "error"; message: string };
 
+export type GoBranchResolution = GoBranchResolutionBase & {
+	configWarnings?: readonly string[];
+};
+
 export async function resolveGoBranch(options: {
 	branch: string;
-	configStderr?: (chunk: string) => void;
 	cwd: string;
 	currentSources: WorktreeSource[];
 	repository: RepositoryContext | null;
@@ -45,7 +48,6 @@ export async function resolveGoBranch(options: {
 	const {
 		branch,
 		configPort,
-		configStderr,
 		cwd,
 		currentSources,
 		repository,
@@ -81,9 +83,7 @@ export async function resolveGoBranch(options: {
 			const config = await configPort.loadEffectiveConfig(
 				repository.repoRoot,
 				undefined,
-				configStderr === undefined
-					? undefined
-					: (warning) => configWarnings.push(warning),
+				(warning) => configWarnings.push(warning),
 			);
 			remote = configPort.resolveConfigString(config, "syncRemote") ?? "origin";
 			remoteBranch = await repositoryPort.hasRemoteBranch(
@@ -98,10 +98,6 @@ export async function resolveGoBranch(options: {
 			};
 		}
 	}
-	const flushConfigWarnings = (): void => {
-		if (configStderr === undefined) return;
-		for (const warning of configWarnings) configStderr(warning);
-	};
 	const pullRequestBelongsToRepository =
 		repository && pullRequestNumber !== null
 			? await isPullRequestForRepository(
@@ -122,7 +118,7 @@ export async function resolveGoBranch(options: {
 			true,
 		);
 		if (pullRequestMatches.length === 1) {
-			return { kind: "existing", source: pullRequestMatches[0] };
+			return finish({ kind: "existing", source: pullRequestMatches[0] }, false);
 		}
 	}
 
@@ -144,55 +140,73 @@ export async function resolveGoBranch(options: {
 		repositoryPort,
 	);
 	if (crossMatches.length === 1) {
-		return { kind: "existing", source: crossMatches[0] };
+		return finish({ kind: "existing", source: crossMatches[0] }, false);
 	}
 	if (crossMatches.length > 1) {
-		return { kind: "ambiguous", matches: crossMatches };
+		return finish({ kind: "ambiguous", matches: crossMatches }, false);
 	}
 
 	if (!repository) {
-		return registeredSources.length === 0
-			? {
-					kind: "no-repository",
-					staleRegisteredRepos: skippedRegisteredRepos > 0,
-				}
-			: { kind: "no-match", staleRegisteredRepos: skippedRegisteredRepos > 0 };
+		return finish(
+			registeredSources.length === 0
+				? {
+						kind: "no-repository",
+						staleRegisteredRepos: skippedRegisteredRepos > 0,
+					}
+				: {
+						kind: "no-match",
+						staleRegisteredRepos: skippedRegisteredRepos > 0,
+					},
+		);
 	}
 
 	if (localBranch) {
-		if (configError) return configError;
-		flushConfigWarnings();
-		return { kind: "create", repository, branch, mode: "checkout" };
+		if (configError) return finish(configError);
+		return finish({ kind: "create", repository, branch, mode: "checkout" });
 	}
 	if (remoteBranch) {
-		flushConfigWarnings();
-		return { kind: "create", repository, branch, mode: "track", remote };
+		return finish({
+			kind: "create",
+			repository,
+			branch,
+			mode: "track",
+			remote,
+		});
 	}
 	const localMatch =
 		!pullRequestNumber || !isPullRequestUrl(branch)
 			? resolveWorktreeQuery(currentSources, branch)
 			: null;
 	if (localMatch) {
-		return { kind: "existing", source: localMatch };
+		return finish({ kind: "existing", source: localMatch });
 	}
-	if (configError) return configError;
+	if (configError) return finish(configError);
 
 	if (pullRequestNumber !== null && !pullRequestBelongsToRepository) {
-		flushConfigWarnings();
-		return {
+		return finish({
 			kind: "error",
 			message:
 				"PR URL does not belong to this repository; run gji go from the matching checkout",
-		};
+		});
 	}
 
 	if (pullRequestNumber !== null) {
-		flushConfigWarnings();
-		return { kind: "pull-request", repository, input: branch };
+		return finish({ kind: "pull-request", repository, input: branch });
 	}
 
-	flushConfigWarnings();
-	return { kind: "no-match", staleRegisteredRepos: skippedRegisteredRepos > 0 };
+	return finish({
+		kind: "no-match",
+		staleRegisteredRepos: skippedRegisteredRepos > 0,
+	});
+
+	function finish(
+		resolution: GoBranchResolutionBase,
+		includeWarnings = true,
+	): GoBranchResolution {
+		return !includeWarnings || configWarnings.length === 0
+			? resolution
+			: { ...resolution, configWarnings };
+	}
 }
 
 function resolveExistingExactWorktreeMatches(

@@ -2,18 +2,12 @@ import { access } from "node:fs/promises";
 import { basename } from "node:path";
 
 import type { HistoryEntry } from "../../ports/history.js";
-import { defaultCliDependencies } from "../dependencies.js";
-
-const { loadEffectiveConfig } = defaultCliDependencies.config;
-const { appendHistory, loadHistory } = defaultCliDependencies.historyStore;
-const { extractHooks, runHook } = defaultCliDependencies.hooks;
-const { detectRepository } = defaultCliDependencies.repositoryContext;
-
 import { writeShellOutput } from "../../presentation/shell/handoff.js";
 import {
 	createNavigationRepository,
 	createNavigationTarget,
 } from "../../presentation/terminal/navigation.js";
+import { type CliRuntime, defaultCliDependencies } from "../dependencies.js";
 
 export const BACK_OUTPUT_FILE_ENV = "GJI_BACK_OUTPUT_FILE";
 
@@ -25,6 +19,9 @@ export interface BackCommandOptions {
 	commandName?: string;
 	outputEnv?: string;
 	print?: boolean;
+	runtime?: CliRuntime<
+		"config" | "historyStore" | "hooks" | "repositoryContext"
+	>;
 	stderr: (chunk: string) => void;
 	stdout: (chunk: string) => void;
 }
@@ -32,6 +29,11 @@ export interface BackCommandOptions {
 export async function runBackCommand(
 	options: BackCommandOptions,
 ): Promise<number> {
+	const runtime = options.runtime ?? defaultCliDependencies;
+	const { loadEffectiveConfig } = runtime.config;
+	const { appendHistory, loadHistory } = runtime.historyStore;
+	const { extractHooks, runHook } = runtime.hooks;
+	const { detectRepository } = runtime.repositoryContext;
 	const history = await loadHistory(options.home);
 	const steps = options.n ?? 1;
 

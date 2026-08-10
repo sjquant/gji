@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import type { WorktreeInfo } from "../../domain/worktree/types.js";
 import { loadContextCardModel } from "./context-card.js";
+import type { WorktreeInfo } from "./read-models.js";
 
 describe("loadContextCardModel", () => {
 	it("returns the current worktree information when a task exists", async () => {
@@ -30,6 +30,19 @@ describe("loadContextCardModel", () => {
 		});
 
 		// Then no empty card is presented.
+		expect(model).toBeNull();
+	});
+
+	it("returns no card model when the requested worktree is not listed", async () => {
+		// Given a path that is no longer present in the repository worktree list.
+		// When the application loads the context-card model.
+		const model = await loadContextCardModel("/repo/removed", {
+			listWorktrees: async () => [],
+			readTask: async () => ({ task: "stale task" }),
+			readWorktreeInfo: async () => createInfo(),
+		});
+
+		// Then the presentation receives no stale card.
 		expect(model).toBeNull();
 	});
 });

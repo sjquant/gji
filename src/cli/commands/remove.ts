@@ -13,25 +13,8 @@ import {
 	defaultConfirmForceDeleteBranch,
 	defaultConfirmForceRemoveWorktree,
 } from "../../presentation/worktree/prompts.js";
-import { defaultCliDependencies } from "../dependencies.js";
+import { type CliRuntime, defaultCliDependencies } from "../dependencies.js";
 import { isHeadless } from "../runtime/headless.js";
-
-const { loadEffectiveConfig } = defaultCliDependencies.config;
-const { releaseWorktreeSlot } = defaultCliDependencies.slots;
-const { extractHooks, runHook } = defaultCliDependencies.hooks;
-const sourceDependencies = {
-	...defaultCliDependencies.repositoryContext,
-	...defaultCliDependencies.repositoryRegistry,
-	...defaultCliDependencies.worktrees,
-};
-const {
-	deleteBranch,
-	forceDeleteBranch,
-	forceRemoveWorktree,
-	isBranchUnmergedError,
-	isWorktreeForceRemovalError,
-	removeWorktree,
-} = defaultCliDependencies.worktreeLifecycle;
 
 import { finalizeUndoOperation, recordUndoOperation } from "./undo.js";
 
@@ -41,6 +24,18 @@ export interface RemoveCommandOptions {
 	dryRun?: boolean;
 	force?: boolean;
 	json?: boolean;
+	runtime?: CliRuntime<
+		| "git"
+		| "config"
+		| "configStore"
+		| "slots"
+		| "hooks"
+		| "repositoryContext"
+		| "repositoryRegistry"
+		| "worktrees"
+		| "worktreeLifecycle"
+		| "worktreeCatalog"
+	>;
 	stderr: (chunk: string) => void;
 	stdout: (chunk: string) => void;
 }
@@ -71,6 +66,23 @@ export function createRemoveCommand(
 	return async function runRemoveCommand(
 		options: RemoveCommandOptions,
 	): Promise<number> {
+		const runtime = options.runtime ?? defaultCliDependencies;
+		const { loadEffectiveConfig } = runtime.config;
+		const { releaseWorktreeSlot } = runtime.slots;
+		const { extractHooks, runHook } = runtime.hooks;
+		const sourceDependencies = {
+			...runtime.repositoryContext,
+			...runtime.repositoryRegistry,
+			...runtime.worktrees,
+		};
+		const {
+			deleteBranch,
+			forceDeleteBranch,
+			forceRemoveWorktree,
+			isBranchUnmergedError,
+			isWorktreeForceRemovalError,
+			removeWorktree,
+		} = runtime.worktreeLifecycle;
 		const { linkedWorktrees, repository } = await loadLinkedWorktrees(
 			options.cwd,
 			sourceDependencies,
@@ -101,7 +113,7 @@ export function createRemoveCommand(
 						repoName: repository.repoName,
 						worktree,
 					})),
-					{ catalog: defaultCliDependencies.worktreeCatalog },
+					{ catalog: runtime.worktreeCatalog },
 				),
 			));
 
@@ -162,9 +174,13 @@ export function createRemoveCommand(
 		const hooks = extractHooks(config);
 		let journal: Awaited<ReturnType<typeof recordUndoOperation>>;
 		try {
-			journal = await recordUndoOperation("remove", repository.repoRoot, [
-				worktree,
-			]);
+			journal = await recordUndoOperation(
+				"remove",
+				repository.repoRoot,
+				[worktree],
+				undefined,
+				runtime,
+			);
 		} catch (error) {
 			emitError(
 				options,
@@ -194,7 +210,12 @@ export function createRemoveCommand(
 			await removeWorktree(repository.repoRoot, worktree.path);
 		} catch (error) {
 			if (!isWorktreeForceRemovalError(error)) {
-				await finalizeUndoOperation(journal, []);
+				await finalizeUndoOperation(
+					journal,
+					[],
+					undefined,
+					runtime.configStore.GLOBAL_CONFIG_DIRECTORY,
+				);
 				throw error;
 			}
 
@@ -202,7 +223,12 @@ export function createRemoveCommand(
 				!options.force &&
 				!(await confirmForceRemoveWorktree(worktree.path))
 			) {
-				await finalizeUndoOperation(journal, []);
+				await finalizeUndoOperation(
+					journal,
+					[],
+					undefined,
+					runtime.configStore.GLOBAL_CONFIG_DIRECTORY,
+				);
 				options.stderr("Aborted\n");
 				return 1;
 			}
@@ -210,7 +236,12 @@ export function createRemoveCommand(
 			try {
 				await forceRemoveWorktree(repository.repoRoot, worktree.path);
 			} catch (forceError) {
-				await finalizeUndoOperation(journal, []);
+				await finalizeUndoOperation(
+					journal,
+					[],
+					undefined,
+					runtime.configStore.GLOBAL_CONFIG_DIRECTORY,
+				);
 				emitError(
 					options,
 					`Failed to remove worktree at ${worktree.path}: ${toMessage(forceError)}`,
@@ -218,7 +249,12 @@ export function createRemoveCommand(
 				return 1;
 			}
 		}
-		await finalizeUndoOperation(journal, [worktree]);
+		await finalizeUndoOperation(
+			journal,
+			[worktree],
+			undefined,
+			runtime.configStore.GLOBAL_CONFIG_DIRECTORY,
+		);
 		await releaseWorktreeSlot(worktree.path);
 
 		if (worktree.branch) {

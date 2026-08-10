@@ -1,50 +1,21 @@
 import { confirm, isCancel } from "@clack/prompts";
 import { loadLinkedWorktrees } from "../../application/worktree/catalog.js";
-import type {
-	WorktreeEntry,
-	WorktreeInfo,
-} from "../../domain/worktree/types.js";
+import type { WorktreeInfo } from "../../application/worktree/read-models.js";
+import type { WorktreeEntry } from "../../domain/worktree/types.js";
 import {
 	buildWorktreePromptEntries,
 	promptForMultipleWorktrees,
 	type WorktreePromptEntry,
 } from "../../presentation/worktree/picker.js";
-import { defaultCliDependencies } from "../dependencies.js";
-
-const {
-	readWorktreeHealth,
-	isBranchMergedInto,
-	resolveRemoteDefaultBranch,
-	runGit,
-} = defaultCliDependencies.git;
-const { loadEffectiveConfig } = defaultCliDependencies.config;
-const { releaseWorktreeSlot } = defaultCliDependencies.slots;
-const sourceDependencies = {
-	...defaultCliDependencies.repositoryContext,
-	...defaultCliDependencies.repositoryRegistry,
-	...defaultCliDependencies.worktrees,
-};
-const {
-	formatLastCommit,
-	formatUpstreamState,
-	readWorktreeInfos,
-	serializeWorktreeInfo,
-} = defaultCliDependencies.worktreeInfo;
-const {
-	deleteBranch,
-	forceDeleteBranch,
-	forceRemoveWorktree,
-	isBranchUnmergedError,
-	isSubmoduleWorktreeRemovalError,
-	isWorktreeDeletionError,
-	isWorktreeForceRemovalError,
-	removeWorktree,
-} = defaultCliDependencies.worktreeLifecycle;
-
 import {
 	defaultConfirmForceDeleteBranch,
 	defaultConfirmForceRemoveWorktree,
 } from "../../presentation/worktree/prompts.js";
+import {
+	type CliDependencies,
+	type CliRuntime,
+	defaultCliDependencies,
+} from "../dependencies.js";
 import { isHeadless } from "../runtime/headless.js";
 import { finalizeUndoOperation, recordUndoOperation } from "./undo.js";
 
@@ -54,6 +25,18 @@ export interface CleanCommandOptions {
 	force?: boolean;
 	json?: boolean;
 	stale?: boolean;
+	runtime?: CliRuntime<
+		| "git"
+		| "config"
+		| "configStore"
+		| "slots"
+		| "repositoryContext"
+		| "repositoryRegistry"
+		| "worktrees"
+		| "worktreeInfo"
+		| "worktreeLifecycle"
+		| "worktreeCatalog"
+	>;
 	stderr: (chunk: string) => void;
 	stdout: (chunk: string) => void;
 }
@@ -88,6 +71,36 @@ export function createCleanCommand(
 	return async function runCleanCommand(
 		options: CleanCommandOptions,
 	): Promise<number> {
+		const runtime = options.runtime ?? defaultCliDependencies;
+		const {
+			readWorktreeHealth,
+			isBranchMergedInto,
+			resolveRemoteDefaultBranch,
+			runGit,
+		} = runtime.git;
+		const { loadEffectiveConfig } = runtime.config;
+		const { releaseWorktreeSlot } = runtime.slots;
+		const sourceDependencies = {
+			...runtime.repositoryContext,
+			...runtime.repositoryRegistry,
+			...runtime.worktrees,
+		};
+		const {
+			formatLastCommit,
+			formatUpstreamState,
+			readWorktreeInfos,
+			serializeWorktreeInfo,
+		} = runtime.worktreeInfo;
+		const {
+			deleteBranch,
+			forceDeleteBranch,
+			forceRemoveWorktree,
+			isBranchUnmergedError,
+			isSubmoduleWorktreeRemovalError,
+			isWorktreeDeletionError,
+			isWorktreeForceRemovalError,
+			removeWorktree,
+		} = runtime.worktreeLifecycle;
 		const { linkedWorktrees, repository } = await loadLinkedWorktrees(
 			options.cwd,
 			sourceDependencies,
@@ -96,13 +109,21 @@ export function createCleanCommand(
 			(worktree) => worktree.path !== repository.currentRoot,
 		);
 		const staleBaseRef = options.stale
-			? await resolveStaleBaseRef(repository.repoRoot, options.stderr)
+			? await resolveStaleBaseRef(
+					repository.repoRoot,
+					options.stderr,
+					loadEffectiveConfig,
+					resolveRemoteDefaultBranch,
+					runGit,
+				)
 			: null;
 		const cleanupCandidates = options.stale
 			? await filterStaleCleanupCandidates(
 					repository.repoRoot,
 					linkedCleanupCandidates,
 					staleBaseRef,
+					readWorktreeHealth,
+					isBranchMergedInto,
 				)
 			: linkedCleanupCandidates;
 
@@ -140,7 +161,7 @@ export function createCleanCommand(
 							repoName: repository.repoName,
 							worktree,
 						})),
-						{ catalog: defaultCliDependencies.worktreeCatalog },
+						{ catalog: runtime.worktreeCatalog },
 					),
 				);
 
@@ -184,7 +205,7 @@ export function createCleanCommand(
 			} else {
 				for (const info of selectedWorktreeInfos) {
 					options.stdout(
-						`Would remove worktree at ${info.path} (${formatCleanInfo(info)})\n`,
+						`Would remove worktree at ${info.path} (${formatCleanInfo(info, formatLastCommit, formatUpstreamState)})\n`,
 					);
 				}
 			}
@@ -199,6 +220,8 @@ export function createCleanCommand(
 				"clean",
 				repository.repoRoot,
 				selectedWorktrees,
+				undefined,
+				runtime,
 			);
 		} catch (error) {
 			emitError(
@@ -222,6 +245,8 @@ export function createCleanCommand(
 					repository.repoRoot,
 					worktree,
 					staleBaseRef,
+					readWorktreeHealth,
+					isBranchMergedInto,
 				))
 			) {
 				options.stderr(
@@ -311,7 +336,12 @@ export function createCleanCommand(
 				}
 			}
 		}
-		await finalizeUndoOperation(journal, removedWorktrees);
+		await finalizeUndoOperation(
+			journal,
+			removedWorktrees,
+			undefined,
+			runtime.configStore.GLOBAL_CONFIG_DIRECTORY,
+		);
 		await Promise.all(
 			removedWorktrees.map((worktree) => releaseWorktreeSlot(worktree.path)),
 		);
@@ -344,6 +374,8 @@ async function filterStaleCleanupCandidates(
 	repoRoot: string,
 	worktrees: WorktreeEntry[],
 	baseBranch: string | null,
+	readWorktreeHealth: CliDependencies["git"]["readWorktreeHealth"],
+	isBranchMergedInto: CliDependencies["git"]["isBranchMergedInto"],
 ): Promise<WorktreeEntry[]> {
 	if (baseBranch === null) {
 		return [];
@@ -351,7 +383,13 @@ async function filterStaleCleanupCandidates(
 
 	const results = await Promise.all(
 		worktrees.map((worktree) =>
-			isStaleCleanupCandidate(repoRoot, worktree, baseBranch),
+			isStaleCleanupCandidate(
+				repoRoot,
+				worktree,
+				baseBranch,
+				readWorktreeHealth,
+				isBranchMergedInto,
+			),
 		),
 	);
 
@@ -361,6 +399,9 @@ async function filterStaleCleanupCandidates(
 async function resolveStaleBaseRef(
 	repoRoot: string,
 	stderr: (chunk: string) => void,
+	loadEffectiveConfig: CliDependencies["config"]["loadEffectiveConfig"],
+	resolveRemoteDefaultBranch: CliDependencies["git"]["resolveRemoteDefaultBranch"],
+	runGit: CliDependencies["git"]["runGit"],
 ): Promise<string | null> {
 	const config = await loadEffectiveConfig(repoRoot, undefined, stderr);
 	const remote = resolveConfiguredString(config.syncRemote) ?? "origin";
@@ -374,6 +415,7 @@ async function resolveStaleBaseRef(
 			repoRoot,
 			remote,
 			configuredDefaultBranch,
+			runGit,
 		);
 	}
 
@@ -385,7 +427,12 @@ async function resolveStaleBaseRef(
 
 		return remoteDefaultBranch === null
 			? null
-			: await resolveFetchedRemoteRef(repoRoot, remote, remoteDefaultBranch);
+			: await resolveFetchedRemoteRef(
+					repoRoot,
+					remote,
+					remoteDefaultBranch,
+					runGit,
+				);
 	} catch {
 		return null;
 	}
@@ -395,6 +442,7 @@ async function resolveFetchedRemoteRef(
 	repoRoot: string,
 	remote: string,
 	branch: string,
+	runGit: CliDependencies["git"]["runGit"],
 ): Promise<string | null> {
 	try {
 		await runGit(repoRoot, ["fetch", "--prune", remote]);
@@ -412,6 +460,8 @@ async function isStaleCleanupCandidate(
 	repoRoot: string,
 	worktree: WorktreeEntry,
 	baseBranch: string | null,
+	readWorktreeHealth: CliDependencies["git"]["readWorktreeHealth"],
+	isBranchMergedInto: CliDependencies["git"]["isBranchMergedInto"],
 ): Promise<boolean> {
 	if (baseBranch === null) {
 		return false;
@@ -466,7 +516,11 @@ function reportCleanFailures(
 	}
 }
 
-function formatCleanInfo(info: WorktreeInfo): string {
+function formatCleanInfo(
+	info: WorktreeInfo,
+	formatLastCommit: CliDependencies["worktreeInfo"]["formatLastCommit"],
+	formatUpstreamState: CliDependencies["worktreeInfo"]["formatUpstreamState"],
+): string {
 	const branch = info.branch === null ? "detached" : `branch: ${info.branch}`;
 	const status = `status: ${info.status}`;
 	const upstream = `upstream: ${formatUpstreamState(info.upstream)}`;

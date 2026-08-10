@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { WorktreeSource } from "../../domain/worktree/source.js";
-import type { WorktreeInfo } from "../../domain/worktree/types.js";
 import { loadWorktreeCatalog } from "./catalog.js";
+import type { WorktreeInfo } from "./read-models.js";
 
 describe("loadWorktreeCatalog", () => {
 	it("joins recent history and branch PR metadata to hydrated worktrees", async () => {

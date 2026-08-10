@@ -8,13 +8,16 @@ import {
 	type WorktreeCatalogDependencies,
 	type WorktreeMetadataMode,
 } from "../../application/worktree/catalog.js";
-import type { WorktreeSource } from "../../domain/worktree/source.js";
 import type {
 	UpstreamState,
-	WorktreeEntry,
 	WorktreeInfo,
-} from "../../domain/worktree/types.js";
-import type { PullRequestInfo } from "../../ports/pull-requests.js";
+} from "../../application/worktree/read-models.js";
+import type { WorktreeSource } from "../../domain/worktree/source.js";
+import type { WorktreeEntry } from "../../domain/worktree/types.js";
+import type {
+	PullRequestInfo,
+	PullRequestPort,
+} from "../../ports/pull-requests.js";
 import {
 	middleEllipsize,
 	sanitizeTerminalText,
@@ -33,20 +36,14 @@ export interface WorktreePromptEntry extends WorktreeEntry {
 	task?: string | null;
 }
 
-export type QueryWorktreePullRequests = (
-	repoRoot: string,
-	sourceBranch: string,
-) => Promise<PullRequestInfo[]>;
+export type QueryWorktreePullRequests = PullRequestPort["listOpenPullRequests"];
 
-export type QueryRepositoryPullRequests = (
-	repoRoot: string,
-) => Promise<PullRequestInfo[]>;
+export type QueryRepositoryPullRequests =
+	PullRequestPort["listOpenPullRequestsForRepository"];
 
 export interface BuildWorktreePromptEntriesDependencies {
 	metadata?: WorktreeMetadataMode;
 	catalog?: WorktreeCatalogDependencies;
-	queryPullRequests?: QueryWorktreePullRequests;
-	queryRepositoryPullRequests?: QueryRepositoryPullRequests;
 }
 
 export interface WorktreePickerIO {

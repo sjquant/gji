@@ -2,9 +2,10 @@ import { basename } from "node:path";
 import { stdin, stdout } from "node:process";
 
 import { spinner } from "@clack/prompts";
+import { loadWorktreeCatalog } from "../../application/worktree/catalog.js";
+import type { WorktreeInfo } from "../../application/worktree/read-models.js";
 import { listDiscoverableWorktreeSources } from "../../application/worktree/sources.js";
 import type { WorktreeSource } from "../../domain/worktree/source.js";
-import type { WorktreeInfo } from "../../domain/worktree/types.js";
 import type { PullRequestInfo } from "../../ports/pull-requests.js";
 import {
 	middleEllipsize,
@@ -15,10 +16,7 @@ import {
 	formatRelativeAge,
 	formatUpstreamState,
 } from "../../presentation/worktree/format.js";
-import {
-	type CliDependencies,
-	defaultCliDependencies,
-} from "../dependencies.js";
+import { type CliRuntime, defaultCliDependencies } from "../dependencies.js";
 
 const MAX_HUB_REPOSITORY_CONCURRENCY = 4;
 
@@ -29,7 +27,7 @@ export interface HubCommandOptions {
 	now?: number;
 	stderr: (chunk: string) => void;
 	stdout: (chunk: string) => void;
-	runtime?: CliDependencies;
+	runtime?: HubRuntime;
 }
 
 export interface HubCommandDependencies {
@@ -49,6 +47,14 @@ export interface HubRepository {
 	worktrees: HubWorktree[];
 }
 
+type HubRuntime = CliRuntime<
+	| "pullRequests"
+	| "repositoryContext"
+	| "repositoryRegistry"
+	| "worktrees"
+	| "worktreeCatalog"
+>;
+
 export interface HubData {
 	currentRepository: string | null;
 	repositories: HubRepository[];
@@ -57,24 +63,18 @@ export interface HubData {
 export async function buildHubData(
 	cwd: string,
 	dependencies: Partial<HubCommandDependencies> = {},
-	runtime: CliDependencies = defaultCliDependencies,
+	runtime: HubRuntime = defaultCliDependencies,
 ): Promise<HubData> {
-	const { loadHistory } = runtime.historyStore;
 	const { detectRepository } = runtime.repositoryContext;
 	const sourceDependencies = {
 		...runtime.repositoryContext,
 		...runtime.repositoryRegistry,
 		...runtime.worktrees,
 	};
-	const { readWorktreeInfos } = runtime.worktreeInfo;
 	const queryRepositoryPullRequests =
 		dependencies.queryRepositoryPullRequests ??
 		runtime.pullRequests.listOpenPullRequestsForRepository;
 	const currentRepository = await detectRepository(cwd).catch(() => null);
-	const history = await loadHistory();
-	const lastUsedByPath = new Map(
-		history.map((entry) => [entry.path, entry.timestamp]),
-	);
 	const sources = await listDiscoverableWorktreeSources(
 		cwd,
 		sourceDependencies,
@@ -99,22 +99,23 @@ export async function buildHubData(
 		[...groups.entries()],
 		MAX_HUB_REPOSITORY_CONCURRENCY,
 		async ([root, group]) => {
-			const infos = await readWorktreeInfos(
-				group.sources.map((source) => source.worktree),
-			);
 			let pullRequests: PullRequestInfo[] = [];
 			try {
 				pullRequests = await queryRepositoryPullRequests(root);
 			} catch {
 				// PR metadata is optional. The hub remains useful when a provider is unavailable.
 			}
-			const worktrees = infos.map((info) => ({
-				...info,
-				lastUsedTimestamp: lastUsedByPath.get(info.path) ?? null,
-				pullRequests: pullRequests.filter(
-					(pullRequest) => pullRequest.sourceBranch === info.branch,
-				),
-			}));
+			const hydrated = await loadWorktreeCatalog(group.sources, "full", {
+				...runtime.worktreeCatalog,
+				queryRepositoryPullRequests: async () => pullRequests,
+			});
+			const worktrees = hydrated.map(
+				({ info, lastUsedTimestamp, pullRequests }) => ({
+					...info,
+					lastUsedTimestamp,
+					pullRequests,
+				}),
+			);
 
 			return {
 				current: currentRepository?.repoRoot === root,

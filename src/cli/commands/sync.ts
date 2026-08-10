@@ -1,18 +1,13 @@
 import { comparePaths } from "../../domain/shared/paths.js";
 import type { WorktreeEntry } from "../../domain/worktree/types.js";
 import type { RemoteBase } from "../../ports/git.js";
-import { defaultCliDependencies } from "../dependencies.js";
-
-const { isDirtyWorktree, resolveRemoteBase, runGit } =
-	defaultCliDependencies.git;
-const { loadEffectiveConfig } = defaultCliDependencies.config;
-const { detectRepository } = defaultCliDependencies.repositoryContext;
-const { listWorktrees } = defaultCliDependencies.worktrees;
+import { type CliRuntime, defaultCliDependencies } from "../dependencies.js";
 
 export interface SyncCommandOptions {
 	all?: boolean;
 	cwd: string;
 	json?: boolean;
+	runtime?: CliRuntime<"git" | "config" | "repositoryContext" | "worktrees">;
 	stderr: (chunk: string) => void;
 	stdout: (chunk: string) => void;
 }
@@ -20,6 +15,11 @@ export interface SyncCommandOptions {
 export async function runSyncCommand(
 	options: SyncCommandOptions,
 ): Promise<number> {
+	const runtime = options.runtime ?? defaultCliDependencies;
+	const { isDirtyWorktree, resolveRemoteBase, runGit } = runtime.git;
+	const { loadEffectiveConfig } = runtime.config;
+	const { detectRepository } = runtime.repositoryContext;
+	const { listWorktrees } = runtime.worktrees;
 	const repository = await detectRepository(options.cwd);
 	const config = await loadEffectiveConfig(
 		repository.repoRoot,

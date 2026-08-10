@@ -1,14 +1,10 @@
-import { execFile } from "node:child_process";
 import { mkdir, realpath } from "node:fs/promises";
 import { join } from "node:path";
-import { promisify } from "node:util";
 
 import { describe, expect, it } from "vitest";
 import { resolveWorktreePath } from "../../domain/worktree/policy.js";
-import { createRepository } from "../../test-support/repository.js";
+import { createRepository, runGit } from "../../test-support/repository.js";
 import { detectRepository } from "./context.js";
-
-const execFileAsync = promisify(execFile);
 
 describe("detectRepository", () => {
 	it("finds the main repository root from the repository root", async () => {
@@ -44,7 +40,3 @@ describe("detectRepository", () => {
 		});
 	});
 });
-
-async function runGit(cwd: string, args: string[]): Promise<void> {
-	await execFileAsync("git", args, { cwd });
-}

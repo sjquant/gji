@@ -22,10 +22,7 @@ import {
 	defaultSpawnEditor,
 	EDITORS,
 } from "../infrastructure/integrations/editor.js";
-import {
-	createPullRequestQuery,
-	type PullRequestQuery,
-} from "../infrastructure/integrations/pull-requests.js";
+import { createPullRequestQuery } from "../infrastructure/integrations/pull-requests.js";
 import {
 	CONFIG_FILE_NAME,
 	GLOBAL_CONFIG_DIRECTORY,
@@ -94,6 +91,7 @@ import type {
 } from "../ports/bootstrap.js";
 import type { ConfigPort } from "../ports/config.js";
 import type { GitCommandPort } from "../ports/git.js";
+import type { PullRequestPort } from "../ports/pull-requests.js";
 import type {
 	RepositoryContextPort,
 	RepositoryRefPort,
@@ -114,7 +112,7 @@ export interface CliDependencies {
 	worktrees: WorktreePort;
 	worktreeCatalog: WorktreeCatalogDependencies;
 	contextCard: ContextCardDependencies;
-	pullRequests: PullRequestQuery;
+	pullRequests: PullRequestPort;
 	history: {
 		recordWorktreeUsage: typeof recordWorktreeUsage;
 	};
@@ -195,6 +193,11 @@ export interface CliDependencies {
 	};
 	filesystem: { validateSyncFilePattern: typeof validateSyncFilePattern };
 }
+
+export type CliRuntime<Keys extends keyof CliDependencies> = Pick<
+	CliDependencies,
+	Keys
+>;
 
 export function createCliDependencies(): CliDependencies {
 	const pullRequests = createPullRequestQuery();
@@ -295,7 +298,7 @@ export function createCliDependencies(): CliDependencies {
 export const defaultCliDependencies = createCliDependencies();
 
 export function withPullRequestQueries(
-	dependencies: CliDependencies,
+	dependencies: CliRuntime<"worktreeCatalog">,
 	queryPullRequests?: WorktreeCatalogDependencies["queryPullRequests"],
 	queryRepositoryPullRequests?: WorktreeCatalogDependencies["queryRepositoryPullRequests"],
 ): WorktreeCatalogDependencies {
