@@ -629,8 +629,13 @@ async function runBranchOnly(
 			? configuredBaseBranch
 			: `the default branch from ${remote}`;
 		if (options.json) {
+			const navigation = createNavigationTarget(
+				createNavigationRepository(repository.repoName, repository.repoRoot),
+				repository.currentRoot,
+				branchName,
+			);
 			options.stdout(
-				`${JSON.stringify({ branch: branchName, baseBranch: configuredBaseBranch ?? null, branchOnly: true, dryRun: true, path: repository.currentRoot }, null, 2)}\n`,
+				`${JSON.stringify({ ...navigation, baseBranch: configuredBaseBranch ?? null, branchOnly: true, dryRun: true }, null, 2)}\n`,
 			);
 		} else {
 			options.stdout(
@@ -686,50 +691,34 @@ async function runBranchOnly(
 		);
 	}
 
-	if (!(await localBranchExists(repository.repoRoot, baseBranch, runtime))) {
+	if (
+		options.noFetch &&
+		!(await localBranchExists(repository.repoRoot, baseBranch, runtime))
+	) {
 		return emitNewError(
 			options,
 			`base branch does not exist locally: ${baseBranch}`,
 		);
 	}
 
-	let originalBranch: string | null = null;
 	try {
-		originalBranch = await runtime.git.runGit(options.cwd, [
-			"branch",
-			"--show-current",
-		]);
-	} catch {
-		// A detached HEAD has no branch to restore after a failed transition.
-	}
-
-	try {
-		await runtime.git.runGit(options.cwd, [
-			"switch",
-			"--ignore-other-worktrees",
-			baseBranch,
-		]);
+		let startPoint = baseBranch;
 		if (!options.noFetch) {
-			await runtime.git.runGit(options.cwd, [
-				"pull",
-				"--ff-only",
+			await runtime.git.runGit(repository.repoRoot, [
+				"fetch",
+				"--prune",
 				remote,
 				baseBranch,
 			]);
+			startPoint = `${remote}/${baseBranch}`;
 		}
-		await runtime.git.runGit(options.cwd, ["switch", "-c", branchName]);
+		await runtime.git.runGit(options.cwd, [
+			"switch",
+			"-c",
+			branchName,
+			startPoint,
+		]);
 	} catch (error) {
-		if (originalBranch && originalBranch !== baseBranch) {
-			try {
-				await runtime.git.runGit(options.cwd, [
-					"switch",
-					"--ignore-other-worktrees",
-					originalBranch,
-				]);
-			} catch {
-				// Keep the original Git error; restoring is best effort.
-			}
-		}
 		return emitNewError(
 			options,
 			`failed to create branch in the current worktree: ${toExecMessage(error)}`,
@@ -737,12 +726,17 @@ async function runBranchOnly(
 	}
 
 	if (options.json) {
+		const navigation = createNavigationTarget(
+			createNavigationRepository(repository.repoName, repository.repoRoot),
+			repository.currentRoot,
+			branchName,
+		);
 		options.stdout(
-			`${JSON.stringify({ branch: branchName, baseBranch, branchOnly: true, path: repository.currentRoot }, null, 2)}\n`,
+			`${JSON.stringify({ ...navigation, baseBranch, branchOnly: true }, null, 2)}\n`,
 		);
 	} else {
 		options.stderr(
-			`✓ created ${branchName} from ${baseBranch} in the current worktree\n`,
+			`✓ created ${branchName} from ${options.noFetch ? baseBranch : `${remote}/${baseBranch}`} in the current worktree\n`,
 		);
 		await runtime.history.recordWorktreeUsage(
 			repository.currentRoot,

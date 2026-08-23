@@ -49,9 +49,10 @@ dependency setup, use branch-only mode:
 gji new feature/auth-tests --branch-only
 ```
 
-This requires a clean current worktree, updates the configured default branch
-in place, and checks out the new branch there. Use `--no-fetch` when the local
-default branch should be used as-is.
+This requires a clean current worktree, fetches the configured default branch,
+and checks out the new branch there without sharing a checkout of the base
+branch with another worktree. Use `--no-fetch` when the local default branch
+should be used as-is.
 
 Move in-progress changes into a new branch without a manual stash:
 

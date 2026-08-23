@@ -111,10 +111,10 @@ worktree instead:
 gji new feature/auth-tests --branch-only
 ```
 
-`--branch-only` requires a clean worktree, switches to the configured default
-branch with `--ignore-other-worktrees`, fast-forwards it from the configured
-remote, and switches to the new branch. It does not create a worktree or run
-dependency bootstrap. Pass `--no-fetch` to skip the remote update.
+`--branch-only` requires a clean worktree, fetches the configured default
+branch, and checks out the new branch from that remote ref without creating a
+worktree or running dependency bootstrap. Pass `--no-fetch` to use the local
+default branch as-is.
 
 Open the current worktree directly, choose another interactively, or target a branch:
 

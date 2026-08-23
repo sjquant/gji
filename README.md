@@ -29,11 +29,10 @@ refresh the configured default branch first:
 gji new --branch-only feature/payment-refactor
 ```
 
-This switches the current worktree to the default branch (using
-`--ignore-other-worktrees`), fast-forwards it from the configured remote, and
-switches back to the new branch. It does not create a directory or install
-dependencies. The current worktree must be clean; use `--no-fetch` to skip the
-remote update.
+This creates the new branch from the latest configured remote default branch
+without creating another worktree or installing dependencies. The current
+worktree must be clean; use `--no-fetch` to create from the local default
+branch as-is.
 
 ## The problem
 

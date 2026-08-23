@@ -38,7 +38,7 @@ afterEach(() => {
 });
 
 describe("gji new", () => {
-	it("updates the default branch and creates only a branch in the current worktree", async () => {
+	it("creates only a branch in the current worktree from the latest default branch", async () => {
 		// Given a linked worktree whose default branch is checked out elsewhere.
 		const { originRoot, repoRoot } = await createRepositoryWithOrigin();
 		const defaultBranch = await currentBranch(repoRoot);
@@ -75,6 +75,8 @@ describe("gji new", () => {
 		await expect(
 			pathExists(resolveWorktreePath(repoRoot, branchName)),
 		).resolves.toBe(false);
+		await expect(currentBranch(repoRoot)).resolves.toBe(defaultBranch);
+		await expect(runGit(repoRoot, ["status", "--porcelain"])).resolves.toBe("");
 	});
 
 	it("refuses branch-only mode when the current worktree is dirty", async () => {
@@ -87,7 +89,7 @@ describe("gji new", () => {
 		await writeFile(join(currentWorktree, "dirty.txt"), "keep me\n", "utf8");
 		const stderr: string[] = [];
 
-		// When branch-only mode tries to switch the current worktree to the base.
+		// When branch-only mode tries to create a branch from the default branch.
 		const result = await runCli(["new", "--branch-only", "feature/never"], {
 			cwd: currentWorktree,
 			stderr: (chunk) => stderr.push(chunk),
@@ -99,6 +101,83 @@ describe("gji new", () => {
 		await expect(currentBranch(currentWorktree)).resolves.toBe(
 			"feature/branch-only-dirty",
 		);
+	});
+
+	it("preserves navigation metadata in branch-only JSON mode", async () => {
+		// Given a repository with an explicitly configured local default branch.
+		const { repoRoot } = await createRepositoryWithOrigin();
+		const defaultBranch = await currentBranch(repoRoot);
+		const branchName = "feature/branch-only-json";
+		await commitFile(
+			repoRoot,
+			".gji.json",
+			JSON.stringify({ syncDefaultBranch: defaultBranch }),
+			"Configure default branch",
+		);
+		const stdout: string[] = [];
+		const stderr: string[] = [];
+
+		// When branch-only mode runs with JSON output and no remote refresh.
+		const result = await runCli(
+			["new", "--branch-only", "--no-fetch", "--json", branchName],
+			{
+				cwd: repoRoot,
+				stderr: (chunk) => stderr.push(chunk),
+				stdout: (chunk) => stdout.push(chunk),
+			},
+		);
+
+		// Then the navigation metadata remains compatible with regular gji new JSON.
+		expect(result.exitCode).toBe(0);
+		expect(stderr).toEqual([]);
+		expect(JSON.parse(stdout.join(""))).toEqual({
+			baseBranch: defaultBranch,
+			branch: branchName,
+			branchOnly: true,
+			path: repoRoot,
+			repository: { name: basename(repoRoot), root: repoRoot },
+		});
+	});
+
+	it("leaves a detached worktree unchanged when the base refresh fails", async () => {
+		// Given a detached worktree and an unreachable configured remote.
+		const { repoRoot } = await createRepositoryWithOrigin();
+		const detachedParent = await mkdtemp(
+			join(tmpdir(), "gji-branch-only-detached-"),
+		);
+		const detachedWorktree = join(detachedParent, "worktree");
+		await runGit(repoRoot, [
+			"worktree",
+			"add",
+			"--detach",
+			detachedWorktree,
+			"HEAD",
+		]);
+		const originalHead = await runGit(detachedWorktree, ["rev-parse", "HEAD"]);
+		const defaultBranch = await currentBranch(repoRoot);
+		await writeFile(
+			join(repoRoot, ".gji.json"),
+			JSON.stringify({ syncDefaultBranch: defaultBranch }),
+			"utf8",
+		);
+		await runGit(repoRoot, ["remote", "set-url", "origin", "/missing/origin"]);
+		const stderr: string[] = [];
+
+		// When branch-only mode cannot refresh its base branch.
+		const result = await runCli(["new", "--branch-only", "feature/never"], {
+			cwd: detachedWorktree,
+			stderr: (chunk) => stderr.push(chunk),
+		});
+
+		// Then failure does not attach the detached worktree to the base branch.
+		expect(result.exitCode).toBe(1);
+		expect(stderr.join("")).toContain("failed to create branch");
+		await expect(runGit(detachedWorktree, ["rev-parse", "HEAD"])).resolves.toBe(
+			originalHead,
+		);
+		await expect(
+			runGit(detachedWorktree, ["branch", "--show-current"]),
+		).resolves.toBe("");
 	});
 
 	it("uses the injected config port for worktree settings", async () => {
