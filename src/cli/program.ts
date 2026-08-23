@@ -1,6 +1,6 @@
-import { createRequire } from "node:module";
 import { Command } from "commander";
 import updateNotifier from "update-notifier";
+import packageJson from "../../package.json" with { type: "json" };
 import { runBackCommand } from "./commands/back.js";
 import { runCleanCommand } from "./commands/clean.js";
 import { runCompletionCommand } from "./commands/completion.js";
@@ -85,12 +85,6 @@ export function createProgram(): Command {
 }
 
 function readPackageMetadata(): PackageMetadata {
-	const require = createRequire(import.meta.url);
-	const packageJson = require("../../package.json") as {
-		name?: unknown;
-		version?: unknown;
-	};
-
 	return {
 		name: typeof packageJson.name === "string" ? packageJson.name : "gji",
 		version:
