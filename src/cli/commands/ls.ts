@@ -1,0 +1,135 @@
+import type { WorktreeInfo } from "../../application/worktree/read-models.js";
+import { comparePaths } from "../../domain/shared/paths.js";
+import type { WorktreeEntry } from "../../domain/worktree/types.js";
+import {
+	formatLastCommit,
+	formatUpstreamState,
+} from "../../presentation/worktree/format.js";
+import { type CliRuntime, defaultCliDependencies } from "../dependencies.js";
+
+export interface LsCommandOptions {
+	compact?: boolean;
+	cwd: string;
+	json?: boolean;
+	runtime?: CliRuntime<"worktrees" | "worktreeInfo">;
+	stdout: (chunk: string) => void;
+}
+
+export async function runLsCommand(options: LsCommandOptions): Promise<number> {
+	const runtime = options.runtime ?? defaultCliDependencies;
+	const { listWorktrees } = runtime.worktrees;
+	const { readWorktreeInfos } = runtime.worktreeInfo;
+	const worktrees = sortWorktrees(await listWorktrees(options.cwd));
+
+	if (options.compact) {
+		if (options.json) {
+			options.stdout(`${JSON.stringify(worktrees, null, 2)}\n`);
+			return 0;
+		}
+
+		options.stdout(`${formatWorktreeTable(worktrees)}\n`);
+		return 0;
+	}
+
+	const infos = await readWorktreeInfos(worktrees);
+
+	if (options.json) {
+		options.stdout(`${JSON.stringify(infos, null, 2)}\n`);
+		return 0;
+	}
+
+	options.stdout(`${formatDetailedWorktreeTable(infos)}\n`);
+
+	return 0;
+}
+
+export function formatDetailedWorktreeTable(worktrees: WorktreeInfo[]): string {
+	const rows = worktrees.map((worktree) => ({
+		branch: worktree.branch ?? "(detached)",
+		isCurrent: worktree.isCurrent,
+		lastCommit: formatLastCommit(worktree.lastCommitTimestamp),
+		path: worktree.path,
+		status: worktree.status,
+		task: worktree.task,
+		upstream: formatUpstreamState(worktree.upstream),
+	}));
+	const branchWidth = Math.max(
+		"BRANCH".length,
+		...rows.map((row) => row.branch.length),
+	);
+	const statusWidth = Math.max(
+		"STATUS".length,
+		...rows.map((row) => row.status.length),
+	);
+	const upstreamWidth = Math.max(
+		"UPSTREAM".length,
+		...rows.map((row) => row.upstream.length),
+	);
+	const lastCommitWidth = Math.max(
+		"LAST".length,
+		...rows.map((row) => row.lastCommit.length),
+	);
+	const hasTasks = rows.some((row) => row.task !== null);
+	const taskWidth = Math.max(
+		"TASK".length,
+		...rows.map((row) => row.task?.slice(0, 40).length ?? 0),
+	);
+	const lines = [
+		"  " +
+			"BRANCH".padEnd(branchWidth, " ") +
+			" " +
+			"STATUS".padEnd(statusWidth, " ") +
+			" " +
+			"UPSTREAM".padEnd(upstreamWidth, " ") +
+			" " +
+			"LAST".padEnd(lastCommitWidth, " ") +
+			(hasTasks ? ` ${"TASK".padEnd(taskWidth, " ")}` : "") +
+			" PATH",
+	];
+
+	for (const row of rows) {
+		lines.push(
+			`${row.isCurrent ? "*" : " "} ` +
+				`${row.branch.padEnd(branchWidth, " ")} ` +
+				`${row.status.padEnd(statusWidth, " ")} ` +
+				`${row.upstream.padEnd(upstreamWidth, " ")} ` +
+				`${row.lastCommit.padEnd(lastCommitWidth, " ")}` +
+				(hasTasks
+					? ` ${(row.task?.slice(0, 40) ?? "").padEnd(taskWidth, " ")}`
+					: "") +
+				" " +
+				row.path,
+		);
+	}
+
+	return lines.join("\n");
+}
+
+export function formatWorktreeTable(worktrees: WorktreeEntry[]): string {
+	const rows = worktrees.map((worktree) => ({
+		branch: worktree.branch ?? "(detached)",
+		isCurrent: worktree.isCurrent,
+		path: worktree.path,
+	}));
+	const branchWidth = Math.max(
+		"BRANCH".length,
+		...rows.map((row) => row.branch.length),
+	);
+	const lines = [`  ${"BRANCH".padEnd(branchWidth, " ")} PATH`];
+
+	for (const row of rows) {
+		lines.push(
+			`${row.isCurrent ? "*" : " "} ${row.branch.padEnd(branchWidth, " ")} ${row.path}`,
+		);
+	}
+
+	return lines.join("\n");
+}
+
+function sortWorktrees(worktrees: WorktreeEntry[]): WorktreeEntry[] {
+	return [...worktrees].sort((left, right) => {
+		if (left.isCurrent && !right.isCurrent) return -1;
+		if (!left.isCurrent && right.isCurrent) return 1;
+		return comparePaths(left.path, right.path);
+	});
+}

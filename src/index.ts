@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 
 import { homedir } from "node:os";
-import { runCli } from "./cli.js";
-import { loadGlobalConfig } from "./config.js";
-import { isHeadless } from "./headless.js";
+import { runCli } from "./cli/program.js";
+import { isHeadless } from "./cli/runtime/headless.js";
+import { loadGlobalConfig } from "./infrastructure/persistence/config.js";
 
 async function main(): Promise<void> {
 	try {

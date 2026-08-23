@@ -1,0 +1,499 @@
+import { mkdtemp } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+const notifierMocks = vi.hoisted(() => {
+	const notify = vi.fn();
+	const updateNotifier = vi.fn(() => ({ notify }));
+
+	return { notify, updateNotifier };
+});
+
+vi.mock("update-notifier", () => ({
+	default: notifierMocks.updateNotifier,
+}));
+
+import packageJson from "../../package.json" with { type: "json" };
+import { loadRegistry } from "../infrastructure/repository/registry.js";
+import {
+	addLinkedWorktree,
+	createRepository,
+	pathExists,
+} from "../test-support/repository.js";
+import { createCliDependencies } from "./dependencies.js";
+import { createProgram, runCli } from "./program.js";
+
+const originalConfigDir = process.env.GJI_CONFIG_DIR;
+
+afterEach(() => {
+	if (originalConfigDir === undefined) {
+		delete process.env.GJI_CONFIG_DIR;
+	} else {
+		process.env.GJI_CONFIG_DIR = originalConfigDir;
+	}
+	delete process.env.GJI_NO_TUI;
+	restoreStreamTty(process.stdout);
+	restoreStreamTty(process.stderr);
+	notifierMocks.notify.mockClear();
+	notifierMocks.updateNotifier.mockClear();
+});
+
+describe("runCli", () => {
+	it("routes commands through the supplied runtime dependencies", async () => {
+		// Given a repository boundary that is different from the process cwd.
+		const runtime = createCliDependencies();
+		const detectRepository = vi.fn(async () => ({
+			currentRoot: "/injected/current",
+			isWorktree: false,
+			repoName: "injected",
+			repoRoot: "/injected/root",
+		}));
+		const registerRepo = vi.fn(async () => undefined);
+		runtime.repositoryContext = {
+			...runtime.repositoryContext,
+			detectRepository,
+		};
+		runtime.registry = { ...runtime.registry, registerRepo };
+		const stdout: string[] = [];
+
+		// When the root command runs through the executable composition root.
+		const result = await runCli(["root"], {
+			cwd: "/process/cwd",
+			dependencies: runtime,
+			stdout: (chunk) => stdout.push(chunk),
+		});
+
+		// Then both registration and command behavior use the injected boundary.
+		expect(result.exitCode).toBe(0);
+		expect(stdout).toEqual(["/injected/root\n"]);
+		expect(detectRepository).toHaveBeenCalledWith("/process/cwd");
+		expect(registerRepo).toHaveBeenCalledWith("/injected/root");
+	});
+
+	it("prints help with the planned commands", async () => {
+		// Given output collectors for the CLI help text.
+		const stdout: string[] = [];
+		const stderr: string[] = [];
+
+		// When the top-level help command runs.
+		const result = await runCli(["--help"], {
+			stderr: (chunk) => stderr.push(chunk),
+			stdout: (chunk) => stdout.push(chunk),
+		});
+
+		const output = stdout.join("");
+
+		// Then the planned commands appear in help output.
+		expect(result.exitCode).toBe(0);
+		expect(stderr).toEqual([]);
+		expect(output).toContain("Usage: gji");
+		expect(output).toContain("new");
+		expect(output).toContain("init");
+		expect(output).toContain("doctor");
+		expect(output).toContain("completion");
+		expect(output).toContain("pr");
+		expect(output).toContain("go");
+		expect(output).toContain("status");
+		expect(output).toContain("sync");
+		expect(output).toContain("root");
+		expect(output).toContain("ls");
+		expect(output).toContain("clean");
+		expect(output).toContain("remove");
+		expect(output).toContain("rm");
+		expect(output).toContain("deprecated: use gji done");
+		expect(output).toContain("clean for bulk cleanup");
+		expect(output).toContain("Common workflows:");
+		expect(output).toContain("gji new <branch>");
+		expect(output).toContain("gji go <branch>");
+	});
+
+	it("describes gji pr as accepting generic PR references", async () => {
+		// Given output collectors for the CLI help text.
+		const stdout: string[] = [];
+		const stderr: string[] = [];
+
+		// When the top-level help command runs.
+		const result = await runCli(["--help"], {
+			stderr: (chunk) => stderr.push(chunk),
+			stdout: (chunk) => stdout.push(chunk),
+		});
+
+		const output = stdout.join("");
+
+		// Then the PR help text describes the supported ref formats.
+		expect(result.exitCode).toBe(0);
+		expect(stderr).toEqual([]);
+		expect(output).toContain("pr [options] <ref>");
+		expect(output).toContain("number");
+		expect(output).toContain("#number");
+		expect(output).toContain("URL");
+	});
+
+	it("keeps worktree creation flags off navigation commands", () => {
+		// Given the Commander definitions for the navigation commands.
+		const program = createProgram();
+		const goHelp = program.commands
+			.find((command) => command.name() === "go")
+			?.helpInformation();
+		const warpHelp = program.commands
+			.find((command) => command.name() === "warp")
+			?.helpInformation();
+
+		// When their help information is rendered.
+
+		// Then creation remains available through gji new instead of navigation flags.
+		expect(goHelp).not.toContain("--new");
+		expect(warpHelp).not.toContain("--new");
+		expect(goHelp).toContain("--root");
+		expect(warpHelp).toContain("deprecated");
+	});
+
+	it("warns before running the deprecated warp command", async () => {
+		// Given an isolated registry with no repositories.
+		const configDir = await mkdtemp(join(tmpdir(), "gji-config-"));
+		process.env.GJI_CONFIG_DIR = configDir;
+		const stderr: string[] = [];
+
+		// When gji warp is invoked in human-readable mode.
+		const result = await runCli(["warp", "missing"], {
+			cwd: "/",
+			stderr: (chunk) => stderr.push(chunk),
+		});
+
+		// Then the deprecation notice precedes the normal command error.
+		expect(result.exitCode).toBe(1);
+		expect(stderr.join("")).toContain("gji warp is deprecated; use 'gji go'");
+		expect(stderr.join("")).toContain("gji warp:");
+	});
+
+	it("keeps deprecated warp JSON stderr machine-readable", async () => {
+		// Given an isolated registry with no repositories.
+		const configDir = await mkdtemp(join(tmpdir(), "gji-config-"));
+		process.env.GJI_CONFIG_DIR = configDir;
+		const stderr: string[] = [];
+
+		// When gji warp is invoked in JSON mode.
+		const result = await runCli(["warp", "--json", "missing"], {
+			cwd: "/",
+			stderr: (chunk) => stderr.push(chunk),
+		});
+
+		// Then stderr remains a single JSON error object without a warning prefix.
+		expect(result.exitCode).toBe(1);
+		expect(JSON.parse(stderr.join(""))).toHaveProperty("error");
+	});
+
+	it("warns before running deprecated remove cleanup", async () => {
+		// Given a linked worktree selected through the deprecated command.
+		const repoRoot = await createRepository();
+		const branch = "feature/deprecated-remove";
+		const worktreePath = await addLinkedWorktree(repoRoot, branch);
+		const stderr: string[] = [];
+
+		// When gji remove runs in human-readable mode.
+		const result = await runCli(["remove", "--force", branch], {
+			cwd: repoRoot,
+			stderr: (chunk) => stderr.push(chunk),
+			stdout: () => undefined,
+		});
+
+		// Then cleanup still works while directing users to done or clean.
+		expect(result.exitCode).toBe(0);
+		expect(stderr.join("")).toContain(
+			"gji remove is deprecated; use 'gji done' for one worktree or 'gji clean' for bulk cleanup",
+		);
+		await expect(pathExists(worktreePath)).resolves.toBe(false);
+	});
+
+	it("keeps deprecated rm JSON output machine-readable", async () => {
+		// Given a linked worktree selected through the deprecated alias.
+		const repoRoot = await createRepository();
+		const branch = "feature/deprecated-rm";
+		const worktreePath = await addLinkedWorktree(repoRoot, branch);
+		const stderr: string[] = [];
+		const stdout: string[] = [];
+
+		// When rm runs in JSON mode.
+		const result = await runCli(["rm", "--json", "--force", branch], {
+			cwd: repoRoot,
+			stderr: (chunk) => stderr.push(chunk),
+			stdout: (chunk) => stdout.push(chunk),
+		});
+
+		// Then the alias remains script-compatible without a deprecation prefix.
+		expect(result.exitCode).toBe(0);
+		expect(stderr).toEqual([]);
+		expect(JSON.parse(stdout.join(""))).toMatchObject({
+			branch,
+			path: worktreePath,
+			deleted: true,
+		});
+	});
+
+	it("does not register repositories for metadata commands", async () => {
+		// Given a repository and an isolated registry directory.
+		const repoRoot = await createRepository();
+		const configDir = await mkdtemp(join(tmpdir(), "gji-config-"));
+		process.env.GJI_CONFIG_DIR = configDir;
+
+		// When a completion definition is requested from that repository.
+		const result = await runCli(["completion", "zsh"], {
+			cwd: repoRoot,
+			stdout: () => undefined,
+		});
+
+		// Then metadata generation does not mutate the repository registry.
+		expect(result.exitCode).toBe(0);
+		await expect(loadRegistry()).resolves.toEqual([]);
+	});
+
+	it("registers pr open as a nested command", () => {
+		// Given the Commander program definition.
+		const program = createProgram();
+		const prCommand = program.commands.find(
+			(command) => command.name() === "pr",
+		);
+
+		// When the nested help information is rendered.
+		const help = prCommand?.commands
+			.find((command) => command.name() === "open")
+			?.helpInformation();
+
+		// Then the new target syntax is documented by Commander.
+		expect(help).toContain("open [options] [target]");
+		expect(help).toContain("--select");
+	});
+
+	it("registers the worktree selector flag for gji open", () => {
+		// Given the Commander program definition.
+		const program = createProgram();
+
+		// When the gji open help information is rendered.
+		const help = program.commands
+			.find((command) => command.name() === "open")
+			?.helpInformation();
+
+		// Then the selector flag is documented by Commander.
+		expect(help).toContain("open [options] [branch]");
+		expect(help).toContain("--select");
+	});
+
+	it("dispatches the gji open selector flag through the CLI action", async () => {
+		// Given headless mode and output collectors.
+		process.env.GJI_NO_TUI = "1";
+		const stderr: string[] = [];
+
+		// When the selector command is invoked through runCli.
+		const result = await runCli(["open", "--select"], {
+			cwd: "/not-a-repository",
+			stderr: (chunk) => stderr.push(chunk),
+		});
+
+		// Then the action forwards the selector-mode error and exit code.
+		expect(result.exitCode).toBe(1);
+		expect(stderr.join("")).toContain(
+			"gji open --select: selector is unavailable",
+		);
+	});
+
+	it("rejects a branch target combined with the gji open selector flag", async () => {
+		// Given headless mode and both a branch target and selector flag.
+		process.env.GJI_NO_TUI = "1";
+		const stderr: string[] = [];
+
+		// When the conflicting command is invoked through runCli.
+		const result = await runCli(["open", "feature/target", "--select"], {
+			cwd: "/not-a-repository",
+			stderr: (chunk) => stderr.push(chunk),
+		});
+
+		// Then it exits before selector or editor work starts.
+		expect(result.exitCode).toBe(1);
+		expect(stderr.join("")).toBe(
+			"gji open: --select cannot be used with a branch\n",
+		);
+	});
+
+	it("dispatches the pr open selector flag through the CLI action", async () => {
+		// Given headless mode and output collectors.
+		process.env.GJI_NO_TUI = "1";
+		const stderr: string[] = [];
+
+		// When the nested selector command is invoked through runCli.
+		const result = await runCli(["pr", "open", "--select"], {
+			cwd: "/not-a-repository",
+			stderr: (chunk) => stderr.push(chunk),
+		});
+
+		// Then the nested action forwards the selector-mode error and exit code.
+		expect(result.exitCode).toBe(1);
+		expect(stderr.join("")).toContain(
+			"gji pr open --select: selector is unavailable",
+		);
+	});
+
+	it("runs the current-worktree pr open flow through the CLI boundary", async () => {
+		// Given a current repository and injected PR/browser boundaries.
+		const repoRoot = await createRepository();
+		const opened: string[] = [];
+		const stdout: string[] = [];
+
+		// When the executable command path runs without a target.
+		const result = await runCli(["pr", "open"], {
+			cwd: repoRoot,
+			prOpenDependencies: {
+				openBrowser: async (url) => {
+					opened.push(url);
+				},
+				queryPullRequests: async (_root, sourceBranch) => [
+					{
+						number: 27,
+						sourceBranch,
+						url: "https://github.com/example/repo/pull/27",
+					},
+				],
+			},
+			stdout: (chunk) => stdout.push(chunk),
+		});
+
+		// Then Commander dispatches to the current-worktree opener and reports success.
+		expect(result.exitCode).toBe(0);
+		expect(opened).toEqual(["https://github.com/example/repo/pull/27"]);
+		expect(stdout.join("")).toContain("Opened PR #27");
+	});
+
+	it("passes the clean stale filter through command parsing", async () => {
+		// Given a repository without stale linked worktrees and output collectors.
+		const repoRoot = await createRepository();
+		const stdout: string[] = [];
+		const stderr: string[] = [];
+
+		// When the clean command runs with the --stale filter through the CLI parser.
+		const result = await runCli(["clean", "--stale", "--json", "--force"], {
+			cwd: repoRoot,
+			stderr: (chunk) => stderr.push(chunk),
+			stdout: (chunk) => stdout.push(chunk),
+		});
+
+		// Then the command succeeds with an empty stale cleanup result.
+		expect(result.exitCode).toBe(0);
+		expect(stderr).toEqual([]);
+		expect(JSON.parse(stdout.join(""))).toEqual({ removed: [] });
+	});
+
+	it("prints the package version", async () => {
+		// Given output collectors for the CLI version text.
+		const stdout: string[] = [];
+		const stderr: string[] = [];
+
+		// When the version flag runs.
+		const result = await runCli(["--version"], {
+			stderr: (chunk) => stderr.push(chunk),
+			stdout: (chunk) => stdout.push(chunk),
+		});
+
+		// Then only the package version is written to stdout.
+		expect(result.exitCode).toBe(0);
+		expect(stderr).toEqual([]);
+		expect(stdout.join("")).toBe(`${packageJson.version}\n`);
+	});
+
+	it("runs the update notifier before interactive commands", async () => {
+		// Given an interactive terminal and a notifier probe.
+		setStreamTty(process.stdout, true);
+		setStreamTty(process.stderr, true);
+		const repoRoot = await createRepository();
+
+		// When an interactive command runs.
+		const result = await runCli(["status"], {
+			cwd: repoRoot,
+			stderr: () => undefined,
+			stdout: () => undefined,
+		});
+
+		// Then the notifier receives the package metadata once.
+		expect(result.exitCode).toBe(0);
+		expect(notifierMocks.updateNotifier).toHaveBeenCalledTimes(1);
+		expect(notifierMocks.notify).toHaveBeenCalledTimes(1);
+		expect(notifierMocks.updateNotifier).toHaveBeenCalledWith({
+			pkg: { name: packageJson.name, version: packageJson.version },
+		});
+	});
+
+	it("skips the update notifier in JSON mode", async () => {
+		// Given an interactive terminal and a notifier probe.
+		setStreamTty(process.stdout, true);
+		setStreamTty(process.stderr, true);
+		const repoRoot = await createRepository();
+
+		// When a JSON command runs.
+		const result = await runCli(["status", "--json"], {
+			cwd: repoRoot,
+			stderr: () => undefined,
+			stdout: () => undefined,
+		});
+
+		// Then the notifier is suppressed for machine-readable output.
+		expect(result.exitCode).toBe(0);
+		expect(notifierMocks.updateNotifier).not.toHaveBeenCalled();
+		expect(notifierMocks.notify).not.toHaveBeenCalled();
+	});
+
+	it("skips the update notifier in headless mode", async () => {
+		// Given an interactive terminal and headless mode enabled.
+		setStreamTty(process.stdout, true);
+		setStreamTty(process.stderr, true);
+		process.env.GJI_NO_TUI = "1";
+		const repoRoot = await createRepository();
+
+		// When a command runs in headless mode.
+		const result = await runCli(["status"], {
+			cwd: repoRoot,
+			stderr: () => undefined,
+			stdout: () => undefined,
+		});
+
+		// Then the notifier stays silent.
+		expect(result.exitCode).toBe(0);
+		expect(notifierMocks.updateNotifier).not.toHaveBeenCalled();
+		expect(notifierMocks.notify).not.toHaveBeenCalled();
+	});
+
+	it("registers the current repo in the configured registry directory", async () => {
+		// Given a repository and an isolated config directory.
+		const repoRoot = await createRepository();
+		const configDir = await mkdtemp(join(tmpdir(), "gji-config-"));
+		process.env.GJI_CONFIG_DIR = configDir;
+
+		// When an interactive command runs from that repository.
+		const result = await runCli(["status"], {
+			cwd: repoRoot,
+			stderr: () => undefined,
+			stdout: () => undefined,
+		});
+
+		// Then the repo is recorded in the configured registry.
+		expect(result.exitCode).toBe(0);
+		await expect(loadRegistry()).resolves.toEqual([
+			expect.objectContaining({
+				name: "gji-test-repo",
+				path: repoRoot,
+			}),
+		]);
+	});
+});
+
+// Force TTY detection so CLI tests can cover interactive-only startup paths.
+function setStreamTty(stream: NodeJS.WriteStream, value: boolean): void {
+	Object.defineProperty(stream, "isTTY", {
+		configurable: true,
+		value,
+		writable: true,
+	});
+}
+
+function restoreStreamTty(stream: NodeJS.WriteStream): void {
+	delete (stream as { isTTY?: boolean }).isTTY;
+}

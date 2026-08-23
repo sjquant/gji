@@ -1,0 +1,31 @@
+import { type CliRuntime, defaultCliDependencies } from "../dependencies.js";
+import { formatHistoryList } from "./back.js";
+
+export interface HistoryCommandOptions {
+	cwd: string;
+	home?: string;
+	json?: boolean;
+	runtime?: CliRuntime<"historyStore">;
+	stdout: (chunk: string) => void;
+}
+
+export async function runHistoryCommand(
+	options: HistoryCommandOptions,
+): Promise<number> {
+	const { loadHistory } = (options.runtime ?? defaultCliDependencies)
+		.historyStore;
+	const history = await loadHistory(options.home);
+
+	if (options.json) {
+		options.stdout(`${JSON.stringify(history, null, 2)}\n`);
+		return 0;
+	}
+
+	if (history.length === 0) {
+		options.stdout("No navigation history.\n");
+		return 0;
+	}
+
+	options.stdout(formatHistoryList(history, options.cwd));
+	return 0;
+}
