@@ -42,6 +42,17 @@ When starting a branch from work already committed in the current worktree, use 
 gji new feature/auth-tests --from-current
 ```
 
+For sequential feature work where you want to avoid another worktree and its
+dependency setup, use branch-only mode:
+
+```bash
+gji new feature/auth-tests --branch-only
+```
+
+This requires a clean current worktree, updates the configured default branch
+in place, and checks out the new branch there. Use `--no-fetch` when the local
+default branch should be used as-is.
+
 Move in-progress changes into a new branch without a manual stash:
 
 ```bash

@@ -38,6 +38,69 @@ afterEach(() => {
 });
 
 describe("gji new", () => {
+	it("updates the default branch and creates only a branch in the current worktree", async () => {
+		// Given a linked worktree whose default branch is checked out elsewhere.
+		const { originRoot, repoRoot } = await createRepositoryWithOrigin();
+		const defaultBranch = await currentBranch(repoRoot);
+		const currentWorktree = await addLinkedWorktree(
+			repoRoot,
+			"feature/branch-only-current",
+		);
+		const upstreamClone = await cloneRepository(originRoot);
+		const branchName = "feature/branch-only-target";
+
+		await commitFile(
+			upstreamClone,
+			"branch-only-base.txt",
+			"from latest base\n",
+			"Advance default branch",
+		);
+		await runGit(upstreamClone, ["push", "origin", `HEAD:${defaultBranch}`]);
+
+		// When gji new runs in branch-only mode.
+		const stdout: string[] = [];
+		const result = await runCli(["new", "--branch-only", branchName], {
+			cwd: currentWorktree,
+			stdout: (chunk) => stdout.push(chunk),
+		});
+
+		// Then the current worktree is reused, the base is refreshed, and no new
+		// worktree directory is created.
+		expect(result.exitCode).toBe(0);
+		expect(stdout.join("")).toBe(`${currentWorktree}\n`);
+		await expect(currentBranch(currentWorktree)).resolves.toBe(branchName);
+		await expect(
+			pathExists(join(currentWorktree, "branch-only-base.txt")),
+		).resolves.toBe(true);
+		await expect(
+			pathExists(resolveWorktreePath(repoRoot, branchName)),
+		).resolves.toBe(false);
+	});
+
+	it("refuses branch-only mode when the current worktree is dirty", async () => {
+		// Given a linked worktree with uncommitted changes.
+		const { repoRoot } = await createRepositoryWithOrigin();
+		const currentWorktree = await addLinkedWorktree(
+			repoRoot,
+			"feature/branch-only-dirty",
+		);
+		await writeFile(join(currentWorktree, "dirty.txt"), "keep me\n", "utf8");
+		const stderr: string[] = [];
+
+		// When branch-only mode tries to switch the current worktree to the base.
+		const result = await runCli(["new", "--branch-only", "feature/never"], {
+			cwd: currentWorktree,
+			stderr: (chunk) => stderr.push(chunk),
+		});
+
+		// Then it refuses before changing branches or moving the user's changes.
+		expect(result.exitCode).toBe(1);
+		expect(stderr.join("")).toContain("uncommitted changes");
+		await expect(currentBranch(currentWorktree)).resolves.toBe(
+			"feature/branch-only-dirty",
+		);
+	});
+
 	it("uses the injected config port for worktree settings", async () => {
 		// Given a repository and a config port with a custom worktree base path.
 		const repoRoot = await createRepository();

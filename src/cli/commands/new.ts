@@ -1,6 +1,7 @@
 import { access, mkdir } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { confirm, isCancel, text } from "@clack/prompts";
+import type { RepositoryContext } from "../../domain/repository/context.js";
 import {
 	resolveWorktreePath,
 	validateBranchName,
@@ -33,6 +34,7 @@ export type NewWorktreeMode = "create" | "checkout" | "track";
 
 export interface NewCommandOptions {
 	branch?: string;
+	branchOnly?: boolean;
 	copy?: boolean;
 	cwd: string;
 	detached?: boolean;
@@ -95,6 +97,15 @@ export function createNewCommand(
 			dependencies.spawnEditor ?? runtime.integrations.defaultSpawnEditor;
 		if (options.copy && !options.take)
 			return emitNewError(options, "--copy requires --take");
+		if (options.branchOnly) {
+			const incompatibleOption = findBranchOnlyIncompatibleOption(options);
+			if (incompatibleOption) {
+				return emitNewError(
+					options,
+					`${incompatibleOption} cannot be used with --branch-only`,
+				);
+			}
+		}
 		if (options.detached && options.fromCurrent) {
 			const message = "--from-current cannot be used with --detached";
 			if (options.json) {
@@ -169,6 +180,10 @@ export function createNewCommand(
 				}
 				return 1;
 			}
+		}
+
+		if (options.branchOnly) {
+			return runBranchOnly(options, runtime, repository, config, rawBranch);
 		}
 
 		const rawBasePath = runtime.config.resolveConfigString(
@@ -575,6 +590,172 @@ export function createNewCommand(
 
 		return 0;
 	};
+}
+
+function findBranchOnlyIncompatibleOption(
+	options: NewCommandOptions,
+): string | null {
+	if (options.detached) return "--detached";
+	if (options.fromCurrent) return "--from-current";
+	if (options.take) return "--take";
+	if (options.copy) return "--copy";
+	if (options.task !== undefined) return "--task";
+	if (options.force) return "--force";
+	if (options.open) return "--open";
+	if (options.editor) return "--editor";
+	return null;
+}
+
+async function runBranchOnly(
+	options: NewCommandOptions,
+	runtime: NewRuntime,
+	repository: RepositoryContext,
+	config: EffectiveGjiConfig,
+	rawBranch: string,
+): Promise<number> {
+	const branchName = applyConfiguredBranchPrefix(
+		rawBranch,
+		config.branchPrefix,
+	);
+	const remote =
+		runtime.config.resolveConfigString(config, "syncRemote") ?? "origin";
+	const configuredBaseBranch = runtime.config.resolveConfigString(
+		config,
+		"syncDefaultBranch",
+	);
+
+	if (options.dryRun) {
+		const baseDescription = configuredBaseBranch
+			? configuredBaseBranch
+			: `the default branch from ${remote}`;
+		if (options.json) {
+			options.stdout(
+				`${JSON.stringify({ branch: branchName, baseBranch: configuredBaseBranch ?? null, branchOnly: true, dryRun: true, path: repository.currentRoot }, null, 2)}\n`,
+			);
+		} else {
+			options.stdout(
+				`Would update ${baseDescription} in the current worktree and create branch ${branchName}\n`,
+			);
+		}
+		return 0;
+	}
+
+	if (await localBranchExists(repository.repoRoot, branchName, runtime)) {
+		return emitNewError(options, `branch already exists: ${branchName}`);
+	}
+
+	if (await runtime.git.isDirtyWorktree(options.cwd)) {
+		return emitNewError(
+			options,
+			"current worktree has uncommitted changes; commit or stash them before using --branch-only",
+		);
+	}
+
+	const inProgressState = await detectInProgressGitState(
+		options.cwd,
+		runtime.git.runGit,
+	);
+	if (inProgressState) {
+		return emitNewError(
+			options,
+			`cannot create a branch while Git is in progress (${inProgressState})`,
+		);
+	}
+
+	let baseBranch = configuredBaseBranch;
+	if (!baseBranch || !options.noFetch) {
+		try {
+			const remoteBase = await runtime.git.resolveRemoteBase(
+				repository.repoRoot,
+				remote,
+				configuredBaseBranch,
+			);
+			baseBranch = remoteBase?.branch ?? baseBranch;
+		} catch (error) {
+			return emitNewError(
+				options,
+				`could not determine the default branch: ${toExecMessage(error)}`,
+			);
+		}
+	}
+
+	if (!baseBranch) {
+		return emitNewError(
+			options,
+			`could not determine the default branch; configure syncDefaultBranch or add a remote named ${remote}`,
+		);
+	}
+
+	if (!(await localBranchExists(repository.repoRoot, baseBranch, runtime))) {
+		return emitNewError(
+			options,
+			`base branch does not exist locally: ${baseBranch}`,
+		);
+	}
+
+	let originalBranch: string | null = null;
+	try {
+		originalBranch = await runtime.git.runGit(options.cwd, [
+			"branch",
+			"--show-current",
+		]);
+	} catch {
+		// A detached HEAD has no branch to restore after a failed transition.
+	}
+
+	try {
+		await runtime.git.runGit(options.cwd, [
+			"switch",
+			"--ignore-other-worktrees",
+			baseBranch,
+		]);
+		if (!options.noFetch) {
+			await runtime.git.runGit(options.cwd, [
+				"pull",
+				"--ff-only",
+				remote,
+				baseBranch,
+			]);
+		}
+		await runtime.git.runGit(options.cwd, ["switch", "-c", branchName]);
+	} catch (error) {
+		if (originalBranch && originalBranch !== baseBranch) {
+			try {
+				await runtime.git.runGit(options.cwd, [
+					"switch",
+					"--ignore-other-worktrees",
+					originalBranch,
+				]);
+			} catch {
+				// Keep the original Git error; restoring is best effort.
+			}
+		}
+		return emitNewError(
+			options,
+			`failed to create branch in the current worktree: ${toExecMessage(error)}`,
+		);
+	}
+
+	if (options.json) {
+		options.stdout(
+			`${JSON.stringify({ branch: branchName, baseBranch, branchOnly: true, path: repository.currentRoot }, null, 2)}\n`,
+		);
+	} else {
+		options.stderr(
+			`✓ created ${branchName} from ${baseBranch} in the current worktree\n`,
+		);
+		await runtime.history.recordWorktreeUsage(
+			repository.currentRoot,
+			branchName,
+		);
+		await writeOutput(
+			repository.currentRoot,
+			options.stdout,
+			options.outputEnv,
+		);
+	}
+
+	return 0;
 }
 
 export const runNewCommand = createNewCommand();

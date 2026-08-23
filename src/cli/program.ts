@@ -75,6 +75,7 @@ export function createProgram(): Command {
 		"after",
 		"\nCommon workflows:\n" +
 			"  gji new <branch>       create a worktree\n" +
+			"  gji new --branch-only <branch>  reuse the current worktree\n" +
 			"  gji go <branch>        navigate to a worktree\n" +
 			"  gji go                 choose; press Tab for all repositories\n" +
 			"  gji go -               return to the previous worktree\n",
@@ -233,7 +234,11 @@ async function maybeRegisterCurrentRepo(
 function registerCommands(program: Command): void {
 	program
 		.command("new [branch]")
-		.description("create a new branch or detached linked worktree")
+		.description("create a branch with an optional linked worktree")
+		.option(
+			"--branch-only",
+			"update the default branch and create the new branch in the current worktree",
+		)
 		.option(
 			"-f, --force",
 			"remove and recreate the worktree if the target path already exists",
@@ -527,6 +532,7 @@ function attachCommandActions(
 		async (
 			branch: string | undefined,
 			commandOptions: {
+				branchOnly?: boolean;
 				copy?: boolean;
 				detached?: boolean;
 				dryRun?: boolean;
@@ -544,6 +550,7 @@ function attachCommandActions(
 			const exitCode = await runNewCommand({
 				...options,
 				branch,
+				branchOnly: commandOptions.branchOnly,
 				copy: commandOptions.copy,
 				detached: commandOptions.detached,
 				dryRun: commandOptions.dryRun,

@@ -22,6 +22,19 @@ directory. For repeatable workflows, you can still provide a branch directly:
 gji new feature/payment-refactor
 ```
 
+If you prefer to reuse the current worktree, create a branch in place and
+refresh the configured default branch first:
+
+```sh
+gji new --branch-only feature/payment-refactor
+```
+
+This switches the current worktree to the default branch (using
+`--ignore-other-worktrees`), fast-forwards it from the configured remote, and
+switches back to the new branch. It does not create a directory or install
+dependencies. The current worktree must be clean; use `--no-fetch` to skip the
+remote update.
+
 ## The problem
 
 You are halfway through a feature when someone asks you to review a pull
