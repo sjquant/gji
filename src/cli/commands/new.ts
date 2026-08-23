@@ -638,8 +638,13 @@ async function runBranchOnly(
 				`${JSON.stringify({ ...navigation, baseBranch: configuredBaseBranch ?? null, branchOnly: true, dryRun: true }, null, 2)}\n`,
 			);
 		} else {
+			const sourceDescription = configuredBaseBranch
+				? options.noFetch
+					? `local ${configuredBaseBranch}`
+					: `${remote}/${configuredBaseBranch}`
+				: baseDescription;
 			options.stdout(
-				`Would update ${baseDescription} in the current worktree and create branch ${branchName}\n`,
+				`Would create branch ${branchName} from ${sourceDescription} in the current worktree\n`,
 			);
 		}
 		return 0;

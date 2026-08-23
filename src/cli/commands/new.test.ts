@@ -103,6 +103,35 @@ describe("gji new", () => {
 		);
 	});
 
+	it("describes branch-only dry-runs without updating the current branch", async () => {
+		// Given a repository with an explicitly configured local default branch.
+		const { repoRoot } = await createRepositoryWithOrigin();
+		const defaultBranch = await currentBranch(repoRoot);
+		const branchName = "feature/branch-only-dry-run";
+		await writeFile(
+			join(repoRoot, ".gji.json"),
+			JSON.stringify({ syncDefaultBranch: defaultBranch }),
+			"utf8",
+		);
+		const stdout: string[] = [];
+
+		// When branch-only mode runs as a dry-run without a remote refresh.
+		const result = await runCli(
+			["new", "--branch-only", "--no-fetch", "--dry-run", branchName],
+			{
+				cwd: repoRoot,
+				stdout: (chunk) => stdout.push(chunk),
+			},
+		);
+
+		// Then it describes the local source and leaves the current branch unchanged.
+		expect(result.exitCode).toBe(0);
+		expect(stdout.join("")).toBe(
+			`Would create branch ${branchName} from local ${defaultBranch} in the current worktree\n`,
+		);
+		await expect(currentBranch(repoRoot)).resolves.toBe(defaultBranch);
+	});
+
 	it("preserves navigation metadata in branch-only JSON mode", async () => {
 		// Given a repository with an explicitly configured local default branch.
 		const { repoRoot } = await createRepositoryWithOrigin();
