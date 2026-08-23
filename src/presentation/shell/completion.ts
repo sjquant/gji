@@ -3,7 +3,7 @@ import { KNOWN_GLOBAL_CONFIG_KEYS } from "../../ports/config.js";
 const TOP_LEVEL_COMMANDS = [
 	{
 		name: "new",
-		description: "create a new branch or detached linked worktree",
+		description: "create a branch with an optional linked worktree",
 	},
 	{
 		name: "done",
@@ -158,7 +158,7 @@ _gji_completion() {
 
   case "$command_name" in
     new)
-				COMPREPLY=( $(compgen -W "--detached --from-current --no-fetch --take --copy --task --force --open --editor --dry-run --no-install --json --help" -- "$cur") )
+				COMPREPLY=( $(compgen -W "--branch-only --detached --from-current --no-fetch --take --copy --task --force --open --editor --dry-run --no-install --json --help" -- "$cur") )
       ;;
     done)
       COMPREPLY=( $(compgen -W "--force --keep-branch --json --help" -- "$cur") )
@@ -413,6 +413,7 @@ complete -c gji -n '__fish_seen_subcommand_from undo' -l json -d 'emit JSON on s
 ${commandLines}
 
 complete -c gji -n '__fish_seen_subcommand_from new' -l detached -d 'create a detached worktree without a branch'
+complete -c gji -n '__fish_seen_subcommand_from new' -l branch-only -d 'update the default branch and create the new branch in the current worktree'
 complete -c gji -n '__fish_seen_subcommand_from new' -l from-current -d 'base the new branch on the current worktree instead of the main worktree'
 complete -c gji -n '__fish_seen_subcommand_from new' -l take -d 'move current uncommitted changes into the new worktree'
 complete -c gji -n '__fish_seen_subcommand_from new' -l copy -d 'copy current uncommitted changes instead of moving them (requires --take)'
@@ -584,7 +585,7 @@ fi
 
 case "\${words[2]}" in
   new)
-    _arguments '--detached[create a detached worktree without a branch]' '--from-current[base the new branch on the current worktree instead of the main worktree]' '--no-fetch[skip refreshing the remote default branch before creating the new branch]' '--take[move current uncommitted changes into the new worktree]' '--copy[copy current uncommitted changes instead of moving them (requires --take)]' '--task[record the purpose of the new worktree]:description:' '--force[remove and recreate the worktree if the target path already exists]' '--open[open the new worktree in an editor after creation]' '--editor[editor CLI to use with --open (code, cursor, zed, …)]:editor:' '--dry-run[show what would be created without executing any git commands or writing files]' '--no-install[skip automatic dependency setup in the new worktree]' '--json[emit JSON on success or error instead of human-readable output]' '2:branch: '
+    _arguments '--branch-only[update the default branch and create the new branch in the current worktree]' '--detached[create a detached worktree without a branch]' '--from-current[base the new branch on the current worktree instead of the main worktree]' '--no-fetch[skip refreshing the remote default branch before creating the new branch]' '--take[move current uncommitted changes into the new worktree]' '--copy[copy current uncommitted changes instead of moving them (requires --take)]' '--task[record the purpose of the new worktree]:description:' '--force[remove and recreate the worktree if the target path already exists]' '--open[open the new worktree in an editor after creation]' '--editor[editor CLI to use with --open (code, cursor, zed, …)]:editor:' '--dry-run[show what would be created without executing any git commands or writing files]' '--no-install[skip automatic dependency setup in the new worktree]' '--json[emit JSON on success or error instead of human-readable output]' '2:branch: '
     ;;
   done)
     _arguments '--force[remove dirty or unmerged worktrees without prompting]' '--keep-branch[remove the worktree but preserve its branch]' '--json[emit JSON on success or error instead of human-readable output]' '2:branch: '

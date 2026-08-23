@@ -38,6 +38,177 @@ afterEach(() => {
 });
 
 describe("gji new", () => {
+	it("creates only a branch in the current worktree from the latest default branch", async () => {
+		// Given a linked worktree whose default branch is checked out elsewhere.
+		const { originRoot, repoRoot } = await createRepositoryWithOrigin();
+		const defaultBranch = await currentBranch(repoRoot);
+		const currentWorktree = await addLinkedWorktree(
+			repoRoot,
+			"feature/branch-only-current",
+		);
+		const upstreamClone = await cloneRepository(originRoot);
+		const branchName = "feature/branch-only-target";
+
+		await commitFile(
+			upstreamClone,
+			"branch-only-base.txt",
+			"from latest base\n",
+			"Advance default branch",
+		);
+		await runGit(upstreamClone, ["push", "origin", `HEAD:${defaultBranch}`]);
+
+		// When gji new runs in branch-only mode.
+		const stdout: string[] = [];
+		const result = await runCli(["new", "--branch-only", branchName], {
+			cwd: currentWorktree,
+			stdout: (chunk) => stdout.push(chunk),
+		});
+
+		// Then the current worktree is reused, the base is refreshed, and no new
+		// worktree directory is created.
+		expect(result.exitCode).toBe(0);
+		expect(stdout.join("")).toBe(`${currentWorktree}\n`);
+		await expect(currentBranch(currentWorktree)).resolves.toBe(branchName);
+		await expect(
+			pathExists(join(currentWorktree, "branch-only-base.txt")),
+		).resolves.toBe(true);
+		await expect(
+			pathExists(resolveWorktreePath(repoRoot, branchName)),
+		).resolves.toBe(false);
+		await expect(currentBranch(repoRoot)).resolves.toBe(defaultBranch);
+		await expect(runGit(repoRoot, ["status", "--porcelain"])).resolves.toBe("");
+	});
+
+	it("refuses branch-only mode when the current worktree is dirty", async () => {
+		// Given a linked worktree with uncommitted changes.
+		const { repoRoot } = await createRepositoryWithOrigin();
+		const currentWorktree = await addLinkedWorktree(
+			repoRoot,
+			"feature/branch-only-dirty",
+		);
+		await writeFile(join(currentWorktree, "dirty.txt"), "keep me\n", "utf8");
+		const stderr: string[] = [];
+
+		// When branch-only mode tries to create a branch from the default branch.
+		const result = await runCli(["new", "--branch-only", "feature/never"], {
+			cwd: currentWorktree,
+			stderr: (chunk) => stderr.push(chunk),
+		});
+
+		// Then it refuses before changing branches or moving the user's changes.
+		expect(result.exitCode).toBe(1);
+		expect(stderr.join("")).toContain("uncommitted changes");
+		await expect(currentBranch(currentWorktree)).resolves.toBe(
+			"feature/branch-only-dirty",
+		);
+	});
+
+	it("describes branch-only dry-runs without updating the current branch", async () => {
+		// Given a repository with an explicitly configured local default branch.
+		const { repoRoot } = await createRepositoryWithOrigin();
+		const defaultBranch = await currentBranch(repoRoot);
+		const branchName = "feature/branch-only-dry-run";
+		await writeFile(
+			join(repoRoot, ".gji.json"),
+			JSON.stringify({ syncDefaultBranch: defaultBranch }),
+			"utf8",
+		);
+		const stdout: string[] = [];
+
+		// When branch-only mode runs as a dry-run without a remote refresh.
+		const result = await runCli(
+			["new", "--branch-only", "--no-fetch", "--dry-run", branchName],
+			{
+				cwd: repoRoot,
+				stdout: (chunk) => stdout.push(chunk),
+			},
+		);
+
+		// Then it describes the local source and leaves the current branch unchanged.
+		expect(result.exitCode).toBe(0);
+		expect(stdout.join("")).toBe(
+			`Would create branch ${branchName} from local ${defaultBranch} in the current worktree\n`,
+		);
+		await expect(currentBranch(repoRoot)).resolves.toBe(defaultBranch);
+	});
+
+	it("preserves navigation metadata in branch-only JSON mode", async () => {
+		// Given a repository with an explicitly configured local default branch.
+		const { repoRoot } = await createRepositoryWithOrigin();
+		const defaultBranch = await currentBranch(repoRoot);
+		const branchName = "feature/branch-only-json";
+		await commitFile(
+			repoRoot,
+			".gji.json",
+			JSON.stringify({ syncDefaultBranch: defaultBranch }),
+			"Configure default branch",
+		);
+		const stdout: string[] = [];
+		const stderr: string[] = [];
+
+		// When branch-only mode runs with JSON output and no remote refresh.
+		const result = await runCli(
+			["new", "--branch-only", "--no-fetch", "--json", branchName],
+			{
+				cwd: repoRoot,
+				stderr: (chunk) => stderr.push(chunk),
+				stdout: (chunk) => stdout.push(chunk),
+			},
+		);
+
+		// Then the navigation metadata remains compatible with regular gji new JSON.
+		expect(result.exitCode).toBe(0);
+		expect(stderr).toEqual([]);
+		expect(JSON.parse(stdout.join(""))).toEqual({
+			baseBranch: defaultBranch,
+			branch: branchName,
+			branchOnly: true,
+			path: repoRoot,
+			repository: { name: basename(repoRoot), root: repoRoot },
+		});
+	});
+
+	it("leaves a detached worktree unchanged when the base refresh fails", async () => {
+		// Given a detached worktree and an unreachable configured remote.
+		const { repoRoot } = await createRepositoryWithOrigin();
+		const detachedParent = await mkdtemp(
+			join(tmpdir(), "gji-branch-only-detached-"),
+		);
+		const detachedWorktree = join(detachedParent, "worktree");
+		await runGit(repoRoot, [
+			"worktree",
+			"add",
+			"--detach",
+			detachedWorktree,
+			"HEAD",
+		]);
+		const originalHead = await runGit(detachedWorktree, ["rev-parse", "HEAD"]);
+		const defaultBranch = await currentBranch(repoRoot);
+		await writeFile(
+			join(repoRoot, ".gji.json"),
+			JSON.stringify({ syncDefaultBranch: defaultBranch }),
+			"utf8",
+		);
+		await runGit(repoRoot, ["remote", "set-url", "origin", "/missing/origin"]);
+		const stderr: string[] = [];
+
+		// When branch-only mode cannot refresh its base branch.
+		const result = await runCli(["new", "--branch-only", "feature/never"], {
+			cwd: detachedWorktree,
+			stderr: (chunk) => stderr.push(chunk),
+		});
+
+		// Then failure does not attach the detached worktree to the base branch.
+		expect(result.exitCode).toBe(1);
+		expect(stderr.join("")).toContain("failed to create branch");
+		await expect(runGit(detachedWorktree, ["rev-parse", "HEAD"])).resolves.toBe(
+			originalHead,
+		);
+		await expect(
+			runGit(detachedWorktree, ["branch", "--show-current"]),
+		).resolves.toBe("");
+	});
+
 	it("uses the injected config port for worktree settings", async () => {
 		// Given a repository and a config port with a custom worktree base path.
 		const repoRoot = await createRepository();
