@@ -56,7 +56,7 @@ export interface NewCommandOptions {
 
 type NewRuntime = CliRuntime<
 	| "bootstrap"
-	| "configStore"
+	| "config"
 	| "git"
 	| "history"
 	| "integrations"
@@ -110,7 +110,7 @@ export function createNewCommand(
 		);
 		let config: EffectiveGjiConfig;
 		try {
-			config = await runtime.configStore.loadEffectiveConfig(
+			config = await runtime.config.loadEffectiveConfig(
 				repository.repoRoot,
 				undefined,
 				options.json ? undefined : options.stderr,
@@ -171,7 +171,7 @@ export function createNewCommand(
 			}
 		}
 
-		const rawBasePath = runtime.configStore.resolveConfigString(
+		const rawBasePath = runtime.config.resolveConfigString(
 			config,
 			"worktreePath",
 		);
@@ -332,7 +332,7 @@ export function createNewCommand(
 			} else {
 				const resolvedEditor = options.open
 					? (options.editor ??
-						runtime.configStore.resolveConfigString(config, "editor"))
+						runtime.config.resolveConfigString(config, "editor"))
 					: undefined;
 				const openNote = resolvedEditor
 					? `, then open in ${resolvedEditor}`
@@ -563,8 +563,7 @@ export function createNewCommand(
 
 		if (options.open) {
 			const resolvedEditor =
-				options.editor ??
-				runtime.configStore.resolveConfigString(config, "editor");
+				options.editor ?? runtime.config.resolveConfigString(config, "editor");
 			await openWorktree(
 				worktreePath,
 				resolvedEditor,
@@ -588,12 +587,12 @@ async function resolveFreshBaseRef(
 	runtime: NewRuntime,
 ): Promise<string | null> {
 	const remote =
-		runtime.configStore.resolveConfigString(config, "syncRemote") ?? "origin";
-	const configuredRemote = runtime.configStore.resolveConfigString(
+		runtime.config.resolveConfigString(config, "syncRemote") ?? "origin";
+	const configuredRemote = runtime.config.resolveConfigString(
 		config,
 		"syncRemote",
 	);
-	let baseBranch = runtime.configStore.resolveConfigString(
+	let baseBranch = runtime.config.resolveConfigString(
 		config,
 		"syncDefaultBranch",
 	);

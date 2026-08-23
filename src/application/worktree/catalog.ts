@@ -1,4 +1,5 @@
 import type { RepositoryContext } from "../../domain/repository/context.js";
+import { mapWithConcurrency } from "../../domain/shared/concurrency.js";
 import type { WorktreeSource } from "../../domain/worktree/source.js";
 import type { WorktreeEntry } from "../../domain/worktree/types.js";
 import type {
@@ -175,28 +176,6 @@ async function readRepositoryPullRequests(
 	);
 
 	return new Map(results);
-}
-
-async function mapWithConcurrency<Input, Output>(
-	items: Input[],
-	limit: number,
-	mapper: (item: Input) => Promise<Output>,
-): Promise<Output[]> {
-	const results: Output[] = new Array(items.length);
-	let nextIndex = 0;
-
-	async function readNext(): Promise<void> {
-		for (;;) {
-			const index = nextIndex++;
-			if (index >= items.length) return;
-			results[index] = await mapper(items[index]);
-		}
-	}
-
-	await Promise.all(
-		Array.from({ length: Math.min(limit, items.length) }, () => readNext()),
-	);
-	return results;
 }
 
 function sortPullRequests(

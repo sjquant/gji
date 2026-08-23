@@ -16,6 +16,7 @@ import {
 	pathExists,
 	runGit,
 } from "../../test-support/repository.js";
+import { defaultCliDependencies } from "../dependencies.js";
 import { runCli } from "../program.js";
 import { createGoCommand } from "./go.js";
 import { runRootCommand } from "./root.js";
@@ -500,6 +501,38 @@ describe("gji go", () => {
 				process.env.GJI_CONFIG_DIR = originalConfigDir;
 			}
 		}
+	});
+
+	it("uses the injected history store for go -", async () => {
+		// Given a custom history store containing a previous worktree.
+		const repoRoot = await createRepository();
+		const worktreeA = await addLinkedWorktree(repoRoot, "feature/injected-a");
+		const worktreeB = await addLinkedWorktree(repoRoot, "feature/injected-b");
+		const stdout: string[] = [];
+		const runtime = {
+			...defaultCliDependencies,
+			historyStore: {
+				...defaultCliDependencies.historyStore,
+				appendHistory: async () => undefined,
+				loadHistory: async () => [
+					{ branch: "feature/injected-a", path: worktreeA, timestamp: 1 },
+				],
+			},
+		};
+
+		// When gji go - runs with that runtime from another worktree.
+		const result = await createGoCommand()({
+			branch: "-",
+			cwd: worktreeB,
+			print: true,
+			runtime,
+			stderr: () => undefined,
+			stdout: (chunk) => stdout.push(chunk),
+		});
+
+		// Then it navigates using the injected history instead of process-global state.
+		expect(result).toBe(0);
+		expect(stdout.join("")).toBe(`${worktreeA}\n`);
 	});
 
 	it("returns the previous worktree as JSON without shell handoff", async () => {

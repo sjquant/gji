@@ -48,10 +48,10 @@ export interface GoCommandOptions {
 type GoRuntime = CliRuntime<
 	| "bootstrap"
 	| "config"
-	| "configStore"
 	| "contextCard"
 	| "git"
 	| "history"
+	| "historyStore"
 	| "hooks"
 	| "integrations"
 	| "repositoryContext"
@@ -104,6 +104,7 @@ export function createGoCommand(
 				outputEnv: GO_OUTPUT_FILE_ENV,
 				stderr: options.stderr,
 				stdout: options.stdout,
+				runtime,
 			});
 		}
 

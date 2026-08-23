@@ -70,6 +70,44 @@ describe("loadWorktreeCatalog", () => {
 		expect(catalog[0]?.info.task).toBe("keep this searchable");
 		expect(catalog[0]?.pullRequests).toEqual([]);
 	});
+
+	it("keeps the catalog available when task metadata cannot be read", async () => {
+		// Given a fast catalog whose optional task metadata read fails.
+		const source = createSource("feature/task-failure", "/repo/task-failure");
+
+		// When the application loads the catalog.
+		const catalog = await loadWorktreeCatalog([source], "fast", {
+			loadHistory: async () => [],
+			readTask: async () => {
+				throw new Error("task metadata unavailable");
+			},
+			readWorktreeInfos: async () => [],
+		});
+
+		// Then optional task decoration is omitted without failing the catalog.
+		expect(catalog[0]?.info.task).toBeNull();
+		expect(catalog[0]?.source).toEqual(source);
+	});
+
+	it("keeps the catalog available when pull-request metadata cannot be read", async () => {
+		// Given a full catalog whose optional pull-request lookup fails.
+		const source = createSource("feature/pr-failure", "/repo/pr-failure");
+
+		// When the application loads the catalog.
+		const catalog = await loadWorktreeCatalog([source], "full", {
+			loadHistory: async () => [],
+			readTask: async () => null,
+			readWorktreeInfos: async (worktrees) =>
+				worktrees.map((worktree) => createInfo(worktree, "clean")),
+			queryPullRequests: async () => {
+				throw new Error("pull-request metadata unavailable");
+			},
+		});
+
+		// Then optional pull-request decoration is omitted without failing the catalog.
+		expect(catalog[0]?.pullRequests).toEqual([]);
+		expect(catalog[0]?.source).toEqual(source);
+	});
 });
 
 function createSource(branch: string, path: string): WorktreeSource {

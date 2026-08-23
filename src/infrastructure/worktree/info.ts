@@ -3,6 +3,7 @@ import type {
 	UpstreamState,
 	WorktreeInfo,
 } from "../../application/worktree/read-models.js";
+import { mapWithConcurrency } from "../../domain/shared/concurrency.js";
 import type { WorktreeEntry } from "../../domain/worktree/types.js";
 import { readWorktreeHealth, type WorktreeHealth } from "../git/health.js";
 import { readBranchLastCommitTimestamp } from "../git/refs.js";
@@ -21,32 +22,6 @@ export async function readWorktreeInfos(
 		MAX_WORKTREE_INFO_READ_CONCURRENCY,
 		readWorktreeInfo,
 	);
-}
-
-async function mapWithConcurrency<Input, Output>(
-	items: Input[],
-	limit: number,
-	mapper: (item: Input) => Promise<Output>,
-): Promise<Output[]> {
-	const results: Output[] = new Array(items.length);
-	let nextIndex = 0;
-
-	async function readNext(): Promise<void> {
-		for (;;) {
-			const index = nextIndex;
-			nextIndex += 1;
-
-			if (index >= items.length) return;
-
-			results[index] = await mapper(items[index]);
-		}
-	}
-
-	await Promise.all(
-		Array.from({ length: Math.min(limit, items.length) }, () => readNext()),
-	);
-
-	return results;
 }
 
 export async function readWorktreeInfo(

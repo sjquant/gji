@@ -32,6 +32,7 @@ export interface OpenCommandOptions {
 	select?: boolean;
 	runtime?: CliRuntime<
 		| "history"
+		| "config"
 		| "repositoryContext"
 		| "worktrees"
 		| "integrations"
@@ -71,8 +72,8 @@ export function createOpenCommand(
 		const { defaultSpawnEditor, EDITORS } = runtime.integrations;
 		const detectEditors =
 			dependencies.detectEditors ?? (() => detectInstalledEditors(EDITORS));
-		const { loadEffectiveConfig, resolveConfigString, updateGlobalConfigKey } =
-			runtime.configStore;
+		const { loadEffectiveConfig, resolveConfigString } = runtime.config;
+		const { updateGlobalConfigKey } = runtime.configStore;
 		const spawnEditorWithRuntime =
 			dependencies.spawnEditor ?? defaultSpawnEditor;
 		if (options.select && options.branch !== undefined) {

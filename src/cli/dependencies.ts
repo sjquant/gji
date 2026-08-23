@@ -30,10 +30,8 @@ import {
 	KNOWN_CONFIG_KEYS,
 	KNOWN_GLOBAL_CONFIG_KEYS,
 	loadConfig,
-	loadEffectiveConfig,
 	loadGlobalConfig,
 	parseConfigValue,
-	resolveConfigString,
 	saveGlobalConfig,
 	saveLocalConfig,
 	unsetGlobalConfigKey,
@@ -137,11 +135,9 @@ export interface CliDependencies {
 	configStore: {
 		loadConfig: typeof loadConfig;
 		loadGlobalConfig: typeof loadGlobalConfig;
-		loadEffectiveConfig: typeof loadEffectiveConfig;
 		saveGlobalConfig: typeof saveGlobalConfig;
 		saveLocalConfig: typeof saveLocalConfig;
 		updateGlobalConfigKey: typeof updateGlobalConfigKey;
-		resolveConfigString: typeof resolveConfigString;
 		parseConfigValue: typeof parseConfigValue;
 		unsetGlobalConfigKey: typeof unsetGlobalConfigKey;
 		GLOBAL_CONFIG_FILE_PATH: typeof GLOBAL_CONFIG_FILE_PATH;
@@ -243,11 +239,9 @@ export function createCliDependencies(): CliDependencies {
 		configStore: {
 			loadConfig,
 			loadGlobalConfig,
-			loadEffectiveConfig,
 			saveGlobalConfig,
 			saveLocalConfig,
 			updateGlobalConfigKey,
-			resolveConfigString,
 			parseConfigValue,
 			unsetGlobalConfigKey,
 			GLOBAL_CONFIG_FILE_PATH,

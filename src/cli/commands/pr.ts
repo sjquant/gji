@@ -39,7 +39,7 @@ export interface PrCommandOptions {
 }
 
 type PrRuntime = CliRuntime<
-	"bootstrap" | "configStore" | "git" | "history" | "repositoryContext"
+	"bootstrap" | "config" | "git" | "history" | "repositoryContext"
 >;
 
 export interface PrCommandDependencies {
@@ -78,7 +78,7 @@ export function createPrCommand(
 		);
 		let config: EffectiveGjiConfig;
 		try {
-			config = await runtime.configStore.loadEffectiveConfig(
+			config = await runtime.config.loadEffectiveConfig(
 				repository.repoRoot,
 				undefined,
 				options.json ? undefined : options.stderr,
@@ -94,7 +94,7 @@ export function createPrCommand(
 		}
 		const branchName = `pr/${prNumber}`;
 		const remoteRef = `refs/remotes/origin/pull/${prNumber}/head`;
-		const rawBasePath = runtime.configStore.resolveConfigString(
+		const rawBasePath = runtime.config.resolveConfigString(
 			config,
 			"worktreePath",
 		);

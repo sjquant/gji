@@ -5,6 +5,7 @@ import { spinner } from "@clack/prompts";
 import { loadWorktreeCatalog } from "../../application/worktree/catalog.js";
 import type { WorktreeInfo } from "../../application/worktree/read-models.js";
 import { listDiscoverableWorktreeSources } from "../../application/worktree/sources.js";
+import { mapWithConcurrency } from "../../domain/shared/concurrency.js";
 import type { WorktreeSource } from "../../domain/worktree/source.js";
 import type { PullRequestInfo } from "../../ports/pull-requests.js";
 import {
@@ -437,24 +438,4 @@ function formatHumanText(value: string, maxLength: number): string {
 	return sanitized.length <= maxLength
 		? sanitized
 		: `${sanitized.slice(0, Math.max(0, maxLength - 1))}…`;
-}
-
-async function mapWithConcurrency<Input, Output>(
-	items: Input[],
-	limit: number,
-	mapper: (item: Input) => Promise<Output>,
-): Promise<Output[]> {
-	const results: Output[] = new Array(items.length);
-	let nextIndex = 0;
-	async function readNext(): Promise<void> {
-		for (;;) {
-			const index = nextIndex++;
-			if (index >= items.length) return;
-			results[index] = await mapper(items[index]);
-		}
-	}
-	await Promise.all(
-		Array.from({ length: Math.min(limit, items.length) }, () => readNext()),
-	);
-	return results;
 }

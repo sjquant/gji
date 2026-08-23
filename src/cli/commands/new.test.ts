@@ -15,6 +15,7 @@ import {
 	pathExists,
 	runGit,
 } from "../../test-support/repository.js";
+import { defaultCliDependencies } from "../dependencies.js";
 import { runCli } from "../program.js";
 import {
 	createNewCommand,
@@ -37,6 +38,37 @@ afterEach(() => {
 });
 
 describe("gji new", () => {
+	it("uses the injected config port for worktree settings", async () => {
+		// Given a repository and a config port with a custom worktree base path.
+		const repoRoot = await createRepository();
+		const customBasePath = await mkdtemp(join(tmpdir(), "gji-config-base-"));
+		const stdout: string[] = [];
+		const runtime = {
+			...defaultCliDependencies,
+			config: {
+				loadEffectiveConfig: async () => ({ worktreePath: customBasePath }),
+				resolveConfigString: (config: Record<string, unknown>, key: string) =>
+					typeof config[key] === "string" ? config[key] : undefined,
+			},
+		};
+
+		// When gji new previews a worktree using the injected runtime.
+		const result = await createNewCommand()({
+			branch: "feature/config-port",
+			cwd: repoRoot,
+			dryRun: true,
+			runtime,
+			stderr: () => undefined,
+			stdout: (chunk) => stdout.push(chunk),
+		});
+
+		// Then the preview uses the injected worktree base path.
+		expect(result).toBe(0);
+		expect(stdout.join("")).toContain(
+			join(customBasePath, "feature", "config-port"),
+		);
+	});
+
 	it("creates a new branch from the freshly fetched remote default branch", async () => {
 		// Given a repository whose remote default branch advanced beyond its local checkout.
 		const { originRoot, repoRoot } = await createRepositoryWithOrigin();
