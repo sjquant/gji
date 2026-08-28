@@ -92,16 +92,9 @@ async function resolveCachedRemoteDefaultBranch(
 		const prefix = `${remote}/`;
 		return ref.startsWith(prefix) ? ref.slice(prefix.length) : undefined;
 	} catch {
-		try {
-			const refs = await runGit(cwd, [
-				"for-each-ref",
-				"--format=%(refname:strip=3)",
-				`refs/remotes/${remote}`,
-			]);
-			return refs.split("\n").find((ref) => ref !== "HEAD");
-		} catch {
-			return undefined;
-		}
+		// A remote branch list does not identify which branch is the default.
+		// Refuse to guess when the symbolic remote HEAD is unavailable.
+		return undefined;
 	}
 }
 

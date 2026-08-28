@@ -8,6 +8,7 @@ import { registerRepo } from "../../infrastructure/repository/registry.js";
 import {
 	addLinkedWorktree,
 	addSubmoduleToRepository,
+	cloneRepository,
 	commitFile,
 	createRepository,
 	createRepositoryWithOrigin,
@@ -44,6 +45,42 @@ describe("gji clean", () => {
 		});
 
 		// Then it removes the worktree and its branch.
+		expect(result).toBe(0);
+		await expect(pathExists(worktreePath)).resolves.toBe(false);
+		await expect(branchExists(repoRoot, branch)).resolves.toBe(false);
+	});
+
+	it("cleans a stale worktree whose branch was squash-merged", async () => {
+		// Given a stale worktree whose changes were squash-merged into the remote default branch.
+		const { originRoot, repoRoot } = await createRepositoryWithOrigin();
+		const baseBranch = await runGit(repoRoot, ["branch", "--show-current"]);
+		const branch = "feature/clean-stale-squash";
+		const worktreePath = await addRemoteTrackedWorktree(repoRoot, branch);
+		await commitFile(
+			worktreePath,
+			"squashed.txt",
+			"squashed change\n",
+			"Add change for squash merge",
+		);
+		await runGit(worktreePath, ["push", "origin", "HEAD"]);
+
+		const mergeClone = await cloneRepository(originRoot);
+		await runGit(mergeClone, ["fetch", "origin", branch]);
+		await runGit(mergeClone, ["merge", "--squash", `origin/${branch}`]);
+		await runGit(mergeClone, ["commit", "-m", "Squash merge feature"]);
+		await runGit(mergeClone, ["push", "origin", baseBranch]);
+		await deleteRemoteBranch(repoRoot, branch);
+
+		// When gji clean --stale --force runs.
+		const result = await createCleanCommand()({
+			cwd: repoRoot,
+			force: true,
+			stale: true,
+			stderr: () => undefined,
+			stdout: () => undefined,
+		});
+
+		// Then the squash-merged worktree and its branch are removed.
 		expect(result).toBe(0);
 		await expect(pathExists(worktreePath)).resolves.toBe(false);
 		await expect(branchExists(repoRoot, branch)).resolves.toBe(false);
@@ -674,7 +711,7 @@ describe("gji clean", () => {
 		await deleteRemoteBranch(current.repoRoot, currentBranch);
 		await deleteRemoteBranch(other.repoRoot, otherBranch);
 		await registerRepo(other.repoRoot);
-		const resolvedRoots = new Set<string>();
+		const resolveCounts = new Map<string, number>();
 		const runtime = {
 			...defaultCliDependencies,
 			git: {
@@ -684,7 +721,7 @@ describe("gji clean", () => {
 					remote: string,
 					configuredBranch?: string,
 				) => {
-					resolvedRoots.add(repoRoot);
+					resolveCounts.set(repoRoot, (resolveCounts.get(repoRoot) ?? 0) + 1);
 					return defaultCliDependencies.git.resolveRemoteBase(
 						repoRoot,
 						remote,
@@ -713,9 +750,12 @@ describe("gji clean", () => {
 				}),
 			).toBe(0);
 
-			// Then each repository's own remote default branch was used for stale checks.
-			expect(resolvedRoots).toEqual(
-				new Set([current.repoRoot, other.repoRoot]),
+			// Then each repository's own remote default branch was used once for stale checks.
+			expect(resolveCounts).toEqual(
+				new Map([
+					[current.repoRoot, 1],
+					[other.repoRoot, 1],
+				]),
 			);
 			await expect(pathExists(currentPath)).resolves.toBe(false);
 			await expect(pathExists(otherPath)).resolves.toBe(false);
@@ -726,6 +766,40 @@ describe("gji clean", () => {
 				process.env.GJI_CONFIG_DIR = originalConfigDir;
 			}
 		}
+	});
+
+	it("treats a missing fetched base as no stale candidates", async () => {
+		// Given a stale worktree and a remote base that disappears before verification.
+		const { repoRoot } = await createRepositoryWithOrigin();
+		const branch = "feature/clean-stale-missing-base";
+		const worktreePath = await addRemoteTrackedWorktree(repoRoot, branch);
+		await deleteRemoteBranch(repoRoot, branch);
+		const runtime = {
+			...defaultCliDependencies,
+			git: {
+				...defaultCliDependencies.git,
+				resolveRemoteBase: async () => ({
+					branch: "missing-base",
+					ref: "origin/missing-base",
+				}),
+			},
+		};
+		const stdout: string[] = [];
+
+		// When stale cleanup resolves a base ref that is no longer present after fetch.
+		const result = await createCleanCommand()({
+			cwd: repoRoot,
+			force: true,
+			runtime,
+			stale: true,
+			stderr: () => undefined,
+			stdout: (chunk) => stdout.push(chunk),
+		});
+
+		// Then it reports a safe no-op instead of throwing or removing the worktree.
+		expect(result).toBe(0);
+		expect(stdout.join("")).toContain("No stale linked worktrees to clean");
+		await expect(pathExists(worktreePath)).resolves.toBe(true);
 	});
 
 	it("cleans stale worktrees when remote default discovery needs the cached base", async () => {

@@ -76,6 +76,7 @@ interface CleanCandidate {
 }
 
 const MAX_CLEAN_REPOSITORY_CONCURRENCY = 4;
+const MAX_CLEAN_WORKTREE_CONCURRENCY = 8;
 
 export function createCleanCommand(
 	dependencies: Partial<CleanCommandDependencies> = {},
@@ -173,8 +174,11 @@ export function createCleanCommand(
 					source.worktree.path !== source.repoRoot &&
 					source.worktree.path !== repository.currentRoot,
 			);
-			allCandidates = await resolveCleanupCandidates(
-				sources,
+			const otherRepositorySources = sources.filter(
+				(source) => source.repoRoot !== repository.repoRoot,
+			);
+			const otherRepositoryCandidates = await resolveCleanupCandidates(
+				otherRepositorySources,
 				options.stale,
 				options.stderr,
 				loadEffectiveConfig,
@@ -184,6 +188,7 @@ export function createCleanCommand(
 				isBranchMergedInto,
 				signal,
 			);
+			allCandidates = [...currentCandidates, ...otherRepositoryCandidates];
 			throwIfAborted(signal);
 			return allCandidates;
 		};
@@ -360,6 +365,7 @@ export function createCleanCommand(
 					repoRoot,
 					worktree,
 					staleBaseRef,
+					runGit,
 					readWorktreeHealth,
 					isBranchMergedInto,
 				))
@@ -552,6 +558,7 @@ async function resolveCleanupCandidates(
 						repoRoot,
 						group.worktrees,
 						staleBaseRef,
+						runGit,
 						readWorktreeHealth,
 						isBranchMergedInto,
 						signal,
@@ -634,6 +641,7 @@ async function filterStaleCleanupCandidates(
 	repoRoot: string,
 	worktrees: WorktreeEntry[],
 	baseBranch: string | null,
+	runGit: CliDependencies["git"]["runGit"],
 	readWorktreeHealth: CliDependencies["git"]["readWorktreeHealth"],
 	isBranchMergedInto: CliDependencies["git"]["isBranchMergedInto"],
 	signal?: AbortSignal,
@@ -643,16 +651,19 @@ async function filterStaleCleanupCandidates(
 		return [];
 	}
 
-	const results = await Promise.all(
-		worktrees.map((worktree) =>
+	const results = await mapWithConcurrency(
+		worktrees,
+		MAX_CLEAN_WORKTREE_CONCURRENCY,
+		(worktree) =>
 			isStaleCleanupCandidate(
 				repoRoot,
 				worktree,
 				baseBranch,
+				runGit,
 				readWorktreeHealth,
 				isBranchMergedInto,
 			),
-		),
+		signal,
 	);
 	throwIfAborted(signal);
 
@@ -695,6 +706,12 @@ async function resolveFetchedRemoteRef(
 ): Promise<string | null> {
 	try {
 		await runGit(repoRoot, ["fetch", "--prune", remote]);
+		await runGit(repoRoot, [
+			"rev-parse",
+			"--verify",
+			"--quiet",
+			`${remote}/${branch}`,
+		]);
 		return `${remote}/${branch}`;
 	} catch {
 		return null;
@@ -709,6 +726,7 @@ async function isStaleCleanupCandidate(
 	repoRoot: string,
 	worktree: WorktreeEntry,
 	baseBranch: string | null,
+	runGit: CliDependencies["git"]["runGit"],
 	readWorktreeHealth: CliDependencies["git"]["readWorktreeHealth"],
 	isBranchMergedInto: CliDependencies["git"]["isBranchMergedInto"],
 ): Promise<boolean> {
@@ -726,7 +744,31 @@ async function isStaleCleanupCandidate(
 		return false;
 	}
 
-	return isBranchMergedInto(repoRoot, worktree.branch, baseBranch);
+	if (await isBranchMergedInto(repoRoot, worktree.branch, baseBranch)) {
+		return true;
+	}
+
+	return isBranchPatchEquivalentInto(
+		repoRoot,
+		worktree.branch,
+		baseBranch,
+		runGit,
+	);
+}
+
+async function isBranchPatchEquivalentInto(
+	repoRoot: string,
+	branch: string,
+	baseBranch: string,
+	runGit: CliDependencies["git"]["runGit"],
+): Promise<boolean> {
+	try {
+		const output = await runGit(repoRoot, ["cherry", baseBranch, branch]);
+		const lines = output.split("\n").filter(Boolean);
+		return lines.length > 0 && lines.every((line) => line.startsWith("-"));
+	} catch {
+		return false;
+	}
 }
 
 function reportCleanFailures(
