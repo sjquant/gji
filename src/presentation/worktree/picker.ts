@@ -64,12 +64,14 @@ export interface WorktreePromptScope {
 }
 
 export interface WorktreePromptScopeResult {
-	entries: WorktreePromptEntry[];
 	label: string;
+	metadata?: WorktreeMetadataMode;
+	sources: WorktreeSource[];
 	toggleLabel: string;
 }
 
 export interface WorktreePickerOptions extends WorktreePickerIO {
+	catalog?: WorktreeCatalogDependencies;
 	scope?: WorktreePromptScope;
 }
 
@@ -142,6 +144,7 @@ export async function promptForSingleWorktree(
 		message,
 		multiple: false,
 		output: io.output,
+		catalog: io.catalog,
 		scope: io.scope,
 	});
 
@@ -159,6 +162,7 @@ export async function promptForMultipleWorktrees(
 		message,
 		multiple: true,
 		output: io.output,
+		catalog: io.catalog,
 		scope: io.scope,
 	});
 
@@ -417,7 +421,11 @@ class SearchablePrompt {
 			const nextScope = await currentScope.toggle(this.cancellation.signal);
 			if (this.promptClosed) return;
 
-			this.entries = nextScope.entries.map(buildSearchableWorktreeEntry);
+			const nextEntries = await buildWorktreePromptEntries(nextScope.sources, {
+				catalog: this.options.catalog,
+				metadata: nextScope.metadata,
+			});
+			this.entries = nextEntries.map(buildSearchableWorktreeEntry);
 			this.pruneHiddenSelections();
 			this.scope = {
 				label: nextScope.label,

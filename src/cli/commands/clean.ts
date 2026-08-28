@@ -1,5 +1,8 @@
 import { confirm, isCancel } from "@clack/prompts";
-import { loadLinkedWorktrees } from "../../application/worktree/catalog.js";
+import {
+	loadLinkedWorktrees,
+	type WorktreeCatalogDependencies,
+} from "../../application/worktree/catalog.js";
 import type { WorktreeInfo } from "../../application/worktree/read-models.js";
 import {
 	deduplicateWorktreeSources,
@@ -59,6 +62,7 @@ export interface CleanCommandDependencies {
 	promptForWorktrees: (
 		worktrees: WorktreePromptEntry[],
 		scope?: WorktreePromptScope,
+		catalog?: WorktreeCatalogDependencies,
 	) => Promise<string[] | null>;
 }
 
@@ -73,6 +77,53 @@ interface CleanCandidate {
 	repoRoot: string;
 	staleBaseRef: string | null;
 	worktree: WorktreeEntry;
+}
+
+interface CleanupCandidateDependencies {
+	isBranchMergedInto: CliDependencies["git"]["isBranchMergedInto"];
+	loadEffectiveConfig: CliDependencies["config"]["loadEffectiveConfig"];
+	readWorktreeHealth: CliDependencies["git"]["readWorktreeHealth"];
+	resolveRemoteBase: CliDependencies["git"]["resolveRemoteBase"];
+	runGit: CliDependencies["git"]["runGit"];
+}
+
+interface ResolveCleanupCandidatesOptions {
+	sources: WorktreeSource[];
+	stale: boolean | undefined;
+	stderr: (chunk: string) => void;
+	signal?: AbortSignal;
+}
+
+interface FilterStaleCleanupCandidatesOptions {
+	baseBranch: string | null;
+	repoRoot: string;
+	signal?: AbortSignal;
+	worktrees: WorktreeEntry[];
+}
+
+interface ResolveStaleBaseRefOptions {
+	repoRoot: string;
+	stderr: (chunk: string) => void;
+}
+
+interface StaleCleanupCandidateOptions {
+	baseBranch: string | null;
+	repoRoot: string;
+	worktree: WorktreeEntry;
+}
+
+interface BranchPatchEquivalentOptions {
+	baseBranch: string;
+	repoRoot: string;
+	worktreeBranch: string;
+}
+
+function toPromptSource(candidate: CleanCandidate): WorktreeSource {
+	return {
+		repoName: candidate.repoName,
+		repoRoot: candidate.repoRoot,
+		worktree: candidate.worktree,
+	};
 }
 
 const MAX_CLEAN_REPOSITORY_CONCURRENCY = 4;
@@ -134,15 +185,20 @@ export function createCleanCommand(
 				repoRoot: repository.repoRoot,
 				worktree,
 			}));
-		const currentCandidates = await resolveCleanupCandidates(
-			currentSources,
-			options.stale,
-			options.stderr,
+		const cleanupDependencies: CleanupCandidateDependencies = {
+			isBranchMergedInto,
 			loadEffectiveConfig,
+			readWorktreeHealth,
 			resolveRemoteBase,
 			runGit,
-			readWorktreeHealth,
-			isBranchMergedInto,
+		};
+		const currentCandidates = await resolveCleanupCandidates(
+			{
+				sources: currentSources,
+				stale: options.stale,
+				stderr: options.stderr,
+			},
+			cleanupDependencies,
 		);
 		let activeCandidates = currentCandidates;
 		let allCandidates: CleanCandidate[] | null = null;
@@ -156,18 +212,18 @@ export function createCleanCommand(
 			throwIfAborted(signal);
 			if (allCandidates !== null) return allCandidates;
 
-			const registeredSources = await listRegisteredWorktreeSources(
-				options.cwd,
-				sourceDependencies,
-				(entry) => skippedRepositories.push(entry),
+			const registered = await listRegisteredWorktreeSources({
+				cwd: options.cwd,
+				repositoryPort: sourceDependencies,
 				signal,
-			);
-			if (skippedRepositories.length > 0) {
+			});
+			skippedRepositories.push(...registered.skipped);
+			if (registered.skipped.length > 0) {
 				reportSkippedRepositories(skippedRepositories, options.stderr);
 			}
 			const sources = deduplicateWorktreeSources([
 				...currentSources,
-				...registeredSources,
+				...registered.sources,
 			]).filter(
 				(source): source is WorktreeSource & { repoRoot: string } =>
 					source.repoRoot !== undefined &&
@@ -178,15 +234,13 @@ export function createCleanCommand(
 				(source) => source.repoRoot !== repository.repoRoot,
 			);
 			const otherRepositoryCandidates = await resolveCleanupCandidates(
-				otherRepositorySources,
-				options.stale,
-				options.stderr,
-				loadEffectiveConfig,
-				resolveRemoteBase,
-				runGit,
-				readWorktreeHealth,
-				isBranchMergedInto,
-				signal,
+				{
+					sources: otherRepositorySources,
+					stale: options.stale,
+					stderr: options.stderr,
+					signal,
+				},
+				cleanupDependencies,
 			);
 			allCandidates = [...currentCandidates, ...otherRepositoryCandidates];
 			throwIfAborted(signal);
@@ -204,10 +258,8 @@ export function createCleanCommand(
 				currentScope = nextCurrentScope;
 				activeCandidates = nextCandidates;
 				return {
-					entries: await buildWorktreePromptEntries(nextCandidates, {
-						metadata: nextCurrentScope ? "full" : "fast",
-						catalog: runtime.worktreeCatalog,
-					}),
+					sources: nextCandidates.map(toPromptSource),
+					metadata: nextCurrentScope ? "full" : "fast",
 					label: nextCurrentScope ? "current repository" : "all repositories",
 					toggleLabel: nextCurrentScope
 						? "all repositories"
@@ -266,6 +318,7 @@ export function createCleanCommand(
 						catalog: runtime.worktreeCatalog,
 					}),
 					scope,
+					runtime.worktreeCatalog,
 				);
 
 		if (!selections || selections.length === 0) {
@@ -362,12 +415,8 @@ export function createCleanCommand(
 			if (
 				options.stale &&
 				!(await isStaleCleanupCandidate(
-					repoRoot,
-					worktree,
-					staleBaseRef,
-					runGit,
-					readWorktreeHealth,
-					isBranchMergedInto,
+					{ repoRoot, worktree, baseBranch: staleBaseRef },
+					cleanupDependencies,
 				))
 			) {
 				options.stderr(
@@ -512,16 +561,10 @@ export function createCleanCommand(
 export const runCleanCommand = createCleanCommand();
 
 async function resolveCleanupCandidates(
-	sources: WorktreeSource[],
-	stale: boolean | undefined,
-	stderr: (chunk: string) => void,
-	loadEffectiveConfig: CliDependencies["config"]["loadEffectiveConfig"],
-	resolveRemoteBase: CliDependencies["git"]["resolveRemoteBase"],
-	runGit: CliDependencies["git"]["runGit"],
-	readWorktreeHealth: CliDependencies["git"]["readWorktreeHealth"],
-	isBranchMergedInto: CliDependencies["git"]["isBranchMergedInto"],
-	signal?: AbortSignal,
+	options: ResolveCleanupCandidatesOptions,
+	dependencies: CleanupCandidateDependencies,
 ): Promise<CleanCandidate[]> {
+	const { sources, stale, stderr, signal } = options;
 	const grouped = new Map<
 		string,
 		{ repoName: string; worktrees: WorktreeEntry[] }
@@ -545,23 +588,17 @@ async function resolveCleanupCandidates(
 		async ([repoRoot, group]) => {
 			throwIfAborted(signal);
 			const staleBaseRef = stale
-				? await resolveStaleBaseRef(
-						repoRoot,
-						stderr,
-						loadEffectiveConfig,
-						resolveRemoteBase,
-						runGit,
-					)
+				? await resolveStaleBaseRef({ repoRoot, stderr }, dependencies)
 				: null;
 			const worktrees = stale
 				? await filterStaleCleanupCandidates(
-						repoRoot,
-						group.worktrees,
-						staleBaseRef,
-						runGit,
-						readWorktreeHealth,
-						isBranchMergedInto,
-						signal,
+						{
+							repoRoot,
+							worktrees: group.worktrees,
+							baseBranch: staleBaseRef,
+							signal,
+						},
+						dependencies,
 					)
 				: group.worktrees;
 
@@ -638,14 +675,10 @@ async function discardUndoRecords(
 }
 
 async function filterStaleCleanupCandidates(
-	repoRoot: string,
-	worktrees: WorktreeEntry[],
-	baseBranch: string | null,
-	runGit: CliDependencies["git"]["runGit"],
-	readWorktreeHealth: CliDependencies["git"]["readWorktreeHealth"],
-	isBranchMergedInto: CliDependencies["git"]["isBranchMergedInto"],
-	signal?: AbortSignal,
+	options: FilterStaleCleanupCandidatesOptions,
+	dependencies: CleanupCandidateDependencies,
 ): Promise<WorktreeEntry[]> {
+	const { repoRoot, worktrees, baseBranch, signal } = options;
 	throwIfAborted(signal);
 	if (baseBranch === null) {
 		return [];
@@ -655,14 +688,7 @@ async function filterStaleCleanupCandidates(
 		worktrees,
 		MAX_CLEAN_WORKTREE_CONCURRENCY,
 		(worktree) =>
-			isStaleCleanupCandidate(
-				repoRoot,
-				worktree,
-				baseBranch,
-				runGit,
-				readWorktreeHealth,
-				isBranchMergedInto,
-			),
+			isStaleCleanupCandidate({ repoRoot, worktree, baseBranch }, dependencies),
 		signal,
 	);
 	throwIfAborted(signal);
@@ -671,20 +697,22 @@ async function filterStaleCleanupCandidates(
 }
 
 async function resolveStaleBaseRef(
-	repoRoot: string,
-	stderr: (chunk: string) => void,
-	loadEffectiveConfig: CliDependencies["config"]["loadEffectiveConfig"],
-	resolveRemoteBase: CliDependencies["git"]["resolveRemoteBase"],
-	runGit: CliDependencies["git"]["runGit"],
+	options: ResolveStaleBaseRefOptions,
+	dependencies: CleanupCandidateDependencies,
 ): Promise<string | null> {
-	const config = await loadEffectiveConfig(repoRoot, undefined, stderr);
+	const { repoRoot, stderr } = options;
+	const config = await dependencies.loadEffectiveConfig(
+		repoRoot,
+		undefined,
+		stderr,
+	);
 	const remote = resolveConfiguredString(config.syncRemote) ?? "origin";
 
 	const configuredDefaultBranch = resolveConfiguredString(
 		config.syncDefaultBranch,
 	);
 	try {
-		const remoteBase = await resolveRemoteBase(
+		const remoteBase = await dependencies.resolveRemoteBase(
 			repoRoot,
 			remote,
 			configuredDefaultBranch ?? undefined,
@@ -692,18 +720,20 @@ async function resolveStaleBaseRef(
 
 		return remoteBase === null
 			? null
-			: resolveFetchedRemoteRef(repoRoot, remote, remoteBase.branch, runGit);
+			: resolveFetchedRemoteRef(
+					{ branch: remoteBase.branch, remote, repoRoot },
+					dependencies.runGit,
+				);
 	} catch {
 		return null;
 	}
 }
 
 async function resolveFetchedRemoteRef(
-	repoRoot: string,
-	remote: string,
-	branch: string,
+	options: { branch: string; remote: string; repoRoot: string },
 	runGit: CliDependencies["git"]["runGit"],
 ): Promise<string | null> {
+	const { repoRoot, remote, branch } = options;
 	try {
 		await runGit(repoRoot, ["fetch", "--prune", remote]);
 		await runGit(repoRoot, [
@@ -723,13 +753,10 @@ function resolveConfiguredString(value: unknown): string | null {
 }
 
 async function isStaleCleanupCandidate(
-	repoRoot: string,
-	worktree: WorktreeEntry,
-	baseBranch: string | null,
-	runGit: CliDependencies["git"]["runGit"],
-	readWorktreeHealth: CliDependencies["git"]["readWorktreeHealth"],
-	isBranchMergedInto: CliDependencies["git"]["isBranchMergedInto"],
+	options: StaleCleanupCandidateOptions,
+	dependencies: CleanupCandidateDependencies,
 ): Promise<boolean> {
+	const { repoRoot, worktree, baseBranch } = options;
 	if (baseBranch === null) {
 		return false;
 	}
@@ -738,32 +765,35 @@ async function isStaleCleanupCandidate(
 		return false;
 	}
 
-	const health = await readWorktreeHealth(worktree.path);
+	const health = await dependencies.readWorktreeHealth(worktree.path);
 
 	if (health.status !== "clean" || !health.upstreamGone) {
 		return false;
 	}
 
-	if (await isBranchMergedInto(repoRoot, worktree.branch, baseBranch)) {
+	if (
+		await dependencies.isBranchMergedInto(repoRoot, worktree.branch, baseBranch)
+	) {
 		return true;
 	}
 
 	return isBranchPatchEquivalentInto(
-		repoRoot,
-		worktree.branch,
-		baseBranch,
-		runGit,
+		{ baseBranch, repoRoot, worktreeBranch: worktree.branch },
+		dependencies.runGit,
 	);
 }
 
 async function isBranchPatchEquivalentInto(
-	repoRoot: string,
-	branch: string,
-	baseBranch: string,
+	options: BranchPatchEquivalentOptions,
 	runGit: CliDependencies["git"]["runGit"],
 ): Promise<boolean> {
+	const { repoRoot, worktreeBranch, baseBranch } = options;
 	try {
-		const output = await runGit(repoRoot, ["cherry", baseBranch, branch]);
+		const output = await runGit(repoRoot, [
+			"cherry",
+			baseBranch,
+			worktreeBranch,
+		]);
 		const lines = output.split("\n").filter(Boolean);
 		return lines.length > 0 && lines.every((line) => line.startsWith("-"));
 	} catch {
@@ -872,8 +902,10 @@ function toMessage(error: unknown): string {
 async function defaultPromptForWorktrees(
 	worktrees: WorktreePromptEntry[],
 	scope?: WorktreePromptScope,
+	catalog?: WorktreeCatalogDependencies,
 ): Promise<string[] | null> {
 	return promptForMultipleWorktrees("Choose worktrees to clean", worktrees, {
+		catalog,
 		scope,
 	});
 }

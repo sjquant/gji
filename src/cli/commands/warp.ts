@@ -134,12 +134,14 @@ export async function resolveWarpTarget(options: {
 		return null;
 	}
 
-	let skippedRegisteredRepos = 0;
-	const allItems = (
-		await listRegisteredWorktreeSources(options.cwd, sourceDependencies, () => {
-			skippedRegisteredRepos++;
-		})
-	).filter((item) => item.repoRoot !== options.excludeRepoRoot);
+	const registered = await listRegisteredWorktreeSources({
+		cwd: options.cwd,
+		repositoryPort: sourceDependencies,
+	});
+	const skippedRegisteredRepos = registered.skipped.length;
+	const allItems = registered.sources.filter(
+		(item) => item.repoRoot !== options.excludeRepoRoot,
+	);
 
 	if (allItems.length === 0) {
 		emitError(

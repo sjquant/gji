@@ -9,16 +9,25 @@ import type {
 
 const MAX_REPOSITORY_DISCOVERY_CONCURRENCY = 4;
 
-type WorktreeSourceDependencies = RepositoryContextPort &
+export type WorktreeSourceDependencies = RepositoryContextPort &
 	RepositoryRegistryPort &
 	WorktreePort;
 
+export interface WorktreeSourceDiscovery {
+	skipped: RepoRegistryEntry[];
+	sources: WorktreeSource[];
+}
+
+export interface ListWorktreeSourcesOptions {
+	cwd: string;
+	repositoryPort: WorktreeSourceDependencies;
+	signal?: AbortSignal;
+}
+
 export async function listRegisteredWorktreeSources(
-	cwd: string,
-	repositoryPort: WorktreeSourceDependencies,
-	onSkipped?: (entry: RepoRegistryEntry) => void,
-	signal?: AbortSignal,
-): Promise<WorktreeSource[]> {
+	options: ListWorktreeSourcesOptions,
+): Promise<WorktreeSourceDiscovery> {
+	const { cwd, repositoryPort, signal } = options;
 	throwIfAborted(signal);
 	const registry = await repositoryPort.loadRegistry();
 	const currentRoot = await repositoryPort
@@ -33,18 +42,21 @@ export async function listRegisteredWorktreeSources(
 			throwIfAborted(signal);
 			try {
 				const worktrees = await repositoryPort.listWorktrees(entry.path);
-				return { entry, worktrees };
+				return { entry, skipped: false, worktrees };
 			} catch {
-				onSkipped?.(entry);
-				return null;
+				return { entry, skipped: true, worktrees: [] };
 			}
 		},
 		signal,
 	);
 
 	const allItems: WorktreeSource[] = [];
+	const skipped: RepoRegistryEntry[] = [];
 	for (const result of results) {
-		if (result === null) continue;
+		if (result.skipped) {
+			skipped.push(result.entry);
+			continue;
+		}
 		const { entry, worktrees } = result;
 		for (const worktree of worktrees) {
 			allItems.push({
@@ -58,24 +70,23 @@ export async function listRegisteredWorktreeSources(
 		}
 	}
 
-	return allItems;
+	return { skipped, sources: allItems };
 }
 
 export async function listDiscoverableWorktreeSources(
-	cwd: string,
-	repositoryPort: WorktreeSourceDependencies,
-	onSkipped?: (entry: RepoRegistryEntry) => void,
-): Promise<WorktreeSource[]> {
+	options: ListWorktreeSourcesOptions,
+): Promise<WorktreeSourceDiscovery> {
+	const { cwd, repositoryPort } = options;
 	const currentRepository = await repositoryPort
 		.detectRepository(cwd)
 		.catch(() => null);
-	const registeredSources = await listRegisteredWorktreeSources(
-		cwd,
-		repositoryPort,
-		onSkipped,
-	);
-	if (currentRepository === null)
-		return deduplicateWorktreeSources(registeredSources);
+	const registered = await listRegisteredWorktreeSources(options);
+	if (currentRepository === null) {
+		return {
+			skipped: registered.skipped,
+			sources: deduplicateWorktreeSources(registered.sources),
+		};
+	}
 
 	let currentSources: WorktreeSource[] = [];
 	try {
@@ -89,7 +100,13 @@ export async function listDiscoverableWorktreeSources(
 	} catch {
 		// Registered repositories remain discoverable when the current checkout is transiently unavailable.
 	}
-	return deduplicateWorktreeSources([...currentSources, ...registeredSources]);
+	return {
+		skipped: registered.skipped,
+		sources: deduplicateWorktreeSources([
+			...currentSources,
+			...registered.sources,
+		]),
+	};
 }
 
 export function deduplicateWorktreeSources(

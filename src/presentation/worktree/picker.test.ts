@@ -3,6 +3,7 @@ import { stripVTControlCharacters } from "node:util";
 
 import { describe, expect, it } from "vitest";
 import type { WorktreeMetadataMode } from "../../application/worktree/catalog.js";
+import type { WorktreeSource } from "../../domain/worktree/source.js";
 import type { WorktreeEntry } from "../../domain/worktree/types.js";
 import {
 	addLinkedWorktree,
@@ -359,13 +360,14 @@ describe("worktree picker search", () => {
 		const choice = promptForSingleWorktree("Choose a worktree", [current], {
 			input,
 			output,
+			catalog: defaultCatalog,
 			scope: {
 				label: "current repository",
 				toggleLabel: "all repositories",
 				toggle: async () => {
 					toggleCount += 1;
 					return {
-						entries: [global],
+						sources: [sourceFromEntry(global)],
 						label: "all repositories",
 						toggleLabel: "current repository",
 					};
@@ -392,11 +394,12 @@ describe("worktree picker search", () => {
 		const choices = promptForMultipleWorktrees("Choose worktrees", [current], {
 			input,
 			output,
+			catalog: defaultCatalog,
 			scope: {
 				label: "current repository",
 				toggleLabel: "all repositories",
 				toggle: async () => ({
-					entries: [global],
+					sources: [sourceFromEntry(global)],
 					label: "all repositories",
 					toggleLabel: "current repository",
 				}),
@@ -422,6 +425,7 @@ describe("worktree picker search", () => {
 		const choice = promptForMultipleWorktrees("Choose worktrees", [current], {
 			input,
 			output,
+			catalog: defaultCatalog,
 			scope: {
 				label: "current repository",
 				toggleLabel: "all repositories",
@@ -429,12 +433,12 @@ describe("worktree picker search", () => {
 					allRepositories = !allRepositories;
 					return allRepositories
 						? {
-								entries: [global],
+								sources: [sourceFromEntry(global)],
 								label: "all repositories",
 								toggleLabel: "current repository",
 							}
 						: {
-								entries: [current],
+								sources: [sourceFromEntry(current)],
 								label: "current repository",
 								toggleLabel: "all repositories",
 							};
@@ -467,6 +471,7 @@ describe("worktree picker search", () => {
 		const choice = promptForSingleWorktree("Choose a worktree", [current], {
 			input,
 			output,
+			catalog: defaultCatalog,
 			scope: {
 				label: "current repository",
 				toggleLabel: "all repositories",
@@ -488,7 +493,7 @@ describe("worktree picker search", () => {
 
 		// When the reload finishes and the user submits again.
 		resolveToggle({
-			entries: [global],
+			sources: [sourceFromEntry(global)],
 			label: "all repositories",
 			toggleLabel: "current repository",
 		});
@@ -508,6 +513,7 @@ describe("worktree picker search", () => {
 		const choice = promptForSingleWorktree("Choose a worktree", [current], {
 			input,
 			output,
+			catalog: defaultCatalog,
 			scope: {
 				label: "current repository",
 				toggleLabel: "all repositories",
@@ -518,7 +524,7 @@ describe("worktree picker search", () => {
 							() => {
 								aborted = true;
 								resolve({
-									entries: [global],
+									sources: [sourceFromEntry(global)],
 									label: "all repositories",
 									toggleLabel: "current repository",
 								});
@@ -808,6 +814,17 @@ function worktreeEntry(branch: string, path: string): WorktreePromptEntry {
 		label: `repo · ${branch} · ${path}`,
 		path,
 		repoName: "repo",
+	};
+}
+
+function sourceFromEntry(entry: WorktreePromptEntry): WorktreeSource {
+	return {
+		repoName: entry.repoName,
+		worktree: {
+			branch: entry.branch,
+			isCurrent: entry.isCurrent,
+			path: entry.path,
+		},
 	};
 }
 

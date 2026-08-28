@@ -309,17 +309,17 @@ describe("gji clean", () => {
 					expect(scope?.label).toBe("current repository");
 					const allRepositories = await scope?.toggle();
 					expect(allRepositories?.label).toBe("all repositories");
-					expect(allRepositories?.entries.map((entry) => entry.path)).toContain(
-						currentPath,
-					);
-					expect(allRepositories?.entries.map((entry) => entry.path)).toContain(
-						otherPath,
-					);
 					expect(
-						allRepositories?.entries.map((entry) => entry.path),
+						allRepositories?.sources.map((entry) => entry.worktree.path),
+					).toContain(currentPath);
+					expect(
+						allRepositories?.sources.map((entry) => entry.worktree.path),
+					).toContain(otherPath);
+					expect(
+						allRepositories?.sources.map((entry) => entry.worktree.path),
 					).not.toContain(repoRoot);
 					expect(
-						allRepositories?.entries.map((entry) => entry.path),
+						allRepositories?.sources.map((entry) => entry.worktree.path),
 					).not.toContain(otherRoot);
 					return [currentPath, otherPath];
 				},
@@ -437,7 +437,9 @@ describe("gji clean", () => {
 						sameRepoPath,
 					]);
 					const allRepositories = await scope?.toggle();
-					const allPaths = allRepositories?.entries.map((entry) => entry.path);
+					const allPaths = allRepositories?.sources.map(
+						(entry) => entry.worktree.path,
+					);
 					expect(allPaths).toContain(sameRepoPath);
 					expect(allPaths).toContain(otherPath);
 					expect(allPaths).not.toContain(repoRoot);
