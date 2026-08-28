@@ -96,7 +96,7 @@ export function createCleanCommand(
 		const {
 			readWorktreeHealth,
 			isBranchMergedInto,
-			resolveRemoteDefaultBranch,
+			resolveRemoteBase,
 			runGit,
 		} = runtime.git;
 		const { loadEffectiveConfig } = runtime.config;
@@ -138,7 +138,7 @@ export function createCleanCommand(
 			options.stale,
 			options.stderr,
 			loadEffectiveConfig,
-			resolveRemoteDefaultBranch,
+			resolveRemoteBase,
 			runGit,
 			readWorktreeHealth,
 			isBranchMergedInto,
@@ -178,7 +178,7 @@ export function createCleanCommand(
 				options.stale,
 				options.stderr,
 				loadEffectiveConfig,
-				resolveRemoteDefaultBranch,
+				resolveRemoteBase,
 				runGit,
 				readWorktreeHealth,
 				isBranchMergedInto,
@@ -510,7 +510,7 @@ async function resolveCleanupCandidates(
 	stale: boolean | undefined,
 	stderr: (chunk: string) => void,
 	loadEffectiveConfig: CliDependencies["config"]["loadEffectiveConfig"],
-	resolveRemoteDefaultBranch: CliDependencies["git"]["resolveRemoteDefaultBranch"],
+	resolveRemoteBase: CliDependencies["git"]["resolveRemoteBase"],
 	runGit: CliDependencies["git"]["runGit"],
 	readWorktreeHealth: CliDependencies["git"]["readWorktreeHealth"],
 	isBranchMergedInto: CliDependencies["git"]["isBranchMergedInto"],
@@ -543,7 +543,7 @@ async function resolveCleanupCandidates(
 						repoRoot,
 						stderr,
 						loadEffectiveConfig,
-						resolveRemoteDefaultBranch,
+						resolveRemoteBase,
 						runGit,
 					)
 				: null;
@@ -663,7 +663,7 @@ async function resolveStaleBaseRef(
 	repoRoot: string,
 	stderr: (chunk: string) => void,
 	loadEffectiveConfig: CliDependencies["config"]["loadEffectiveConfig"],
-	resolveRemoteDefaultBranch: CliDependencies["git"]["resolveRemoteDefaultBranch"],
+	resolveRemoteBase: CliDependencies["git"]["resolveRemoteBase"],
 	runGit: CliDependencies["git"]["runGit"],
 ): Promise<string | null> {
 	const config = await loadEffectiveConfig(repoRoot, undefined, stderr);
@@ -672,30 +672,16 @@ async function resolveStaleBaseRef(
 	const configuredDefaultBranch = resolveConfiguredString(
 		config.syncDefaultBranch,
 	);
-
-	if (configuredDefaultBranch) {
-		return await resolveFetchedRemoteRef(
-			repoRoot,
-			remote,
-			configuredDefaultBranch,
-			runGit,
-		);
-	}
-
 	try {
-		const remoteDefaultBranch = await resolveRemoteDefaultBranch(
+		const remoteBase = await resolveRemoteBase(
 			repoRoot,
 			remote,
+			configuredDefaultBranch ?? undefined,
 		);
 
-		return remoteDefaultBranch === null
+		return remoteBase === null
 			? null
-			: await resolveFetchedRemoteRef(
-					repoRoot,
-					remote,
-					remoteDefaultBranch,
-					runGit,
-				);
+			: resolveFetchedRemoteRef(repoRoot, remote, remoteBase.branch, runGit);
 	} catch {
 		return null;
 	}

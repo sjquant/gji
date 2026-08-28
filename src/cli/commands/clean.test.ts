@@ -679,14 +679,16 @@ describe("gji clean", () => {
 			...defaultCliDependencies,
 			git: {
 				...defaultCliDependencies.git,
-				resolveRemoteDefaultBranch: async (
+				resolveRemoteBase: async (
 					repoRoot: string,
 					remote: string,
+					configuredBranch?: string,
 				) => {
 					resolvedRoots.add(repoRoot);
-					return defaultCliDependencies.git.resolveRemoteDefaultBranch(
+					return defaultCliDependencies.git.resolveRemoteBase(
 						repoRoot,
 						remote,
+						configuredBranch,
 					);
 				},
 			},
@@ -717,6 +719,53 @@ describe("gji clean", () => {
 			);
 			await expect(pathExists(currentPath)).resolves.toBe(false);
 			await expect(pathExists(otherPath)).resolves.toBe(false);
+		} finally {
+			if (originalConfigDir === undefined) {
+				delete process.env.GJI_CONFIG_DIR;
+			} else {
+				process.env.GJI_CONFIG_DIR = originalConfigDir;
+			}
+		}
+	});
+
+	it("cleans stale worktrees when remote default discovery needs the cached base", async () => {
+		// Given a stale worktree whose remote HEAD lookup is unavailable but whose base is known.
+		const originalConfigDir = process.env.GJI_CONFIG_DIR;
+		process.env.GJI_CONFIG_DIR = await mkdtemp(
+			join(tmpdir(), "gji-clean-stale-cached-base-"),
+		);
+		const { repoRoot } = await createRepositoryWithOrigin();
+		const baseBranch = await runGit(repoRoot, ["branch", "--show-current"]);
+		const branch = "feature/clean-stale-cached-base";
+		const worktreePath = await addRemoteTrackedWorktree(repoRoot, branch);
+		await deleteRemoteBranch(repoRoot, branch);
+		const runtime = {
+			...defaultCliDependencies,
+			git: {
+				...defaultCliDependencies.git,
+				resolveRemoteDefaultBranch: async () => null,
+				resolveRemoteBase: async (_repoRoot: string, remote: string) => ({
+					branch: baseBranch,
+					ref: `${remote}/${baseBranch}`,
+				}),
+			},
+		};
+
+		try {
+			// When stale cleanup runs despite the failed remote HEAD lookup.
+			expect(
+				await createCleanCommand()({
+					cwd: repoRoot,
+					force: true,
+					runtime,
+					stale: true,
+					stderr: () => undefined,
+					stdout: () => undefined,
+				}),
+			).toBe(0);
+
+			// Then the stale worktree is removed using the cached default branch.
+			await expect(pathExists(worktreePath)).resolves.toBe(false);
 		} finally {
 			if (originalConfigDir === undefined) {
 				delete process.env.GJI_CONFIG_DIR;
