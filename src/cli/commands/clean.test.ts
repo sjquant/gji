@@ -4,6 +4,7 @@ import { dirname, join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 import { HISTORY_FILE_PATH } from "../../infrastructure/persistence/history.js";
+import { registerRepo } from "../../infrastructure/repository/registry.js";
 import {
 	addLinkedWorktree,
 	addSubmoduleToRepository,
@@ -237,6 +238,75 @@ describe("gji clean", () => {
 		await expect(branchExists(repoRoot, currentBranch)).resolves.toBe(true);
 		await expect(pathExists(otherWorktreePath)).resolves.toBe(false);
 		await expect(branchExists(repoRoot, otherBranch)).resolves.toBe(false);
+	});
+
+	it("loads and cleans worktrees from registered repositories after Tab", async () => {
+		// Given a current repository and a registered repository with linked worktrees.
+		const originalConfigDir = process.env.GJI_CONFIG_DIR;
+		process.env.GJI_CONFIG_DIR = await mkdtemp(
+			join(tmpdir(), "gji-clean-scope-"),
+		);
+		const repoRoot = await createRepository();
+		const currentBranch = "feature/clean-scope-current";
+		const currentPath = await addLinkedWorktree(repoRoot, currentBranch);
+		const otherRoot = await createRepository();
+		const otherBranch = "feature/clean-scope-other";
+		const otherPath = await addLinkedWorktree(otherRoot, otherBranch);
+		await registerRepo(otherRoot);
+		const stdout: string[] = [];
+
+		try {
+			const runCleanCommand = createCleanCommand({
+				confirmRemoval: async (worktrees) => {
+					expect(worktrees.map((worktree) => worktree.path).sort()).toEqual(
+						[currentPath, otherPath].sort(),
+					);
+					return true;
+				},
+				promptForWorktrees: async (worktrees, scope) => {
+					expect(worktrees.map((worktree) => worktree.path)).toEqual([
+						currentPath,
+					]);
+					expect(scope?.label).toBe("current repository");
+					const allRepositories = await scope?.toggle();
+					expect(allRepositories?.label).toBe("all repositories");
+					expect(allRepositories?.entries.map((entry) => entry.path)).toContain(
+						currentPath,
+					);
+					expect(allRepositories?.entries.map((entry) => entry.path)).toContain(
+						otherPath,
+					);
+					expect(
+						allRepositories?.entries.map((entry) => entry.path),
+					).not.toContain(repoRoot);
+					expect(
+						allRepositories?.entries.map((entry) => entry.path),
+					).not.toContain(otherRoot);
+					return [currentPath, otherPath];
+				},
+			});
+
+			// When gji clean runs and the picker switches to all repositories.
+			const result = await runCleanCommand({
+				cwd: repoRoot,
+				stderr: () => undefined,
+				stdout: (chunk) => stdout.push(chunk),
+			});
+
+			// Then it removes the selected worktrees in both repositories.
+			expect(result).toBe(0);
+			await expect(pathExists(currentPath)).resolves.toBe(false);
+			await expect(pathExists(otherPath)).resolves.toBe(false);
+			await expect(branchExists(repoRoot, currentBranch)).resolves.toBe(false);
+			await expect(branchExists(otherRoot, otherBranch)).resolves.toBe(false);
+			expect(stdout.join("")).toBe(`${repoRoot}\n${otherRoot}\n`);
+		} finally {
+			if (originalConfigDir === undefined) {
+				delete process.env.GJI_CONFIG_DIR;
+			} else {
+				process.env.GJI_CONFIG_DIR = originalConfigDir;
+			}
+		}
 	});
 
 	it("shows recency, path, and dirty state in the clean picker", async () => {

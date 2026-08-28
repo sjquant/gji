@@ -384,6 +384,35 @@ describe("worktree picker search", () => {
 		expect(output.text()).toContain("all repositories");
 	});
 
+	it("toggles a multi-select picker to all repositories with Tab", async () => {
+		// Given a multi-select picker scoped to the current repository.
+		const { input, output } = createPromptIO();
+		const current = worktreeEntry("feature/current", "/repo/current");
+		const global = worktreeEntry("feature/other", "/other/feature");
+		const choices = promptForMultipleWorktrees("Choose worktrees", [current], {
+			input,
+			output,
+			scope: {
+				label: "current repository",
+				toggleLabel: "all repositories",
+				toggle: async () => ({
+					entries: [global],
+					label: "all repositories",
+					toggleLabel: "current repository",
+				}),
+			},
+		});
+
+		// When the user switches scope, selects the other-repository worktree, and submits.
+		input.write("\t");
+		await nextTick();
+		input.write(" \r");
+
+		// Then the selected worktree comes from the all-repositories scope.
+		expect(await choices).toEqual([global.path]);
+		expect(output.text()).toContain("all repositories");
+	});
+
 	it("keeps the picker open when Enter arrives during a scope reload", async () => {
 		// Given a scoped picker whose all-repositories reload is still pending.
 		const { input, output } = createPromptIO();

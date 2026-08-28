@@ -147,7 +147,7 @@ export async function promptForSingleWorktree(
 export async function promptForMultipleWorktrees(
 	message: string,
 	worktrees: WorktreePromptEntry[],
-	io: WorktreePickerIO = {},
+	io: WorktreePickerIO & { scope?: WorktreePromptScope } = {},
 ): Promise<string[] | null> {
 	const choice = await runSearchablePrompt({
 		entries: buildGroupedSearchableEntries(worktrees),
@@ -155,6 +155,7 @@ export async function promptForMultipleWorktrees(
 		message,
 		multiple: true,
 		output: io.output,
+		scope: io.scope,
 	});
 
 	return Array.isArray(choice) ? choice : null;
