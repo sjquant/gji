@@ -1,7 +1,10 @@
 import { confirm, isCancel } from "@clack/prompts";
 import { loadLinkedWorktrees } from "../../application/worktree/catalog.js";
 import type { WorktreeInfo } from "../../application/worktree/read-models.js";
-import { listRegisteredWorktreeSources } from "../../application/worktree/sources.js";
+import {
+	deduplicateWorktreeSources,
+	listRegisteredWorktreeSources,
+} from "../../application/worktree/sources.js";
 import { mapWithConcurrency } from "../../domain/shared/concurrency.js";
 import type { WorktreeSource } from "../../domain/worktree/source.js";
 import type { WorktreeEntry } from "../../domain/worktree/types.js";
@@ -145,14 +148,23 @@ export function createCleanCommand(
 		let currentScope = true;
 		const interactiveSelection =
 			!options.force && !options.json && !isHeadless();
-		const loadAllCandidates = async (): Promise<CleanCandidate[]> => {
+		const skippedRepositories: Array<{ name: string; path: string }> = [];
+		const loadAllCandidates = async (
+			signal?: AbortSignal,
+		): Promise<CleanCandidate[]> => {
+			throwIfAborted(signal);
 			if (allCandidates !== null) return allCandidates;
 
 			const registeredSources = await listRegisteredWorktreeSources(
 				options.cwd,
 				sourceDependencies,
+				(entry) => skippedRepositories.push(entry),
+				signal,
 			);
-			const sources = dedupeWorktreeSources([
+			if (skippedRepositories.length > 0) {
+				reportSkippedRepositories(skippedRepositories, options.stderr);
+			}
+			const sources = deduplicateWorktreeSources([
 				...currentSources,
 				...registeredSources,
 			]).filter(
@@ -170,24 +182,27 @@ export function createCleanCommand(
 				runGit,
 				readWorktreeHealth,
 				isBranchMergedInto,
+				signal,
 			);
+			throwIfAborted(signal);
 			return allCandidates;
 		};
 		const scope: WorktreePromptScope = {
 			label: "current repository",
 			toggleLabel: "all repositories",
-			toggle: async () => {
+			toggle: async (signal) => {
 				const nextCurrentScope = !currentScope;
 				const nextCandidates = nextCurrentScope
 					? currentCandidates
-					: await loadAllCandidates();
+					: await loadAllCandidates(signal);
+				throwIfAborted(signal);
 				currentScope = nextCurrentScope;
 				activeCandidates = nextCandidates;
 				return {
-					entries: await buildWorktreePromptEntries(
-						nextCandidates.map(toPromptSource),
-						{ catalog: runtime.worktreeCatalog },
-					),
+					entries: await buildWorktreePromptEntries(nextCandidates, {
+						metadata: nextCurrentScope ? "full" : "fast",
+						catalog: runtime.worktreeCatalog,
+					}),
 					label: nextCurrentScope ? "current repository" : "all repositories",
 					toggleLabel: nextCurrentScope
 						? "all repositories"
@@ -207,6 +222,10 @@ export function createCleanCommand(
 				emitError(options, "No linked worktrees to clean");
 				return 1;
 			}
+			currentScope = false;
+			activeCandidates = loadedAllCandidates;
+			scope.label = "all repositories";
+			scope.toggleLabel = "current repository";
 		}
 		if (currentCandidates.length === 0 && !interactiveSelection) {
 			if (options.stale) {
@@ -237,10 +256,10 @@ export function createCleanCommand(
 		const selections = shouldSelectAll
 			? activeCandidates.map(({ worktree }) => worktree.path)
 			: await promptForWorktrees(
-					await buildWorktreePromptEntries(
-						activeCandidates.map(toPromptSource),
-						{ catalog: runtime.worktreeCatalog },
-					),
+					await buildWorktreePromptEntries(activeCandidates, {
+						metadata: currentScope ? "full" : "fast",
+						catalog: runtime.worktreeCatalog,
+					}),
 					scope,
 				);
 
@@ -308,7 +327,7 @@ export function createCleanCommand(
 					runtime,
 				);
 				if (!journal) {
-					await finalizeUndoRecords(
+					await discardUndoRecords(
 						journals.values(),
 						runtime.configStore.GLOBAL_CONFIG_DIRECTORY,
 					);
@@ -321,7 +340,7 @@ export function createCleanCommand(
 				journals.set(repoRoot, journal);
 			}
 		} catch (error) {
-			await finalizeUndoRecords(
+			await discardUndoRecords(
 				journals.values(),
 				runtime.configStore.GLOBAL_CONFIG_DIRECTORY,
 			);
@@ -442,6 +461,10 @@ export function createCleanCommand(
 				runtime.configStore.GLOBAL_CONFIG_DIRECTORY,
 			);
 		}
+		const undoRecords = remainingUndoRecords(
+			journals.values(),
+			removedCandidates,
+		);
 		await Promise.all(
 			removedCandidates.map(({ worktree }) =>
 				releaseWorktreeSlot(worktree.path),
@@ -456,13 +479,21 @@ export function createCleanCommand(
 					? { branch: worktree.branch, path: worktree.path }
 					: serializeWorktreeInfo(info);
 			});
-			const payload =
-				failures.length === 0 ? { removed } : { removed, failed: failures };
+			const payload = {
+				removed,
+				...(failures.length === 0 ? {} : { failed: failures }),
+				...(needsExplicitUndoIds(undoRecords, repository.repoRoot)
+					? {
+							undo: undoRecords.map(({ id, repoRoot }) => ({ id, repoRoot })),
+						}
+					: {}),
+			};
 			options.stdout(`${JSON.stringify(payload, null, 2)}\n`);
 		} else if (failures.length > 0) {
 			reportCleanFailures(failures, options.stderr);
+			emitUndoHints(undoRecords, repository.repoRoot, options.stderr);
 		} else {
-			options.stderr("undo: gji undo\n");
+			emitUndoHints(undoRecords, repository.repoRoot, options.stderr);
 			options.stdout(
 				`${[...new Set(selectedCandidates.map(({ repoRoot }) => repoRoot))].join("\n")}\n`,
 			);
@@ -483,6 +514,7 @@ async function resolveCleanupCandidates(
 	runGit: CliDependencies["git"]["runGit"],
 	readWorktreeHealth: CliDependencies["git"]["readWorktreeHealth"],
 	isBranchMergedInto: CliDependencies["git"]["isBranchMergedInto"],
+	signal?: AbortSignal,
 ): Promise<CleanCandidate[]> {
 	const grouped = new Map<
 		string,
@@ -505,6 +537,7 @@ async function resolveCleanupCandidates(
 		[...grouped.entries()],
 		MAX_CLEAN_REPOSITORY_CONCURRENCY,
 		async ([repoRoot, group]) => {
+			throwIfAborted(signal);
 			const staleBaseRef = stale
 				? await resolveStaleBaseRef(
 						repoRoot,
@@ -521,6 +554,7 @@ async function resolveCleanupCandidates(
 						staleBaseRef,
 						readWorktreeHealth,
 						isBranchMergedInto,
+						signal,
 					)
 				: group.worktrees;
 
@@ -531,26 +565,10 @@ async function resolveCleanupCandidates(
 				worktree,
 			}));
 		},
+		signal,
 	);
 
 	return results.flat();
-}
-
-function toPromptSource(candidate: CleanCandidate): WorktreeSource {
-	return {
-		repoName: candidate.repoName,
-		repoRoot: candidate.repoRoot,
-		worktree: candidate.worktree,
-	};
-}
-
-function dedupeWorktreeSources(sources: WorktreeSource[]): WorktreeSource[] {
-	const seen = new Set<string>();
-	return sources.filter((source) => {
-		if (seen.has(source.worktree.path)) return false;
-		seen.add(source.worktree.path);
-		return true;
-	});
 }
 
 function resolveSelectedCandidates(
@@ -588,7 +606,20 @@ function groupCandidatesByRepository(
 	return grouped;
 }
 
-async function finalizeUndoRecords(
+function remainingUndoRecords(
+	records: Iterable<UndoRecord>,
+	removedCandidates: CleanCandidate[],
+): UndoRecord[] {
+	return [...records].filter((record) =>
+		removedCandidates.some(
+			(candidate) =>
+				candidate.repoRoot === record.repoRoot &&
+				record.entries.some((entry) => entry.path === candidate.worktree.path),
+		),
+	);
+}
+
+async function discardUndoRecords(
 	records: Iterable<UndoRecord>,
 	globalConfigDirectory: Parameters<typeof finalizeUndoOperation>[3],
 ): Promise<void> {
@@ -605,7 +636,9 @@ async function filterStaleCleanupCandidates(
 	baseBranch: string | null,
 	readWorktreeHealth: CliDependencies["git"]["readWorktreeHealth"],
 	isBranchMergedInto: CliDependencies["git"]["isBranchMergedInto"],
+	signal?: AbortSignal,
 ): Promise<WorktreeEntry[]> {
+	throwIfAborted(signal);
 	if (baseBranch === null) {
 		return [];
 	}
@@ -621,6 +654,7 @@ async function filterStaleCleanupCandidates(
 			),
 		),
 	);
+	throwIfAborted(signal);
 
 	return worktrees.filter((_, index) => results[index]);
 }
@@ -720,6 +754,54 @@ function reportCleanFailures(
 		const branch = failure.branch === null ? "detached" : failure.branch;
 		stderr(`- ${failure.path} (${branch}): ${failure.message}\n`);
 	}
+}
+
+function emitUndoHints(
+	records: UndoRecord[],
+	currentRepositoryRoot: string,
+	stderr: (chunk: string) => void,
+): void {
+	if (records.length === 0) return;
+	if (!needsExplicitUndoIds(records, currentRepositoryRoot)) {
+		stderr("undo: gji undo\n");
+		return;
+	}
+
+	const message =
+		records.length === 1
+			? "undo: restore with:"
+			: "undo: restore each repository with:";
+	stderr(`${message}\n`);
+	for (const record of records) {
+		stderr(`  gji undo --id ${record.id} (${record.repoRoot})\n`);
+	}
+}
+
+function needsExplicitUndoIds(
+	records: UndoRecord[],
+	currentRepositoryRoot: string,
+): boolean {
+	return (
+		records.length > 1 ||
+		records.some((record) => record.repoRoot !== currentRepositoryRoot)
+	);
+}
+
+function reportSkippedRepositories(
+	repositories: Array<{ name: string; path: string }>,
+	stderr: (chunk: string) => void,
+): void {
+	const noun = repositories.length === 1 ? "repository" : "repositories";
+	stderr(
+		`Skipped ${repositories.length} registered ${noun} because worktrees could not be listed:\n`,
+	);
+	for (const repository of repositories) {
+		stderr(`- ${repository.name} (${repository.path})\n`);
+	}
+}
+
+function throwIfAborted(signal: AbortSignal | undefined): void {
+	if (signal?.aborted) throw new Error("Operation cancelled");
 }
 
 function formatCleanInfo(

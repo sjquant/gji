@@ -413,6 +413,47 @@ describe("worktree picker search", () => {
 		expect(output.text()).toContain("all repositories");
 	});
 
+	it("clears selections hidden by switching back to the current scope", async () => {
+		// Given a multi-select picker whose scope can switch in both directions.
+		const { input, output } = createPromptIO();
+		const current = worktreeEntry("feature/current", "/repo/current");
+		const global = worktreeEntry("feature/other", "/other/feature");
+		let allRepositories = false;
+		const choice = promptForMultipleWorktrees("Choose worktrees", [current], {
+			input,
+			output,
+			scope: {
+				label: "current repository",
+				toggleLabel: "all repositories",
+				toggle: async () => {
+					allRepositories = !allRepositories;
+					return allRepositories
+						? {
+								entries: [global],
+								label: "all repositories",
+								toggleLabel: "current repository",
+							}
+						: {
+								entries: [current],
+								label: "current repository",
+								toggleLabel: "all repositories",
+							};
+				},
+			},
+		});
+
+		// When the user selects a global worktree, switches back, and selects the current one.
+		input.write("\t");
+		await nextTick();
+		input.write(" ");
+		input.write("\t");
+		await nextTick();
+		input.write(" \r");
+
+		// Then the hidden global selection is discarded before submission.
+		expect(await choice).toEqual([current.path]);
+	});
+
 	it("keeps the picker open when Enter arrives during a scope reload", async () => {
 		// Given a scoped picker whose all-repositories reload is still pending.
 		const { input, output } = createPromptIO();
@@ -456,6 +497,46 @@ describe("worktree picker search", () => {
 
 		// Then the newly loaded scope can be selected normally.
 		expect(await choice).toBe(global.path);
+	});
+
+	it("aborts a pending scope reload when the picker is cancelled", async () => {
+		// Given a scoped picker whose reload observes cancellation.
+		const { input, output } = createPromptIO();
+		const current = worktreeEntry("feature/current", "/repo/current");
+		const global = worktreeEntry("feature/other", "/other/feature");
+		let aborted = false;
+		const choice = promptForSingleWorktree("Choose a worktree", [current], {
+			input,
+			output,
+			scope: {
+				label: "current repository",
+				toggleLabel: "all repositories",
+				toggle: (signal) =>
+					new Promise<WorktreePromptScopeResult>((resolve) => {
+						signal?.addEventListener(
+							"abort",
+							() => {
+								aborted = true;
+								resolve({
+									entries: [global],
+									label: "all repositories",
+									toggleLabel: "current repository",
+								});
+							},
+							{ once: true },
+						);
+					}),
+			},
+		});
+
+		// When the user cancels while the scope reload is still pending.
+		input.write("\t");
+		await nextTick();
+		input.write("\u0003");
+
+		// Then the prompt cancels and the reload receives the abort signal.
+		expect(await choice).toBeNull();
+		expect(aborted).toBe(true);
 	});
 
 	it("filters multi-select choices after slash search", async () => {

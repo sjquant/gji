@@ -17,16 +17,20 @@ export async function listRegisteredWorktreeSources(
 	cwd: string,
 	repositoryPort: WorktreeSourceDependencies,
 	onSkipped?: (entry: RepoRegistryEntry) => void,
+	signal?: AbortSignal,
 ): Promise<WorktreeSource[]> {
+	throwIfAborted(signal);
 	const registry = await repositoryPort.loadRegistry();
 	const currentRoot = await repositoryPort
 		.detectRepository(cwd)
 		.then((repository) => repository.currentRoot)
 		.catch(() => null);
+	throwIfAborted(signal);
 	const results = await mapWithConcurrency(
 		registry,
 		MAX_REPOSITORY_DISCOVERY_CONCURRENCY,
 		async (entry) => {
+			throwIfAborted(signal);
 			try {
 				const worktrees = await repositoryPort.listWorktrees(entry.path);
 				return { entry, worktrees };
@@ -35,6 +39,7 @@ export async function listRegisteredWorktreeSources(
 				return null;
 			}
 		},
+		signal,
 	);
 
 	const allItems: WorktreeSource[] = [];
@@ -69,7 +74,8 @@ export async function listDiscoverableWorktreeSources(
 		repositoryPort,
 		onSkipped,
 	);
-	if (currentRepository === null) return dedupeSources(registeredSources);
+	if (currentRepository === null)
+		return deduplicateWorktreeSources(registeredSources);
 
 	let currentSources: WorktreeSource[] = [];
 	try {
@@ -83,14 +89,20 @@ export async function listDiscoverableWorktreeSources(
 	} catch {
 		// Registered repositories remain discoverable when the current checkout is transiently unavailable.
 	}
-	return dedupeSources([...currentSources, ...registeredSources]);
+	return deduplicateWorktreeSources([...currentSources, ...registeredSources]);
 }
 
-function dedupeSources(sources: WorktreeSource[]): WorktreeSource[] {
+export function deduplicateWorktreeSources(
+	sources: WorktreeSource[],
+): WorktreeSource[] {
 	const seen = new Set<string>();
 	return sources.filter((source) => {
 		if (seen.has(source.worktree.path)) return false;
 		seen.add(source.worktree.path);
 		return true;
 	});
+}
+
+function throwIfAborted(signal: AbortSignal | undefined): void {
+	if (signal?.aborted) throw new Error("Operation cancelled");
 }

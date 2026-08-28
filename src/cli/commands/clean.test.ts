@@ -14,6 +14,7 @@ import {
 	pathExists,
 	runGit,
 } from "../../test-support/repository.js";
+import { defaultCliDependencies } from "../dependencies.js";
 import { createCleanCommand } from "./clean.js";
 
 describe("gji clean", () => {
@@ -254,6 +255,7 @@ describe("gji clean", () => {
 		const otherPath = await addLinkedWorktree(otherRoot, otherBranch);
 		await registerRepo(otherRoot);
 		const stdout: string[] = [];
+		const stderr: string[] = [];
 
 		try {
 			const runCleanCommand = createCleanCommand({
@@ -289,7 +291,7 @@ describe("gji clean", () => {
 			// When gji clean runs and the picker switches to all repositories.
 			const result = await runCleanCommand({
 				cwd: repoRoot,
-				stderr: () => undefined,
+				stderr: (chunk) => stderr.push(chunk),
 				stdout: (chunk) => stdout.push(chunk),
 			});
 
@@ -300,6 +302,171 @@ describe("gji clean", () => {
 			await expect(branchExists(repoRoot, currentBranch)).resolves.toBe(false);
 			await expect(branchExists(otherRoot, otherBranch)).resolves.toBe(false);
 			expect(stdout.join("")).toBe(`${repoRoot}\n${otherRoot}\n`);
+			expect(stderr.join("")).toMatch(
+				/undo: restore each repository with:\n(?: {2}gji undo --id u-[^\n]+\n){2}/,
+			);
+		} finally {
+			if (originalConfigDir === undefined) {
+				delete process.env.GJI_CONFIG_DIR;
+			} else {
+				process.env.GJI_CONFIG_DIR = originalConfigDir;
+			}
+		}
+	});
+
+	it("starts with all repositories when the current repository has no candidates", async () => {
+		// Given an empty current repository and a registered repository with a linked worktree.
+		const originalConfigDir = process.env.GJI_CONFIG_DIR;
+		process.env.GJI_CONFIG_DIR = await mkdtemp(
+			join(tmpdir(), "gji-clean-empty-current-"),
+		);
+		const currentRoot = await createRepository();
+		const otherRoot = await createRepository();
+		const otherPath = await addLinkedWorktree(
+			otherRoot,
+			"feature/clean-only-global",
+		);
+		await registerRepo(otherRoot);
+		const stderr: string[] = [];
+
+		try {
+			const runCleanCommand = createCleanCommand({
+				confirmRemoval: async () => true,
+				promptForWorktrees: async (worktrees, scope) => {
+					expect(worktrees.map((worktree) => worktree.path)).toEqual([
+						otherPath,
+					]);
+					expect(scope?.label).toBe("all repositories");
+					return [otherPath];
+				},
+			});
+
+			// When gji clean runs from the repository with no local candidates.
+			expect(
+				await runCleanCommand({
+					cwd: currentRoot,
+					stderr: (chunk) => stderr.push(chunk),
+					stdout: () => undefined,
+				}),
+			).toBe(0);
+
+			// Then it offers and removes the registered repository worktree immediately.
+			await expect(pathExists(otherPath)).resolves.toBe(false);
+			expect(stderr.join("")).toMatch(
+				/undo: restore with:\n {2}gji undo --id u-[^\n]+ \(/,
+			);
+		} finally {
+			if (originalConfigDir === undefined) {
+				delete process.env.GJI_CONFIG_DIR;
+			} else {
+				process.env.GJI_CONFIG_DIR = originalConfigDir;
+			}
+		}
+	});
+
+	it("protects the current and primary worktrees in the all-repositories scope", async () => {
+		// Given a linked current worktree and both repositories registered for discovery.
+		const originalConfigDir = process.env.GJI_CONFIG_DIR;
+		process.env.GJI_CONFIG_DIR = await mkdtemp(
+			join(tmpdir(), "gji-clean-protected-scope-"),
+		);
+		const repoRoot = await createRepository();
+		const currentPath = await addLinkedWorktree(
+			repoRoot,
+			"feature/clean-protected-current",
+		);
+		const sameRepoPath = await addLinkedWorktree(
+			repoRoot,
+			"feature/clean-protected-same-repo",
+		);
+		const otherRoot = await createRepository();
+		const otherPath = await addLinkedWorktree(
+			otherRoot,
+			"feature/clean-protected-other-repo",
+		);
+		await registerRepo(repoRoot);
+		await registerRepo(otherRoot);
+
+		try {
+			const runCleanCommand = createCleanCommand({
+				confirmRemoval: async (worktrees) => {
+					expect(worktrees.map((worktree) => worktree.path).sort()).toEqual(
+						[sameRepoPath, otherPath].sort(),
+					);
+					return true;
+				},
+				promptForWorktrees: async (worktrees, scope) => {
+					expect(worktrees.map((worktree) => worktree.path)).toEqual([
+						sameRepoPath,
+					]);
+					const allRepositories = await scope?.toggle();
+					const allPaths = allRepositories?.entries.map((entry) => entry.path);
+					expect(allPaths).toContain(sameRepoPath);
+					expect(allPaths).toContain(otherPath);
+					expect(allPaths).not.toContain(repoRoot);
+					expect(allPaths).not.toContain(currentPath);
+					return [sameRepoPath, otherPath];
+				},
+			});
+
+			// When gji clean runs from inside the linked current worktree.
+			expect(
+				await runCleanCommand({
+					cwd: currentPath,
+					stderr: () => undefined,
+					stdout: () => undefined,
+				}),
+			).toBe(0);
+
+			// Then only non-primary, non-current worktrees are removed.
+			await expect(pathExists(repoRoot)).resolves.toBe(true);
+			await expect(pathExists(currentPath)).resolves.toBe(true);
+			await expect(pathExists(sameRepoPath)).resolves.toBe(false);
+			await expect(pathExists(otherPath)).resolves.toBe(false);
+		} finally {
+			if (originalConfigDir === undefined) {
+				delete process.env.GJI_CONFIG_DIR;
+			} else {
+				process.env.GJI_CONFIG_DIR = originalConfigDir;
+			}
+		}
+	});
+
+	it("reports registered repositories that cannot be inspected", async () => {
+		// Given a registered path that is not a Git repository.
+		const originalConfigDir = process.env.GJI_CONFIG_DIR;
+		process.env.GJI_CONFIG_DIR = await mkdtemp(
+			join(tmpdir(), "gji-clean-skipped-repository-"),
+		);
+		const repoRoot = await createRepository();
+		const worktreePath = await addLinkedWorktree(
+			repoRoot,
+			"feature/clean-skipped-repository",
+		);
+		const skippedRoot = await mkdtemp(join(tmpdir(), "gji-not-a-repository-"));
+		await registerRepo(skippedRoot);
+		const stderr: string[] = [];
+
+		try {
+			const runCleanCommand = createCleanCommand({
+				confirmRemoval: async () => true,
+				promptForWorktrees: async (_worktrees, scope) => {
+					await scope?.toggle();
+					return [worktreePath];
+				},
+			});
+			expect(
+				await runCleanCommand({
+					cwd: repoRoot,
+					stderr: (chunk) => stderr.push(chunk),
+					stdout: () => undefined,
+				}),
+			).toBe(0);
+
+			// Then it removes the valid worktree and warns about the skipped registry entry.
+			await expect(pathExists(worktreePath)).resolves.toBe(false);
+			expect(stderr.join("")).toContain("Skipped 1 registered repository");
+			expect(stderr.join("")).toContain(skippedRoot);
 		} finally {
 			if (originalConfigDir === undefined) {
 				delete process.env.GJI_CONFIG_DIR;
@@ -445,6 +612,118 @@ describe("gji clean", () => {
 				upstream: { kind: "stale" },
 			}),
 		]);
+	});
+
+	it("includes registered stale worktrees when the current scope is empty", async () => {
+		// Given an empty current repository and a stale worktree in a registered repository.
+		const originalConfigDir = process.env.GJI_CONFIG_DIR;
+		process.env.GJI_CONFIG_DIR = await mkdtemp(
+			join(tmpdir(), "gji-clean-stale-global-"),
+		);
+		const currentRoot = await createRepository();
+		const { repoRoot: otherRoot } = await createRepositoryWithOrigin();
+		const branch = "feature/clean-stale-global";
+		const worktreePath = await addRemoteTrackedWorktree(otherRoot, branch);
+		await deleteRemoteBranch(otherRoot, branch);
+		await registerRepo(otherRoot);
+		const stdout: string[] = [];
+
+		try {
+			// When a stale dry-run starts with no current-repository candidates.
+			expect(
+				await createCleanCommand()({
+					cwd: currentRoot,
+					dryRun: true,
+					stale: true,
+					stderr: () => undefined,
+					stdout: (chunk) => stdout.push(chunk),
+				}),
+			).toBe(0);
+
+			// Then it reports the registered stale worktree without removing it.
+			await expect(pathExists(worktreePath)).resolves.toBe(true);
+			expect(stdout.join("")).toContain(worktreePath);
+			expect(stdout.join("")).toContain("Would remove worktree");
+		} finally {
+			if (originalConfigDir === undefined) {
+				delete process.env.GJI_CONFIG_DIR;
+			} else {
+				process.env.GJI_CONFIG_DIR = originalConfigDir;
+			}
+		}
+	});
+
+	it("resolves stale bases independently for each selected repository", async () => {
+		// Given stale worktrees in the current and a registered repository.
+		const originalConfigDir = process.env.GJI_CONFIG_DIR;
+		process.env.GJI_CONFIG_DIR = await mkdtemp(
+			join(tmpdir(), "gji-clean-stale-repositories-"),
+		);
+		const current = await createRepositoryWithOrigin();
+		const other = await createRepositoryWithOrigin();
+		const currentBranch = "feature/clean-stale-current-repo";
+		const otherBranch = "feature/clean-stale-other-repo";
+		const currentPath = await addRemoteTrackedWorktree(
+			current.repoRoot,
+			currentBranch,
+		);
+		const otherPath = await addRemoteTrackedWorktree(
+			other.repoRoot,
+			otherBranch,
+		);
+		await deleteRemoteBranch(current.repoRoot, currentBranch);
+		await deleteRemoteBranch(other.repoRoot, otherBranch);
+		await registerRepo(other.repoRoot);
+		const resolvedRoots = new Set<string>();
+		const runtime = {
+			...defaultCliDependencies,
+			git: {
+				...defaultCliDependencies.git,
+				resolveRemoteDefaultBranch: async (
+					repoRoot: string,
+					remote: string,
+				) => {
+					resolvedRoots.add(repoRoot);
+					return defaultCliDependencies.git.resolveRemoteDefaultBranch(
+						repoRoot,
+						remote,
+					);
+				},
+			},
+		};
+
+		try {
+			// When stale cleanup switches to all repositories.
+			const runCleanCommand = createCleanCommand({
+				confirmRemoval: async () => true,
+				promptForWorktrees: async (_worktrees, scope) => {
+					await scope?.toggle();
+					return [currentPath, otherPath];
+				},
+			});
+			expect(
+				await runCleanCommand({
+					cwd: current.repoRoot,
+					runtime,
+					stale: true,
+					stderr: () => undefined,
+					stdout: () => undefined,
+				}),
+			).toBe(0);
+
+			// Then each repository's own remote default branch was used for stale checks.
+			expect(resolvedRoots).toEqual(
+				new Set([current.repoRoot, other.repoRoot]),
+			);
+			await expect(pathExists(currentPath)).resolves.toBe(false);
+			await expect(pathExists(otherPath)).resolves.toBe(false);
+		} finally {
+			if (originalConfigDir === undefined) {
+				delete process.env.GJI_CONFIG_DIR;
+			} else {
+				process.env.GJI_CONFIG_DIR = originalConfigDir;
+			}
+		}
 	});
 
 	it("skips a stale candidate that becomes dirty before removal", async () => {
