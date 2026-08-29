@@ -122,14 +122,12 @@ export async function resolveGoBranch(options: {
 		}
 	}
 
-	let skippedRegisteredRepos = 0;
-	const registeredSources = await listRegisteredWorktreeSources(
+	const registered = await listRegisteredWorktreeSources({
 		cwd,
-		sourceDependencies,
-		() => {
-			skippedRegisteredRepos++;
-		},
-	);
+		repositoryPort: sourceDependencies,
+	});
+	const registeredSources = registered.sources;
+	const skippedRegisteredRepos = registered.skipped.length;
 	const crossRepoSources = registeredSources.filter(
 		(source) => source.repoRoot !== repository?.repoRoot,
 	);

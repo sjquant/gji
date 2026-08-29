@@ -59,14 +59,20 @@ export interface WorktreePickerIO {
 
 export interface WorktreePromptScope {
 	label: string;
-	toggle: () => Promise<WorktreePromptScopeResult>;
+	toggle: (signal?: AbortSignal) => Promise<WorktreePromptScopeResult>;
 	toggleLabel: string;
 }
 
 export interface WorktreePromptScopeResult {
-	entries: WorktreePromptEntry[];
 	label: string;
+	metadata?: WorktreeMetadataMode;
+	sources: WorktreeSource[];
 	toggleLabel: string;
+}
+
+export interface WorktreePickerOptions extends WorktreePickerIO {
+	catalog?: WorktreeCatalogDependencies;
+	scope?: WorktreePromptScope;
 }
 
 interface SortableWorktreePromptEntry extends WorktreePromptEntry {
@@ -130,7 +136,7 @@ function missingCatalogDependencies(): WorktreeCatalogDependencies {
 export async function promptForSingleWorktree(
 	message: string,
 	worktrees: WorktreePromptEntry[],
-	io: WorktreePickerIO & { scope?: WorktreePromptScope } = {},
+	io: WorktreePickerOptions = {},
 ): Promise<string | null> {
 	const choice = await runSearchablePrompt({
 		entries: worktrees.map(buildSearchableWorktreeEntry),
@@ -138,6 +144,7 @@ export async function promptForSingleWorktree(
 		message,
 		multiple: false,
 		output: io.output,
+		catalog: io.catalog,
 		scope: io.scope,
 	});
 
@@ -147,7 +154,7 @@ export async function promptForSingleWorktree(
 export async function promptForMultipleWorktrees(
 	message: string,
 	worktrees: WorktreePromptEntry[],
-	io: WorktreePickerIO = {},
+	io: WorktreePickerOptions = {},
 ): Promise<string[] | null> {
 	const choice = await runSearchablePrompt({
 		entries: buildGroupedSearchableEntries(worktrees),
@@ -155,6 +162,8 @@ export async function promptForMultipleWorktrees(
 		message,
 		multiple: true,
 		output: io.output,
+		catalog: io.catalog,
+		scope: io.scope,
 	});
 
 	return Array.isArray(choice) ? choice : null;
@@ -252,11 +261,10 @@ type WorktreePromptAction =
 	| "escape"
 	| "cancel";
 
-interface SearchablePromptOptions extends WorktreePickerIO {
+interface SearchablePromptOptions extends WorktreePickerOptions {
 	entries: SearchablePromptEntry[];
 	message: string;
 	multiple: boolean;
-	scope?: WorktreePromptScope;
 }
 
 interface PromptGlyphs {
@@ -317,6 +325,7 @@ class SearchablePrompt {
 	private scope: WorktreePromptScope | undefined;
 	private scopeTogglePending = false;
 	private promptClosed = false;
+	private readonly cancellation = new AbortController();
 	private readonly prompt: WorktreeCorePrompt;
 
 	constructor(
@@ -409,10 +418,15 @@ class SearchablePrompt {
 		renderPrompt(prompt);
 
 		try {
-			const nextScope = await currentScope.toggle();
+			const nextScope = await currentScope.toggle(this.cancellation.signal);
 			if (this.promptClosed) return;
 
-			this.entries = nextScope.entries.map(buildSearchableWorktreeEntry);
+			const nextEntries = await buildWorktreePromptEntries(nextScope.sources, {
+				catalog: this.options.catalog,
+				metadata: nextScope.metadata,
+			});
+			this.entries = nextEntries.map(buildSearchableWorktreeEntry);
+			this.pruneHiddenSelections();
 			this.scope = {
 				label: nextScope.label,
 				toggle: currentScope.toggle,
@@ -448,6 +462,7 @@ class SearchablePrompt {
 
 	private cancel(prompt: WorktreeCorePrompt): void {
 		this.promptClosed = true;
+		this.cancellation.abort();
 		prompt.state = "cancel";
 		renderPrompt(prompt);
 		closePrompt(prompt);
@@ -559,6 +574,15 @@ class SearchablePrompt {
 		}
 
 		this.selected.add(entry.value);
+	}
+
+	private pruneHiddenSelections(): void {
+		const visibleValues = new Set(
+			this.entries.filter(isSelectableEntry).map((entry) => entry.value),
+		);
+		for (const value of this.selected) {
+			if (!visibleValues.has(value)) this.selected.delete(value);
+		}
 	}
 
 	private render(state: string, error: string): string {

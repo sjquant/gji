@@ -76,10 +76,10 @@ export async function buildHubData(
 		dependencies.queryRepositoryPullRequests ??
 		runtime.pullRequests.listOpenPullRequestsForRepository;
 	const currentRepository = await detectRepository(cwd).catch(() => null);
-	const sources = await listDiscoverableWorktreeSources(
+	const { sources } = await listDiscoverableWorktreeSources({
 		cwd,
-		sourceDependencies,
-	);
+		repositoryPort: sourceDependencies,
+	});
 	const groups = new Map<string, { name: string; sources: WorktreeSource[] }>();
 
 	for (const source of sources) {

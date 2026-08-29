@@ -1265,9 +1265,9 @@ describe("gji go", () => {
 					expect(scope?.label).toBe("current repository");
 					const allRepositories = await scope?.toggle();
 					expect(allRepositories?.label).toBe("all repositories");
-					expect(allRepositories?.entries.map((entry) => entry.path)).toContain(
-						otherPath,
-					);
+					expect(
+						allRepositories?.sources.map((entry) => entry.worktree.path),
+					).toContain(otherPath);
 					return otherPath;
 				},
 			});

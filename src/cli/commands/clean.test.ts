@@ -4,15 +4,18 @@ import { dirname, join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 import { HISTORY_FILE_PATH } from "../../infrastructure/persistence/history.js";
+import { registerRepo } from "../../infrastructure/repository/registry.js";
 import {
 	addLinkedWorktree,
 	addSubmoduleToRepository,
+	cloneRepository,
 	commitFile,
 	createRepository,
 	createRepositoryWithOrigin,
 	pathExists,
 	runGit,
 } from "../../test-support/repository.js";
+import { defaultCliDependencies } from "../dependencies.js";
 import { createCleanCommand } from "./clean.js";
 
 describe("gji clean", () => {
@@ -42,6 +45,42 @@ describe("gji clean", () => {
 		});
 
 		// Then it removes the worktree and its branch.
+		expect(result).toBe(0);
+		await expect(pathExists(worktreePath)).resolves.toBe(false);
+		await expect(branchExists(repoRoot, branch)).resolves.toBe(false);
+	});
+
+	it("cleans a stale worktree whose branch was squash-merged", async () => {
+		// Given a stale worktree whose changes were squash-merged into the remote default branch.
+		const { originRoot, repoRoot } = await createRepositoryWithOrigin();
+		const baseBranch = await runGit(repoRoot, ["branch", "--show-current"]);
+		const branch = "feature/clean-stale-squash";
+		const worktreePath = await addRemoteTrackedWorktree(repoRoot, branch);
+		await commitFile(
+			worktreePath,
+			"squashed.txt",
+			"squashed change\n",
+			"Add change for squash merge",
+		);
+		await runGit(worktreePath, ["push", "origin", "HEAD"]);
+
+		const mergeClone = await cloneRepository(originRoot);
+		await runGit(mergeClone, ["fetch", "origin", branch]);
+		await runGit(mergeClone, ["merge", "--squash", `origin/${branch}`]);
+		await runGit(mergeClone, ["commit", "-m", "Squash merge feature"]);
+		await runGit(mergeClone, ["push", "origin", baseBranch]);
+		await deleteRemoteBranch(repoRoot, branch);
+
+		// When gji clean --stale --force runs.
+		const result = await createCleanCommand()({
+			cwd: repoRoot,
+			force: true,
+			stale: true,
+			stderr: () => undefined,
+			stdout: () => undefined,
+		});
+
+		// Then the squash-merged worktree and its branch are removed.
 		expect(result).toBe(0);
 		await expect(pathExists(worktreePath)).resolves.toBe(false);
 		await expect(branchExists(repoRoot, branch)).resolves.toBe(false);
@@ -239,6 +278,243 @@ describe("gji clean", () => {
 		await expect(branchExists(repoRoot, otherBranch)).resolves.toBe(false);
 	});
 
+	it("loads and cleans worktrees from registered repositories after Tab", async () => {
+		// Given a current repository and a registered repository with linked worktrees.
+		const originalConfigDir = process.env.GJI_CONFIG_DIR;
+		process.env.GJI_CONFIG_DIR = await mkdtemp(
+			join(tmpdir(), "gji-clean-scope-"),
+		);
+		const repoRoot = await createRepository();
+		const currentBranch = "feature/clean-scope-current";
+		const currentPath = await addLinkedWorktree(repoRoot, currentBranch);
+		const otherRoot = await createRepository();
+		const otherBranch = "feature/clean-scope-other";
+		const otherPath = await addLinkedWorktree(otherRoot, otherBranch);
+		await registerRepo(otherRoot);
+		const stdout: string[] = [];
+		const stderr: string[] = [];
+
+		try {
+			const runCleanCommand = createCleanCommand({
+				confirmRemoval: async (worktrees) => {
+					expect(worktrees.map((worktree) => worktree.path).sort()).toEqual(
+						[currentPath, otherPath].sort(),
+					);
+					return true;
+				},
+				promptForWorktrees: async (worktrees, scope) => {
+					expect(worktrees.map((worktree) => worktree.path)).toEqual([
+						currentPath,
+					]);
+					expect(scope?.label).toBe("current repository");
+					const allRepositories = await scope?.toggle();
+					expect(allRepositories?.label).toBe("all repositories");
+					expect(
+						allRepositories?.sources.map((entry) => entry.worktree.path),
+					).toContain(currentPath);
+					expect(
+						allRepositories?.sources.map((entry) => entry.worktree.path),
+					).toContain(otherPath);
+					expect(
+						allRepositories?.sources.map((entry) => entry.worktree.path),
+					).not.toContain(repoRoot);
+					expect(
+						allRepositories?.sources.map((entry) => entry.worktree.path),
+					).not.toContain(otherRoot);
+					return [currentPath, otherPath];
+				},
+			});
+
+			// When gji clean runs and the picker switches to all repositories.
+			const result = await runCleanCommand({
+				cwd: repoRoot,
+				stderr: (chunk) => stderr.push(chunk),
+				stdout: (chunk) => stdout.push(chunk),
+			});
+
+			// Then it removes the selected worktrees in both repositories.
+			expect(result).toBe(0);
+			await expect(pathExists(currentPath)).resolves.toBe(false);
+			await expect(pathExists(otherPath)).resolves.toBe(false);
+			await expect(branchExists(repoRoot, currentBranch)).resolves.toBe(false);
+			await expect(branchExists(otherRoot, otherBranch)).resolves.toBe(false);
+			expect(stdout.join("")).toBe(`${repoRoot}\n${otherRoot}\n`);
+			expect(stderr.join("")).toMatch(
+				/undo: restore each repository with:\n(?: {2}gji undo --id u-[^\n]+\n){2}/,
+			);
+		} finally {
+			if (originalConfigDir === undefined) {
+				delete process.env.GJI_CONFIG_DIR;
+			} else {
+				process.env.GJI_CONFIG_DIR = originalConfigDir;
+			}
+		}
+	});
+
+	it("starts with all repositories when the current repository has no candidates", async () => {
+		// Given an empty current repository and a registered repository with a linked worktree.
+		const originalConfigDir = process.env.GJI_CONFIG_DIR;
+		process.env.GJI_CONFIG_DIR = await mkdtemp(
+			join(tmpdir(), "gji-clean-empty-current-"),
+		);
+		const currentRoot = await createRepository();
+		const otherRoot = await createRepository();
+		const otherPath = await addLinkedWorktree(
+			otherRoot,
+			"feature/clean-only-global",
+		);
+		await registerRepo(otherRoot);
+		const stderr: string[] = [];
+
+		try {
+			const runCleanCommand = createCleanCommand({
+				confirmRemoval: async () => true,
+				promptForWorktrees: async (worktrees, scope) => {
+					expect(worktrees.map((worktree) => worktree.path)).toEqual([
+						otherPath,
+					]);
+					expect(scope?.label).toBe("all repositories");
+					return [otherPath];
+				},
+			});
+
+			// When gji clean runs from the repository with no local candidates.
+			expect(
+				await runCleanCommand({
+					cwd: currentRoot,
+					stderr: (chunk) => stderr.push(chunk),
+					stdout: () => undefined,
+				}),
+			).toBe(0);
+
+			// Then it offers and removes the registered repository worktree immediately.
+			await expect(pathExists(otherPath)).resolves.toBe(false);
+			expect(stderr.join("")).toMatch(
+				/undo: restore with:\n {2}gji undo --id u-[^\n]+ \(/,
+			);
+		} finally {
+			if (originalConfigDir === undefined) {
+				delete process.env.GJI_CONFIG_DIR;
+			} else {
+				process.env.GJI_CONFIG_DIR = originalConfigDir;
+			}
+		}
+	});
+
+	it("protects the current and primary worktrees in the all-repositories scope", async () => {
+		// Given a linked current worktree and both repositories registered for discovery.
+		const originalConfigDir = process.env.GJI_CONFIG_DIR;
+		process.env.GJI_CONFIG_DIR = await mkdtemp(
+			join(tmpdir(), "gji-clean-protected-scope-"),
+		);
+		const repoRoot = await createRepository();
+		const currentPath = await addLinkedWorktree(
+			repoRoot,
+			"feature/clean-protected-current",
+		);
+		const sameRepoPath = await addLinkedWorktree(
+			repoRoot,
+			"feature/clean-protected-same-repo",
+		);
+		const otherRoot = await createRepository();
+		const otherPath = await addLinkedWorktree(
+			otherRoot,
+			"feature/clean-protected-other-repo",
+		);
+		await registerRepo(repoRoot);
+		await registerRepo(otherRoot);
+
+		try {
+			const runCleanCommand = createCleanCommand({
+				confirmRemoval: async (worktrees) => {
+					expect(worktrees.map((worktree) => worktree.path).sort()).toEqual(
+						[sameRepoPath, otherPath].sort(),
+					);
+					return true;
+				},
+				promptForWorktrees: async (worktrees, scope) => {
+					expect(worktrees.map((worktree) => worktree.path)).toEqual([
+						sameRepoPath,
+					]);
+					const allRepositories = await scope?.toggle();
+					const allPaths = allRepositories?.sources.map(
+						(entry) => entry.worktree.path,
+					);
+					expect(allPaths).toContain(sameRepoPath);
+					expect(allPaths).toContain(otherPath);
+					expect(allPaths).not.toContain(repoRoot);
+					expect(allPaths).not.toContain(currentPath);
+					return [sameRepoPath, otherPath];
+				},
+			});
+
+			// When gji clean runs from inside the linked current worktree.
+			expect(
+				await runCleanCommand({
+					cwd: currentPath,
+					stderr: () => undefined,
+					stdout: () => undefined,
+				}),
+			).toBe(0);
+
+			// Then only non-primary, non-current worktrees are removed.
+			await expect(pathExists(repoRoot)).resolves.toBe(true);
+			await expect(pathExists(currentPath)).resolves.toBe(true);
+			await expect(pathExists(sameRepoPath)).resolves.toBe(false);
+			await expect(pathExists(otherPath)).resolves.toBe(false);
+		} finally {
+			if (originalConfigDir === undefined) {
+				delete process.env.GJI_CONFIG_DIR;
+			} else {
+				process.env.GJI_CONFIG_DIR = originalConfigDir;
+			}
+		}
+	});
+
+	it("reports registered repositories that cannot be inspected", async () => {
+		// Given a registered path that is not a Git repository.
+		const originalConfigDir = process.env.GJI_CONFIG_DIR;
+		process.env.GJI_CONFIG_DIR = await mkdtemp(
+			join(tmpdir(), "gji-clean-skipped-repository-"),
+		);
+		const repoRoot = await createRepository();
+		const worktreePath = await addLinkedWorktree(
+			repoRoot,
+			"feature/clean-skipped-repository",
+		);
+		const skippedRoot = await mkdtemp(join(tmpdir(), "gji-not-a-repository-"));
+		await registerRepo(skippedRoot);
+		const stderr: string[] = [];
+
+		try {
+			const runCleanCommand = createCleanCommand({
+				confirmRemoval: async () => true,
+				promptForWorktrees: async (_worktrees, scope) => {
+					await scope?.toggle();
+					return [worktreePath];
+				},
+			});
+			expect(
+				await runCleanCommand({
+					cwd: repoRoot,
+					stderr: (chunk) => stderr.push(chunk),
+					stdout: () => undefined,
+				}),
+			).toBe(0);
+
+			// Then it removes the valid worktree and warns about the skipped registry entry.
+			await expect(pathExists(worktreePath)).resolves.toBe(false);
+			expect(stderr.join("")).toContain("Skipped 1 registered repository");
+			expect(stderr.join("")).toContain(skippedRoot);
+		} finally {
+			if (originalConfigDir === undefined) {
+				delete process.env.GJI_CONFIG_DIR;
+			} else {
+				process.env.GJI_CONFIG_DIR = originalConfigDir;
+			}
+		}
+	});
+
 	it("shows recency, path, and dirty state in the clean picker", async () => {
 		// Given a dirty linked worktree with last-used history metadata.
 		const originalConfigDir = process.env.GJI_CONFIG_DIR;
@@ -375,6 +651,204 @@ describe("gji clean", () => {
 				upstream: { kind: "stale" },
 			}),
 		]);
+	});
+
+	it("includes registered stale worktrees when the current scope is empty", async () => {
+		// Given an empty current repository and a stale worktree in a registered repository.
+		const originalConfigDir = process.env.GJI_CONFIG_DIR;
+		process.env.GJI_CONFIG_DIR = await mkdtemp(
+			join(tmpdir(), "gji-clean-stale-global-"),
+		);
+		const currentRoot = await createRepository();
+		const { repoRoot: otherRoot } = await createRepositoryWithOrigin();
+		const branch = "feature/clean-stale-global";
+		const worktreePath = await addRemoteTrackedWorktree(otherRoot, branch);
+		await deleteRemoteBranch(otherRoot, branch);
+		await registerRepo(otherRoot);
+		const stdout: string[] = [];
+
+		try {
+			// When a stale dry-run starts with no current-repository candidates.
+			expect(
+				await createCleanCommand()({
+					cwd: currentRoot,
+					dryRun: true,
+					stale: true,
+					stderr: () => undefined,
+					stdout: (chunk) => stdout.push(chunk),
+				}),
+			).toBe(0);
+
+			// Then it reports the registered stale worktree without removing it.
+			await expect(pathExists(worktreePath)).resolves.toBe(true);
+			expect(stdout.join("")).toContain(worktreePath);
+			expect(stdout.join("")).toContain("Would remove worktree");
+		} finally {
+			if (originalConfigDir === undefined) {
+				delete process.env.GJI_CONFIG_DIR;
+			} else {
+				process.env.GJI_CONFIG_DIR = originalConfigDir;
+			}
+		}
+	});
+
+	it("resolves stale bases independently for each selected repository", async () => {
+		// Given stale worktrees in the current and a registered repository.
+		const originalConfigDir = process.env.GJI_CONFIG_DIR;
+		process.env.GJI_CONFIG_DIR = await mkdtemp(
+			join(tmpdir(), "gji-clean-stale-repositories-"),
+		);
+		const current = await createRepositoryWithOrigin();
+		const other = await createRepositoryWithOrigin();
+		const currentBranch = "feature/clean-stale-current-repo";
+		const otherBranch = "feature/clean-stale-other-repo";
+		const currentPath = await addRemoteTrackedWorktree(
+			current.repoRoot,
+			currentBranch,
+		);
+		const otherPath = await addRemoteTrackedWorktree(
+			other.repoRoot,
+			otherBranch,
+		);
+		await deleteRemoteBranch(current.repoRoot, currentBranch);
+		await deleteRemoteBranch(other.repoRoot, otherBranch);
+		await registerRepo(other.repoRoot);
+		const resolveCounts = new Map<string, number>();
+		const runtime = {
+			...defaultCliDependencies,
+			git: {
+				...defaultCliDependencies.git,
+				resolveRemoteBase: async (
+					repoRoot: string,
+					remote: string,
+					configuredBranch?: string,
+				) => {
+					resolveCounts.set(repoRoot, (resolveCounts.get(repoRoot) ?? 0) + 1);
+					return defaultCliDependencies.git.resolveRemoteBase(
+						repoRoot,
+						remote,
+						configuredBranch,
+					);
+				},
+			},
+		};
+
+		try {
+			// When stale cleanup switches to all repositories.
+			const runCleanCommand = createCleanCommand({
+				confirmRemoval: async () => true,
+				promptForWorktrees: async (_worktrees, scope) => {
+					await scope?.toggle();
+					return [currentPath, otherPath];
+				},
+			});
+			expect(
+				await runCleanCommand({
+					cwd: current.repoRoot,
+					runtime,
+					stale: true,
+					stderr: () => undefined,
+					stdout: () => undefined,
+				}),
+			).toBe(0);
+
+			// Then each repository's own remote default branch was used once for stale checks.
+			expect(resolveCounts).toEqual(
+				new Map([
+					[current.repoRoot, 1],
+					[other.repoRoot, 1],
+				]),
+			);
+			await expect(pathExists(currentPath)).resolves.toBe(false);
+			await expect(pathExists(otherPath)).resolves.toBe(false);
+		} finally {
+			if (originalConfigDir === undefined) {
+				delete process.env.GJI_CONFIG_DIR;
+			} else {
+				process.env.GJI_CONFIG_DIR = originalConfigDir;
+			}
+		}
+	});
+
+	it("treats a missing fetched base as no stale candidates", async () => {
+		// Given a stale worktree and a remote base that disappears before verification.
+		const { repoRoot } = await createRepositoryWithOrigin();
+		const branch = "feature/clean-stale-missing-base";
+		const worktreePath = await addRemoteTrackedWorktree(repoRoot, branch);
+		await deleteRemoteBranch(repoRoot, branch);
+		const runtime = {
+			...defaultCliDependencies,
+			git: {
+				...defaultCliDependencies.git,
+				resolveRemoteBase: async () => ({
+					branch: "missing-base",
+					ref: "origin/missing-base",
+				}),
+			},
+		};
+		const stdout: string[] = [];
+
+		// When stale cleanup resolves a base ref that is no longer present after fetch.
+		const result = await createCleanCommand()({
+			cwd: repoRoot,
+			force: true,
+			runtime,
+			stale: true,
+			stderr: () => undefined,
+			stdout: (chunk) => stdout.push(chunk),
+		});
+
+		// Then it reports a safe no-op instead of throwing or removing the worktree.
+		expect(result).toBe(0);
+		expect(stdout.join("")).toContain("No stale linked worktrees to clean");
+		await expect(pathExists(worktreePath)).resolves.toBe(true);
+	});
+
+	it("cleans stale worktrees when remote default discovery needs the cached base", async () => {
+		// Given a stale worktree whose remote HEAD lookup is unavailable but whose base is known.
+		const originalConfigDir = process.env.GJI_CONFIG_DIR;
+		process.env.GJI_CONFIG_DIR = await mkdtemp(
+			join(tmpdir(), "gji-clean-stale-cached-base-"),
+		);
+		const { repoRoot } = await createRepositoryWithOrigin();
+		const baseBranch = await runGit(repoRoot, ["branch", "--show-current"]);
+		const branch = "feature/clean-stale-cached-base";
+		const worktreePath = await addRemoteTrackedWorktree(repoRoot, branch);
+		await deleteRemoteBranch(repoRoot, branch);
+		const runtime = {
+			...defaultCliDependencies,
+			git: {
+				...defaultCliDependencies.git,
+				resolveRemoteDefaultBranch: async () => null,
+				resolveRemoteBase: async (_repoRoot: string, remote: string) => ({
+					branch: baseBranch,
+					ref: `${remote}/${baseBranch}`,
+				}),
+			},
+		};
+
+		try {
+			// When stale cleanup runs despite the failed remote HEAD lookup.
+			expect(
+				await createCleanCommand()({
+					cwd: repoRoot,
+					force: true,
+					runtime,
+					stale: true,
+					stderr: () => undefined,
+					stdout: () => undefined,
+				}),
+			).toBe(0);
+
+			// Then the stale worktree is removed using the cached default branch.
+			await expect(pathExists(worktreePath)).resolves.toBe(false);
+		} finally {
+			if (originalConfigDir === undefined) {
+				delete process.env.GJI_CONFIG_DIR;
+			} else {
+				process.env.GJI_CONFIG_DIR = originalConfigDir;
+			}
+		}
 	});
 
 	it("skips a stale candidate that becomes dirty before removal", async () => {

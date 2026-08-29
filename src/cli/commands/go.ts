@@ -1,6 +1,7 @@
 import { basename } from "node:path";
 
 import { confirm, isCancel } from "@clack/prompts";
+import type { WorktreeCatalogDependencies } from "../../application/worktree/catalog.js";
 import { loadContextCardModel } from "../../application/worktree/context-card.js";
 import {
 	type GoBranchResolution,
@@ -68,6 +69,7 @@ export interface GoCommandDependencies {
 	promptForWorktree: (
 		worktrees: WorktreePromptEntry[],
 		scope?: WorktreePromptScope,
+		catalog?: WorktreeCatalogDependencies,
 	) => Promise<string | null>;
 	queryPullRequests: QueryWorktreePullRequests;
 	runtime: GoRuntime;
@@ -133,17 +135,16 @@ export function createGoCommand(
 			let promptSources = currentSources;
 			const loadAllSources = async (): Promise<WorktreeSource[]> => {
 				if (registeredSources === null) {
-					registeredSources = await listRegisteredWorktreeSources(
-						options.cwd,
-						{
+					const registered = await listRegisteredWorktreeSources({
+						cwd: options.cwd,
+						repositoryPort: {
 							...runtime.repositoryContext,
 							...runtime.repositoryRegistry,
 							...runtime.worktrees,
 						},
-						() => {
-							skippedRegisteredRepos++;
-						},
-					);
+					});
+					registeredSources = registered.sources;
+					skippedRegisteredRepos = registered.skipped.length;
 				}
 
 				return deduplicateSources([...currentSources, ...registeredSources]);
@@ -171,13 +172,8 @@ export function createGoCommand(
 						currentRepositoryScope = nextCurrentRepositoryScope;
 						promptSources = nextSources;
 						return {
-							entries: await buildWorktreePromptEntries(promptSources, {
-								metadata: currentRepositoryScope ? "full" : "fast",
-								catalog: withPullRequestQueries(
-									runtime,
-									dependencies.queryPullRequests,
-								),
-							}),
+							sources: promptSources,
+							metadata: currentRepositoryScope ? "full" : "fast",
 							label: currentRepositoryScope
 								? "current repository"
 								: "all repositories",
@@ -195,7 +191,11 @@ export function createGoCommand(
 					dependencies.queryPullRequests,
 				),
 			});
-			const selectedPath = await prompt(promptEntries, scope);
+			const selectedPath = await prompt(
+				promptEntries,
+				scope,
+				withPullRequestQueries(runtime, dependencies.queryPullRequests),
+			);
 			if (!selectedPath) {
 				options.stderr("Aborted\n");
 				return 1;
@@ -558,6 +558,10 @@ async function defaultConfirmBranchCreation(branch: string): Promise<boolean> {
 async function promptForWorktree(
 	worktrees: WorktreePromptEntry[],
 	scope?: WorktreePromptScope,
+	catalog?: WorktreeCatalogDependencies,
 ): Promise<string | null> {
-	return promptForSingleWorktree("Choose a worktree", worktrees, { scope });
+	return promptForSingleWorktree("Choose a worktree", worktrees, {
+		catalog,
+		scope,
+	});
 }

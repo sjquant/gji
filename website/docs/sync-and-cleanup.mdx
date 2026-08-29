@@ -41,13 +41,17 @@ gji clean
 
 Use `clean` when you want to prune multiple stale worktrees in one pass instead of removing them individually.
 
+The interactive picker starts with the current repository. Press `Tab` to include linked worktrees from all registered repositories; each repository's primary worktree and the current worktree remain protected.
+
+If a registered repository cannot be inspected, `clean` reports it instead of silently treating it as empty. When cleanup spans multiple repositories, the output includes one `gji undo --id ...` command per repository so the whole operation can be restored.
+
 For stale-only cleanup:
 
 ```bash
 gji clean --stale
 ```
 
-`--stale` targets clean branch worktrees whose upstream is gone and whose branch is already merged into the configured or remote default branch.
+`--stale` targets clean branch worktrees whose upstream is gone and whose changes are already merged into the configured or remote default branch, including squash- or rebase-merged changes.
 
 ## Force options
 
