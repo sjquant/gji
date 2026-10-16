@@ -20,7 +20,6 @@ import { loadRegistry } from "../infrastructure/repository/registry.js";
 import {
 	addLinkedWorktree,
 	createRepository,
-	pathExists,
 } from "../test-support/repository.js";
 import { createCliDependencies } from "./dependencies.js";
 import { createProgram, runCli } from "./program.js";
@@ -100,10 +99,6 @@ describe("runCli", () => {
 		expect(output).toContain("root");
 		expect(output).toContain("ls");
 		expect(output).toContain("clean");
-		expect(output).toContain("remove");
-		expect(output).toContain("rm");
-		expect(output).toContain("deprecated: use gji done");
-		expect(output).toContain("clean for bulk cleanup");
 		expect(output).toContain("Common workflows:");
 		expect(output).toContain("gji new <branch>");
 		expect(output).toContain("gji go <branch>");
@@ -132,104 +127,17 @@ describe("runCli", () => {
 	});
 
 	it("keeps worktree creation flags off navigation commands", () => {
-		// Given the Commander definitions for the navigation commands.
+		// Given the Commander definition for the navigation command.
 		const program = createProgram();
 		const goHelp = program.commands
 			.find((command) => command.name() === "go")
 			?.helpInformation();
-		const warpHelp = program.commands
-			.find((command) => command.name() === "warp")
-			?.helpInformation();
 
-		// When their help information is rendered.
+		// When its help information is rendered.
 
 		// Then creation remains available through gji new instead of navigation flags.
 		expect(goHelp).not.toContain("--new");
-		expect(warpHelp).not.toContain("--new");
 		expect(goHelp).toContain("--root");
-		expect(warpHelp).toContain("deprecated");
-	});
-
-	it("warns before running the deprecated warp command", async () => {
-		// Given an isolated registry with no repositories.
-		const configDir = await mkdtemp(join(tmpdir(), "gji-config-"));
-		process.env.GJI_CONFIG_DIR = configDir;
-		const stderr: string[] = [];
-
-		// When gji warp is invoked in human-readable mode.
-		const result = await runCli(["warp", "missing"], {
-			cwd: "/",
-			stderr: (chunk) => stderr.push(chunk),
-		});
-
-		// Then the deprecation notice precedes the normal command error.
-		expect(result.exitCode).toBe(1);
-		expect(stderr.join("")).toContain("gji warp is deprecated; use 'gji go'");
-		expect(stderr.join("")).toContain("gji warp:");
-	});
-
-	it("keeps deprecated warp JSON stderr machine-readable", async () => {
-		// Given an isolated registry with no repositories.
-		const configDir = await mkdtemp(join(tmpdir(), "gji-config-"));
-		process.env.GJI_CONFIG_DIR = configDir;
-		const stderr: string[] = [];
-
-		// When gji warp is invoked in JSON mode.
-		const result = await runCli(["warp", "--json", "missing"], {
-			cwd: "/",
-			stderr: (chunk) => stderr.push(chunk),
-		});
-
-		// Then stderr remains a single JSON error object without a warning prefix.
-		expect(result.exitCode).toBe(1);
-		expect(JSON.parse(stderr.join(""))).toHaveProperty("error");
-	});
-
-	it("warns before running deprecated remove cleanup", async () => {
-		// Given a linked worktree selected through the deprecated command.
-		const repoRoot = await createRepository();
-		const branch = "feature/deprecated-remove";
-		const worktreePath = await addLinkedWorktree(repoRoot, branch);
-		const stderr: string[] = [];
-
-		// When gji remove runs in human-readable mode.
-		const result = await runCli(["remove", "--force", branch], {
-			cwd: repoRoot,
-			stderr: (chunk) => stderr.push(chunk),
-			stdout: () => undefined,
-		});
-
-		// Then cleanup still works while directing users to done or clean.
-		expect(result.exitCode).toBe(0);
-		expect(stderr.join("")).toContain(
-			"gji remove is deprecated; use 'gji done' for one worktree or 'gji clean' for bulk cleanup",
-		);
-		await expect(pathExists(worktreePath)).resolves.toBe(false);
-	});
-
-	it("keeps deprecated rm JSON output machine-readable", async () => {
-		// Given a linked worktree selected through the deprecated alias.
-		const repoRoot = await createRepository();
-		const branch = "feature/deprecated-rm";
-		const worktreePath = await addLinkedWorktree(repoRoot, branch);
-		const stderr: string[] = [];
-		const stdout: string[] = [];
-
-		// When rm runs in JSON mode.
-		const result = await runCli(["rm", "--json", "--force", branch], {
-			cwd: repoRoot,
-			stderr: (chunk) => stderr.push(chunk),
-			stdout: (chunk) => stdout.push(chunk),
-		});
-
-		// Then the alias remains script-compatible without a deprecation prefix.
-		expect(result.exitCode).toBe(0);
-		expect(stderr).toEqual([]);
-		expect(JSON.parse(stdout.join(""))).toMatchObject({
-			branch,
-			path: worktreePath,
-			deleted: true,
-		});
 	});
 
 	it("does not register repositories for metadata commands", async () => {

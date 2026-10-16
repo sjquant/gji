@@ -6,7 +6,6 @@ import {
 import { createCleanCommand } from "./commands/clean.js";
 import { createGoCommand } from "./commands/go.js";
 import { createNewCommand } from "./commands/new.js";
-import { createRemoveCommand } from "./commands/remove.js";
 import { isHeadless } from "./runtime/headless.js";
 
 afterEach(() => {
@@ -111,58 +110,6 @@ describe("headless mode (GJI_NO_TUI=1)", () => {
 			});
 
 			// Then it exits 1 with a clear error and never invokes the prompt.
-			expect(result).toBe(1);
-			expect(stderr.join("")).toMatch(/non-interactive|GJI_NO_TUI/i);
-		});
-	});
-
-	describe("gji remove", () => {
-		it("errors immediately when no branch argument is given", async () => {
-			// Given GJI_NO_TUI=1 is set and no branch argument is provided.
-			process.env.GJI_NO_TUI = "1";
-			const repoRoot = await createRepository();
-			await addLinkedWorktree(repoRoot, "feature/remove-headless-no-branch");
-			const stderr: string[] = [];
-			const runRemoveCommand = createRemoveCommand({
-				promptForWorktree: async () => {
-					throw new Error("prompt must not be called in headless mode");
-				},
-			});
-
-			// When gji remove runs without a branch in headless mode.
-			const result = await runRemoveCommand({
-				cwd: repoRoot,
-				stderr: (chunk) => stderr.push(chunk),
-				stdout: () => undefined,
-			});
-
-			// Then it exits 1 with a clear error and never invokes the prompt.
-			expect(result).toBe(1);
-			expect(stderr.join("")).toMatch(/non-interactive|GJI_NO_TUI/i);
-		});
-
-		it("errors immediately when --force is absent (confirmation required)", async () => {
-			// Given GJI_NO_TUI=1 is set, a branch is provided, but --force is absent.
-			process.env.GJI_NO_TUI = "1";
-			const repoRoot = await createRepository();
-			const branch = "feature/remove-headless-no-force";
-			await addLinkedWorktree(repoRoot, branch);
-			const stderr: string[] = [];
-			const runRemoveCommand = createRemoveCommand({
-				confirmRemoval: async () => {
-					throw new Error("confirmation must not be called in headless mode");
-				},
-			});
-
-			// When gji remove runs with a branch but without --force.
-			const result = await runRemoveCommand({
-				branch,
-				cwd: repoRoot,
-				stderr: (chunk) => stderr.push(chunk),
-				stdout: () => undefined,
-			});
-
-			// Then it exits 1 with a clear error without invoking the confirmation prompt.
 			expect(result).toBe(1);
 			expect(stderr.join("")).toMatch(/non-interactive|GJI_NO_TUI/i);
 		});

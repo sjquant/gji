@@ -467,7 +467,7 @@ describe("gji pr with after-create hook", () => {
 	});
 });
 
-describe("gji remove with before-remove hook", () => {
+describe("gji done with before-remove hook", () => {
 	it("runs the configured before-remove hook before removing the worktree", async () => {
 		// Given an existing worktree and a project config with a before-remove hook.
 		const repoRoot = await createRepository();
@@ -481,8 +481,8 @@ describe("gji remove with before-remove hook", () => {
 			"utf8",
 		);
 
-		// When gji remove is run for that worktree.
-		const result = await runCli(["remove", "--force", branchName], {
+		// When gji done is run for that worktree.
+		const result = await runCli(["done", "--force", branchName], {
 			cwd: repoRoot,
 		});
 
