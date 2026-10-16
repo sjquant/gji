@@ -82,24 +82,10 @@ const SHELL_WRAPPED_COMMANDS: ShellWrappedCommand[] = [
 	},
 	{
 		bypassOptions: ["--help", "-h", "--json"],
-		commandName: "remove",
-		envVar: "GJI_REMOVE_OUTPUT_FILE",
-		names: ["remove", "rm"],
-		tempPrefix: "gji-remove",
-	},
-	{
-		bypassOptions: ["--help", "-h", "--json"],
 		commandName: "done",
 		envVar: "GJI_DONE_OUTPUT_FILE",
 		names: ["done"],
 		tempPrefix: "gji-done",
-	},
-	{
-		bypassOptions: ["--print", "--json", "--help", "-h"],
-		commandName: "warp",
-		envVar: "GJI_WARP_OUTPUT_FILE",
-		names: ["warp"],
-		tempPrefix: "gji-warp",
 	},
 ];
 

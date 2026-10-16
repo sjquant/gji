@@ -64,7 +64,7 @@ describe("worktree slots and context metadata", () => {
 
 		const firstPath = Object.keys(slots).find((path) => slots[path] === 1);
 		if (!firstPath) throw new Error("first slot was not assigned");
-		const removed = await runCli(["remove", "--force", firstPath], {
+		const removed = await runCli(["done", "--force", firstPath], {
 			cwd: repoRoot,
 		});
 		expect(removed.exitCode).toBe(0);

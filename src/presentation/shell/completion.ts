@@ -40,18 +40,8 @@ const TOP_LEVEL_COMMANDS = [
 	{ name: "ls", description: "list active worktrees" },
 	{ name: "clean", description: "interactively prune linked worktrees" },
 	{
-		name: "remove",
-		description:
-			"deprecated: use done for one worktree or clean for bulk cleanup",
-	},
-	{ name: "rm", description: "deprecated alias of remove" },
-	{
 		name: "run-hook",
 		description: "run a named hook in the current worktree",
-	},
-	{
-		name: "warp",
-		description: "deprecated: use go (press Tab for all known repos)",
 	},
 	{ name: "config", description: "manage global config defaults" },
 ] as const;
@@ -236,14 +226,8 @@ _gji_completion() {
         COMPREPLY=( $(compgen -W "-f --force --stale --path --dry-run --json --help" -- "$cur") )
       fi
       ;;
-    remove|rm)
-      COMPREPLY=( $(compgen -W "$(__gji_worktree_branches) -f --force --dry-run --json --help" -- "$cur") )
-      ;;
     run-hook)
       COMPREPLY=( $(compgen -W "${hooks} --help" -- "$cur") )
-      ;;
-    warp)
-      COMPREPLY=( $(compgen -W "--print --json --help" -- "$cur") )
       ;;
     config)
       if [ "$COMP_CWORD" -eq 2 ]; then
@@ -488,17 +472,9 @@ complete -c gji -n '__fish_seen_subcommand_from clean' -l path -r -F -d 'only ta
 complete -c gji -n '__fish_seen_subcommand_from clean' -l dry-run -d 'show what would be deleted without removing anything'
 complete -c gji -n '__fish_seen_subcommand_from clean' -l json -d 'emit JSON on success or error instead of human-readable output'
 
-complete -c gji -n '__fish_seen_subcommand_from remove rm' -s f -l force -d 'bypass prompts, force-remove a dirty worktree, and force-delete an unmerged branch'
-complete -c gji -n '__fish_seen_subcommand_from remove rm' -l dry-run -d 'show what would be deleted without removing anything'
-complete -c gji -n '__fish_seen_subcommand_from remove rm' -l json -d 'emit JSON on success or error instead of human-readable output'
-complete -c gji -n '__fish_seen_subcommand_from remove rm' -a '(__gji_worktree_branches)' -d 'worktree branch'
-
 ${hookLines}
 
 complete -c gji -n '__fish_use_subcommand' -l json -d 'emit the repository hub as JSON'
-
-complete -c gji -n '__fish_seen_subcommand_from warp' -l print -d 'print the resolved worktree path without changing directory'
-complete -c gji -n '__fish_seen_subcommand_from warp' -l json -d 'emit JSON on success or error instead of human-readable output'
 
 complete -c gji -n '__fish_seen_subcommand_from config; and __gji_should_complete_config_action' -a 'get set unset' -d 'config action'
 ${configKeyLines}`;
@@ -650,14 +626,8 @@ case "\${words[2]}" in
   clean)
     _arguments '(-f --force)'{-f,--force}'[bypass prompts, force-remove dirty worktrees, and force-delete unmerged branches]' '--stale[only target clean worktrees whose upstream is gone and branch is merged into the default branch]' '*--path[only target worktrees under a directory or matching a path glob]:pattern:_files' '--dry-run[show what would be deleted without removing anything]' '--json[emit JSON on success or error instead of human-readable output]'
     ;;
-  remove|rm)
-    _arguments '(-f --force)'{-f,--force}'[bypass prompts, force-remove a dirty worktree, and force-delete an unmerged branch]' '--dry-run[show what would be deleted without removing anything]' '--json[emit JSON on success or error instead of human-readable output]' '2:branch:->worktrees'
-    ;;
   run-hook)
     _arguments "2:hook:(${hooks})"
-    ;;
-  warp)
-    _arguments '--print[print the resolved worktree path without changing directory]' '--json[emit JSON on success or error instead of human-readable output]' '2:branch: '
     ;;
   config)
     if (( CURRENT == 3 )); then

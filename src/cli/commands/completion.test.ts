@@ -47,9 +47,6 @@ describe("gji completion", () => {
 		expect(stdout.join("")).toContain(
 			"'sync-files:manage local files copied into new worktrees'",
 		);
-		expect(stdout.join("")).toContain(
-			"'warp:deprecated: use go (press Tab for all known repos)'",
-		);
 		expect(stdout.join("")).toContain("'2:shell:(bash fish zsh)'");
 		expect(stdout.join("")).toContain(
 			"'--json[emit diagnostic checks as JSON]'",
@@ -331,9 +328,6 @@ print -r -- "\${_comps[gji]-unset}"`,
 			"complete -c gji -n '__fish_seen_subcommand_from sync-files' -a 'list add remove rm'",
 		);
 		expect(stdout.join("")).toContain(
-			"complete -c gji -n '__fish_use_subcommand' -a 'warp'",
-		);
-		expect(stdout.join("")).toContain(
 			"complete -c gji -n '__fish_seen_subcommand_from new' -l force",
 		);
 		expect(stdout.join("")).toContain(
@@ -350,9 +344,6 @@ print -r -- "\${_comps[gji]-unset}"`,
 		);
 		expect(stdout.join("")).toContain(
 			"complete -c gji -n '__fish_seen_subcommand_from go jump' -a '(__gji_worktree_branches)'",
-		);
-		expect(stdout.join("")).not.toContain(
-			"__fish_seen_subcommand_from warp' -s n -l new",
 		);
 		expect(stdout.join("")).toContain("test (count $tokens) -eq 2");
 		expect(stdout.join("")).toContain("if test (count $tokens) -ne 3");
@@ -422,7 +413,6 @@ print -r -- "\${_comps[gji]-unset}"`,
 		expect(stdout.join("")).toContain(
 			"--editor --select --save --workspace --help",
 		);
-		expect(stdout.join("")).toContain("warp)");
 		expect(stdout.join("")).toContain("doctor)");
 		expect(stdout.join("")).toContain("shellIntegration");
 		expect(stdout.join("")).toContain("worktreePath");

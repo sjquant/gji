@@ -19,7 +19,6 @@ import {
 	createPrOpenCommand,
 	type PrOpenCommandDependencies,
 } from "./commands/pr-open.js";
-import { runRemoveCommand } from "./commands/remove.js";
 import { runRootCommand } from "./commands/root.js";
 import { runHookCommand } from "./commands/run-hook.js";
 import { runStatusCommand } from "./commands/status.js";
@@ -27,7 +26,6 @@ import { runSyncCommand } from "./commands/sync.js";
 import { runSyncFilesCommand } from "./commands/sync-files-command.js";
 import { runTaskCommand } from "./commands/task-command.js";
 import { runUndoCommand } from "./commands/undo.js";
-import { runWarpCommand } from "./commands/warp.js";
 import { type CliDependencies, createCliDependencies } from "./dependencies.js";
 import { isHeadless } from "./runtime/headless.js";
 
@@ -463,44 +461,12 @@ function registerCommands(program: Command): void {
 		.action(notImplemented("clean"));
 
 	program
-		.command("remove [branch]")
-		.alias("rm")
-		.description(
-			"deprecated: use gji done for one worktree or gji clean for bulk cleanup",
-		)
-		.option(
-			"-f, --force",
-			"bypass prompts, force-remove a dirty worktree, and force-delete an unmerged branch",
-		)
-		.option("--dry-run", "show what would be deleted without removing anything")
-		.option(
-			"--json",
-			"emit JSON on success or error instead of human-readable output",
-		)
-		.action(notImplemented("remove"));
-
-	program
 		.command("run-hook <hook>")
 		.alias("trigger-hook")
 		.description(
 			"run a named hook (after-create, after-enter, before-remove) in the current worktree",
 		)
 		.action(notImplemented("run-hook"));
-
-	program
-		.command("warp [branch]")
-		.description("deprecated: use gji go (press Tab for all known repos)")
-		// --print is the shell-wrapper bypass signal (see SHELL_WRAPPED_COMMANDS in init.ts).
-		// The shell omits GJI_WARP_OUTPUT_FILE, so writeShellOutput falls through to stdout.
-		.option(
-			"--print",
-			"print the resolved worktree path without changing directory",
-		)
-		.option(
-			"--json",
-			"emit JSON on success or error instead of human-readable output",
-		)
-		.action(notImplemented("warp"));
 
 	const configCommand = program
 		.command("config")
@@ -990,40 +956,6 @@ function attachCommandActions(
 		},
 	);
 
-	const runRemovalCommand = async (
-		branch?: string,
-		commandOptions: { dryRun?: boolean; force?: boolean; json?: boolean } = {},
-	) => {
-		const exitCode = await runRemoveCommand({
-			branch,
-			cwd: options.cwd,
-			dryRun: commandOptions.dryRun,
-			force: commandOptions.force,
-			json: commandOptions.json,
-			runtime: options.dependencies,
-			stderr: options.stderr,
-			stdout: options.stdout,
-		});
-
-		if (exitCode !== 0) {
-			throw commanderExit(exitCode);
-		}
-	};
-
-	requireCommand(program, "remove").action(
-		async (
-			branch: string | undefined,
-			commandOptions: { dryRun?: boolean; force?: boolean; json?: boolean },
-		) => {
-			if (!commandOptions.json) {
-				options.stderr(
-					"gji remove is deprecated; use 'gji done' for one worktree or 'gji clean' for bulk cleanup.\n",
-				);
-			}
-			return runRemovalCommand(branch, commandOptions);
-		},
-	);
-
 	requireCommand(program, "run-hook").action(async (hook: string) => {
 		const exitCode = await runHookCommand({
 			cwd: options.cwd,
@@ -1036,32 +968,6 @@ function attachCommandActions(
 			throw commanderExit(exitCode);
 		}
 	});
-
-	requireCommand(program, "warp").action(
-		async (
-			branch: string | undefined,
-			commandOptions: { json?: boolean; print?: boolean },
-		) => {
-			if (!commandOptions.json) {
-				options.stderr(
-					"gji warp is deprecated; use 'gji go' (press Tab for all repositories).\n",
-				);
-			}
-
-			const exitCode = await runWarpCommand({
-				branch,
-				cwd: options.cwd,
-				json: commandOptions.json,
-				runtime: options.dependencies,
-				stderr: options.stderr,
-				stdout: options.stdout,
-			});
-
-			if (exitCode !== 0) {
-				throw commanderExit(exitCode);
-			}
-		},
-	);
 
 	const configCommand = requireCommand(program, "config");
 
