@@ -1,4 +1,4 @@
-import { chmod, mkdtemp, symlink, writeFile } from "node:fs/promises";
+import { mkdtemp, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 
@@ -897,27 +897,21 @@ describe("gji clean", () => {
 			repoRoot,
 			removedBranch,
 		);
-		const failedParent = dirname(failedWorktreePath);
 		const stderr: string[] = [];
 		await deleteRemoteBranch(repoRoot, failedBranch);
 		await deleteRemoteBranch(repoRoot, removedBranch);
 
-		await chmod(failedParent, 0o500);
-
-		try {
-			// When gji clean --stale --force runs and Git cannot delete one selected worktree.
-			expect(
-				await createCleanCommand()({
-					cwd: repoRoot,
-					force: true,
-					stale: true,
-					stderr: (chunk) => stderr.push(chunk),
-					stdout: () => undefined,
-				}),
-			).toBe(1);
-		} finally {
-			await chmod(failedParent, 0o700);
-		}
+		// When gji clean --stale --force runs and Git cannot delete one selected worktree.
+		expect(
+			await createCleanCommand()({
+				runtime: blockWorktreeDeletion(failedWorktreePath),
+				cwd: repoRoot,
+				force: true,
+				stale: true,
+				stderr: (chunk) => stderr.push(chunk),
+				stdout: () => undefined,
+			}),
+		).toBe(1);
 
 		// Then it reports the failure, preserves that branch, and continues with other stale worktrees.
 		await expect(pathExists(failedWorktreePath)).resolves.toBe(true);
@@ -1286,7 +1280,7 @@ describe("gji clean", () => {
 	});
 
 	it("continues cleaning after a filesystem deletion failure without deleting that branch", async () => {
-		// Given a selected worktree whose parent directory cannot be modified and another clean worktree.
+		// Given a selected worktree that Git cannot delete and another clean worktree.
 		const repoRoot = await createRepository();
 		const failedBranch = "blocked/clean-delete-fails";
 		const removedBranch = "other/clean-delete-succeeds";
@@ -1295,24 +1289,18 @@ describe("gji clean", () => {
 			repoRoot,
 			removedBranch,
 		);
-		const failedParent = dirname(failedWorktreePath);
 		const stderr: string[] = [];
 
-		await chmod(failedParent, 0o500);
-
-		try {
-			// When gji clean runs with force and Git cannot delete one worktree directory.
-			expect(
-				await createCleanCommand()({
-					cwd: repoRoot,
-					force: true,
-					stderr: (chunk) => stderr.push(chunk),
-					stdout: () => undefined,
-				}),
-			).toBe(1);
-		} finally {
-			await chmod(failedParent, 0o700);
-		}
+		// When gji clean runs with force and Git cannot delete one worktree directory.
+		expect(
+			await createCleanCommand()({
+				runtime: blockWorktreeDeletion(failedWorktreePath),
+				cwd: repoRoot,
+				force: true,
+				stderr: (chunk) => stderr.push(chunk),
+				stdout: () => undefined,
+			}),
+		).toBe(1);
 
 		// Then it keeps the failed worktree branch, removes the other branch, and reports the failure.
 		await expect(pathExists(failedWorktreePath)).resolves.toBe(true);
@@ -1418,26 +1406,20 @@ describe("gji clean", () => {
 				repoRoot,
 				removedBranch,
 			);
-			const failedParent = dirname(failedWorktreePath);
 			const stdout: string[] = [];
 			const stderr: string[] = [];
 
-			await chmod(failedParent, 0o500);
-
-			try {
-				// When gji clean --json --force runs and one selected worktree fails to delete.
-				expect(
-					await createCleanCommand()({
-						cwd: repoRoot,
-						force: true,
-						json: true,
-						stderr: (chunk) => stderr.push(chunk),
-						stdout: (chunk) => stdout.push(chunk),
-					}),
-				).toBe(1);
-			} finally {
-				await chmod(failedParent, 0o700);
-			}
+			// When gji clean --json --force runs and one selected worktree fails to delete.
+			expect(
+				await createCleanCommand()({
+					runtime: blockWorktreeDeletion(failedWorktreePath),
+					cwd: repoRoot,
+					force: true,
+					json: true,
+					stderr: (chunk) => stderr.push(chunk),
+					stdout: (chunk) => stdout.push(chunk),
+				}),
+			).toBe(1);
 
 			// Then stdout contains the public partial-failure contract and stderr stays empty.
 			expect(stderr).toEqual([]);
@@ -1639,4 +1621,33 @@ async function deleteRemoteBranch(
 ): Promise<void> {
 	await runGit(repoRoot, ["push", "origin", `:${branch}`]);
 	await runGit(repoRoot, ["fetch", "--prune", "origin"]);
+}
+
+function blockWorktreeDeletion(
+	blockedPath: string,
+): typeof defaultCliDependencies {
+	// Simulate Git failing to delete one worktree directory without relying on
+	// file permissions, which do not stop a root user.
+	const lifecycle = defaultCliDependencies.worktreeLifecycle;
+	const failIfBlocked = async (worktreePath: string) => {
+		if (worktreePath === blockedPath) {
+			throw Object.assign(new Error("git worktree remove failed"), {
+				stderr: `error: failed to delete '${blockedPath}': Permission denied\n`,
+			});
+		}
+	};
+	return {
+		...defaultCliDependencies,
+		worktreeLifecycle: {
+			...lifecycle,
+			forceRemoveWorktree: async (repoRoot, worktreePath) => {
+				await failIfBlocked(worktreePath);
+				await lifecycle.forceRemoveWorktree(repoRoot, worktreePath);
+			},
+			removeWorktree: async (repoRoot, worktreePath) => {
+				await failIfBlocked(worktreePath);
+				await lifecycle.removeWorktree(repoRoot, worktreePath);
+			},
+		},
+	};
 }
