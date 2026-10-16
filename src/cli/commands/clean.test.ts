@@ -1114,7 +1114,8 @@ describe("gji clean", () => {
 		const offered: string[] = [];
 		const runCleanCommand = createCleanCommand({
 			confirmRemoval: async () => true,
-			promptForWorktrees: async (worktrees) => {
+			promptForWorktrees: async (worktrees, scope) => {
+				expect(scope?.label).toBe("all repositories");
 				offered.push(...worktrees.map((worktree) => worktree.path));
 				return worktrees.map((worktree) => worktree.path);
 			},

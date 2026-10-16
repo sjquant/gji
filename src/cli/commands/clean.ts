@@ -12,7 +12,12 @@ import {
 	listRegisteredWorktreeSources,
 } from "../../application/worktree/sources.js";
 import { mapWithConcurrency } from "../../domain/shared/concurrency.js";
-import { createWorktreePathFilter } from "../../domain/worktree/path-filter.js";
+import {
+	createWorktreePathFilter,
+	escapePathPattern,
+	findGlobIndex,
+	unescapePathPattern,
+} from "../../domain/worktree/path-filter.js";
 import { expandTildeInPath } from "../../domain/worktree/policy.js";
 import type { WorktreeSource } from "../../domain/worktree/source.js";
 import type { WorktreeEntry } from "../../domain/worktree/types.js";
@@ -190,7 +195,7 @@ export function createCleanCommand(
 		);
 		const matchesPathFilter = createWorktreePathFilter(pathPatterns);
 		// An explicit path may point at another registered repository, so
-		// non-interactive runs search every repository when --path is set.
+		// --path starts in the all-repositories scope.
 		const searchAllRepositories = pathPatterns.length > 0;
 		let allSourceCount = 0;
 		const emitNoCandidates = (sourceCount: number): number => {
@@ -303,9 +308,8 @@ export function createCleanCommand(
 		};
 
 		if (
-			interactiveSelection
-				? currentCandidates.length === 0
-				: searchAllRepositories
+			searchAllRepositories ||
+			(interactiveSelection && currentCandidates.length === 0)
 		) {
 			const loadedAllCandidates = await loadAllCandidates();
 			if (loadedAllCandidates.length === 0) {
@@ -599,14 +603,17 @@ async function canonicalizePathPatterns(
 // Git records canonical worktree paths, so resolve symlinks in the pattern's
 // longest existing literal prefix before matching.
 async function canonicalizeLiteralPrefix(pattern: string): Promise<string> {
-	const globIndex = pattern.search(/[*?]/);
+	const globIndex = findGlobIndex(pattern);
 	let prefix =
 		globIndex === -1 ? pattern : dirname(`${pattern.slice(0, globIndex)}x`);
 	let suffix = pattern.slice(prefix.length);
 
 	for (;;) {
 		try {
-			return `${await realpath(prefix)}${suffix}`.replace(/^\/\//, "/");
+			const canonicalPrefix = escapePathPattern(
+				await realpath(unescapePathPattern(prefix)),
+			);
+			return `${canonicalPrefix}${suffix}`.replace(/^\/\//, "/");
 		} catch {
 			const parent = dirname(prefix);
 			if (parent === prefix) return pattern;

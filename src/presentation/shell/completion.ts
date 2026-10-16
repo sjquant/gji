@@ -230,7 +230,11 @@ _gji_completion() {
       COMPREPLY=( $(compgen -W "--compact --json --help" -- "$cur") )
       ;;
     clean)
-      COMPREPLY=( $(compgen -W "-f --force --stale --path --dry-run --json --help" -- "$cur") )
+      if [ "\${COMP_WORDS[COMP_CWORD-1]}" = "--path" ]; then
+        COMPREPLY=( $(compgen -d -- "$cur") )
+      else
+        COMPREPLY=( $(compgen -W "-f --force --stale --path --dry-run --json --help" -- "$cur") )
+      fi
       ;;
     remove|rm)
       COMPREPLY=( $(compgen -W "$(__gji_worktree_branches) -f --force --dry-run --json --help" -- "$cur") )

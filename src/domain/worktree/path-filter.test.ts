@@ -45,4 +45,17 @@ describe("worktree path filter", () => {
 		expect(matches("/repos/fix.(v2)")).toBe(true);
 		expect(matches("/repos/fixa(v2)")).toBe(false);
 	});
+
+	it("matches escaped glob characters literally", () => {
+		// Given a directory pattern and a glob that escape * and ?.
+		const directory = createWorktreePathFilter(["/repos/fix-\\?-bug"]);
+		const glob = createWorktreePathFilter(["/repos/wip\\*-*"]);
+
+		// When literal and wildcard-lookalike paths are checked.
+		// Then escaped characters only match themselves.
+		expect(directory("/repos/fix-?-bug/nested")).toBe(true);
+		expect(directory("/repos/fix-a-bug")).toBe(false);
+		expect(glob("/repos/wip*-a")).toBe(true);
+		expect(glob("/repos/wipx-a")).toBe(false);
+	});
 });
