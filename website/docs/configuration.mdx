@@ -26,7 +26,7 @@ Use the global file for defaults you want everywhere. Use `.gji.json` when one r
 | `dependencyBootstrap` | Persistent opt-out for automatic dependency setup: `off`. |
 | `dependencyBuildCommand` | Optional Cargo build command used by `dependencyBootstrap`; defaults to `cargo check`. |
 | `installSaveTarget` | Choose whether `gji init --write` saves wizard settings locally or globally. |
-| `hooks` | Lifecycle commands for create, enter, and remove events. String hooks run through a shell; array hooks run as argv without a shell. |
+| `hooks` | Lifecycle commands for branch creation, worktree creation, entering, in-place branch switching, and removal. See [Hooks](./hooks). String hooks run through a shell; array hooks run as argv without a shell. |
 | `repos` | Per-repository overrides inside the global config. |
 
 ## Example

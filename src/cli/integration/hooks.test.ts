@@ -11,6 +11,7 @@ import {
 	runHook,
 } from "../../infrastructure/process/hooks.js";
 import {
+	addLinkedWorktree,
 	commitFile,
 	createRepository,
 	createRepositoryWithOrigin,
@@ -100,20 +101,24 @@ describe("extractHooks", () => {
 		);
 	});
 
-	it("extracts all three hook types", () => {
-		// Given a config with all three hook keys set.
-		// Then extractHooks returns all three.
+	it("extracts every lifecycle hook type", () => {
+		// Given a config with every hook key set.
+		// Then extractHooks returns all of them.
 		expect(
 			extractHooks({
 				hooks: {
+					"after-branch-create": "d",
 					"after-create": "a",
 					"after-enter": "b",
+					"after-switch": "e",
 					"before-remove": "c",
 				},
 			}),
 		).toEqual({
+			"after-branch-create": "d",
 			"after-create": "a",
 			"after-enter": "b",
+			"after-switch": "e",
 			"before-remove": "c",
 		});
 	});
@@ -155,10 +160,20 @@ describe("extractHooks", () => {
 	});
 
 	it("accepts legacy camelCase keys as fallback", () => {
-		// Given a config with the old camelCase afterCreate key.
-		// Then extractHooks maps it to the kebab-case key.
-		expect(extractHooks({ hooks: { afterCreate: "pnpm install" } })).toEqual({
+		// Given a config with camelCase hook keys.
+		// Then extractHooks maps them to the kebab-case keys.
+		expect(
+			extractHooks({
+				hooks: {
+					afterBranchCreate: "echo branch",
+					afterCreate: "pnpm install",
+					afterSwitch: "echo switch",
+				},
+			}),
+		).toEqual({
+			"after-branch-create": "echo branch",
 			"after-create": "pnpm install",
+			"after-switch": "echo switch",
 		});
 	});
 
@@ -489,5 +504,125 @@ describe("gji done with before-remove hook", () => {
 		// Then the hook ran before removal and the marker file exists.
 		expect(result.exitCode).toBe(0);
 		await expect(readFile(markerFile)).resolves.toBeDefined();
+	});
+});
+
+async function writeLifecycleLogHooks(repoRoot: string): Promise<string> {
+	const logFile = join(await mkdtemp(join(tmpdir(), "gji-hook-log-")), "log");
+	const logHook = (name: string) =>
+		`printf '%s %s %s\\n' ${name} "$GJI_BRANCH" "$PWD" >> "${logFile}"`;
+	await writeFile(
+		join(repoRoot, ".gji.json"),
+		JSON.stringify({
+			hooks: {
+				"after-branch-create": logHook("after-branch-create"),
+				"after-create": logHook("after-create"),
+				"after-enter": logHook("after-enter"),
+				"after-switch": logHook("after-switch"),
+			},
+		}),
+		"utf8",
+	);
+	return logFile;
+}
+
+async function readLifecycleLog(logFile: string): Promise<string[]> {
+	return (await readFile(logFile, "utf8")).trim().split("\n");
+}
+
+describe("branch lifecycle hooks", () => {
+	it("runs after-create then after-branch-create when gji new creates a branch and worktree", async () => {
+		// Given a repository with every lifecycle hook logging its name.
+		const repoRoot = await createRepository();
+		const branchName = "feature/lifecycle-new";
+		const worktreePath = resolveWorktreePath(repoRoot, branchName);
+		const logFile = await writeLifecycleLogHooks(repoRoot);
+
+		// When gji new creates a new branch in a new worktree.
+		const result = await runCli(["new", "--no-fetch", branchName], {
+			cwd: repoRoot,
+		});
+
+		// Then worktree setup runs before the branch hook, both inside the worktree.
+		expect(result.exitCode).toBe(0);
+		await expect(readLifecycleLog(logFile)).resolves.toEqual([
+			`after-create ${branchName} ${worktreePath}`,
+			`after-branch-create ${branchName} ${worktreePath}`,
+		]);
+	});
+
+	it("skips after-branch-create when gji new checks out an existing branch", async () => {
+		// Given an existing local branch without a worktree.
+		const repoRoot = await createRepository();
+		const branchName = "feature/lifecycle-existing";
+		await runGit(repoRoot, ["branch", branchName]);
+		const logFile = await writeLifecycleLogHooks(repoRoot);
+
+		// When gji new creates a worktree for that branch.
+		const result = await runCli(["new", "--no-fetch", branchName], {
+			cwd: repoRoot,
+		});
+
+		// Then only the worktree hook runs.
+		expect(result.exitCode).toBe(0);
+		await expect(readLifecycleLog(logFile)).resolves.toEqual([
+			`after-create ${branchName} ${resolveWorktreePath(repoRoot, branchName)}`,
+		]);
+	});
+
+	it("runs after-branch-create then after-switch for gji new --branch-only", async () => {
+		// Given a linked worktree and every lifecycle hook logging its name.
+		const { repoRoot } = await createRepositoryWithOrigin();
+		const currentWorktree = await addLinkedWorktree(
+			repoRoot,
+			"feature/lifecycle-current",
+		);
+		const branchName = "feature/lifecycle-in-place";
+		const logFile = await writeLifecycleLogHooks(repoRoot);
+
+		// When gji new creates a branch in the current worktree.
+		const result = await runCli(["new", "--branch-only", branchName], {
+			cwd: currentWorktree,
+			stdout: () => undefined,
+		});
+
+		// Then branch hooks run in the current worktree without worktree setup.
+		expect(result.exitCode).toBe(0);
+		await expect(readLifecycleLog(logFile)).resolves.toEqual([
+			`after-branch-create ${branchName} ${currentWorktree}`,
+			`after-switch ${branchName} ${currentWorktree}`,
+		]);
+	});
+});
+
+describe("gji clean with before-remove hook", () => {
+	it("runs the configured before-remove hook for each removed worktree", async () => {
+		// Given two linked worktrees and a before-remove hook that logs each branch.
+		const repoRoot = await createRepository();
+		const logFile = join(await mkdtemp(join(tmpdir(), "gji-hook-log-")), "log");
+		await addLinkedWorktree(repoRoot, "feature/clean-hook-a");
+		await addLinkedWorktree(repoRoot, "feature/clean-hook-b");
+		await writeFile(
+			join(repoRoot, ".gji.json"),
+			JSON.stringify({
+				hooks: { "before-remove": `echo "$GJI_BRANCH" >> "${logFile}"` },
+			}),
+			"utf8",
+		);
+
+		// When gji clean removes every linked worktree.
+		const result = await runCli(["clean", "--force"], {
+			cwd: repoRoot,
+			stderr: () => undefined,
+			stdout: () => undefined,
+		});
+
+		// Then the hook ran once per removed worktree.
+		expect(result.exitCode).toBe(0);
+		const logged = (await readFile(logFile, "utf8")).trim().split("\n");
+		expect(logged.sort()).toEqual([
+			"feature/clean-hook-a",
+			"feature/clean-hook-b",
+		]);
 	});
 });

@@ -1,11 +1,12 @@
 import { access, mkdir } from "node:fs/promises";
-import { dirname, resolve } from "node:path";
+import { basename, dirname, resolve } from "node:path";
 import { confirm, isCancel, text } from "@clack/prompts";
 import type { RepositoryContext } from "../../domain/repository/context.js";
 import {
 	resolveWorktreePath,
 	validateBranchName,
 } from "../../domain/worktree/policy.js";
+import type { GjiHooks } from "../../ports/hooks.js";
 import type { CommandRunner as BootstrapCommandRunner } from "../../ports/process.js";
 import { createBootstrapReporter } from "../../presentation/bootstrap/output.js";
 import { formatDependencyBootstrapPreview } from "../../presentation/bootstrap/preview.js";
@@ -61,8 +62,10 @@ type NewRuntime = CliRuntime<
 	| "config"
 	| "git"
 	| "history"
+	| "hooks"
 	| "integrations"
 	| "repositoryContext"
+	| "slots"
 	| "tasks"
 >;
 
@@ -399,14 +402,16 @@ export function createNewCommand(
 			worktreeName,
 			runtime,
 		);
-		const shouldRefreshBase =
-			!options.noFetch &&
+		const createsBranch =
 			!options.detached &&
-			!options.fromCurrent &&
-			!options.take &&
 			options.mode !== "track" &&
 			options.mode !== "checkout" &&
 			!existingLocalBranch;
+		const shouldRefreshBase =
+			createsBranch &&
+			!options.noFetch &&
+			!options.fromCurrent &&
+			!options.take;
 		const freshBaseRef = shouldRefreshBase
 			? await resolveFreshBaseRef(
 					repository.repoRoot,
@@ -545,6 +550,18 @@ export function createNewCommand(
 				dependencyBootstrap: bootstrap.dependencyBootstrap,
 				path: worktreePath,
 				syncFiles: bootstrap.syncFileFailures,
+			});
+		}
+
+		if (createsBranch) {
+			await runNewHooks({
+				branch: worktreeName,
+				config,
+				hookNames: ["after-branch-create"],
+				options,
+				path: worktreePath,
+				repository,
+				runtime,
 			});
 		}
 
@@ -730,6 +747,16 @@ async function runBranchOnly(
 		);
 	}
 
+	await runNewHooks({
+		branch: branchName,
+		config,
+		hookNames: ["after-branch-create", "after-switch"],
+		options,
+		path: repository.currentRoot,
+		repository,
+		runtime,
+	});
+
 	if (options.json) {
 		const navigation = createNavigationTarget(
 			createNavigationRepository(repository.repoName, repository.repoRoot),
@@ -755,6 +782,41 @@ async function runBranchOnly(
 	}
 
 	return 0;
+}
+
+async function runNewHooks({
+	branch,
+	config,
+	hookNames,
+	options,
+	path,
+	repository,
+	runtime,
+}: {
+	branch: string;
+	config: EffectiveGjiConfig;
+	hookNames: Array<keyof GjiHooks>;
+	options: NewCommandOptions;
+	path: string;
+	repository: RepositoryContext;
+	runtime: NewRuntime;
+}): Promise<void> {
+	const hooks = runtime.hooks.extractHooks(config);
+	const context = {
+		branch,
+		path,
+		repo: basename(repository.repoRoot),
+		slot: await runtime.slots.getWorktreeSlot(path),
+	};
+	for (const hookName of hookNames) {
+		await runtime.hooks.runHook(
+			hooks[hookName],
+			path,
+			context,
+			options.json ? () => undefined : options.stderr,
+			options.json ? () => undefined : options.stdout,
+		);
+	}
 }
 
 export const runNewCommand = createNewCommand();

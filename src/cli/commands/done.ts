@@ -43,7 +43,7 @@ export async function runDoneCommand(
 	} = runtime.git;
 	const { loadEffectiveConfig, resolveConfigString } = runtime.config;
 	const { loadHistory } = runtime.historyStore;
-	const { releaseWorktreeSlot } = runtime.slots;
+	const { getWorktreeSlot, releaseWorktreeSlot } = runtime.slots;
 	const { extractHooks, runHook } = runtime.hooks;
 	const { detectRepository } = runtime.repositoryContext;
 	const { listWorktrees } = runtime.worktrees;
@@ -150,8 +150,10 @@ export async function runDoneCommand(
 			branch: target.branch ?? undefined,
 			path: target.path,
 			repo: basename(repository.repoRoot),
+			slot: await getWorktreeSlot(target.path),
 		},
 		options.stderr,
+		options.json ? () => undefined : options.stdout,
 	);
 	try {
 		await removeWorktree(repository.repoRoot, target.path);

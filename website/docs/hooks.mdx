@@ -1,6 +1,6 @@
 ---
 title: Hooks
-description: Automate worktree setup and cleanup with afterCreate, afterEnter, and beforeRemove hooks.
+description: Automate branch and worktree setup, entry, and cleanup with gji lifecycle hooks.
 ---
 
 # Hooks
@@ -25,11 +25,37 @@ This is the simplest way to make each new worktree feel “ready” instead of e
 
 ## Available hooks
 
-| Hook | When it runs |
-| --- | --- |
-| `afterCreate` | After `gji new` or `gji pr` creates a worktree. |
-| `afterEnter` | After `gji go` switches to a worktree. |
-| `beforeRemove` | Before `gji done` or `gji clean` deletes a worktree. |
+| Hook | Event | Triggered by | Runs in |
+| --- | --- | --- | --- |
+| `afterBranchCreate` | A new branch was created. | `gji new` when it creates a branch, with or without `--branch-only` | The worktree that holds the new branch |
+| `afterCreate` | A linked worktree was created and bootstrapped. | `gji new` (except `--branch-only`), `gji pr`, and `gji go` when it creates a worktree for an existing branch | The new worktree |
+| `afterEnter` | An existing worktree was entered. | `gji go` and `gji back` | The entered worktree |
+| `afterSwitch` | The current worktree switched to another branch in place. | `gji new --branch-only` | The current worktree |
+| `beforeRemove` | A linked worktree is about to be removed. | `gji done` and `gji clean`, once per worktree it attempts to remove | The worktree being removed |
+
+Put dependency installation and other worktree setup in `afterCreate`: it is
+the only hook that runs after `gji` bootstraps a new worktree directory.
+`afterBranchCreate` and `afterSwitch` also run for `--branch-only`, where no
+new directory exists, so keep them limited to branch-level work such as
+recording a ticket or printing a reminder.
+
+When one command triggers several events, hooks run in this order:
+
+- `gji new <branch>`: `afterCreate`, then `afterBranchCreate`.
+- `gji new --branch-only <branch>`: `afterBranchCreate`, then `afterSwitch`.
+
+`gji new` and `gji pr` do not run `afterEnter` after creating a worktree.
+`afterBranchCreate` only runs for branches started from a base branch: `gji new`
+skips it when it checks out a branch that already exists, and the local
+branches that `gji pr` and `gji go` create from pull request or remote refs
+only trigger `afterCreate`. `gji go --json` skips `afterEnter` so its output
+stays machine-readable.
+
+`beforeRemove` runs just before `gji` attempts the removal. If the removal then
+fails, or you decline the prompt to force-remove a dirty worktree, the
+worktree stays in place after the hook has already run.
+
+In `--json` mode, hook stdout is discarded so the JSON output stays parseable.
 
 ## Template values
 
@@ -45,7 +71,7 @@ The same values are also available as environment variables:
 - `GJI_BRANCH`
 - `GJI_PATH`
 - `GJI_REPO`
-- `GJI_SLOT` (for worktrees created by gji)
+- `GJI_SLOT` (for worktrees created by gji; the main worktree uses slot `0` once gji has created a linked worktree)
 
 ## Safer hook commands
 
@@ -90,12 +116,10 @@ That makes it possible to have a general default like `afterEnter`, while one re
 
 ## Manual execution
 
-You can rerun any hook in the current worktree:
+You can rerun any hook from the table above in the current worktree:
 
 ```bash
-gji trigger-hook afterCreate
-gji trigger-hook afterEnter
-gji trigger-hook beforeRemove
+gji trigger-hook <hook>   # for example: gji trigger-hook afterCreate
 ```
 
 This is useful after cloning on a new machine or when you need to rebuild a worktree’s setup without recreating it.

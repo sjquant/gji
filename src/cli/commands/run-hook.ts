@@ -2,14 +2,18 @@ import type { GjiHooks } from "../../ports/hooks.js";
 import { type CliRuntime, defaultCliDependencies } from "../dependencies.js";
 
 const VALID_HOOKS: Array<keyof GjiHooks> = [
+	"after-branch-create",
 	"after-create",
 	"after-enter",
+	"after-switch",
 	"before-remove",
 ];
 
 const CAMEL_ALIASES: Partial<Record<string, keyof GjiHooks>> = {
+	afterBranchCreate: "after-branch-create",
 	afterCreate: "after-create",
 	afterEnter: "after-enter",
+	afterSwitch: "after-switch",
 	beforeRemove: "before-remove",
 };
 

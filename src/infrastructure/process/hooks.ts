@@ -151,10 +151,16 @@ export function extractHooks(config: Record<string, unknown>): GjiHooks {
 	const hooks = raw as Record<string, unknown>;
 
 	return {
+		"after-branch-create": parseHookCommand(
+			hooks["after-branch-create"] ?? hooks.afterBranchCreate,
+		),
 		"after-create": parseHookCommand(
 			hooks["after-create"] ?? hooks.afterCreate,
 		),
 		"after-enter": parseHookCommand(hooks["after-enter"] ?? hooks.afterEnter),
+		"after-switch": parseHookCommand(
+			hooks["after-switch"] ?? hooks.afterSwitch,
+		),
 		"before-remove": parseHookCommand(
 			hooks["before-remove"] ?? hooks.beforeRemove,
 		),
