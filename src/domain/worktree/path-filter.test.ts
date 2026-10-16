@@ -2,11 +2,9 @@ import { describe, expect, it } from "vitest";
 import { createWorktreePathFilter } from "./path-filter.js";
 
 describe("worktree path filter", () => {
-	it("matches a directory and its descendants, resolved from cwd", () => {
-		// Given a relative directory pattern with a trailing separator.
-		const matches = createWorktreePathFilter("/repos/gji", [
-			"../worktrees/gji/",
-		]);
+	it("matches a directory and its descendants", () => {
+		// Given a directory pattern.
+		const matches = createWorktreePathFilter(["/repos/worktrees/gji"]);
 
 		// When paths inside, equal to, and beside the directory are checked.
 		// Then only the directory and its descendants match.
@@ -17,7 +15,7 @@ describe("worktree path filter", () => {
 
 	it("keeps single-star globs within one path segment", () => {
 		// Given a single-star glob.
-		const matches = createWorktreePathFilter("/", [
+		const matches = createWorktreePathFilter([
 			"/repos/worktrees/gji/feature-*",
 		]);
 
@@ -29,7 +27,7 @@ describe("worktree path filter", () => {
 
 	it("lets double-star globs span path segments", () => {
 		// Given a double-star glob.
-		const matches = createWorktreePathFilter("/", ["/repos/**/spike"]);
+		const matches = createWorktreePathFilter(["/repos/**/spike"]);
 
 		// When paths at different depths are checked.
 		// Then any depth matches, including zero intermediate segments.
@@ -40,7 +38,7 @@ describe("worktree path filter", () => {
 
 	it("treats regex metacharacters literally and ? as one character", () => {
 		// Given a glob containing regex metacharacters.
-		const matches = createWorktreePathFilter("/", ["/repos/fix.(v?)"]);
+		const matches = createWorktreePathFilter(["/repos/fix.(v?)"]);
 
 		// When literal and lookalike paths are checked.
 		// Then only literal matches pass.

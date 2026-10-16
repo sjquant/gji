@@ -1,24 +1,16 @@
-import { resolve } from "node:path";
-
-import { expandTildeInPath } from "./policy.js";
-
 const GLOB_CHARACTERS = /[*?]/;
 
 /**
- * Builds a predicate that matches worktree paths against any of the patterns.
- *
- * Patterns resolve against `cwd` and expand `~`. A pattern without glob
- * characters matches that directory and anything inside it. A pattern with
- * `*` (within one segment), `**` (across segments), or `?` (one character)
- * must match the whole path. No patterns match every path.
+ * Builds a predicate that matches worktree paths against any of the absolute
+ * patterns. A pattern without glob characters matches that directory and
+ * anything inside it. A pattern with `*` (within one segment), `**` (across
+ * segments), or `?` (one character) must match the whole path. No patterns
+ * match every path.
  */
 export function createWorktreePathFilter(
-	cwd: string,
 	patterns: readonly string[],
 ): (worktreePath: string) => boolean {
-	const matchers = patterns.map((pattern) =>
-		createPathMatcher(resolve(cwd, expandTildeInPath(pattern))),
-	);
+	const matchers = patterns.map(createPathMatcher);
 	if (matchers.length === 0) return () => true;
 
 	return (worktreePath) => matchers.some((matches) => matches(worktreePath));

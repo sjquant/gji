@@ -435,7 +435,7 @@ describe("runCli", () => {
 		// Then it fails with the path-filter error.
 		expect(result.exitCode).toBe(1);
 		expect(JSON.parse(stderr.join(""))).toEqual({
-			error: "No linked worktrees to clean match --path",
+			error: "No linked worktrees match --path",
 		});
 	});
 

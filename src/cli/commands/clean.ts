@@ -1,3 +1,6 @@
+import { realpath } from "node:fs/promises";
+import { basename, dirname, join, resolve } from "node:path";
+
 import { confirm, isCancel } from "@clack/prompts";
 import {
 	loadLinkedWorktrees,
@@ -10,6 +13,7 @@ import {
 } from "../../application/worktree/sources.js";
 import { mapWithConcurrency } from "../../domain/shared/concurrency.js";
 import { createWorktreePathFilter } from "../../domain/worktree/path-filter.js";
+import { expandTildeInPath } from "../../domain/worktree/policy.js";
 import type { WorktreeSource } from "../../domain/worktree/source.js";
 import type { WorktreeEntry } from "../../domain/worktree/types.js";
 import {
@@ -180,14 +184,28 @@ export function createCleanCommand(
 			options.cwd,
 			sourceDependencies,
 		);
-		const matchesPathFilter = createWorktreePathFilter(
+		const pathPatterns = await canonicalizePathPatterns(
 			options.cwd,
 			options.paths ?? [],
 		);
-		const noCandidatesMessage =
-			(options.paths ?? []).length === 0
-				? "No linked worktrees to clean"
-				: "No linked worktrees to clean match --path";
+		const matchesPathFilter = createWorktreePathFilter(pathPatterns);
+		// An explicit path may point at another registered repository, so
+		// non-interactive runs search every repository when --path is set.
+		const searchAllRepositories = pathPatterns.length > 0;
+		let allSourceCount = 0;
+		const emitNoCandidates = (sourceCount: number): number => {
+			if (pathPatterns.length > 0 && sourceCount === 0) {
+				emitError(options, "No linked worktrees match --path");
+				return 1;
+			}
+			if (options.stale) {
+				emitNoStaleCandidates(options);
+				return 0;
+			}
+
+			emitError(options, "No linked worktrees to clean");
+			return 1;
+		};
 		const currentSources = linkedWorktrees
 			.filter(
 				(worktree) =>
@@ -245,6 +263,7 @@ export function createCleanCommand(
 					source.worktree.path !== repository.currentRoot &&
 					matchesPathFilter(source.worktree.path),
 			);
+			allSourceCount = sources.length;
 			const otherRepositorySources = sources.filter(
 				(source) => source.repoRoot !== repository.repoRoot,
 			);
@@ -283,30 +302,21 @@ export function createCleanCommand(
 			},
 		};
 
-		if (currentCandidates.length === 0 && interactiveSelection) {
+		if (
+			interactiveSelection
+				? currentCandidates.length === 0
+				: searchAllRepositories
+		) {
 			const loadedAllCandidates = await loadAllCandidates();
 			if (loadedAllCandidates.length === 0) {
-				if (options.stale) {
-					emitNoStaleCandidates(options);
-					return 0;
-				}
-
-				emitError(options, noCandidatesMessage);
-				return 1;
+				return emitNoCandidates(allSourceCount);
 			}
 			currentScope = false;
 			activeCandidates = loadedAllCandidates;
 			scope.label = "all repositories";
 			scope.toggleLabel = "current repository";
-		}
-		if (currentCandidates.length === 0 && !interactiveSelection) {
-			if (options.stale) {
-				emitNoStaleCandidates(options);
-				return 0;
-			}
-
-			emitError(options, noCandidatesMessage);
-			return 1;
+		} else if (currentCandidates.length === 0) {
+			return emitNoCandidates(currentSources.length);
 		}
 
 		if (!options.dryRun && !options.force && (options.json || isHeadless())) {
@@ -574,6 +584,37 @@ export function createCleanCommand(
 }
 
 export const runCleanCommand = createCleanCommand();
+
+async function canonicalizePathPatterns(
+	cwd: string,
+	patterns: readonly string[],
+): Promise<string[]> {
+	return Promise.all(
+		patterns.map((pattern) =>
+			canonicalizeLiteralPrefix(resolve(cwd, expandTildeInPath(pattern))),
+		),
+	);
+}
+
+// Git records canonical worktree paths, so resolve symlinks in the pattern's
+// longest existing literal prefix before matching.
+async function canonicalizeLiteralPrefix(pattern: string): Promise<string> {
+	const globIndex = pattern.search(/[*?]/);
+	let prefix =
+		globIndex === -1 ? pattern : dirname(`${pattern.slice(0, globIndex)}x`);
+	let suffix = pattern.slice(prefix.length);
+
+	for (;;) {
+		try {
+			return `${await realpath(prefix)}${suffix}`.replace(/^\/\//, "/");
+		} catch {
+			const parent = dirname(prefix);
+			if (parent === prefix) return pattern;
+			suffix = join("/", basename(prefix), suffix);
+			prefix = parent;
+		}
+	}
+}
 
 async function resolveCleanupCandidates(
 	options: ResolveCleanupCandidatesOptions,
