@@ -53,6 +53,15 @@ gji clean --stale
 
 `--stale` targets clean branch worktrees whose upstream is gone and whose changes are already merged into the configured or remote default branch, including squash- or rebase-merged changes.
 
+To clean only worktrees in a particular location, filter by path:
+
+```bash
+gji clean --path ~/worktrees/gji/spike
+gji clean --path '../worktrees/*/experiment-*' --dry-run
+```
+
+A plain path matches that directory and everything inside it. A pattern with `*`, `**`, or `?` must match the whole worktree path; quote it so the shell does not expand it first. Repeat `--path` to match any of several patterns.
+
 ## Force options
 
 When you know you want non-interactive cleanup:

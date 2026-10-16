@@ -9,6 +9,10 @@ import {
 	listRegisteredWorktreeSources,
 } from "../../application/worktree/sources.js";
 import { mapWithConcurrency } from "../../domain/shared/concurrency.js";
+import {
+	matchesPathPatterns,
+	resolvePathPattern,
+} from "../../domain/worktree/path-filter.js";
 import type { WorktreeSource } from "../../domain/worktree/source.js";
 import type { WorktreeEntry } from "../../domain/worktree/types.js";
 import {
@@ -38,6 +42,7 @@ export interface CleanCommandOptions {
 	dryRun?: boolean;
 	force?: boolean;
 	json?: boolean;
+	paths?: string[];
 	stale?: boolean;
 	runtime?: CliRuntime<
 		| "git"
@@ -178,8 +183,21 @@ export function createCleanCommand(
 			options.cwd,
 			sourceDependencies,
 		);
+		const pathPatterns = (options.paths ?? []).map((pattern) =>
+			resolvePathPattern(options.cwd, pattern),
+		);
+		const matchesPathFilter = (worktree: WorktreeEntry): boolean =>
+			matchesPathPatterns(worktree.path, pathPatterns);
+		const noCandidatesMessage =
+			pathPatterns.length === 0
+				? "No linked worktrees to clean"
+				: "No linked worktrees to clean match --path";
 		const currentSources = linkedWorktrees
-			.filter((worktree) => worktree.path !== repository.currentRoot)
+			.filter(
+				(worktree) =>
+					worktree.path !== repository.currentRoot &&
+					matchesPathFilter(worktree),
+			)
 			.map((worktree) => ({
 				repoName: repository.repoName,
 				repoRoot: repository.repoRoot,
@@ -228,7 +246,8 @@ export function createCleanCommand(
 				(source): source is WorktreeSource & { repoRoot: string } =>
 					source.repoRoot !== undefined &&
 					source.worktree.path !== source.repoRoot &&
-					source.worktree.path !== repository.currentRoot,
+					source.worktree.path !== repository.currentRoot &&
+					matchesPathFilter(source.worktree),
 			);
 			const otherRepositorySources = sources.filter(
 				(source) => source.repoRoot !== repository.repoRoot,
@@ -276,7 +295,7 @@ export function createCleanCommand(
 					return 0;
 				}
 
-				emitError(options, "No linked worktrees to clean");
+				emitError(options, noCandidatesMessage);
 				return 1;
 			}
 			currentScope = false;
@@ -290,7 +309,7 @@ export function createCleanCommand(
 				return 0;
 			}
 
-			emitError(options, "No linked worktrees to clean");
+			emitError(options, noCandidatesMessage);
 			return 1;
 		}
 

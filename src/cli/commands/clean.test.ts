@@ -1,6 +1,6 @@
 import { chmod, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 import { HISTORY_FILE_PATH } from "../../infrastructure/persistence/history.js";
@@ -1100,6 +1100,70 @@ describe("gji clean", () => {
 
 		// Then it removes the worktree without prompting for confirmation.
 		await expect(pathExists(worktreePath)).resolves.toBe(false);
+	});
+
+	it("limits candidates to worktrees matching --path", async () => {
+		// Given worktrees in two branch directories.
+		const repoRoot = await createRepository();
+		const keptPath = await addLinkedWorktree(
+			repoRoot,
+			"feature/clean-path-kept",
+		);
+		const spikePath = await addLinkedWorktree(repoRoot, "spike/clean-path-a");
+		const globPath = await addLinkedWorktree(repoRoot, "spike-clean-path-b");
+		const offered: string[] = [];
+		const runCleanCommand = createCleanCommand({
+			confirmRemoval: async () => true,
+			promptForWorktrees: async (worktrees) => {
+				offered.push(...worktrees.map((worktree) => worktree.path));
+				return worktrees.map((worktree) => worktree.path);
+			},
+		});
+
+		// When gji clean runs with a relative directory and a glob filter.
+		const result = await runCleanCommand({
+			cwd: repoRoot,
+			paths: [
+				`../worktrees/${basename(repoRoot)}/spike`,
+				`${dirname(globPath)}/spike-*`,
+			],
+			stderr: () => undefined,
+			stdout: () => undefined,
+		});
+
+		// Then only matching worktrees are offered and removed.
+		expect(result).toBe(0);
+		expect(offered.sort()).toEqual([globPath, spikePath].sort());
+		await expect(pathExists(spikePath)).resolves.toBe(false);
+		await expect(pathExists(globPath)).resolves.toBe(false);
+		await expect(pathExists(keptPath)).resolves.toBe(true);
+	});
+
+	it("reports when no worktrees match --path", async () => {
+		// Given a linked worktree outside the filtered directory.
+		const repoRoot = await createRepository();
+		const worktreePath = await addLinkedWorktree(
+			repoRoot,
+			"feature/clean-path-miss",
+		);
+		const stderr: string[] = [];
+
+		// When gji clean --force --json runs with a non-matching filter.
+		const result = await createCleanCommand()({
+			cwd: repoRoot,
+			force: true,
+			json: true,
+			paths: ["/nonexistent/worktrees"],
+			stderr: (chunk) => stderr.push(chunk),
+			stdout: () => undefined,
+		});
+
+		// Then it fails without removing anything.
+		expect(result).toBe(1);
+		expect(JSON.parse(stderr.join(""))).toEqual({
+			error: "No linked worktrees to clean match --path",
+		});
+		await expect(pathExists(worktreePath)).resolves.toBe(true);
 	});
 
 	it("continues cleaning after a declined force remove in a batch", async () => {

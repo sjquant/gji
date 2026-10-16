@@ -383,6 +383,36 @@ describe("runCli", () => {
 		expect(JSON.parse(stdout.join(""))).toEqual({ removed: [] });
 	});
 
+	it("passes repeated clean --path filters through command parsing", async () => {
+		// Given a repository with a linked worktree outside both filters.
+		const repoRoot = await createRepository();
+		const stderr: string[] = [];
+
+		// When the clean command runs with two --path filters through the CLI parser.
+		const result = await runCli(
+			[
+				"clean",
+				"--path",
+				"/none/a",
+				"--path",
+				"/none/b/*",
+				"--json",
+				"--force",
+			],
+			{
+				cwd: repoRoot,
+				stderr: (chunk) => stderr.push(chunk),
+				stdout: () => undefined,
+			},
+		);
+
+		// Then the filters reach the command and nothing matches.
+		expect(result.exitCode).toBe(1);
+		expect(JSON.parse(stderr.join(""))).toEqual({
+			error: "No linked worktrees to clean match --path",
+		});
+	});
+
 	it("prints the package version", async () => {
 		// Given output collectors for the CLI version text.
 		const stdout: string[] = [];
