@@ -9,10 +9,7 @@ import {
 	listRegisteredWorktreeSources,
 } from "../../application/worktree/sources.js";
 import { mapWithConcurrency } from "../../domain/shared/concurrency.js";
-import {
-	matchesPathPatterns,
-	resolvePathPattern,
-} from "../../domain/worktree/path-filter.js";
+import { createWorktreePathFilter } from "../../domain/worktree/path-filter.js";
 import type { WorktreeSource } from "../../domain/worktree/source.js";
 import type { WorktreeEntry } from "../../domain/worktree/types.js";
 import {
@@ -183,20 +180,19 @@ export function createCleanCommand(
 			options.cwd,
 			sourceDependencies,
 		);
-		const pathPatterns = (options.paths ?? []).map((pattern) =>
-			resolvePathPattern(options.cwd, pattern),
+		const matchesPathFilter = createWorktreePathFilter(
+			options.cwd,
+			options.paths ?? [],
 		);
-		const matchesPathFilter = (worktree: WorktreeEntry): boolean =>
-			matchesPathPatterns(worktree.path, pathPatterns);
 		const noCandidatesMessage =
-			pathPatterns.length === 0
+			(options.paths ?? []).length === 0
 				? "No linked worktrees to clean"
 				: "No linked worktrees to clean match --path";
 		const currentSources = linkedWorktrees
 			.filter(
 				(worktree) =>
 					worktree.path !== repository.currentRoot &&
-					matchesPathFilter(worktree),
+					matchesPathFilter(worktree.path),
 			)
 			.map((worktree) => ({
 				repoName: repository.repoName,
@@ -247,7 +243,7 @@ export function createCleanCommand(
 					source.repoRoot !== undefined &&
 					source.worktree.path !== source.repoRoot &&
 					source.worktree.path !== repository.currentRoot &&
-					matchesPathFilter(source.worktree),
+					matchesPathFilter(source.worktree.path),
 			);
 			const otherRepositorySources = sources.filter(
 				(source) => source.repoRoot !== repository.repoRoot,

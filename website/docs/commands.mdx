@@ -227,6 +227,6 @@ Several commands support `--json` so shell scripts and tools can consume structu
 
 `gji clean --stale` limits cleanup to clean branch worktrees whose upstream is gone and whose changes are already merged into the configured or remote default branch, including squash- or rebase-merged changes.
 
-`gji clean --path <pattern>` limits cleanup to worktrees whose path is under a directory or matches a glob (`*` within one segment, `**` across segments, `?` for one character). Relative patterns resolve from the current directory, and the option can be repeated to match any of several patterns. It combines with `--stale` and the all-repositories scope.
+`gji clean --path <pattern>` limits cleanup to worktrees under a directory or matching a path glob, including in the all-repositories scope; see [Sync and cleanup](./sync-and-cleanup).
 
 When a supported lockfile is detected, `gji new` and `gji pr` automatically install dependencies before running `after-create`. Pass `--no-install` or set `dependencyBootstrap` to `off` to skip setup. Dependency setup never copies an existing tree or falls back to ordinary copying. Keep `after-create` hooks for project-specific commands such as generation and local-service setup. JSON bootstrap events include structured reasons, and failed setup reports the created worktree path for recovery. See the [configuration guide](./configuration#dependency-bootstrap) for adapter behavior, JSON output, and dry-run behavior.

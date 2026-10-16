@@ -4,38 +4,34 @@ import { expandTildeInPath } from "./policy.js";
 
 const GLOB_CHARACTERS = /[*?]/;
 
-export function resolvePathPattern(cwd: string, pattern: string): string {
-	return resolve(cwd, expandTildeInPath(pattern));
-}
-
 /**
- * Matches a worktree path against absolute path patterns.
+ * Builds a predicate that matches worktree paths against any of the patterns.
  *
- * A pattern without glob characters matches that directory and anything
- * inside it. A pattern with `*` (within one segment), `**` (across segments),
- * or `?` (one character) must match the whole path.
+ * Patterns resolve against `cwd` and expand `~`. A pattern without glob
+ * characters matches that directory and anything inside it. A pattern with
+ * `*` (within one segment), `**` (across segments), or `?` (one character)
+ * must match the whole path. No patterns match every path.
  */
-export function matchesPathPatterns(
-	worktreePath: string,
+export function createWorktreePathFilter(
+	cwd: string,
 	patterns: readonly string[],
-): boolean {
-	if (patterns.length === 0) return true;
+): (worktreePath: string) => boolean {
+	const matchers = patterns.map((pattern) =>
+		createPathMatcher(resolve(cwd, expandTildeInPath(pattern))),
+	);
+	if (matchers.length === 0) return () => true;
 
-	const path = trimTrailingSeparators(worktreePath);
-	return patterns.some((pattern) => matchesPathPattern(path, pattern));
+	return (worktreePath) => matchers.some((matches) => matches(worktreePath));
 }
 
-function matchesPathPattern(path: string, pattern: string): boolean {
-	const normalizedPattern = trimTrailingSeparators(pattern);
-
-	if (!GLOB_CHARACTERS.test(normalizedPattern)) {
-		return (
-			path === normalizedPattern ||
-			path.startsWith(`${normalizedPattern === "/" ? "" : normalizedPattern}/`)
-		);
+function createPathMatcher(pattern: string): (path: string) => boolean {
+	if (GLOB_CHARACTERS.test(pattern)) {
+		const regExp = globToRegExp(pattern);
+		return (path) => regExp.test(path);
 	}
 
-	return globToRegExp(normalizedPattern).test(path);
+	const prefix = pattern === "/" ? "/" : `${pattern}/`;
+	return (path) => path === pattern || path.startsWith(prefix);
 }
 
 function globToRegExp(pattern: string): RegExp {
@@ -63,8 +59,4 @@ function globToRegExp(pattern: string): RegExp {
 	}
 
 	return new RegExp(`^${source}$`);
-}
-
-function trimTrailingSeparators(path: string): string {
-	return path.length > 1 ? path.replace(/\/+$/, "") || "/" : path;
 }
