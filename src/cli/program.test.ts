@@ -383,6 +383,62 @@ describe("runCli", () => {
 		expect(JSON.parse(stdout.join(""))).toEqual({ removed: [] });
 	});
 
+	it("passes repeated clean --path filters through command parsing", async () => {
+		// Given a linked worktree that only the second filter matches.
+		const repoRoot = await createRepository();
+		const worktreePath = await addLinkedWorktree(repoRoot, "feature/path-cli");
+		const stdout: string[] = [];
+
+		// When the clean command runs with two --path filters through the CLI parser.
+		const result = await runCli(
+			[
+				"clean",
+				"--path",
+				"/none",
+				"--path",
+				worktreePath,
+				"--dry-run",
+				"--json",
+			],
+			{
+				cwd: repoRoot,
+				stderr: () => undefined,
+				stdout: (chunk) => stdout.push(chunk),
+			},
+		);
+
+		// Then both filters reach the command and the matching worktree is targeted.
+		expect(result.exitCode).toBe(0);
+		expect(
+			JSON.parse(stdout.join("")).removed.map(
+				(entry: { path: string }) => entry.path,
+			),
+		).toEqual([worktreePath]);
+	});
+
+	it("reports when no worktrees match clean --path", async () => {
+		// Given a linked worktree outside the filtered directory.
+		const repoRoot = await createRepository();
+		await addLinkedWorktree(repoRoot, "feature/path-cli-miss");
+		const stderr: string[] = [];
+
+		// When the clean command runs with a non-matching filter.
+		const result = await runCli(
+			["clean", "--path", "/none", "--json", "--force"],
+			{
+				cwd: repoRoot,
+				stderr: (chunk) => stderr.push(chunk),
+				stdout: () => undefined,
+			},
+		);
+
+		// Then it fails with the path-filter error.
+		expect(result.exitCode).toBe(1);
+		expect(JSON.parse(stderr.join(""))).toEqual({
+			error: "No linked worktrees match --path",
+		});
+	});
+
 	it("prints the package version", async () => {
 		// Given output collectors for the CLI version text.
 		const stdout: string[] = [];

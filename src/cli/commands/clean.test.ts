@@ -1,6 +1,6 @@
-import { chmod, mkdtemp, writeFile } from "node:fs/promises";
+import { chmod, mkdtemp, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 import { HISTORY_FILE_PATH } from "../../infrastructure/persistence/history.js";
@@ -1100,6 +1100,146 @@ describe("gji clean", () => {
 
 		// Then it removes the worktree without prompting for confirmation.
 		await expect(pathExists(worktreePath)).resolves.toBe(false);
+	});
+
+	it("limits candidates to worktrees matching --path", async () => {
+		// Given worktrees in two branch directories.
+		const repoRoot = await createRepository();
+		const keptPath = await addLinkedWorktree(
+			repoRoot,
+			"feature/clean-path-kept",
+		);
+		const spikePath = await addLinkedWorktree(repoRoot, "spike/clean-path-a");
+		const globPath = await addLinkedWorktree(repoRoot, "spike-clean-path-b");
+		const offered: string[] = [];
+		const runCleanCommand = createCleanCommand({
+			confirmRemoval: async () => true,
+			promptForWorktrees: async (worktrees, scope) => {
+				expect(scope?.label).toBe("all repositories");
+				offered.push(...worktrees.map((worktree) => worktree.path));
+				return worktrees.map((worktree) => worktree.path);
+			},
+		});
+
+		// When gji clean runs with a relative directory and a glob filter.
+		const result = await runCleanCommand({
+			cwd: repoRoot,
+			paths: [
+				`../worktrees/${basename(repoRoot)}/spike`,
+				`${dirname(globPath)}/spike-*`,
+			],
+			stderr: () => undefined,
+			stdout: () => undefined,
+		});
+
+		// Then only matching worktrees are offered and removed.
+		expect(result).toBe(0);
+		expect(offered.sort()).toEqual([globPath, spikePath].sort());
+		await expect(pathExists(spikePath)).resolves.toBe(false);
+		await expect(pathExists(globPath)).resolves.toBe(false);
+		await expect(pathExists(keptPath)).resolves.toBe(true);
+	});
+
+	it("force-cleans a registered repository's worktree matched by --path", async () => {
+		// Given a current repository and a registered repository with linked worktrees.
+		const originalConfigDir = process.env.GJI_CONFIG_DIR;
+		process.env.GJI_CONFIG_DIR = await mkdtemp(
+			join(tmpdir(), "gji-clean-path-scope-"),
+		);
+		const repoRoot = await createRepository();
+		const currentPath = await addLinkedWorktree(
+			repoRoot,
+			"feature/clean-path-current",
+		);
+		const otherRoot = await createRepository();
+		const otherPath = await addLinkedWorktree(
+			otherRoot,
+			"feature/clean-path-other",
+		);
+		await registerRepo(otherRoot);
+		const stdout: string[] = [];
+
+		try {
+			// When gji clean --force --json runs from the current repository with the other worktree's path.
+			const result = await createCleanCommand()({
+				cwd: repoRoot,
+				force: true,
+				json: true,
+				paths: [otherPath],
+				stderr: () => undefined,
+				stdout: (chunk) => stdout.push(chunk),
+			});
+
+			// Then only the other repository's worktree is removed.
+			expect(result).toBe(0);
+			expect(
+				JSON.parse(stdout.join("")).removed.map(
+					(entry: { path: string }) => entry.path,
+				),
+			).toEqual([otherPath]);
+			await expect(pathExists(otherPath)).resolves.toBe(false);
+			await expect(pathExists(currentPath)).resolves.toBe(true);
+		} finally {
+			if (originalConfigDir === undefined) {
+				delete process.env.GJI_CONFIG_DIR;
+			} else {
+				process.env.GJI_CONFIG_DIR = originalConfigDir;
+			}
+		}
+	});
+
+	it("matches --path written through a symlinked directory", async () => {
+		// Given a linked worktree and a symlink to its parent directory.
+		const repoRoot = await createRepository();
+		const worktreePath = await addLinkedWorktree(
+			repoRoot,
+			"feature/clean-link",
+		);
+		const linkRoot = await mkdtemp(join(tmpdir(), "gji-clean-link-"));
+		const linkedParent = join(linkRoot, "worktrees");
+		await symlink(dirname(worktreePath), linkedParent);
+		const stdout: string[] = [];
+
+		// When gji clean --dry-run --json filters by the symlinked path.
+		const result = await createCleanCommand()({
+			cwd: repoRoot,
+			dryRun: true,
+			json: true,
+			paths: [join(linkedParent, "clean-*")],
+			stderr: () => undefined,
+			stdout: (chunk) => stdout.push(chunk),
+		});
+
+		// Then the worktree's canonical path matches.
+		expect(result).toBe(0);
+		expect(
+			JSON.parse(stdout.join("")).removed.map(
+				(entry: { path: string }) => entry.path,
+			),
+		).toEqual([worktreePath]);
+	});
+
+	it("reports an unmatched --path instead of no stale worktrees", async () => {
+		// Given a linked worktree outside the filtered directory.
+		const repoRoot = await createRepository();
+		await addLinkedWorktree(repoRoot, "feature/clean-path-stale-miss");
+		const stderr: string[] = [];
+
+		// When gji clean --stale --json runs with a non-matching filter.
+		const result = await createCleanCommand()({
+			cwd: repoRoot,
+			json: true,
+			paths: ["/nonexistent/worktrees"],
+			stale: true,
+			stderr: (chunk) => stderr.push(chunk),
+			stdout: () => undefined,
+		});
+
+		// Then it fails with the path-filter error.
+		expect(result).toBe(1);
+		expect(JSON.parse(stderr.join(""))).toEqual({
+			error: "No linked worktrees match --path",
+		});
 	});
 
 	it("continues cleaning after a declined force remove in a batch", async () => {

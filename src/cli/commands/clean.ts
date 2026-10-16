@@ -1,3 +1,6 @@
+import { realpath } from "node:fs/promises";
+import { basename, dirname, join, resolve } from "node:path";
+
 import { confirm, isCancel } from "@clack/prompts";
 import {
 	loadLinkedWorktrees,
@@ -9,6 +12,13 @@ import {
 	listRegisteredWorktreeSources,
 } from "../../application/worktree/sources.js";
 import { mapWithConcurrency } from "../../domain/shared/concurrency.js";
+import {
+	createWorktreePathFilter,
+	escapePathPattern,
+	findGlobIndex,
+	unescapePathPattern,
+} from "../../domain/worktree/path-filter.js";
+import { expandTildeInPath } from "../../domain/worktree/policy.js";
 import type { WorktreeSource } from "../../domain/worktree/source.js";
 import type { WorktreeEntry } from "../../domain/worktree/types.js";
 import {
@@ -38,6 +48,7 @@ export interface CleanCommandOptions {
 	dryRun?: boolean;
 	force?: boolean;
 	json?: boolean;
+	paths?: string[];
 	stale?: boolean;
 	runtime?: CliRuntime<
 		| "git"
@@ -178,8 +189,34 @@ export function createCleanCommand(
 			options.cwd,
 			sourceDependencies,
 		);
+		const pathPatterns = await canonicalizePathPatterns(
+			options.cwd,
+			options.paths ?? [],
+		);
+		const matchesPathFilter = createWorktreePathFilter(pathPatterns);
+		// An explicit path may point at another registered repository, so
+		// --path starts in the all-repositories scope.
+		const searchAllRepositories = pathPatterns.length > 0;
+		let allSourceCount = 0;
+		const emitNoCandidates = (sourceCount: number): number => {
+			if (pathPatterns.length > 0 && sourceCount === 0) {
+				emitError(options, "No linked worktrees match --path");
+				return 1;
+			}
+			if (options.stale) {
+				emitNoStaleCandidates(options);
+				return 0;
+			}
+
+			emitError(options, "No linked worktrees to clean");
+			return 1;
+		};
 		const currentSources = linkedWorktrees
-			.filter((worktree) => worktree.path !== repository.currentRoot)
+			.filter(
+				(worktree) =>
+					worktree.path !== repository.currentRoot &&
+					matchesPathFilter(worktree.path),
+			)
 			.map((worktree) => ({
 				repoName: repository.repoName,
 				repoRoot: repository.repoRoot,
@@ -228,8 +265,10 @@ export function createCleanCommand(
 				(source): source is WorktreeSource & { repoRoot: string } =>
 					source.repoRoot !== undefined &&
 					source.worktree.path !== source.repoRoot &&
-					source.worktree.path !== repository.currentRoot,
+					source.worktree.path !== repository.currentRoot &&
+					matchesPathFilter(source.worktree.path),
 			);
+			allSourceCount = sources.length;
 			const otherRepositorySources = sources.filter(
 				(source) => source.repoRoot !== repository.repoRoot,
 			);
@@ -268,30 +307,20 @@ export function createCleanCommand(
 			},
 		};
 
-		if (currentCandidates.length === 0 && interactiveSelection) {
+		if (
+			searchAllRepositories ||
+			(interactiveSelection && currentCandidates.length === 0)
+		) {
 			const loadedAllCandidates = await loadAllCandidates();
 			if (loadedAllCandidates.length === 0) {
-				if (options.stale) {
-					emitNoStaleCandidates(options);
-					return 0;
-				}
-
-				emitError(options, "No linked worktrees to clean");
-				return 1;
+				return emitNoCandidates(allSourceCount);
 			}
 			currentScope = false;
 			activeCandidates = loadedAllCandidates;
 			scope.label = "all repositories";
 			scope.toggleLabel = "current repository";
-		}
-		if (currentCandidates.length === 0 && !interactiveSelection) {
-			if (options.stale) {
-				emitNoStaleCandidates(options);
-				return 0;
-			}
-
-			emitError(options, "No linked worktrees to clean");
-			return 1;
+		} else if (currentCandidates.length === 0) {
+			return emitNoCandidates(currentSources.length);
 		}
 
 		if (!options.dryRun && !options.force && (options.json || isHeadless())) {
@@ -559,6 +588,40 @@ export function createCleanCommand(
 }
 
 export const runCleanCommand = createCleanCommand();
+
+async function canonicalizePathPatterns(
+	cwd: string,
+	patterns: readonly string[],
+): Promise<string[]> {
+	return Promise.all(
+		patterns.map((pattern) =>
+			canonicalizeLiteralPrefix(resolve(cwd, expandTildeInPath(pattern))),
+		),
+	);
+}
+
+// Git records canonical worktree paths, so resolve symlinks in the pattern's
+// longest existing literal prefix before matching.
+async function canonicalizeLiteralPrefix(pattern: string): Promise<string> {
+	const globIndex = findGlobIndex(pattern);
+	let prefix =
+		globIndex === -1 ? pattern : dirname(`${pattern.slice(0, globIndex)}x`);
+	let suffix = pattern.slice(prefix.length);
+
+	for (;;) {
+		try {
+			const canonicalPrefix = escapePathPattern(
+				await realpath(unescapePathPattern(prefix)),
+			);
+			return `${canonicalPrefix}${suffix}`.replace(/^\/\//, "/");
+		} catch {
+			const parent = dirname(prefix);
+			if (parent === prefix) return pattern;
+			suffix = join("/", basename(prefix), suffix);
+			prefix = parent;
+		}
+	}
+}
 
 async function resolveCleanupCandidates(
 	options: ResolveCleanupCandidatesOptions,

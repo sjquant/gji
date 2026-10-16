@@ -230,7 +230,11 @@ _gji_completion() {
       COMPREPLY=( $(compgen -W "--compact --json --help" -- "$cur") )
       ;;
     clean)
-      COMPREPLY=( $(compgen -W "-f --force --stale --dry-run --json --help" -- "$cur") )
+      if [ "\${COMP_WORDS[COMP_CWORD-1]}" = "--path" ]; then
+        COMPREPLY=( $(compgen -d -- "$cur") )
+      else
+        COMPREPLY=( $(compgen -W "-f --force --stale --path --dry-run --json --help" -- "$cur") )
+      fi
       ;;
     remove|rm)
       COMPREPLY=( $(compgen -W "$(__gji_worktree_branches) -f --force --dry-run --json --help" -- "$cur") )
@@ -480,6 +484,7 @@ complete -c gji -n '__fish_seen_subcommand_from ls' -l json -d 'print active wor
 
 complete -c gji -n '__fish_seen_subcommand_from clean' -s f -l force -d 'bypass prompts, force-remove dirty worktrees, and force-delete unmerged branches'
 complete -c gji -n '__fish_seen_subcommand_from clean' -l stale -d 'only target clean worktrees whose upstream is gone and branch is merged into the default branch'
+complete -c gji -n '__fish_seen_subcommand_from clean' -l path -r -F -d 'only target worktrees under a directory or matching a path glob (repeatable)'
 complete -c gji -n '__fish_seen_subcommand_from clean' -l dry-run -d 'show what would be deleted without removing anything'
 complete -c gji -n '__fish_seen_subcommand_from clean' -l json -d 'emit JSON on success or error instead of human-readable output'
 
@@ -643,7 +648,7 @@ case "\${words[2]}" in
     _arguments '--compact[show only branch and path columns]' '--json[print active worktrees as JSON]'
     ;;
   clean)
-    _arguments '(-f --force)'{-f,--force}'[bypass prompts, force-remove dirty worktrees, and force-delete unmerged branches]' '--stale[only target clean worktrees whose upstream is gone and branch is merged into the default branch]' '--dry-run[show what would be deleted without removing anything]' '--json[emit JSON on success or error instead of human-readable output]'
+    _arguments '(-f --force)'{-f,--force}'[bypass prompts, force-remove dirty worktrees, and force-delete unmerged branches]' '--stale[only target clean worktrees whose upstream is gone and branch is merged into the default branch]' '*--path[only target worktrees under a directory or matching a path glob]:pattern:_files' '--dry-run[show what would be deleted without removing anything]' '--json[emit JSON on success or error instead of human-readable output]'
     ;;
   remove|rm)
     _arguments '(-f --force)'{-f,--force}'[bypass prompts, force-remove a dirty worktree, and force-delete an unmerged branch]' '--dry-run[show what would be deleted without removing anything]' '--json[emit JSON on success or error instead of human-readable output]' '2:branch:->worktrees'

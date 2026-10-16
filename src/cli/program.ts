@@ -450,6 +450,11 @@ function registerCommands(program: Command): void {
 			"--stale",
 			"only target clean worktrees whose upstream is gone and branch is merged into the default branch",
 		)
+		.option(
+			"--path <pattern>",
+			"only target worktrees under a directory or matching a path glob (repeatable)",
+			collectOption,
+		)
 		.option("--dry-run", "show what would be deleted without removing anything")
 		.option(
 			"--json",
@@ -964,6 +969,7 @@ function attachCommandActions(
 			dryRun?: boolean;
 			force?: boolean;
 			json?: boolean;
+			path?: string[];
 			stale?: boolean;
 		}) => {
 			const exitCode = await runCleanCommand({
@@ -971,6 +977,7 @@ function attachCommandActions(
 				dryRun: commandOptions.dryRun,
 				force: commandOptions.force,
 				json: commandOptions.json,
+				paths: commandOptions.path,
 				stale: commandOptions.stale,
 				runtime: options.dependencies,
 				stderr: options.stderr,
@@ -1125,6 +1132,10 @@ function requireCommand(parent: Command, name: string): Command {
 		throw new Error(`Command registration is missing: ${name}`);
 	}
 	return command;
+}
+
+function collectOption(value: string, previous: string[] = []): string[] {
+	return [...previous, value];
 }
 
 function notImplemented(commandName: string): () => never {
