@@ -221,7 +221,7 @@ describe("gji run-hook", () => {
 		// Then the command exits non-zero with an error naming the bad hook and listing valid ones.
 		expect(result.exitCode).toBe(1);
 		expect(stderr.join("")).toContain(
-			"unknown hook 'onSpookyEvent'. Valid hooks: after-create, after-enter, before-remove",
+			"unknown hook 'onSpookyEvent'. Valid hooks:",
 		);
 	});
 

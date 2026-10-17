@@ -20,7 +20,7 @@ export interface BackCommandOptions {
 	outputEnv?: string;
 	print?: boolean;
 	runtime?: CliRuntime<
-		"config" | "historyStore" | "hooks" | "repositoryContext"
+		"config" | "historyStore" | "hooks" | "repositoryContext" | "slots"
 	>;
 	stderr: (chunk: string) => void;
 	stdout: (chunk: string) => void;
@@ -106,6 +106,7 @@ export async function runBackCommand(
 				branch: target.branch ?? undefined,
 				path: target.path,
 				repo: basename(repository.repoRoot),
+				slot: await runtime.slots.getWorktreeSlot(target.path),
 			},
 			options.stderr,
 		);

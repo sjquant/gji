@@ -54,6 +54,7 @@ export interface CleanCommandOptions {
 		| "git"
 		| "config"
 		| "configStore"
+		| "hooks"
 		| "slots"
 		| "repositoryContext"
 		| "repositoryRegistry"
@@ -163,7 +164,8 @@ export function createCleanCommand(
 			runGit,
 		} = runtime.git;
 		const { loadEffectiveConfig } = runtime.config;
-		const { releaseWorktreeSlot } = runtime.slots;
+		const { getWorktreeSlot, releaseWorktreeSlot } = runtime.slots;
+		const { extractHooks, runHook } = runtime.hooks;
 		const sourceDependencies = {
 			...runtime.repositoryContext,
 			...runtime.repositoryRegistry,
@@ -453,6 +455,20 @@ export function createCleanCommand(
 				);
 				continue;
 			}
+
+			const hooks = extractHooks(await loadEffectiveConfig(repoRoot));
+			await runHook(
+				hooks["before-remove"],
+				worktree.path,
+				{
+					branch: worktree.branch ?? undefined,
+					path: worktree.path,
+					repo: basename(repoRoot),
+					slot: await getWorktreeSlot(worktree.path),
+				},
+				options.stderr,
+				options.json ? () => undefined : options.stdout,
+			);
 
 			try {
 				await removeWorktree(repoRoot, worktree.path);

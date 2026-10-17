@@ -464,7 +464,7 @@ function registerCommands(program: Command): void {
 		.command("run-hook <hook>")
 		.alias("trigger-hook")
 		.description(
-			"run a named hook (after-create, after-enter, before-remove) in the current worktree",
+			"run a named hook (after-branch-create, after-create, after-enter, after-switch, before-remove) in the current worktree",
 		)
 		.action(notImplemented("run-hook"));
 
