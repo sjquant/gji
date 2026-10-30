@@ -1,97 +1,138 @@
 ---
 title: Troubleshooting
-description: Common setup, shell handoff, dependency setup, and Git worktree troubleshooting tips for gji.
+description: Get back to work when shell navigation, dependency setup, PR fetching, sync, or cleanup doesn't do what you expect.
 ---
 
-# Troubleshooting
+# Get back to your task
 
-Start with a diagnostic report whenever setup or configuration is unclear:
+Start with a diagnosis inside the affected repository:
 
 ```bash
 gji doctor
 ```
 
-If the report says that registered repository paths are missing, review and remove
-those stale entries with:
-
-```bash
-gji doctor --fix
-```
-
-Interactive terminals ask for confirmation. Use `--yes` when running headlessly or
-when the fix has already been reviewed:
-
-```bash
-gji doctor --fix --yes
-```
-
-Only missing repository registry entries are fixed automatically. Git, shell,
-configuration, and editor problems still include a manual hint.
+Follow the hints for Git, your shell, and configuration. The sections below
+cover the common symptoms.
 
 ## `gji go` prints a path instead of changing directories
 
-Shell integration is not installed or not loaded in the current shell session.
+The shell wrapper isn't loaded in this session. For zsh:
 
 ```bash
 eval "$(gji init zsh)"
 ```
 
-Then retry the command.
+For bash, replace `zsh` with `bash`. In fish, run `gji init fish | source`.
+Retry `gji go`. To make it persistent, run `gji init`, restart your shell, and
+verify again with `gji doctor`.
+
+See [shell integration](./shell-integration) for explicit installation and
+script-only usage.
 
 ## The worktree exists but dependencies are missing
 
-Each worktree is a separate directory. If your project requires its own install state per directory, run installs there or configure an `afterCreate` hook.
+Creation can finish before dependency setup fails. Use the path reported in the
+error to enter the created worktree; don't remove and recreate it just to retry
+an install.
 
-```json
-{
-  "hooks": {
-    "afterCreate": "pnpm install"
-  }
-}
-```
-
-## I want raw paths for scripts
-
-Use `--print`:
+Run your project's normal install command there, for example:
 
 ```bash
-gji go --print feature/foo
-gji root --print
+pnpm install
 ```
 
-## `sync` refuses to run
+Check that the package manager is available and registry access works. If
+`afterCreate` didn't run because installation failed, rerun the configured hook
+when appropriate:
 
-The current worktree may be dirty or detached.
+```bash
+gji run-hook afterCreate
+```
 
-Check:
+Only rerun commands you intend to repeat. Hooks may have side effects. The hook
+command itself doesn't rerun automatic dependency installation.
+
+If no supported lockfile is present, configure a project-specific
+[setup hook](./hooks) or install manually. See
+[dependency bootstrap](./configuration#dependency-bootstrap) for supported tools.
+
+## I want to skip dependency setup
+
+For one task:
+
+```bash
+gji new feature/search --no-install
+gji pr 1234 --no-install
+```
+
+For a repository, set `dependencyBootstrap` to `off` in `.gji.json`.
+
+## Local setup files weren't copied
+
+Check the configured list:
+
+```bash
+gji sync-files list
+```
+
+Source files must exist in the **main worktree**, not just the worktree you're
+currently in. Missing sources are skipped and existing destination files aren't
+overwritten. Changes to the list apply to future worktrees; copying isn't
+continuous. See [local files](./configuration#sync-private-local-files).
+
+## `sync` refuses to run, or a rebase stops
 
 ```bash
 gji status
 git status --short
 ```
 
-Then either clean the working tree or switch to a branch-backed worktree.
+The worktree may have local changes or a detached `HEAD`. Resolve local changes
+or move to a branch-backed worktree before syncing. If a rebase is already in
+progress, resolve it with your usual Git workflow (`git rebase --continue` or
+`git rebase --abort`) before retrying.
 
-## Pull request checkout is not behaving as expected
+## A PR won't open locally
 
-Make sure the PR reference is valid and that the repository remote is reachable. `gji pr` accepts either a numeric PR or a full GitHub PR URL.
+Check that its number or URL belongs to the current repository and that the
+Git remote is reachable with your current credentials. `gji pr` fetches PR refs;
+it doesn't grant access to private repositories.
 
-## Cleanup prompts feel too repetitive
-
-Use `--force` when you have already reviewed what should be removed:
-
-```bash
-gji clean --force
-gji done feature/foo --force
-```
-
-## Dependency installation is not what I want
-
-Dependency installation is automatic when a supported lockfile is detected. To skip it for one worktree:
+For a plan without creating files:
 
 ```bash
-gji new feature/foo --no-install
-gji pr 123 --no-install
+gji pr 1234 --dry-run
 ```
 
-To disable it for a repository, set `dependencyBootstrap` to `off` in `.gji.json`.
+## A repository in the registry no longer exists
+
+Review the stale entries:
+
+```bash
+gji doctor --fix
+```
+
+Interactive mode asks before removing missing repository entries. Use
+`gji doctor --fix --yes` for an already-reviewed headless fix. This doesn't
+repair Git, editor, or shell configuration automatically.
+
+## Cleanup refuses to remove a worktree
+
+Check for local changes, an unmerged branch, and whether the worktree is current
+or primary. Keep the branch with `gji done <branch> --keep-branch` if you only
+want to remove the directory.
+
+Don't use `--force` just to suppress a warning: it can discard uncommitted files
+and delete unmerged branches. Read [cleanup and recovery](./sync-and-cleanup)
+first. `gji undo --list` shows recoverable recorded operations; undo doesn't
+recover uncommitted files.
+
+## I only need paths for a script
+
+```bash
+gji go --print feature/payments
+gji root --print
+```
+
+These don't require the shell wrapper. For structured state, use the relevant
+command's `--json` option; see [commands](./commands#paths-and-json-for-scripts).

@@ -1,0 +1,151 @@
+.demo {
+	max-width: 60rem;
+	margin: 2rem auto 0;
+	scroll-margin-top: 5rem;
+}
+.steps {
+	display: flex;
+	justify-content: center;
+	gap: 0.2rem;
+	border: 0;
+	padding: 0;
+	min-width: 0;
+	margin: 0.5rem auto 0;
+}
+.steps button {
+	display: grid;
+	place-items: center;
+	width: 1.75rem;
+	height: 1.75rem;
+	padding: 0;
+	border: 0;
+	background: none;
+	cursor: pointer;
+}
+.steps button::before {
+	content: "";
+	display: block;
+	width: 0.85rem;
+	height: 0.18rem;
+	border-radius: 1px;
+	background: var(--gji-border);
+}
+.steps button[aria-pressed="true"]::before {
+	background: var(--gji-accent);
+}
+.terminal {
+	background: #0d0f12;
+	color: #e6edf3;
+	border-radius: 0.6rem;
+	overflow: hidden;
+}
+.screen {
+	height: 11.5rem;
+	margin: 0;
+	padding: 1.35rem 1.7rem;
+	border: 0;
+	border-radius: 0;
+	background: transparent;
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+	font: 0.92rem / 1.85 var(--ifm-font-family-monospace);
+	color: #e6edf3;
+}
+.screen code {
+	background: transparent;
+	border: 0;
+	color: inherit;
+	padding: 0;
+	font: inherit;
+}
+.prompt {
+	color: #8b949e;
+}
+.output {
+	color: #c9d1d9;
+}
+.workspaces {
+	display: flex;
+	gap: 0;
+	padding: 0 1.7rem 1.4rem;
+}
+.workspace {
+	flex: 1;
+	min-width: 0;
+	padding: 0.25rem 0.8rem;
+	border-left: 2px solid #30363d;
+	color: #9da7b3;
+}
+.active {
+	border-color: #b9ca9f;
+	color: #e6edf3;
+}
+.hidden {
+	visibility: hidden;
+}
+.branch {
+	display: block;
+	font: 0.74rem var(--ifm-font-family-monospace);
+	overflow-wrap: anywhere;
+}
+.note {
+	color: var(--gji-muted);
+	font-size: 0.72rem;
+	text-align: center;
+	margin: 0.5rem 0 0;
+}
+.fallback {
+	color: var(--gji-ink-strong);
+}
+@media (max-width: 650px) {
+	.screen {
+		font-size: 0.73rem;
+		height: 9rem;
+		padding: 1rem;
+	}
+	.workspaces {
+		flex-wrap: wrap;
+		padding: 0 1rem 1rem;
+		gap: 0.5rem 0;
+	}
+	.workspace {
+		flex: 0 0 auto;
+		padding: 0.2rem 0.6rem;
+	}
+	.branch {
+		font-size: 0.65rem;
+	}
+}
+.executable {
+	color: #79c0ff;
+}
+.argument {
+	color: #d2a8ff;
+}
+.filename {
+	color: #f2cc8f;
+}
+.modified {
+	color: #e3b341;
+}
+.outputLine {
+	display: block;
+}
+.cursor {
+	display: inline-block;
+	width: 0.5rem;
+	height: 1rem;
+	background: #e6edf3;
+	vertical-align: -0.1rem;
+}
+.srOnly {
+	position: absolute;
+	width: 1px;
+	height: 1px;
+	padding: 0;
+	margin: -1px;
+	overflow: hidden;
+	clip-path: inset(50%);
+	white-space: pre;
+	border: 0;
+}

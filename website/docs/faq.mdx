@@ -1,68 +1,94 @@
 ---
 title: FAQ
-description: Common questions about gji shell integration, worktree paths, installs, and branch isolation.
+description: Answers about task isolation, dependencies, shell integration, local files, and cleanup before you adopt gji.
 ---
 
-# FAQ
+# Frequently asked questions
 
-## Why does `gji` need shell integration?
+## Do I need to commit or stash before opening another task?
 
-Normal CLI processes cannot change the working directory of the parent shell. The shell integration bridges that gap so commands like `gji go` can move your shell directly.
+Not for a separate worktree. Your changes stay in the original directory while
+`gji new` or `gji pr` opens another task elsewhere. `gji new --branch-only` is
+different: it reuses the current worktree and requires it to be clean.
 
-## Can I use `gji` without shell integration?
+## Does navigation move my changes to another branch?
 
-Yes. Use `--print` and consume the returned path in scripts or wrappers.
+No. `go` and `back` change your location; files stay in their worktree. Use
+`gji new <branch> --take` when you deliberately want to move uncommitted changes
+into a new task, or add `--copy` to keep them in both places.
 
-## Why are worktrees stored outside the main repository?
+## What does each worktree isolate?
 
-That keeps branch-specific files isolated and avoids mixing generated outputs, dependency folders, and editor state into a single checkout.
+Working files, dependency installations, and generated files are in separate
+directories. Git history and refs are shared. Services, ports, databases, and
+other external resources still need project-specific configuration.
 
-## Why do worktrees matter more in AI-assisted workflows?
+## Can I use my editor or coding agent?
 
-Because AI tends to increase the number of parallel tasks around one repository, not decrease it.
+Yes. Enter a worktree and run your usual tool there. `gji open` can open it in
+an installed editor. Give parallel agent tasks separate worktrees when you want
+them to work on separate files; gji doesn't manage or coordinate the agents.
 
-You may want your main feature open, a PR review open, and a scratch branch for agent-generated changes at the same time. Worktrees give each task its own directory and state so they do not step on each other.
+## Why does gji need shell integration?
 
-`gji` makes that style practical enough to use constantly.
+A CLI process cannot change the working directory of its parent shell. The
+wrapper bridges that gap. Run `gji init`, restart your shell, and check
+`gji doctor`. See [shell integration](./shell-integration).
 
-## What path layout does `gji` use?
+## Can I use it without the wrapper?
 
-Worktrees are stored at:
+Yes. Create or inspect worktrees normally, and use `gji go --print <branch>` or
+`gji root --print` when scripts need a path. Automatic directory changes need
+the wrapper.
+
+## Where do worktrees live?
+
+By default:
 
 ```text
 ../worktrees/<repo>/<branch>
 ```
 
-That deterministic layout makes shell aliases, editor bookmarks, and scripts easier to keep stable.
+They sit outside the main checkout, with a predictable path for each branch.
+Use `gji ls` to inspect the directories that already exist.
 
-## Do I need to reinstall dependencies in every worktree?
+## Do dependencies install for every worktree?
 
-Usually yes, because each worktree is a separate directory with its own dependency state. Hooks make that painless by running your install command automatically.
+A new worktree needs its own install state. Supported lockfiles trigger
+installation automatically; no dependency tree is copied from another
+worktree. The first setup can take time. Use `--no-install` for one creation,
+or set `dependencyBootstrap` to `off` for the repository. See
+[dependency bootstrap](./configuration#dependency-bootstrap).
 
-## How do I copy gitignored files like `.env.local` into new worktrees?
-
-Use `gji sync-files` from the main repository:
-
-```bash
-gji sync-files add .env.local .npmrc
-```
-
-New worktrees receive those files before install hooks run. The setting is stored in your global per-repo config so private file names do not need to be committed.
-
-## Can I use URL and PR number formats together?
-
-Yes. `gji pr` accepts a numeric PR reference or a full GitHub pull request URL.
-
-## Is configuration global or repo-specific?
-
-Both. Global defaults live in `~/.config/gji/config.json`, and `.gji.json` can override them per repository.
-
-## Can I re-run setup without recreating the worktree?
-
-Yes. Use:
+## How do new worktrees get `.env.local`?
 
 ```bash
-gji trigger-hook afterCreate
+gji sync-files add .env.local
 ```
 
-That is useful when the worktree already exists but you need to rerun install or bootstrap steps.
+Future worktrees copy it from the **main worktree**, before dependency setup.
+It isn't kept synchronized afterward. See
+[local file configuration](./configuration#sync-private-local-files).
+
+## Which PR formats work?
+
+`gji pr` accepts a GitHub PR number, a quoted `'#1234'`, or a full GitHub PR URL.
+Use a reference belonging to the repository you are working in.
+
+## Where should I put my settings?
+
+Personal defaults go in `~/.config/gji/config.json`. Per-repo entries there keep
+personal settings out of Git. Use `.gji.json` for shared project defaults.
+See [configuration](./configuration).
+
+## Can I rerun setup without recreating a worktree?
+
+Run your project's install command inside that directory for dependency setup.
+To rerun a configured hook, use `gji run-hook afterCreate`. The hook command
+doesn't rerun the built-in dependency adapter.
+
+## Can undo recover files removed during cleanup?
+
+It restores recorded branch and worktree state, but not uncommitted or
+untracked files. Review worktree contents before removal, especially with
+`--force`. See [sync and cleanup](./sync-and-cleanup#restore-a-journaled-cleanup).

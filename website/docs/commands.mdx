@@ -1,221 +1,163 @@
 ---
 sidebar_position: 4
 title: Commands
-description: Reference for gji commands, navigation, cleanup, sync, hooks, and configuration.
-keywords:
-  - gji commands
-  - git worktree command reference
-  - gji back
+description: Find the gji command for starting, navigating, reviewing, inspecting, or finishing work, with important options and effects.
 image: /img/social-card.png
 ---
 
-# Commands
+# Command reference
 
-Running `gji` without a subcommand opens the action-oriented repository hub.
-It shows the current worktree, recommends a next worktree, separates worktrees
-needing attention, and collapses quiet worktrees. Use `gji --json` for
-dashboard, IDE, fzf, and other ecosystem integrations; the JSON projection
-remains additive to the existing `ls --json` and `status --json` contracts.
+Start with the task you want to do. For the complete option list of any command,
+run `gji <command> --help`. If you're trying gji for the first time, follow the
+[quick start](./quick-start) instead.
 
-## Everyday commands
+## Start and review
 
-| Command | What it does |
+| Command | Outcome |
 | --- | --- |
-| `gji [--json]` | Show the action-oriented repository/worktree hub, optionally as structured JSON. |
-| `gji new [branch] [--branch-only] [--from-current] [--detached] [--take] [--copy] [--task <description>] [--force] [--open] [--editor <cli>] [--dry-run] [--json]` | Create a branch and worktree, or update the default branch and create one in the current worktree with `--branch-only`. |
-| `gji done [branch] [--force] [--keep-branch] [--json]` | Safely finish a linked worktree and return. |
-| `gji undo [id] [--list] [--json]` | Restore a journaled cleanup without overwriting work. |
-| `gji pr <ref> [--json]` | Fetch a pull request ref and open it in a dedicated worktree. |
-| `gji pr open [branch|#N] [--select]` | Open the current worktree PR, or choose a linked worktree with `--select`. |
-| `gji go [branch] [--root] [--print] [--json]` | Resolve and jump to a worktree, branch, remote, or PR. |
-| `gji open [branch] [--select] [--editor <cli>] [--save] [--workspace]` | Open the current or selected worktree in an editor. |
-| `gji back [n] [--print]` | Return to the previously visited worktree, optionally N steps back. |
-| `gji history [--json]` | Show navigation history. |
-| `gji root [--print]` | Jump back to the main repo root. |
-| `gji status [--json]` | Show repo health, active worktrees, and ahead/behind counts. |
-| `gji task [description] [--clear] [--json]` | Show, set, or clear the current worktree task. |
-| `gji ls [--compact] [--json]` | Show detailed or compact worktree lists. |
-| `gji sync [--all]` | Fetch and rebase worktrees onto the default branch. |
-| `gji sync-files [--json] [list\|add\|remove] [paths...]` | Manage local files copied into new worktrees. |
-| `gji clean [--stale] [--path <pattern>] [--force] [--dry-run] [--json]` | Interactively prune linked worktrees. |
-| `gji trigger-hook <hook>` | Re-run a configured hook in the current worktree. |
-| `gji config [get\|set\|unset] [key] [value]` | Read and update configuration values. |
-| `gji init [shell]` | Interactively set up shell integration, completion, and an editor; with a shell argument, print or install the wrapper. |
-| `gji doctor [--json] [--fix] [--yes]` | Check installation and configuration health; optionally remove stale repository entries. |
-| `gji completion [shell]` | Print shell completion definitions. |
+| `gji new [branch]` | Create a branch and linked worktree; omit the branch for an interactive flow |
+| `gji pr <ref>` | Fetch a GitHub pull request into a dedicated worktree; accepts a number, `#number`, or URL |
+| `gji pr open [branch\|#N]` | Open the hosted PR page for the current or named worktree |
+| `gji pr open --select` | Choose a PR from linked worktrees, then open its hosted page |
 
-## Command groups
+### Creation options
 
-### Creation and entry
+| Option | Effect |
+| --- | --- |
+| `--open`, `--editor <cli>` | Open the created worktree in an editor; `--editor` needs `--open` |
+| `--task <description>` | Record what the new worktree is for |
+| `--from-current` | Base a new branch on the current worktree's `HEAD` instead of the main worktree |
+| `--detached` | Create scratch space without a branch; incompatible with `--from-current` |
+| `--take` | Move current uncommitted changes into the new worktree |
+| `--take --copy` | Copy those changes and leave them in the source too |
+| `--branch-only` | Create a branch in the current worktree; requires it to be clean and creates no new directory |
+| `--no-fetch` | Skip refreshing the remote default branch before creation |
+| `--no-install` | Skip automatic dependency setup for this worktree |
+| `--dry-run` | Inspect the plan without Git commands or file writes |
+| `--force` | Remove and recreate an existing target worktree path; review it before replacing it |
+| `--json` | Emit structured success or error output |
 
-- `gji new`
-- `gji pr`
-- `gji go`
-- `gji open`
-- `gji back [n]`
-- `gji root`
-
-These are the commands you use for opening or switching context.
-
-### Inspection
-
-- `gji status`
-- `gji ls`
-- `gji ls --compact`
-- `gji doctor`
-
-Use these when you need to understand the current set of worktrees and their state.
-
-### Maintenance
-
-- `gji sync`
-- `gji sync-files`
-- `gji done`
-- `gji clean`
-- `gji trigger-hook`
-
-These are the commands that keep the worktree set healthy over time.
-
-### Configuration and shell setup
-
-- `gji config`
-- `gji init`
-
-Use these to shape default behavior and shell handoff.
-
-## Common patterns
-
-### Start feature work and open it in an editor
+These options describe `new`. `pr` supports `--no-install`, `--dry-run`, and
+`--json`. Project-specific setup follows the built-in dependency adapter; see
+[configuration](./configuration#dependency-bootstrap).
 
 ```bash
-gji new feature/auth-refactor --open --editor cursor
+gji new feature/search --open --editor cursor
+gji new feature/search-tests --from-current
+gji pr 1234 --dry-run
 ```
 
-By default, `gji new` starts the branch from the main worktree. Use `--from-current` when the new branch should include the current worktree's `HEAD` instead. It cannot be combined with `--detached`:
+`--branch-only` refreshes the configured default branch and creates the branch
+in place without dependency setup. Use `--no-fetch` to use the local default
+branch. Choose a separate worktree when the task you leave needs to stay open.
+
+## Navigate and open editors
+
+| Command | Outcome |
+| --- | --- |
+| `gji go [branch]` | Enter an existing worktree, or resolve a branch, remote branch, or PR into one |
+| `gji go repo/branch` | Disambiguate a destination across registered repositories |
+| `gji go --root` or `gji root` | Return to the main repository checkout |
+| `gji back [n]` or `gji go -` | Return to the previously visited worktree; `back n` goes farther into history |
+| `gji history [--json]` | Show where you've been |
+| `gji open [branch]` | Open the current or named worktree in an editor |
+| `gji open --select` | Choose a worktree and editor interactively |
+
+With no destination, `go` opens a chooser for the current repository. Press
+**Tab** for all registered repositories. Press **/** to search branch, path, PR,
+or task text.
+
+A branch argument resolves the current repository first, then other registered
+repositories, an existing local branch, a fetched remote branch, and a PR ref.
+`go --json` only resolves existing destinations: it doesn't fetch or create one.
 
 ```bash
-gji new feature/auth-tests --from-current
+gji go feature/payments
+gji go api/main
+gji back 2
+gji open --editor cursor --save
+gji open feature/payments --workspace
 ```
 
-If installing dependencies for every task is unnecessary, reuse the current
-worktree instead:
+`open --save` remembers the editor CLI. `--workspace` generates a
+`.code-workspace` file for VS Code, Cursor, or Windsurf. `go --quiet` suppresses
+the context card. Navigation changes your current shell directory only when
+[shell integration](./shell-integration) is loaded.
+
+## Inspect and label work
+
+| Command | Outcome |
+| --- | --- |
+| `gji [--json]` | Open the repository hub with current work, suggested destinations, and worktrees needing attention |
+| `gji status [--json]` | Check repository/worktree health and ahead/behind counts |
+| `gji ls [--compact] [--json]` | List worktrees; compact mode shows branch and path |
+| `gji task [description] [--clear] [--json]` | Read, set, or clear the current worktree's task description |
+| `gji doctor [--json]` | Diagnose shell, Git, configuration, and registry setup |
+
+Use `gji doctor --fix` to review removal of missing repository registry entries.
+It doesn't repair Git or shell configuration automatically. `--yes` applies
+that fix without prompting.
+
+## Maintenance
+
+| Command | Outcome |
+| --- | --- |
+| `gji sync [--all] [--json]` | Fetch and rebase one or all worktrees onto the default branch |
+| `gji done [branch] [--keep-branch] [--force] [--json]` | Remove a finished linked worktree and, unless kept, its branch |
+| `gji clean [--stale] [--path <pattern>] [--dry-run] [--force] [--json]` | Select and remove several linked worktrees |
+| `gji undo [id] [--list] [--json]` | Restore recorded state from a journaled cleanup without overwriting existing work |
+| `gji sync-files [list\|add\|remove] [paths...] [--json]` | Manage files copied from the main worktree into future worktrees |
+| `gji run-hook <hook>` | Run a configured lifecycle hook in the current worktree; `trigger-hook` is an alias |
+
+`sync` can require rebase conflict resolution. `done` and `clean` can delete
+branches. **`--force` can discard uncommitted files and delete unmerged branches;
+undo cannot recover those files.** Read [sync and cleanup](./sync-and-cleanup)
+before automating removal.
 
 ```bash
-gji new feature/auth-tests --branch-only
+gji clean --stale --dry-run
+gji done feature/search --keep-branch
+gji undo --list
+gji sync-files add .env.local
+gji run-hook afterCreate
 ```
 
-`--branch-only` requires a clean worktree, fetches the configured default
-branch, and checks out the new branch from that remote ref without creating a
-worktree or running dependency bootstrap. Pass `--no-fetch` to use the local
-default branch as-is.
+`--stale` selects clean worktrees with a missing upstream and changes already
+merged into the default branch. Repeat `--path` to match any of several
+locations; path filters search all registered repositories. See
+[path filtering](./sync-and-cleanup#limit-cleanup-to-a-location).
 
-Open the current worktree directly, choose another interactively, or target a branch:
+## Setup and defaults
+
+| Command | Outcome |
+| --- | --- |
+| `gji init [shell] [--write]` | Run guided setup, or print/install a specific shell wrapper |
+| `gji completion [shell]` | Print shell completions |
+| `gji config get [key]` | Read global defaults or one value |
+| `gji config set <key> <value>` | Save a global default |
+| `gji config unset <key>` | Remove a global default |
+
+See [installation](./installation), [configuration](./configuration), and
+[hooks](./hooks) for setup choices.
+
+## Paths and JSON for scripts
+
+Use `--print` with `go`, `back`, or `root` when you only need the destination:
 
 ```bash
-gji open                    # open the current worktree in an editor
-gji open --select           # pick a worktree, then an editor
-gji open feature/auth-refactor --editor code
-gji open --editor cursor --save   # save cursor as your default editor
+feature_path=$(gji go --print feature/payments)
 ```
 
-`--workspace` generates a `.code-workspace` file before opening, enabling per-workspace settings in VS Code, Cursor, and Windsurf.
-
-### Open a pull request for review
+`--json` is available on the hub, `new`, `pr`, `go`, `status`, `ls`, `task`,
+`history`, `sync`, `sync-files`, `clean`, `done`, `undo`, and `doctor`.
+Navigation JSON includes `repository.name` and canonical `repository.root`.
 
 ```bash
-gji pr 1234
-
-# Open the web page for an existing open PR
-gji pr open
-gji pr open --select
-gji pr open feature/auth-refactor
-gji pr open '#1234'
+gji --json
+gji go feature/payments --json
+gji new feature/search --json
 ```
 
-### Navigate across repositories
-
-With no branch argument, `gji go` opens a chooser scoped to the current repository. Press `Tab` to switch to all registered repositories; the chooser loads the global scope only when requested. A branch argument still resolves the current repository first, then other registered repositories, an existing local branch, a fetched remote branch, and finally a pull-request reference.
-
-```bash
-gji go teammate-branch
-gji go origin-only-branch
-gji go 1234
-gji go -                         # return to the previous worktree
-gji go --root                    # return to the main repository checkout
-gji go --json feature/auth-refactor
-```
-
-Use `--json` only for already-existing destinations; it never creates a worktree or fetches a PR. Navigation JSON includes `repository.name` and the canonical `repository.root`. Use `gji new` when you want to create a worktree explicitly:
-
-```bash
-gji new fix/copy-regression
-```
-
-Use `gji go <branch>` for direct navigation, or run `gji go` and press `Tab`
-when you want to browse all registered repositories.
-`repo/branch` still disambiguates across repositories, and `--print`/`--json`
-remain available for scripts:
-
-```bash
-gji go feature/auth-refactor
-gji go repo-a/main
-gji go feature/auth-refactor --json
-```
-
-### Re-run your setup hook
-
-```bash
-gji trigger-hook afterCreate
-```
-
-### Sync local files into future worktrees
-
-```bash
-gji sync-files add .env.local .npmrc
-gji sync-files list
-gji sync-files remove .npmrc
-```
-
-Use `sync-files` for gitignored or machine-local files that new worktrees need before install hooks run. The command writes to your global per-repo config, so private file names do not need to be committed to `.gji.json`.
-
-### Return to the last worktree
-
-```bash
-gji back       # one step back
-gji back 2     # two steps back
-gji back 3     # three steps back
-```
-
-`gji back` behaves like `cd -` for worktrees. Run it once to return to wherever you were before. Run it again to toggle back. Pass a number to jump further into history. Use `gji history` to see where you've been:
-
-```bash
-gji history
-gji history --json
-```
-
-### Script against printed paths
-
-```bash
-repo_root=$(gji root --print)
-feature_path=$(gji go --print feature/auth-refactor)
-```
-
-## JSON output
-
-Several commands support `--json` so shell scripts and tools can consume structured output directly:
-
-- `gji new --json`
-- `gji pr --json`
-- `gji status --json`
-- `gji ls --json`
-- `gji clean --json`
-- `gji done --json`
-- `gji sync --json`
-- `gji sync-files --json`
-- `gji go --json`
-
-`gji clean --stale` limits cleanup to clean branch worktrees whose upstream is gone and whose changes are already merged into the configured or remote default branch, including squash- or rebase-merged changes.
-
-`gji clean --path <pattern>` limits cleanup to worktrees under a directory or matching a path glob, including in the all-repositories scope; see [Sync and cleanup](./sync-and-cleanup).
-
-When a supported lockfile is detected, `gji new` and `gji pr` automatically install dependencies before running `after-create`. Pass `--no-install` or set `dependencyBootstrap` to `off` to skip setup. Dependency setup never copies an existing tree or falls back to ordinary copying. Keep `after-create` hooks for project-specific commands such as generation and local-service setup. JSON bootstrap events include structured reasons, and failed setup reports the created worktree path for recovery. See the [configuration guide](./configuration#dependency-bootstrap) for adapter behavior, JSON output, and dry-run behavior.
+JSON doesn't mean read-only: creation still runs dependency setup unless you
+skip it. Use `--dry-run` where supported to inspect a plan. In headless cleanup,
+`--force` is required for removal; use `--dry-run` to review candidates first.

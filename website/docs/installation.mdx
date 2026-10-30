@@ -1,95 +1,88 @@
 ---
 sidebar_position: 2
 title: Installation
-description: Install gji globally and enable shell integration for directory handoff commands.
+description: Install gji and enable shell integration so new, go, and back take your shell to the right worktree.
 ---
 
-# Installation
+# Install gji
+
+Install the CLI, then enable shell integration once. The integration lets
+`gji new`, `gji go`, and `gji back` change the directory of your current shell.
 
 ## Requirements
 
-- Node.js `18` or newer for the CLI package.
-- `zsh` or `bash` if you want `gji go`, `gji new`, and `gji done` to change the current shell directory.
-- Git worktree support in your local Git installation.
+- **Node.js 18+** to run the npm package.
+- **Git with worktree support** and a local repository to work in.
+- **zsh, bash, or fish** for automatic directory changes.
+- Access to your Git remote for fetching branches or pull requests.
 
-## Install the CLI
+New worktrees install dependencies when a supported lockfile is detected. Your
+project's package manager must be available; the first install may take time
+and uses additional disk space. You can skip it with `--no-install`.
+
+## Install and set up your shell
 
 ```bash
 npm install -g @solaqua/gji
+gji init
 ```
 
-## What to expect after install
+The wizard installs shell integration and completions, and lets you choose an
+available editor. **Restart your shell**, or load the configuration file shown
+by the wizard, before continuing.
 
-After the package is installed:
-
-- `gji status` works immediately
-- path-printing modes like `gji root --print` work immediately
-- direct directory handoff still requires shell integration
-
-## Run guided setup
-
-`gji` can print paths for scripts without shell integration, but interactive navigation is much better once the shell hook is installed. Run the guided setup in a terminal to install shell integration, completions, and an available editor:
+Inside a repository, check the result:
 
 ```bash
-gji init
-# restart your shell, or source the rc file shown by the wizard
 gji doctor
 ```
 
-For dotfiles or CI, use the explicit shell command instead:
+Follow any hints for your shell, Git, or configuration. Then
+[create your first worktree](./quick-start).
+
+## Set up a specific shell
+
+For dotfiles or non-interactive setup:
 
 ```bash
 gji init zsh --write
+# Or use your shell:
+gji init bash --write
+gji init fish --write
 ```
 
-## Verify the setup
+Use just the command for your shell. To inspect the wrapper without writing it:
 
 ```bash
-gji status
-gji doctor
+gji init zsh
 ```
 
-If shell integration is active, commands like `gji new feature/foo` and `gji go main` can hand your shell to the target path directly.
+See [shell integration](./shell-integration) for session-only setup and scripts.
+Without it, worktree commands can still create or resolve directories, but they
+cannot move the parent shell for you.
 
-## Optional next step: automate setup in each new worktree
+## Optional: prepare local project files
 
-Many users want installs, environment setup, or local configuration files to be ready automatically.
-
-If every new worktree needs private files from your main worktree, register them first:
+If a new worktree needs private files from your **main worktree**, register them:
 
 ```bash
 gji sync-files add .env.local .npmrc
 ```
 
-`gji` stores that list in your global per-repo config and copies the files before setup hooks run.
+The file list is saved in global per-repository configuration. New worktrees
+receive those files before dependency setup; existing target files aren't
+overwritten. See [local files](./configuration#sync-private-local-files).
 
-Supported dependency adapters run automatically when a lockfile is detected. To permanently opt out for this repository, use:
+Keep [hooks](./hooks) for additional project setup, such as code generation.
+Don't add a second install hook if the built-in adapter already installs your
+dependencies.
 
-```json
-{
-  "dependencyBootstrap": "off"
-}
-```
-
-`gji new` automatically runs the appropriate dependency install command after `syncFiles` when a supported lockfile is detected. Dependency trees and build caches are never copied. Use `gji new --no-install` to skip setup, or `gji new --dry-run` to inspect the commands.
-
-Add an `afterCreate` hook:
-
-```json
-{
-  "hooks": {
-    "afterCreate": ["pnpm", "install"]
-  }
-}
-```
-
-Array hooks run without a shell and are the safer default for simple commands. If you need shell features in a string hook, quote context values with `"$GJI_PATH"`, `"$GJI_BRANCH"`, or `"$GJI_REPO"` instead of leaving template values unquoted.
-
-## Script-friendly mode
-
-Use `--print` when you want the raw path instead of shell handoff:
+## Update
 
 ```bash
-path=$(gji go --print feature/dark-mode)
-path=$(gji root --print)
+npm install -g @solaqua/gji
 ```
+
+Restart your shell to reload integration, then run `gji doctor` again.
+If navigation prints a path instead of moving your shell, follow
+[the navigation troubleshooting steps](./troubleshooting#gji-go-prints-a-path-instead-of-changing-directories).

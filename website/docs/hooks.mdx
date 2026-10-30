@@ -1,11 +1,15 @@
 ---
 title: Hooks
-description: Automate branch and worktree setup, entry, and cleanup with gji lifecycle hooks.
+description: Run project-specific setup and cleanup for each worktree, after built-in dependency setup has done its part.
 ---
 
-# Hooks
+# Automate the setup you repeat
 
-Hooks let `gji` run your setup and cleanup commands automatically at key lifecycle moments.
+Use hooks for project commands that should run when you create, enter, or remove
+a worktree: code generation, local service setup, or project cleanup.
+
+Supported dependency installation already runs automatically. Add an install
+hook only if your project needs setup the built-in adapters do not cover.
 
 If you only need to copy gitignored local files such as `.env.local` into new worktrees, use [`gji sync-files`](./configuration#sync-private-local-files) instead of a custom hook. Hooks are best for commands that actually need to run.
 
@@ -14,14 +18,15 @@ If you only need to copy gitignored local files such as `.env.local` into new wo
 ```json
 {
   "hooks": {
-    "afterCreate": ["pnpm", "install"],
+    "afterCreate": ["pnpm", "run", "generate"],
     "afterEnter": ["printf", "switched to %s\n", "{{branch}}"],
     "beforeRemove": "pnpm run cleanup"
   }
 }
 ```
 
-This is the simplest way to make each new worktree feel “ready” instead of empty.
+Put this in `.gji.json` for the project, or in global per-repo settings for
+your own workflow. Use commands that exist in your project.
 
 ## Available hooks
 
@@ -33,7 +38,7 @@ This is the simplest way to make each new worktree feel “ready” instead of e
 | `afterSwitch` | The current worktree switched to another branch in place. | `gji new --branch-only` | The current worktree |
 | `beforeRemove` | A linked worktree is about to be removed. | `gji done` and `gji clean`, once per worktree it attempts to remove | The worktree being removed |
 
-Put dependency installation and other worktree setup in `afterCreate`: it is
+Put project-specific setup in `afterCreate`: it is
 the only hook that runs after `gji` bootstraps a new worktree directory.
 `afterBranchCreate` and `afterSwitch` also run for `--branch-only`, where no
 new directory exists, so keep them limited to branch-level work such as
@@ -80,7 +85,7 @@ Prefer argv-array hooks when you do not need shell features:
 ```json
 {
   "hooks": {
-    "afterCreate": ["pnpm", "install"],
+    "afterCreate": ["pnpm", "run", "generate"],
     "afterEnter": ["printf", "switched to %s at %s\n", "{{branch}}", "{{path}}"]
   }
 }
@@ -95,7 +100,7 @@ For shell-string hooks, read the context from environment variables and double-q
 ```json
 {
   "hooks": {
-    "afterCreate": "pnpm install && printf 'ready: %s\n' \"$GJI_PATH\""
+    "afterCreate": "pnpm run generate && printf 'ready: %s\n' \"$GJI_PATH\""
   }
 }
 ```
@@ -122,16 +127,18 @@ You can rerun any hook from the table above in the current worktree:
 gji trigger-hook <hook>   # for example: gji trigger-hook afterCreate
 ```
 
-This is useful after cloning on a new machine or when you need to rebuild a worktree’s setup without recreating it.
+This reruns the configured hook, not the built-in dependency adapter. For a
+failed dependency install, run the project’s install command in that worktree;
+see [troubleshooting](./troubleshooting#the-worktree-exists-but-dependencies-are-missing).
 
 ## Practical examples
 
-### Install dependencies for each new worktree
+### Generate project files after dependency setup
 
 ```json
 {
   "hooks": {
-    "afterCreate": ["pnpm", "install"]
+    "afterCreate": ["pnpm", "run", "generate"]
   }
 }
 ```

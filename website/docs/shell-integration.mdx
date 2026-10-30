@@ -1,68 +1,84 @@
 ---
 title: Shell Integration
-description: Understand why gji needs shell integration and how to install it cleanly for zsh or bash.
+description: Let gji move your current shell between worktrees, or print paths for scripts when you don't need interactive navigation.
 ---
 
-# Shell integration
+# Move your shell with your task
 
-`gji` can create and resolve worktree paths on its own, but a normal CLI process cannot change the working directory of the shell that launched it.
-
-That is why commands like `gji go`, `gji new`, and `gji done` need shell integration if you want them to move your current terminal session directly.
-
-## What shell integration does
-
-When integration is installed:
-
-- `gji new feature/foo` creates the worktree and moves your shell into it.
-- `gji go main` jumps back to the main checkout.
-- `gji back` returns you to the last worktree you were in.
-- `gji done feature/foo` can finish by returning you to a stable repo path.
-
-Without integration, `gji` still works, but it prints paths rather than changing directories for you.
+Shell integration makes `gji new`, `gji go`, and `gji back` land you in the
+selected worktree. A normal CLI process cannot change its parent shell's
+directory, so a small shell wrapper performs that last step.
 
 ## Install once
 
 ```bash
 gji init
+```
+
+Restart your shell, or load the rc file shown by the wizard. Then verify:
+
+```bash
 gji doctor
 ```
 
-The interactive wizard detects your shell, installs the wrapper and completion, and lets you save an available editor CLI.
-
-For dotfiles or non-interactive setup, the explicit commands remain available:
+The wizard configures the wrapper and completions and lets you save an editor.
+For an explicit shell, run **one** of:
 
 ```bash
-echo 'eval "$(gji init zsh)"' >> ~/.zshrc
-echo 'eval "$(gji init bash)"' >> ~/.bashrc
+gji init zsh --write
+gji init bash --write
 gji init fish --write
 ```
 
-## Inspect before enabling
+## Try it in the current session
 
-If you want to review what gets added to your shell:
-
-```bash
-gji init zsh
-gji init bash
-```
-
-The command prints the shell function used for handoff.
-
-## Refresh after updates
-
-If you reinstall or upgrade the CLI, refresh your current shell:
+For zsh or bash, load the wrapper without writing your rc file:
 
 ```bash
 eval "$(gji init zsh)"
+# In bash, use: eval "$(gji init bash)"
 ```
 
-## Script mode
+For fish:
 
-For scripts, CI helpers, or custom aliases, use `--print` instead:
+```fish
+gji init fish | source
+```
+
+To review the wrapper first, run `gji init zsh`, `gji init bash`, or
+`gji init fish` without `--write`.
+
+## What changes in daily use
+
+| Command | Your shell ends up in… |
+| --- | --- |
+| `gji new feature/search` | The new task's worktree |
+| `gji pr 1234` | The PR's worktree |
+| `gji go feature/payments` | An existing destination worktree |
+| `gji back` | The previously visited worktree |
+| `gji root` | The main repository checkout |
+
+Navigation doesn't transfer uncommitted changes. They stay in the worktree
+where you made them.
+
+## Print paths for scripts
+
+You don't need shell integration when you only want the destination path:
 
 ```bash
-gji go --print feature/auth-refactor
+gji go --print feature/payments
 gji root --print
 ```
 
-That gives you the target path without shell handoff.
+For example, in zsh or bash:
+
+```bash
+cd "$(gji go --print feature/payments)"
+```
+
+## Reload after an update
+
+Restart your shell, or load its wrapper again using the session-only commands
+above. If `gji go` still prints a path instead of moving, check that the
+integration was loaded in the shell you're actually using. See
+[troubleshooting](./troubleshooting#gji-go-prints-a-path-instead-of-changing-directories).
