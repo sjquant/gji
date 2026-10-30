@@ -206,7 +206,7 @@ describe("gji open", () => {
 
 		// Then it exits before trying to open an editor.
 		expect(result).toBe(1);
-		expect(stderr.join("")).toContain("selector is unavailable");
+		expect(stderr.join("")).toContain("pass a branch instead");
 	});
 
 	it("opens a linked worktree by branch name without prompting", async () => {

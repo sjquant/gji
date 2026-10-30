@@ -81,7 +81,7 @@ export function createPrOpenCommand(
 
 		if (options.select && isHeadless()) {
 			options.stderr(
-				"gji pr open --select: selector is unavailable in non-interactive mode (GJI_NO_TUI=1)\n",
+				"gji pr open --select: selector is unavailable in non-interactive mode; pass a branch or PR number instead\n",
 			);
 			return 1;
 		}
@@ -472,7 +472,7 @@ async function openPullRequests(
 	}
 	if (pullRequests.length > 1 && isHeadless()) {
 		options.stderr(
-			"gji pr open: multiple open PRs found; pass an explicit PR number in non-interactive mode (GJI_NO_TUI=1)\n",
+			"gji pr open: multiple open PRs found; pass an explicit PR number in non-interactive mode\n",
 		);
 		return 1;
 	}

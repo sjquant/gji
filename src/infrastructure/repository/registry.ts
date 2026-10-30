@@ -1,22 +1,13 @@
-import { randomUUID } from "node:crypto";
 import { constants } from "node:fs";
-import {
-	access,
-	mkdir,
-	readFile,
-	realpath,
-	rename,
-	rm,
-	writeFile,
-} from "node:fs/promises";
+import { access, readFile, realpath } from "node:fs/promises";
 import { homedir } from "node:os";
-import { basename, dirname, join, resolve } from "node:path";
+import { basename, join, resolve } from "node:path";
 import type { RepoRegistryEntry } from "../../domain/repository/registry.js";
+import { withFileLock, writeJsonAtomic } from "../filesystem/locked-file.js";
 import { GLOBAL_CONFIG_DIRECTORY } from "../persistence/config.js";
 
 const REGISTRY_FILE_NAME = "repos.json";
 const MAX_REGISTRY_ENTRIES = 100;
-const registryLocks = new Map<string, Promise<void>>();
 
 export interface RegistryRemovalResult {
 	removedPaths: string[];
@@ -58,11 +49,13 @@ export async function registerRepo(
 	home: string = homedir(),
 ): Promise<void> {
 	const registryPath = REGISTRY_FILE_PATH(home);
-	await withRegistryLock(registryPath, async () => {
-		const existing = await normalizeRegistryForWrite(await loadRegistry(home));
-		const canonicalRepoPath = await canonicalizeRepoPath(repoPath);
+	const canonicalRepoPath = await canonicalizeRepoPath(repoPath);
 
-		// Skip write if this repo is already the most-recently-used entry (common case).
+	// Skip the lock and the write if this repo is already the most-recently-used entry (common case).
+	if ((await loadRegistry(home))[0]?.path === canonicalRepoPath) return;
+
+	await withFileLock(registryPath, async () => {
+		const existing = await normalizeRegistryForWrite(await loadRegistry(home));
 		if (existing.length > 0 && existing[0].path === canonicalRepoPath) return;
 
 		const entry: RepoRegistryEntry = {
@@ -74,7 +67,7 @@ export async function registerRepo(
 		const filtered = existing.filter((e) => e.path !== canonicalRepoPath);
 		const next = [entry, ...filtered].slice(0, MAX_REGISTRY_ENTRIES);
 
-		await writeRegistry(next, registryPath);
+		await writeJsonAtomic(registryPath, next);
 	});
 }
 
@@ -85,7 +78,7 @@ export async function removeMissingRegistryEntries(
 	if (paths.size === 0) return { removedPaths: [], skippedPaths: [] };
 
 	const registryPath = REGISTRY_FILE_PATH(home);
-	return withRegistryLock(registryPath, async () => {
+	return withFileLock(registryPath, async () => {
 		const entries = await loadRegistry(home);
 		const candidates = entries.filter((entry) => paths.has(entry.path));
 		const status = await Promise.all(
@@ -102,37 +95,14 @@ export async function removeMissingRegistryEntries(
 			.map(({ entry }) => entry.path);
 
 		if (removedPaths.length > 0) {
-			await writeRegistry(
-				entries.filter((entry) => !removedPaths.includes(entry.path)),
+			await writeJsonAtomic(
 				registryPath,
+				entries.filter((entry) => !removedPaths.includes(entry.path)),
 			);
 		}
 
 		return { removedPaths, skippedPaths };
 	});
-}
-
-async function withRegistryLock<T>(
-	registryPath: string,
-	operation: () => Promise<T>,
-): Promise<T> {
-	const previous = registryLocks.get(registryPath);
-	let release!: () => void;
-	const current = new Promise<void>((resolve) => {
-		release = resolve;
-	});
-	registryLocks.set(registryPath, current);
-
-	if (previous) await previous;
-
-	try {
-		return await operation();
-	} finally {
-		release();
-		if (registryLocks.get(registryPath) === current) {
-			registryLocks.delete(registryPath);
-		}
-	}
 }
 
 async function isMissingPath(path: string): Promise<boolean> {
@@ -149,26 +119,6 @@ function isMissingPathError(error: unknown): boolean {
 
 	const code = (error as NodeJS.ErrnoException).code;
 	return code === "ENOENT" || code === "ENOTDIR";
-}
-
-async function writeRegistry(
-	entries: RepoRegistryEntry[],
-	registryPath: string,
-): Promise<void> {
-	await mkdir(dirname(registryPath), { recursive: true });
-	const temporaryPath = `${registryPath}.tmp-${process.pid}-${randomUUID()}`;
-
-	try {
-		await writeFile(
-			temporaryPath,
-			`${JSON.stringify(entries, null, 2)}\n`,
-			"utf8",
-		);
-		await rename(temporaryPath, registryPath);
-	} catch (error) {
-		await rm(temporaryPath, { force: true }).catch(() => undefined);
-		throw error;
-	}
 }
 
 async function normalizeRegistryForWrite(

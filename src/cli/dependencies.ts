@@ -16,7 +16,11 @@ import {
 	resolveRemoteBase,
 	resolveRemoteDefaultBranch,
 } from "../infrastructure/git/refs.js";
-import { runGit, runGitRaw } from "../infrastructure/git/runner.js";
+import {
+	runGit,
+	runGitRaw,
+	runGitRetryingContention,
+} from "../infrastructure/git/runner.js";
 import { openBrowser } from "../infrastructure/integrations/browser.js";
 import {
 	defaultSpawnEditor,
@@ -74,13 +78,17 @@ import {
 	serializeWorktreeInfo,
 } from "../infrastructure/worktree/info.js";
 import {
+	addWorktree,
+	createBranch,
 	deleteBranch,
+	deleteCreatedBranch,
 	forceDeleteBranch,
 	forceRemoveWorktree,
 	isBranchUnmergedError,
 	isSubmoduleWorktreeRemovalError,
 	isWorktreeDeletionError,
 	isWorktreeForceRemovalError,
+	removeCreatedWorktree,
 	removeWorktree,
 } from "../infrastructure/worktree/lifecycle.js";
 import type {
@@ -125,6 +133,10 @@ export interface CliDependencies {
 		runHook: typeof runHook;
 	};
 	git: GitCommandPort & {
+		addWorktree: typeof addWorktree;
+		createBranch: typeof createBranch;
+		deleteCreatedBranch: typeof deleteCreatedBranch;
+		removeCreatedWorktree: typeof removeCreatedWorktree;
 		isDirtyWorktree: typeof isDirtyWorktree;
 		readWorktreeHealth: typeof readWorktreeHealth;
 		isBranchMergedInto: typeof isBranchMergedInto;
@@ -229,6 +241,11 @@ export function createCliDependencies(): CliDependencies {
 		git: {
 			runGit,
 			runGitRaw,
+			runGitRetryingContention,
+			addWorktree,
+			createBranch,
+			deleteCreatedBranch,
+			removeCreatedWorktree,
 			isDirtyWorktree,
 			readWorktreeHealth,
 			isBranchMergedInto,

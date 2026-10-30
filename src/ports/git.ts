@@ -6,4 +6,5 @@ export interface RemoteBase {
 export interface GitCommandPort {
 	runGit(cwd: string, args: string[]): Promise<string>;
 	runGitRaw(cwd: string, args: string[]): Promise<string>;
+	runGitRetryingContention(cwd: string, args: string[]): Promise<string>;
 }

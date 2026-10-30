@@ -312,7 +312,7 @@ describe("gji pr open", () => {
 
 		// Then it rejects the interactive-only selector before repository lookup.
 		expect(result).toBe(1);
-		expect(errors.join("")).toContain("selector is unavailable");
+		expect(errors.join("")).toContain("pass a branch or PR number");
 	});
 
 	it("rejects PR selection in headless mode when the current branch has multiple PRs", async () => {

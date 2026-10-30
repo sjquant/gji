@@ -9,7 +9,7 @@ describe("renderContextCard", () => {
 			info: {
 				branch: "feature/card",
 				isCurrent: true,
-				lastCommitTimestamp: Date.parse("2026-01-02T03:04:05.000Z"),
+				lastCommitTimestamp: Date.parse("2026-01-02T03:04:05.000Z") / 1000,
 				path: "/repo/worktree",
 				slot: 1,
 				status: "clean",

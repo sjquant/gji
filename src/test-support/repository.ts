@@ -1,8 +1,10 @@
-import { execFile } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { constants } from "node:fs";
 import { access, mkdir, mkdtemp, realpath, writeFile } from "node:fs/promises";
+import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 
 import { resolveWorktreePath } from "../domain/worktree/policy.js";
@@ -118,6 +120,38 @@ export async function pushPullRequestRef(
 		"origin",
 		`HEAD:${sourceRefForForge(number, forge)}`,
 	]);
+}
+
+export interface SpawnedCli {
+	exitCode: number | null;
+	stderr: string;
+	stdout: string;
+}
+
+/** Runs the real CLI in its own process, with no terminal on stdin or stdout. */
+export function spawnCli(cwd: string, args: string[]): Promise<SpawnedCli> {
+	const tsxLoader = pathToFileURL(
+		createRequire(import.meta.url).resolve("tsx"),
+	);
+	const entryPoint = fileURLToPath(new URL("../index.ts", import.meta.url));
+
+	return new Promise((resolve, reject) => {
+		const child = spawn(
+			process.execPath,
+			["--import", tsxLoader.href, entryPoint, ...args],
+			{ cwd, stdio: ["ignore", "pipe", "pipe"] },
+		);
+		let stdout = "";
+		let stderr = "";
+		child.stdout.on("data", (chunk) => {
+			stdout += chunk;
+		});
+		child.stderr.on("data", (chunk) => {
+			stderr += chunk;
+		});
+		child.on("error", reject);
+		child.on("close", (exitCode) => resolve({ exitCode, stderr, stdout }));
+	});
 }
 
 export async function runGit(cwd: string, args: string[]): Promise<string> {
