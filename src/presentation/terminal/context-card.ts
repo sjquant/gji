@@ -17,5 +17,5 @@ function formatState(info: WorktreeInfo): string {
 }
 
 function formatLastCommit(info: WorktreeInfo): string {
-	return new Date(info.lastCommitTimestamp as number).toISOString();
+	return new Date((info.lastCommitTimestamp as number) * 1000).toISOString();
 }
