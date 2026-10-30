@@ -12,7 +12,7 @@ import {
 	spawnCli,
 } from "../test-support/repository.js";
 
-const PARALLEL_RUNS = 8;
+const PARALLEL_RUNS = 3;
 const PROCESS_TEST_TIMEOUT_MS = 60_000;
 
 function parallel<T>(run: (index: number) => Promise<T>): Promise<T[]> {
