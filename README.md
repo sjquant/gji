@@ -1,157 +1,100 @@
-# gji — Switch Git contexts without stashing
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="website/static/img/logo-dark.svg" />
+  <img src="website/static/img/logo.svg" alt="gji branch mascot" width="72" height="68" />
+</picture>
 
-> Start, review, and switch between Git tasks without disturbing the work already open.
+# gji — Switch tasks. Keep your place.
 
-`gji` makes Git worktrees feel like normal shell navigation. Each task gets its
-own directory, dependencies, editor context, and terminal — so moving to a
-pull request or experiment does not require stashing, checking out, or
-reinstalling.
+Open a new task or review a PR. Your current work stays right where you left it.
 
-## Start your next task
+`gji` is a Git worktree CLI for developers who keep more than one task open.
+Each task gets a separate working directory and dependency installation, so
+switching tasks doesn't mean packing up your changes first. Keep using your
+usual Git commands, editor, and coding tools inside each worktree.
 
-Run `gji new` and let the interactive flow guide you into a fresh worktree:
+[Get started](#get-started) · [Documentation](https://gji.solaqua.dev/docs/intro) · [Is gji a fit?](https://gji.solaqua.dev/docs/comparison)
 
-```sh
-gji new
-```
+<a href="https://gji.solaqua.dev/#workflow">
+  <picture>
+    <source media="(prefers-reduced-motion: reduce)" srcset=".github/assets/readme-workflow.png" />
+    <img src=".github/assets/readme-workflow.gif" alt="Start a new task, open a PR in a separate worktree, then return to feature/payments with the same two modified files." width="960" height="336" />
+  </picture>
+</a>
 
-Choose a task name and setup options, then continue working in the new
-directory. For repeatable workflows, you can still provide a branch directly:
+*Illustrated workflow. Shell integration is enabled; setup time is omitted.*
 
-```sh
-gji new feature/payment-refactor
-```
+## Get started
 
-If you prefer to reuse the current worktree, create a branch in place and
-refresh the configured default branch first:
-
-```sh
-gji new --branch-only feature/payment-refactor
-```
-
-This creates the new branch from the latest configured remote default branch
-without creating another worktree or installing dependencies. The current
-worktree must be clean; use `--no-fetch` to create from the local default
-branch as-is.
-
-## The problem
-
-You are halfway through a feature when someone asks you to review a pull
-request. Without worktrees, a quick review often becomes:
-
-```text
-stash → checkout → reinstall → review → checkout back → stash pop
-```
-
-With `gji`, the review gets its own workspace and your current task stays
-untouched:
-
-```sh
-gji pr 1234
-```
-
-<table>
-  <tr>
-    <td width="50%" valign="top">
-      <strong>Before</strong><br />
-      <img src=".github/assets/readme-before.gif" alt="Traditional branch switching with stash and reinstall steps" />
-    </td>
-    <td width="50%" valign="top">
-      <strong>After</strong><br />
-      <img src=".github/assets/readme-after.gif" alt="Creating an isolated pull request worktree with gji" />
-    </td>
-  </tr>
-</table>
-
-## Remember four commands
-
-```sh
-gji new                            # interactively start a task
-gji pr 1234                        # open a pull request in isolation
-gji go main                        # jump to another worktree
-gji done feature/payment-refactor  # finish and clean up a task
-```
-
-With shell integration enabled, each command moves your shell into the
-selected worktree automatically.
-
-## Install
+You need **Node.js 18+**, Git with worktree support, and **zsh, bash, or fish**
+for automatic directory changes.
 
 ```sh
 npm install -g @solaqua/gji
 gji init
 ```
 
-`gji init` interactively installs shell integration, completions, and an
-available editor. Restart your shell, or source the rc file shown by the
-wizard, then run:
+Restart your shell, or load the shell configuration file shown by the wizard.
+Then, inside a repository you already work in:
 
 ```sh
 gji doctor
-```
-
-Without shell integration, commands still print paths for scripts and other
-non-interactive use. See the [installation guide](https://gji.solaqua.dev/docs/installation)
-for explicit shell setup.
-
-## A typical day
-
-```sh
-# Start feature work
-gji new
-
-# Check what is active
-gji
-
-# Review a PR without changing the current task
-gji pr 1234
-
-# Move between tasks
-gji go feature/payment-refactor
+gji new feature/try-gji
 gji back
-
-# Keep worktrees current and remove finished work
-gji sync
-gji done feature/payment-refactor
 ```
 
-Worktrees use a predictable location by default:
+You just opened a separate worktree and returned to your previous one. Any
+uncommitted files you left there stay there. New worktrees install dependencies
+automatically when a supported lockfile is detected, so the first setup can take
+time. Use `--no-install` to skip it for one task.
 
-```text
-../worktrees/<repo>/<branch>
-```
+[Installation and shell setup](https://gji.solaqua.dev/docs/installation) · [Complete the first-worktree walkthrough](https://gji.solaqua.dev/docs/quick-start)
 
-That keeps editor bookmarks, scripts, and terminal navigation stable.
+## Keep several tasks open
 
-## More capabilities
-
-Use the documentation when you need to go beyond the core workflow:
-
-- [Daily workflow](https://gji.solaqua.dev/docs/daily-workflow) — navigation, PRs, sync, and cleanup
-- [Commands](https://gji.solaqua.dev/docs/commands) — complete command reference
-- [Shell integration](https://gji.solaqua.dev/docs/shell-integration) — zsh, bash, and fish setup
-- [Configuration](https://gji.solaqua.dev/docs/configuration) — paths, defaults, and local files
-- [Hooks](https://gji.solaqua.dev/docs/hooks) — automate setup and cleanup
-- [Sync and cleanup](https://gji.solaqua.dev/docs/sync-and-cleanup) — maintain active worktrees
-- [Comparison](https://gji.solaqua.dev/docs/comparison) — `gji` vs `git worktree`, `lazygit`, and `ghq`
-- [FAQ and troubleshooting](https://gji.solaqua.dev/docs/faq) — common questions and fixes
-
-`gji` also supports JSON output for scripts and AI-assisted workflows:
+For example, while working on `feature/payments`:
 
 ```sh
-gji --json
-gji new --json feature/dark-mode
-gji go --json feature/dark-mode
+gji new feature/search       # give another task its own directory
+gji pr 1234                  # open a real PR from your repository
+gji go feature/payments      # return to the changes you left open
 ```
 
-Read the [full documentation](https://gji.solaqua.dev) for configuration,
-dependency bootstrap, hooks, automation, and the complete CLI reference.
+Replace `1234` with a GitHub pull request in your repository. Each task stays in
+its own worktree. Navigation moves your shell; it doesn't move changes between
+branches or keep files synchronized.
 
----
+| When you want to… | Run |
+| --- | --- |
+| Start a task | `gji new` |
+| Review a PR locally | `gji pr 1234` |
+| Find an open task | `gji` or `gji go` |
+| Return to the last worktree | `gji back` |
+| Open the current worktree in an editor | `gji open` |
+| Finish a linked worktree | `gji done` |
 
-If `gji` has saved you from a `git stash` spiral, a ⭐ on
-[GitHub](https://github.com/sjquant/gji) helps other developers find it.
+With `gji go`, press **Tab** to browse all registered repositories. Worktrees
+have predictable paths: `../worktrees/<repo>/<branch>`.
+
+## Make the next worktree ready for your project
+
+- [Local files and defaults](https://gji.solaqua.dev/docs/configuration) — copy `.env.local`, choose an editor, or adjust dependency setup.
+- [Hooks](https://gji.solaqua.dev/docs/hooks) — run project-specific setup after the built-in dependency install.
+- [Daily workflow](https://gji.solaqua.dev/docs/daily-workflow) — review, experiment, navigate, and open editors.
+- [Sync and cleanup](https://gji.solaqua.dev/docs/sync-and-cleanup) — rebase active worktrees and remove finished ones. Cleanup can delete branches; undo does not recover uncommitted files.
+- [Command reference](https://gji.solaqua.dev/docs/commands) — options, JSON output, and scripting.
+- [Troubleshooting](https://gji.solaqua.dev/docs/troubleshooting) — recover from setup, navigation, or install problems.
+
+## Contributing
+
+```sh
+pnpm install
+pnpm test
+pnpm build
+```
+
+The CLI source is in `src/`. See [website/README.md](website/README.md) for site
+and documentation development.
 
 ## License
 
-MIT
+[MIT](LICENSE)

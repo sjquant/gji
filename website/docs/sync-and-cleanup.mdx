@@ -1,86 +1,112 @@
 ---
 title: Sync and Cleanup
-description: Keep worktrees current and remove stale branches without manual Git worktree housekeeping.
+description: Rebase active worktrees, preview cleanup, and remove finished tasks with the branch and recovery consequences visible first.
 ---
 
-# Sync and cleanup
+# Keep active work. Clear finished tasks.
 
-`gji` is not only for creating worktrees. The maintenance commands matter just as much once you have several branches in flight.
+Use `sync` to bring a task up to date. Use `done` for one finished worktree, or
+`clean` to review several candidates together.
 
-## Sync the current worktree
+## Bring a task up to date
 
 ```bash
 gji sync
 ```
 
-This fetches and rebases the current worktree onto the configured default branch.
+This fetches and rebases the current branch onto the configured default branch.
+Commit or otherwise resolve local changes before syncing. A rebase can require
+conflict resolution; use your normal Git workflow to continue or abort it.
 
-## Sync every worktree
+For every worktree in the current repository:
 
 ```bash
 gji sync --all
 ```
 
-Use this when you have multiple active branches and want to bring them forward together.
-
-Detached worktrees are skipped automatically because there is no branch to rebase cleanly.
+Detached worktrees are skipped. Set `syncRemote` and `syncDefaultBranch` in
+[configuration](./configuration#use-a-different-sync-target) when needed.
 
 ## Finish one worktree
 
+Check that the worktree contains no files you still need:
+
 ```bash
-gji done feature/auth-refactor
+gji status
+gji done feature/search
 ```
 
-This safely finishes the worktree and, when appropriate, its branch.
+`done` removes the linked worktree and attempts to remove its branch. To keep
+the branch and remove only the directory:
 
-## Bulk cleanup
+```bash
+gji done feature/search --keep-branch
+```
+
+Interactive mode asks before discarding uncommitted changes or removing an
+unmerged branch. Read those prompts: **uncommitted and untracked files removed
+with a worktree cannot be recovered through `gji undo`.**
+
+## Review several worktrees for cleanup
 
 ```bash
 gji clean
 ```
 
-Use `clean` when you want to prune multiple stale worktrees in one pass instead of removing them individually.
+The picker starts in the current repository. Press **Tab** to include all
+registered repositories. Each repository's primary worktree and your current
+worktree remain protected. Uninspectable repositories are reported rather than
+treated as empty.
 
-The interactive picker starts with the current repository. Press `Tab` to include linked worktrees from all registered repositories; each repository's primary worktree and the current worktree remain protected.
-
-If a registered repository cannot be inspected, `clean` reports it instead of silently treating it as empty. When cleanup spans multiple repositories, the output includes one `gji undo --id ...` command per repository so the whole operation can be restored.
-
-For stale-only cleanup:
+To inspect the candidate removal plan without removing anything:
 
 ```bash
-gji clean --stale
+gji clean --stale --dry-run
 ```
 
-`--stale` targets clean branch worktrees whose upstream is gone and whose changes are already merged into the configured or remote default branch, including squash- or rebase-merged changes.
+`--stale` limits cleanup to clean branch worktrees whose upstream is gone and
+whose changes are already merged into the configured or remote default branch,
+including squash- or rebase-merged changes.
 
-To clean only worktrees in a particular location, filter by path:
+## Limit cleanup to a location
 
 ```bash
 gji clean --path ~/worktrees/gji/spike
 gji clean --path '../worktrees/*/experiment-*' --dry-run
 ```
 
-A plain path matches that directory and everything inside it. A pattern with `*`, `**`, or `?` must match the whole worktree path; quote it so the shell does not expand it first. Escape a literal `*` or `?` with a backslash (`'fix-\?-bug'`). Repeat `--path` to match any of several patterns. `--path` searches every registered repository, so a pattern can target another repository's worktrees directly; in the picker, press `Tab` to narrow back to the current repository.
+A plain path matches that directory and its descendants. Glob patterns with
+`*`, `**`, or `?` match the whole worktree path; quote them to prevent shell
+expansion. Escape a literal wildcard with a backslash, such as `'fix-\?-bug'`.
+Repeat `--path` to match any of several patterns.
 
-## Force options
+`--path` searches all registered repositories. In the picker, press **Tab** to
+narrow the scope back to the current repository.
 
-When you know you want non-interactive cleanup:
+## Force removal only after reviewing the targets
 
 ```bash
 gji clean --stale --force
-gji clean --force
-gji done feature/auth-refactor --force
+gji done feature/search --force
 ```
 
-Force mode is useful for automation or when you have already reviewed the state and want to skip confirmation prompts.
+`--force` bypasses confirmation, can remove dirty worktrees, and can delete
+unmerged branches. It isn't just a quieter mode. Preview the cleanup plan and
+check the files you need before using it in automation.
 
-## What to check before cleanup
+## Restore a journaled cleanup
 
-- Does the branch still contain work you need?
-- Is the worktree dirty or does it contain untracked files?
-- Is the branch merged already?
-- Do you want to keep the branch but remove only the worktree?
+```bash
+gji undo --list
+gji undo
+# Or restore a specific operation:
+gji undo <id>
+```
 
-`gji` prompts for these cases interactively so you do not have to remember the right raw `git worktree` incantations.
+Undo restores recorded branch/worktree state from the operation journal and
+refuses to overwrite existing work. It does **not** restore uncommitted files,
+untracked files, dependency installs, or changes made by hooks.
 
-Use `gji done` for one worktree and `gji clean` for bulk cleanup.
+When cleanup spans repositories, use the per-repository undo commands printed
+by the cleanup result. See [the command reference](./commands#maintenance) for
+related commands.

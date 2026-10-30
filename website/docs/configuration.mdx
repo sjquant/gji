@@ -1,83 +1,119 @@
 ---
 title: Configuration
-description: Configure branch prefixes, sync targets, copied files, prompts, and per-repo overrides in gji.
+description: Set defaults for your editor, branch names, local setup files, and dependency installation without configuring every new worktree by hand.
 ---
 
-# Configuration
+# Make new worktrees fit your project
 
-No setup is required to start using `gji`, but optional configuration makes repeated workflows faster.
+Start with the defaults. Add configuration when you find yourself repeating a
+setup step, choosing the same editor, or copying the same local files.
 
-## Config files
+## Choose where a setting belongs
 
-- `~/.config/gji/config.json` for global defaults.
-- `.gji.json` in a repository for repo-local overrides.
-
-Use the global file for defaults you want everywhere. Use `.gji.json` when one repository needs a different workflow.
-
-## Available keys
-
-| Key | Meaning |
+| Location | Use it for |
 | --- | --- |
-| `branchPrefix` | Prefix added to new branch names, such as `feature/`. |
-| `editor` | Default editor CLI for `gji open` and `gji new --open` (e.g. `cursor`, `code`, `zed`). Set with `gji open --save`. |
-| `syncRemote` | Remote used by `gji sync`. |
-| `syncDefaultBranch` | Branch used as the rebase target. |
-| `syncFiles` | Files copied from the main worktree into new worktrees. Use global per-repo config for private files. |
-| `dependencyBootstrap` | Persistent opt-out for automatic dependency setup: `off`. |
-| `dependencyBuildCommand` | Optional Cargo build command used by `dependencyBootstrap`; defaults to `cargo check`. |
-| `installSaveTarget` | Choose whether `gji init --write` saves wizard settings locally or globally. |
-| `hooks` | Lifecycle commands for branch creation, worktree creation, entering, in-place branch switching, and removal. See [Hooks](./hooks). String hooks run through a shell; array hooks run as argv without a shell. |
-| `repos` | Per-repository overrides inside the global config. |
+| `~/.config/gji/config.json` | Personal defaults across repositories |
+| `repos` entries in that global file | Personal settings for one repository, including private local file names |
+| `.gji.json` in a repository | Shared project defaults |
 
-## Example
+Configuration is resolved in that order: global defaults, global per-repo
+settings, then local `.gji.json`. The later layer overrides the earlier value.
+Hooks merge by event key; the same event is overridden by the later layer.
+
+## Save an editor or branch prefix
+
+```bash
+gji open --editor cursor --save
+gji config set branchPrefix feature/
+```
+
+Use your installed editor CLI. `config` edits global defaults:
+
+```bash
+gji config get
+gji config get branchPrefix
+gji config unset branchPrefix
+```
+
+## Sync private local files
+
+Run this in the repository whose future worktrees need the files:
+
+```bash
+gji sync-files add .env.local .npmrc
+gji sync-files list
+gji sync-files remove .npmrc
+```
+
+The list is saved under that repository in your global config. New worktrees
+copy the files **from the main worktree** before dependency setup. Missing
+source files are skipped; existing files in the destination aren't overwritten.
+This is a copy at creation time, not continuous synchronization.
+
+For shared project files, put `syncFiles` in `.gji.json` instead:
 
 ```json
 {
-  "branchPrefix": "feature/",
-  "syncRemote": "origin",
-  "syncDefaultBranch": "main",
-  "syncFiles": [".env.example", ".nvmrc"],
+  "syncFiles": [".env.example", ".nvmrc"]
+}
+```
+
+## Dependency bootstrap
+
+A new worktree gets its own dependencies. When `gji new` or `gji pr` detects a
+supported lockfile, it runs the appropriate project-local setup:
+
+| Project | Setup |
+| --- | --- |
+| pnpm, Yarn, Bun, npm | Install JavaScript dependencies |
+| uv, Poetry, Pipenv | Install Python environments |
+| Bundler | Install into `vendor/bundle` |
+| Composer | Install into `vendor` |
+| Go | `go mod download` |
+| Cargo | `cargo check`, or your `dependencyBuildCommand` |
+
+Dependency trees and build caches aren't copied between worktrees. Setup can
+take time and needs the relevant tools and remote access. Configured local
+files are copied first; `afterCreate` hooks run after setup succeeds.
+
+To skip installation once:
+
+```bash
+gji new feature/search --no-install
+gji pr 1234 --no-install
+```
+
+To disable it for a repository, put this in `.gji.json`:
+
+```json
+{
   "dependencyBootstrap": "off"
 }
 ```
 
-## Per-repo overrides in global config
+Use `gji new feature/search --dry-run` to inspect the creation plan. JSON and
+headless commands use the same dependency setup unless disabled. If setup
+fails, use the reported worktree path to recover rather than creating the task
+again; see [troubleshooting](./troubleshooting#the-worktree-exists-but-dependencies-are-missing).
 
-If you work across many repositories, you can scope config inside the global file without adding a `.gji.json` to each repo:
+## Choose a worktree directory
+
+The default is `../worktrees/<repo>/<branch>`. For a repository that needs a
+different base directory, set `worktreePath` in its `.gji.json` or global
+per-repo settings:
 
 ```json
 {
-  "branchPrefix": "feature/",
-  "repos": {
-    "/home/me/code/my-repo": {
-      "branchPrefix": "fix/",
-      "hooks": {
-        "afterCreate": ["npm", "install"]
-      }
-    }
-  }
+  "worktreePath": "~/worktrees/my-repo"
 }
 ```
 
-## Precedence
+Branches are placed under that base: `feature/search` becomes
+`~/worktrees/my-repo/feature/search`. Use an absolute path or a `~/` path;
+relative values are ignored with a warning. This setting controls future
+creation, not the location of existing worktrees.
 
-Configuration is resolved in this order:
-
-1. Global defaults
-2. Per-repo overrides inside the global config
-3. Local `.gji.json`
-
-Hooks merge by key across those layers, while normal scalar values are overridden by the highest-precedence layer.
-
-## Common patterns
-
-### Prefix all new branches
-
-```bash
-gji config set branchPrefix feature/
-```
-
-### Rebase onto a non-default remote branch
+## Use a different sync target
 
 ```json
 {
@@ -86,49 +122,43 @@ gji config set branchPrefix feature/
 }
 ```
 
-### Copy bootstrap files into each new worktree
+These control the target used by `gji sync` and the remote default branch used
+by `gji new --branch-only`. See [sync and cleanup](./sync-and-cleanup).
 
-```json
-{
-  "syncFiles": [".env.example", ".nvmrc"]
-}
-```
+## Keep personal per-repo settings out of Git
 
-### Sync private local files
-
-Use `sync-files` for gitignored or machine-local files such as `.env.local` and `.npmrc`:
-
-```bash
-gji sync-files add .env.local .npmrc
-gji sync-files list
-gji sync-files remove .npmrc
-```
-
-The command stores the list under the current repository inside your global config:
+In `~/.config/gji/config.json`:
 
 ```json
 {
   "repos": {
     "/home/me/code/my-repo": {
-      "syncFiles": [".env.local"]
+      "editor": "zed",
+      "syncFiles": [".env.local"],
+      "hooks": {
+        "afterCreate": ["pnpm", "run", "generate"]
+      }
     }
   }
 }
 ```
 
-`gji new` copies configured files from the main worktree before install hooks run, skips missing source files, and never overwrites a file that already exists in the new worktree.
+Use an absolute path for the repository entry. Only the named repository gets
+those overrides.
 
-## Dependency bootstrap
+## Key reference
 
-Dependency setup is automatic by default. Set `dependencyBootstrap` to `off` to disable it, or use `gji new --no-install` / `gji pr --no-install` for one worktree. Adapters discover project-local targets from lockfiles: pnpm, Yarn, Bun, and npm install JavaScript dependencies; uv, Poetry, and Pipenv install Python environments; Bundler uses `vendor/bundle`; Composer uses `vendor`; Go runs `go mod download`; and Cargo runs `cargo check`.
-
-No dependency tree or build cache is copied between worktrees. CoW is not supported, and a failed install is reported directly without an ordinary-copy fallback or an automatic retry. `syncFiles` still runs before dependency setup, and `after-create` hooks run only after setup succeeds. Use `--no-install` for a one-off opt-out; JSON and headless modes run the same automatic adapter commands unless setup is disabled.
-
-## CLI helpers
-
-```bash
-gji config get
-gji config get branchPrefix
-gji config set branchPrefix feature/
-gji config unset branchPrefix
-```
+| Key | Purpose |
+| --- | --- |
+| `branchPrefix` | Prefix for new branch names, such as `feature/` |
+| `editor` | Default editor CLI for `open` and `new --open` |
+| `worktreePath` | Base directory for new worktrees; absolute or `~/` path |
+| `syncRemote` | Remote used for sync |
+| `syncDefaultBranch` | Default branch used as the sync target |
+| `syncFiles` | Files copied from the main worktree on creation |
+| `dependencyBootstrap` | Set to `off` to disable automatic dependency setup |
+| `dependencyBuildCommand` | Optional Cargo setup command; defaults to `cargo check` |
+| `shellIntegration` | Saved shell setup choice from the wizard |
+| `installSaveTarget` | Whether setup wizard settings are saved locally or globally |
+| `hooks` | [Lifecycle commands](./hooks) for creation, entry, switching, and removal |
+| `repos` | Per-repository overrides in global configuration |

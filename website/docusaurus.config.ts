@@ -4,8 +4,8 @@ import { themes as prismThemes } from "prism-react-renderer";
 
 const config: Config = {
 	title: "gji",
-	tagline: "Git worktrees without the hassle",
-	favicon: "img/favicon.ico",
+	tagline: "Switch tasks. Keep your place.",
+	favicon: "img/favicon.svg",
 	future: {
 		v4: true,
 	},
@@ -63,52 +63,10 @@ const config: Config = {
 			logo: {
 				alt: "gji logo",
 				src: "img/logo.svg",
+				srcDark: "img/logo-dark.svg",
 			},
 			items: [
-				{
-					type: "dropdown",
-					position: "left",
-					label: "Docs",
-					items: [
-						{
-							label: "Overview",
-							to: "/docs/intro",
-						},
-						{
-							label: "Comparison",
-							to: "/docs/comparison",
-						},
-						{
-							label: "Installation",
-							to: "/docs/installation",
-						},
-						{
-							label: "Quick Start",
-							to: "/docs/quick-start",
-						},
-						{
-							label: "Daily Workflow",
-							to: "/docs/daily-workflow",
-						},
-						{
-							label: "Commands",
-							to: "/docs/commands",
-						},
-						{
-							label: "Configuration",
-							to: "/docs/configuration",
-						},
-						{
-							label: "Troubleshooting",
-							to: "/docs/troubleshooting",
-						},
-					],
-				},
-				{
-					href: "https://www.npmjs.com/package/@solaqua/gji",
-					label: "npm",
-					position: "right",
-				},
+				{ to: "/docs/intro", label: "Docs", position: "right" },
 				{
 					href: "https://github.com/sjquant/gji",
 					label: "GitHub",
@@ -117,7 +75,7 @@ const config: Config = {
 			],
 		},
 		footer: {
-			style: "dark",
+			style: "light",
 			links: [
 				{
 					title: "Docs",
@@ -163,11 +121,14 @@ const config: Config = {
 					],
 				},
 			],
-			copyright: `Copyright © ${new Date().getFullYear()} sjquant. Built with Docusaurus.`,
+			copyright: `Copyright © ${new Date().getFullYear()} sjquant. MIT License.`,
 		},
 		prism: {
-			theme: prismThemes.dracula,
-			darkTheme: prismThemes.dracula,
+			theme: prismThemes.github,
+			darkTheme: {
+				...prismThemes.dracula,
+				plain: { ...prismThemes.dracula.plain, backgroundColor: "#0d0f12" },
+			},
 		},
 	} satisfies Preset.ThemeConfig,
 };

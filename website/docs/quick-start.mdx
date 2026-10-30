@@ -1,82 +1,86 @@
 ---
 sidebar_position: 3
 title: Quick Start
-description: Start a feature, move between worktrees, review a pull request, and clean up after the task.
-keywords:
-  - git worktree quick start
-  - gji go command
-  - gji go
-  - pull request review cli
+description: Open a separate task, return to your original worktree, and verify that the changes you left there are still in place.
 image: /img/social-card.png
 ---
 
-# Quick start
+# Open a task. Come back to your work.
 
-Copy this workflow if you want to understand `gji` in under two minutes.
+Start inside a repository on a named branch. You should have
+[installed gji and loaded shell integration](./installation).
 
-This matters even more when you keep multiple human and AI-assisted tasks open in parallel.
+The goal is simple: open a separate working directory, then return to the files
+you left open. You don't need to commit or stash them to try this.
 
-## Start a task
-
-```bash
-gji new feature/dark-mode
-```
-
-That creates a branch, creates a worktree, and moves your shell into it when shell integration is enabled.
-
-If you want temporary investigation space without naming a branch yet:
+## 1. Note where you are
 
 ```bash
-gji new --detached
+git branch --show-current
+git status --short
 ```
 
-## Review a pull request
+Remember the branch and any modified files. If your worktree is clean, that's
+fine too.
+
+## 2. Give a new task its own place
+
+```bash
+gji new feature/try-gji
+```
+
+Choose a different branch name if that one already exists. `gji` creates the
+branch and worktree, runs supported dependency setup, and takes your shell to
+the new directory. Setup may take time. Use `--no-install` to skip it for this
+trial.
+
+Check the new location:
+
+```bash
+pwd
+git branch --show-current
+```
+
+You are now on `feature/try-gji` in its own directory. You can edit, run tests,
+or open your editor here without changing files in the worktree you left.
+
+## 3. Pick up where you left off
+
+```bash
+gji back
+git status --short
+```
+
+You are back on the original branch. The modified files you noted in step 1
+are still there. That is the core workflow: each task keeps its files while
+you move between tasks.
+
+Use `gji go feature/try-gji` to return to the trial worktree, or just `gji go`
+to choose an open task.
+
+## 4. Remove the trial directory when you're done
+
+If you didn't leave any files you need in the trial worktree:
+
+```bash
+gji done feature/try-gji --keep-branch
+```
+
+This removes its working directory while retaining its branch. Review any
+prompt before removing a worktree with changes. Uncommitted files aren't
+recoverable through `gji undo`.
+
+## Next: a real interruption
+
+While working on a feature, use a PR number from your repository:
 
 ```bash
 gji pr 1234
-gji pr https://github.com/org/repo/pull/1234
+gji back
 ```
 
-## Jump between contexts
+The PR opens in its own worktree; `back` returns to the one you just left.
+For a particular destination, use `gji go <branch>`.
 
-```bash
-gji go feature/dark-mode
-gji go repo-a/main
-gji go feature/dark-mode
-gji back       # return to the previous worktree
-gji back 2     # go two steps back in history
-gji go main
-gji go --root
-gji root
-```
-
-Use `gji go` for navigation. Its chooser starts in the current repository;
-press `Tab` to include every registered repository.
-
-`gji back` returns you to the last worktree you were in — like `cd -` but for worktrees. Pass a number to jump further. Use `gji history` to see where you've been.
-
-## Check what is open
-
-```bash
-gji status
-gji ls
-```
-
-Use `ls` when you want a detailed worktree list and `ls --compact` when you only need branch and path.
-
-## Keep branches current
-
-```bash
-gji sync
-gji sync --all
-```
-
-## Clean up when done
-
-```bash
-gji done feature/dark-mode
-gji clean
-```
-
-Use `done` for one linked worktree and `clean` to prune several stale
-worktrees in one interactive pass.
+Continue with [daily workflow](./daily-workflow) for editors, experiments,
+cross-repository navigation, and cleanup.

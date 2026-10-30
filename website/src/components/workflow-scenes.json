@@ -1,0 +1,34 @@
+[
+  {
+    "label": "In progress",
+    "command": "git status --short",
+    "lines": [" M src/checkout.ts", " M src/checkout.test.ts"],
+    "active": 0,
+    "visible": 1
+  },
+  {
+    "label": "Start another",
+    "command": "gji new feature/search",
+    "lines": [],
+    "active": 1,
+    "visible": 2
+  },
+  {
+    "label": "Review a PR",
+    "command": "gji pr 1234",
+    "lines": [],
+    "active": 2,
+    "visible": 3
+  },
+  {
+    "label": "Pick up your work",
+    "command": "gji go feature/payments",
+    "lines": [
+      "$ git status --short",
+      " M src/checkout.ts",
+      " M src/checkout.test.ts"
+    ],
+    "active": 0,
+    "visible": 3
+  }
+]
