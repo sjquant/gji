@@ -1,17 +1,12 @@
-import {
-	access,
-	mkdir,
-	open,
-	readFile,
-	rename,
-	stat,
-	unlink,
-	writeFile,
-} from "node:fs/promises";
+import { access, readFile } from "node:fs/promises";
 import { homedir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { join, resolve } from "node:path";
 import { confirm, isCancel } from "@clack/prompts";
 import type { WorktreeEntry } from "../../domain/worktree/types.js";
+import {
+	withFileLock,
+	writeJsonAtomic,
+} from "../../infrastructure/filesystem/locked-file.js";
 import {
 	type CliDependencies,
 	type CliRuntime,
@@ -20,11 +15,6 @@ import {
 import { isHeadless } from "../runtime/headless.js";
 
 const MAX_UNDO_RECORDS = 20;
-const UNDO_LOCK_STALE_AFTER_MS = 60_000;
-const UNDO_LOCK_RETRY_DELAY_MS = 5;
-const UNDO_LOCK_WAIT_TIMEOUT_MS =
-	UNDO_LOCK_STALE_AFTER_MS + UNDO_LOCK_RETRY_DELAY_MS;
-const undoLogQueues = new Map<string, Promise<void>>();
 export type UndoOperation = "remove" | "clean" | "done";
 export interface UndoEntry {
 	branch: string | null;
@@ -125,19 +115,15 @@ export async function recordUndoOperation(
 		timestamp,
 		entries,
 	};
-	return enqueueUndoLogWrite(
-		home,
-		async () => {
-			const existing = await loadUndoRecords(home, globalConfigDirectory);
-			await writeUndoRecords(
-				home,
-				[record, ...existing].slice(0, MAX_UNDO_RECORDS),
-				globalConfigDirectory,
-			);
-			return record;
-		},
-		globalConfigDirectory,
-	);
+	return withFileLock(undoLogPath(home, globalConfigDirectory), async () => {
+		const existing = await loadUndoRecords(home, globalConfigDirectory);
+		await writeUndoRecords(
+			home,
+			[record, ...existing].slice(0, MAX_UNDO_RECORDS),
+			globalConfigDirectory,
+		);
+		return record;
+	});
 }
 
 export async function finalizeUndoOperation(
@@ -150,21 +136,17 @@ export async function finalizeUndoOperation(
 	const removedPaths = new Set(
 		removedWorktrees.map((worktree) => worktree.path),
 	);
-	await enqueueUndoLogWrite(
-		home,
-		async () => {
-			const records = await loadUndoRecords(home, globalConfigDirectory);
-			const remaining = records.flatMap((candidate) => {
-				if (candidate.id !== record.id) return [candidate];
-				const entries = candidate.entries.filter((entry) =>
-					removedPaths.has(entry.path),
-				);
-				return entries.length === 0 ? [] : [{ ...candidate, entries }];
-			});
-			await writeUndoRecords(home, remaining, globalConfigDirectory);
-		},
-		globalConfigDirectory,
-	);
+	await withFileLock(undoLogPath(home, globalConfigDirectory), async () => {
+		const records = await loadUndoRecords(home, globalConfigDirectory);
+		const remaining = records.flatMap((candidate) => {
+			if (candidate.id !== record.id) return [candidate];
+			const entries = candidate.entries.filter((entry) =>
+				removedPaths.has(entry.path),
+			);
+			return entries.length === 0 ? [] : [{ ...candidate, entries }];
+		});
+		await writeUndoRecords(home, remaining, globalConfigDirectory);
+	});
 }
 
 export async function restoreUndoRecord(
@@ -193,19 +175,15 @@ export async function restoreUndoRecord(
 			unresolved.push(entry);
 		}
 	}
-	await enqueueUndoLogWrite(
-		home,
-		async () => {
-			const records = await loadUndoRecords(home, globalConfigDirectory);
-			const remaining = records.flatMap((candidate) => {
-				if (candidate.id !== record.id) return [candidate];
-				if (unresolved.length === 0) return [];
-				return [{ ...candidate, entries: unresolved }];
-			});
-			await writeUndoRecords(home, remaining, globalConfigDirectory);
-		},
-		globalConfigDirectory,
-	);
+	await withFileLock(undoLogPath(home, globalConfigDirectory), async () => {
+		const records = await loadUndoRecords(home, globalConfigDirectory);
+		const remaining = records.flatMap((candidate) => {
+			if (candidate.id !== record.id) return [candidate];
+			if (unresolved.length === 0) return [];
+			return [{ ...candidate, entries: unresolved }];
+		});
+		await writeUndoRecords(home, remaining, globalConfigDirectory);
+	});
 	return { restored, failed };
 }
 
@@ -411,82 +389,13 @@ async function assertCommitExists(
 	}
 }
 
-async function enqueueUndoLogWrite<T>(
-	home: string,
-	operation: () => Promise<T>,
-	globalConfigDirectory = defaultCliDependencies.configStore
-		.GLOBAL_CONFIG_DIRECTORY,
-): Promise<T> {
-	const path = undoLogPath(home, globalConfigDirectory);
-	await mkdir(dirname(path), { recursive: true });
-	const previous = undoLogQueues.get(path) ?? Promise.resolve();
-	const runLocked = async (): Promise<T> => {
-		const release = await acquireUndoLogLock(path);
-		try {
-			return await operation();
-		} finally {
-			await release();
-		}
-	};
-	const current = previous.then(runLocked, runLocked);
-	const settled = current.then(
-		() => undefined,
-		() => undefined,
-	);
-	undoLogQueues.set(path, settled);
-	try {
-		return await current;
-	} finally {
-		if (undoLogQueues.get(path) === settled) undoLogQueues.delete(path);
-	}
-}
-
-async function acquireUndoLogLock(path: string): Promise<() => Promise<void>> {
-	const lockPath = `${path}.lock`;
-	const deadline = Date.now() + UNDO_LOCK_WAIT_TIMEOUT_MS;
-	while (Date.now() < deadline) {
-		try {
-			const handle = await open(lockPath, "wx");
-			return async () => {
-				await handle.close();
-				await unlink(lockPath).catch(() => undefined);
-			};
-		} catch (error) {
-			if (
-				!(error instanceof Error && "code" in error && error.code === "EEXIST")
-			)
-				throw error;
-			const lockStat = await stat(lockPath).catch(() => null);
-			if (lockStat && Date.now() - lockStat.mtimeMs > UNDO_LOCK_STALE_AFTER_MS)
-				await unlink(lockPath).catch(() => undefined);
-			const remainingMs = deadline - Date.now();
-			if (remainingMs > 0)
-				await new Promise((resolve) =>
-					setTimeout(resolve, Math.min(UNDO_LOCK_RETRY_DELAY_MS, remainingMs)),
-				);
-		}
-	}
-	throw new Error("timed out waiting for the undo journal lock");
-}
-
 async function writeUndoRecords(
 	home: string,
 	records: UndoRecord[],
 	globalConfigDirectory = defaultCliDependencies.configStore
 		.GLOBAL_CONFIG_DIRECTORY,
 ): Promise<void> {
-	const path = undoLogPath(home, globalConfigDirectory);
-	await mkdir(dirname(path), { recursive: true });
-	const temporaryPath = `${path}.${process.pid}.${Math.random().toString(36).slice(2)}.tmp`;
-	try {
-		await writeFile(temporaryPath, `${JSON.stringify(records, null, 2)}\n`, {
-			encoding: "utf8",
-			flag: "wx",
-		});
-		await rename(temporaryPath, path);
-	} finally {
-		await unlink(temporaryPath).catch(() => undefined);
-	}
+	await writeJsonAtomic(undoLogPath(home, globalConfigDirectory), records);
 }
 
 function isUndoRecord(value: unknown): value is UndoRecord {

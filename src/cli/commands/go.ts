@@ -31,7 +31,7 @@ import {
 } from "../dependencies.js";
 import { isHeadless } from "../runtime/headless.js";
 import { runBackCommand } from "./back.js";
-import { runNewCommand } from "./new.js";
+import { applyConfiguredBranchPrefix, runNewCommand } from "./new.js";
 import { runPrCommand } from "./pr.js";
 
 export interface GoCommandOptions {
@@ -126,7 +126,7 @@ export function createGoCommand(
 			if (options.json || isHeadless()) {
 				return emitError(
 					options,
-					"branch argument is required in non-interactive mode (GJI_NO_TUI=1)",
+					"branch argument is required in non-interactive mode",
 				);
 			}
 
@@ -293,10 +293,10 @@ async function handleGoBranchResolution(
 				runtime,
 			);
 		case "pull-request":
-			if (options.json || isHeadless() || options.print) {
+			if (options.json || options.print) {
 				return emitError(
 					options,
-					"PR navigation creates a worktree; use `gji pr <ref>` in an interactive shell",
+					"PR navigation creates a worktree; use `gji pr <ref>`",
 				);
 			}
 
@@ -361,9 +361,16 @@ async function createExistingBranchWorktree(
 	runtime?: GoRuntime,
 ): Promise<number> {
 	if (options.json || isHeadless() || options.print) {
+		const command = await resolveNonInteractiveCreateCommand(
+			repository,
+			branch,
+			mode,
+			remote,
+			runtime ?? defaultCliDependencies,
+		);
 		return emitError(
 			options,
-			`branch "${branch}" exists but has no worktree; use interactive gji go ${branch} to create one`,
+			`branch "${branch}" exists but has no worktree; run ${command} to create one`,
 		);
 	}
 
@@ -382,6 +389,26 @@ async function createExistingBranchWorktree(
 		stdout: options.stdout,
 		runtime,
 	});
+}
+
+async function resolveNonInteractiveCreateCommand(
+	repository: RepositoryContext,
+	branch: string,
+	mode: "checkout" | "track",
+	remote: string | undefined,
+	runtime: GoRuntime,
+): Promise<string> {
+	if (mode === "track") {
+		return `git worktree add --track -b ${branch} <path> ${remote ?? "origin"}/${branch}`;
+	}
+
+	// gji new applies branchPrefix, so it would create a different branch.
+	const config = await runtime.config
+		.loadEffectiveConfig(repository.repoRoot)
+		.catch(() => null);
+	return applyConfiguredBranchPrefix(branch, config?.branchPrefix) === branch
+		? `gji new ${branch}`
+		: `git worktree add <path> ${branch}`;
 }
 
 async function navigateToExistingWorktree(

@@ -1,4 +1,4 @@
-import { access, mkdir } from "node:fs/promises";
+import { access, mkdir, rmdir } from "node:fs/promises";
 import { basename, dirname, resolve } from "node:path";
 import { confirm, isCancel, text } from "@clack/prompts";
 import type { RepositoryContext } from "../../domain/repository/context.js";
@@ -151,9 +151,7 @@ export function createNewCommand(
 			if (options.json) {
 				options.stderr(`${JSON.stringify({ error: message }, null, 2)}\n`);
 			} else {
-				options.stderr(
-					`gji new: ${message} in non-interactive mode (GJI_NO_TUI=1)\n`,
-				);
+				options.stderr(`gji new: ${message} in non-interactive mode\n`);
 			}
 			return 1;
 		}
@@ -218,13 +216,15 @@ export function createNewCommand(
 			if (options.force) {
 				if (!options.dryRun) {
 					try {
-						await runtime.git.runGit(repository.repoRoot, [
+						await runtime.git.runGitRetryingContention(repository.repoRoot, [
 							"worktree",
 							"remove",
 							"--force",
 							worktreePath,
 						]);
 					} catch (err) {
+						// The worktree claims its path below, which an empty leftover would block.
+						await rmdir(worktreePath).catch(() => undefined);
 						if (!isNotRegisteredWorktreeError(err)) {
 							const msg = `could not remove existing worktree at ${worktreePath}: ${toExecMessage(err)}`;
 							if (options.json) {
@@ -253,9 +253,7 @@ export function createNewCommand(
 				if (options.json) {
 					options.stderr(`${JSON.stringify({ error: message }, null, 2)}\n`);
 				} else {
-					options.stderr(
-						`gji new: ${message} in non-interactive mode (GJI_NO_TUI=1)\n`,
-					);
+					options.stderr(`gji new: ${message} in non-interactive mode\n`);
 					options.stderr(
 						`Hint: Use 'gji done ${worktreeName}' or 'gji clean' to remove the existing worktree\n`,
 					);
@@ -446,42 +444,27 @@ export function createNewCommand(
 				);
 			}
 		}
-		const gitArgs = options.detached
-			? [
-					"worktree",
-					"add",
-					"--detach",
-					worktreePath,
-					...(takeStartPoint ? [takeStartPoint] : []),
-				]
-			: options.mode === "track"
-				? [
-						"worktree",
-						"add",
-						"--track",
-						"-b",
-						worktreeName,
-						worktreePath,
-						`${options.remote ?? "origin"}/${worktreeName}`,
-					]
-				: options.mode === "checkout" || existingLocalBranch
-					? ["worktree", "add", worktreePath, worktreeName]
-					: [
-							"worktree",
-							"add",
-							"-b",
-							worktreeName,
-							worktreePath,
-							...(takeStartPoint
-								? [takeStartPoint]
-								: startPoint
-									? [startPoint]
-									: freshBaseRef
-										? [freshBaseRef]
-										: []),
-						];
+		const addsNewBranch =
+			createsBranch || (!options.detached && options.mode === "track");
 		try {
-			await runtime.git.runGit(repository.repoRoot, gitArgs);
+			await runtime.git.addWorktree(
+				repository.repoRoot,
+				worktreePath,
+				options.detached
+					? { detachedAt: takeStartPoint }
+					: addsNewBranch
+						? {
+								branch: worktreeName,
+								create: {
+									startPoint:
+										options.mode === "track"
+											? `${options.remote ?? "origin"}/${worktreeName}`
+											: (takeStartPoint ?? startPoint ?? freshBaseRef),
+									track: options.mode === "track",
+								},
+							}
+						: { branch: worktreeName },
+			);
 		} catch (error) {
 			if (stashSha)
 				await restoreTakeStash(
@@ -506,16 +489,11 @@ export function createNewCommand(
 				runtime.git.runGit,
 			))
 		) {
-			try {
-				await runtime.git.runGit(repository.repoRoot, [
-					"worktree",
-					"remove",
-					"--force",
-					worktreePath,
-				]);
-			} catch {
-				/* rollback best effort */
-			}
+			await runtime.git.removeCreatedWorktree(
+				repository.repoRoot,
+				worktreePath,
+				addsNewBranch ? worktreeName : undefined,
+			);
 			return emitNewError(
 				options,
 				`could not apply taken changes; your changes are safe in stash: ${stashSha}`,
@@ -726,7 +704,7 @@ async function runBranchOnly(
 	try {
 		let startPoint = baseBranch;
 		if (!options.noFetch) {
-			await runtime.git.runGit(repository.repoRoot, [
+			await runtime.git.runGitRetryingContention(repository.repoRoot, [
 				"fetch",
 				"--prune",
 				remote,
@@ -734,12 +712,15 @@ async function runBranchOnly(
 			]);
 			startPoint = `${remote}/${baseBranch}`;
 		}
-		await runtime.git.runGit(options.cwd, [
-			"switch",
-			"-c",
-			branchName,
+		await runtime.git.createBranch(repository.repoRoot, branchName, {
 			startPoint,
-		]);
+		});
+		try {
+			await runtime.git.runGit(options.cwd, ["switch", branchName]);
+		} catch (error) {
+			await runtime.git.deleteCreatedBranch(repository.repoRoot, branchName);
+			throw error;
+		}
 	} catch (error) {
 		return emitNewError(
 			options,
@@ -850,7 +831,7 @@ async function resolveFreshBaseRef(
 			throw new Error("the remote default branch is unknown");
 		}
 		baseBranch = remoteBase.branch;
-		await runtime.git.runGit(repoRoot, [
+		await runtime.git.runGitRetryingContention(repoRoot, [
 			"fetch",
 			"--prune",
 			remote,
@@ -1038,7 +1019,7 @@ function generateBranchPlaceholderSuffix(random: () => number): string {
 	return suffix;
 }
 
-function applyConfiguredBranchPrefix(
+export function applyConfiguredBranchPrefix(
 	branch: string,
 	branchPrefix: unknown,
 ): string {

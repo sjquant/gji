@@ -114,9 +114,7 @@ export function createPrCommand(
 				if (options.json) {
 					options.stderr(`${JSON.stringify({ error: message }, null, 2)}\n`);
 				} else {
-					options.stderr(
-						`gji pr: ${message} in non-interactive mode (GJI_NO_TUI=1)\n`,
-					);
+					options.stderr(`gji pr: ${message} in non-interactive mode\n`);
 					options.stderr(
 						`Hint: Use 'gji done pr/${prNumber}' or 'gji clean' to remove the existing worktree\n`,
 					);
@@ -204,11 +202,23 @@ export function createPrCommand(
 			branchName,
 			runtime,
 		);
-		const worktreeArgs = branchAlreadyExists
-			? ["worktree", "add", worktreePath, branchName]
-			: ["worktree", "add", "-b", branchName, worktreePath, remoteRef];
-
-		await runtime.git.runGit(repository.repoRoot, worktreeArgs);
+		try {
+			await runtime.git.addWorktree(
+				repository.repoRoot,
+				worktreePath,
+				branchAlreadyExists
+					? { branch: branchName }
+					: { branch: branchName, create: { startPoint: remoteRef } },
+			);
+		} catch (error) {
+			const message = `failed to create worktree: ${error instanceof Error ? error.message : String(error)}`;
+			if (options.json) {
+				options.stderr(`${JSON.stringify({ error: message }, null, 2)}\n`);
+			} else {
+				options.stderr(`gji pr: ${message}\n`);
+			}
+			return 1;
+		}
 
 		const bootstrap = await runtime.bootstrap.bootstrapWorktree({
 			branch: branchName,
@@ -293,7 +303,7 @@ async function fetchPullRequestRef(
 ): Promise<void> {
 	for (const sourceRef of listPullRequestSourceRefs(input, prNumber)) {
 		try {
-			await runtime.git.runGit(repoRoot, [
+			await runtime.git.runGitRetryingContention(repoRoot, [
 				"fetch",
 				"origin",
 				`${sourceRef}:${remoteRef}`,

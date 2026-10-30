@@ -1,7 +1,7 @@
 import { mkdirSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { beforeEach } from "vitest";
+import { beforeEach, vi } from "vitest";
 
 const SHELL_OUTPUT_ENV_VARS = [
 	"GJI_BACK_OUTPUT_FILE",
@@ -11,6 +11,12 @@ const SHELL_OUTPUT_ENV_VARS = [
 	"GJI_PR_OUTPUT_FILE",
 	"GJI_ROOT_OUTPUT_FILE",
 ] as const;
+
+// Tests drive prompts through injected fakes, so the test runner having no
+// terminal must not count as headless. Spawned CLI tests use the real check.
+vi.mock("./src/cli/runtime/headless.js", () => ({
+	isHeadless: () => process.env.GJI_NO_TUI === "1",
+}));
 
 beforeEach(() => {
 	const home = mkdtempSync(join(tmpdir(), "gji-home-"));

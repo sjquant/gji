@@ -330,8 +330,9 @@ export function createCleanCommand(
 			if (options.json) {
 				emitError(options, message);
 			} else {
+				options.stderr(`gji clean: ${message} in non-interactive mode\n`);
 				options.stderr(
-					`gji clean: ${message} in non-interactive mode (GJI_NO_TUI=1)\n`,
+					"Hint: --force removes every candidate; use --dry-run to preview them first\n",
 				);
 			}
 			return 1;

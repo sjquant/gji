@@ -83,7 +83,7 @@ export function createOpenCommand(
 
 		if (options.select && isHeadless()) {
 			options.stderr(
-				"gji open --select: selector is unavailable in non-interactive mode (GJI_NO_TUI=1)\n",
+				"gji open --select: selector is unavailable in non-interactive mode; pass a branch instead\n",
 			);
 			return 1;
 		}

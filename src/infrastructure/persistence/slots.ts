@@ -1,6 +1,7 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { join, resolve } from "node:path";
+import { withFileLock, writeJsonAtomic } from "../filesystem/locked-file.js";
 import { GLOBAL_CONFIG_DIRECTORY } from "./config.js";
 
 export interface SlotStore {
@@ -31,17 +32,19 @@ export async function assignWorktreeSlot(
 	worktreePath: string,
 	home: string = homedir(),
 ): Promise<number> {
-	const slots = await loadSlots(home);
-	const existing = slots[worktreePath];
-	if (existing !== undefined) return existing;
-	if (worktreePath !== repoRoot && slots[repoRoot] === undefined)
-		slots[repoRoot] = 0;
+	return withFileLock(SLOTS_FILE_PATH(home), async () => {
+		const slots = await loadSlots(home);
+		const existing = slots[worktreePath];
+		if (existing !== undefined) return existing;
+		if (worktreePath !== repoRoot && slots[repoRoot] === undefined)
+			slots[repoRoot] = 0;
 
-	const used = new Set(Object.values(slots));
-	const slot = worktreePath === repoRoot ? 0 : nextAvailableSlot(used);
-	slots[worktreePath] = slot;
-	await saveSlots(slots, home);
-	return slot;
+		const used = new Set(Object.values(slots));
+		const slot = worktreePath === repoRoot ? 0 : nextAvailableSlot(used);
+		slots[worktreePath] = slot;
+		await saveSlots(slots, home);
+		return slot;
+	});
 }
 
 export async function getWorktreeSlot(
@@ -56,16 +59,16 @@ export async function releaseWorktreeSlot(
 	worktreePath: string,
 	home: string = homedir(),
 ): Promise<void> {
-	const slots = await loadSlots(home);
-	if (!(worktreePath in slots)) return;
-	delete slots[worktreePath];
-	await saveSlots(slots, home);
+	await withFileLock(SLOTS_FILE_PATH(home), async () => {
+		const slots = await loadSlots(home);
+		if (!(worktreePath in slots)) return;
+		delete slots[worktreePath];
+		await saveSlots(slots, home);
+	});
 }
 
 async function saveSlots(slots: SlotStore, home: string): Promise<void> {
-	const path = SLOTS_FILE_PATH(home);
-	await mkdir(dirname(path), { recursive: true });
-	await writeFile(path, `${JSON.stringify(slots, null, 2)}\n`, "utf8");
+	await writeJsonAtomic(SLOTS_FILE_PATH(home), slots);
 }
 
 function nextAvailableSlot(used: Set<number>): number {

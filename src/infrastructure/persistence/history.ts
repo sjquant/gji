@@ -1,7 +1,8 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { join, resolve } from "node:path";
 import type { HistoryEntry } from "../../ports/history.js";
+import { withFileLock, writeJsonAtomic } from "../filesystem/locked-file.js";
 import { GLOBAL_CONFIG_DIRECTORY } from "./config.js";
 
 export type { HistoryEntry } from "../../ports/history.js";
@@ -37,16 +38,17 @@ export async function appendHistory(
 	home: string = homedir(),
 ): Promise<void> {
 	const historyPath = HISTORY_FILE_PATH(home);
-	const existing = await loadHistory(home);
+	await withFileLock(historyPath, async () => {
+		const existing = await loadHistory(home);
 
-	const entry: HistoryEntry = { branch, path, timestamp: Date.now() };
-	const next = [
-		entry,
-		...existing.filter((existingEntry) => existingEntry.path !== path),
-	].slice(0, MAX_HISTORY_ENTRIES);
+		const entry: HistoryEntry = { branch, path, timestamp: Date.now() };
+		const next = [
+			entry,
+			...existing.filter((existingEntry) => existingEntry.path !== path),
+		].slice(0, MAX_HISTORY_ENTRIES);
 
-	await mkdir(dirname(historyPath), { recursive: true });
-	await writeFile(historyPath, `${JSON.stringify(next, null, 2)}\n`, "utf8");
+		await writeJsonAtomic(historyPath, next);
+	});
 }
 
 export async function recordWorktreeUsage(

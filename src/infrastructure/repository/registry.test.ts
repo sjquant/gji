@@ -1,4 +1,11 @@
-import { mkdir, mkdtemp, realpath, symlink, writeFile } from "node:fs/promises";
+import {
+	mkdir,
+	mkdtemp,
+	realpath,
+	symlink,
+	utimes,
+	writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -117,6 +124,40 @@ describe("loadRegistry", () => {
 });
 
 describe("registerRepo", () => {
+	it("does not wait on a held lock when the repo is already the most recent", async () => {
+		// Given a repo that is already first in the registry, and a held registry lock.
+		process.env.GJI_CONFIG_DIR = await makeConfigDir();
+		const repoRoot = await mkdtemp(join(tmpdir(), "gji-registry-repo-"));
+		await registerRepo(repoRoot);
+		await writeFile(`${REGISTRY_FILE_PATH()}.lock`, "");
+
+		// When the same repo registers again.
+		await registerRepo(repoRoot);
+
+		// Then it returns inside the test timeout, with the registry unchanged.
+		expect((await loadRegistry()).map((entry) => entry.path)).toEqual([
+			await realpath(repoRoot),
+		]);
+	});
+
+	it("takes over a registry lock left behind by a killed process", async () => {
+		// Given a registry lock last touched 30 seconds ago.
+		process.env.GJI_CONFIG_DIR = await makeConfigDir();
+		const repoRoot = await mkdtemp(join(tmpdir(), "gji-registry-repo-"));
+		const lockPath = `${REGISTRY_FILE_PATH()}.lock`;
+		await writeFile(lockPath, "");
+		const staleTime = new Date(Date.now() - 30_000);
+		await utimes(lockPath, staleTime, staleTime);
+
+		// When a repo registers.
+		await registerRepo(repoRoot);
+
+		// Then it takes over the lock inside the test timeout and writes the entry.
+		expect((await loadRegistry()).map((entry) => entry.path)).toEqual([
+			await realpath(repoRoot),
+		]);
+	});
+
 	it("serializes registration and stale-entry removal", async () => {
 		// Given a registry with one stale entry and a real repository to register.
 		const dir = await makeConfigDir();
