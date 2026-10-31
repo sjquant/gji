@@ -82,34 +82,122 @@ export default function Home(): ReactNode {
 					</div>
 				</section>
 				<WorkflowDemo />
+				<section className={styles.highlights} aria-label="Why gji">
+					<div>
+						<svg
+							viewBox="0 0 24 24"
+							fill="none"
+							stroke="currentColor"
+							strokeWidth="1.7"
+							aria-hidden="true"
+						>
+							<path d="M3 6a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
+						</svg>
+						<h2>Real directories for real work.</h2>
+						<p>
+							Each task gets its own worktree, with space to run your project,
+							install dependencies, and make changes.
+						</p>
+					</div>
+					<div>
+						<svg
+							viewBox="0 0 24 24"
+							fill="none"
+							stroke="currentColor"
+							strokeWidth="1.7"
+							aria-hidden="true"
+						>
+							<path d="M6 3h8l4 4v14H6z M14 3v5h4 M9 13h6 M9 17h6" />
+						</svg>
+						<h2>Your changes stay right where you left them.</h2>
+						<p>
+							Uncommitted changes stay in their worktree while you switch tasks
+							or review a pull request.
+						</p>
+					</div>
+					<div>
+						<svg
+							viewBox="0 0 24 24"
+							fill="none"
+							stroke="currentColor"
+							strokeWidth="1.7"
+							aria-hidden="true"
+						>
+							<circle cx="6" cy="5" r="2" />
+							<circle cx="18" cy="5" r="2" />
+							<circle cx="6" cy="19" r="2" />
+							<path d="M6 7v10 M18 7v2a4 4 0 0 1-4 4H6" />
+						</svg>
+						<h2>Move between tasks from your terminal.</h2>
+						<p>
+							Create, review, and return with <code>gji new</code>,{" "}
+							<code>gji pr</code>, <code>gji go</code>, and{" "}
+							<code>gji back</code>.
+						</p>
+					</div>
+				</section>
 				<section
 					className={styles.explanation}
 					aria-label="Work with your existing tools"
 				>
 					<div className={styles.story}>
 						<section>
-							<h2>Leave work as it is</h2>
+							<p className={styles.storyLabel}>01 · Your work in progress</p>
+							<h2>Leave work as it is.</h2>
 							<p>
-								Start another task in its own directory. Your uncommitted
-								changes stay right where you left them.
+								You’re in the middle of a change. There’s no need to commit or
+								stash it just to switch tasks.
 							</p>
-							<code>gji new feature/search</code>
+							<pre>
+								<code>
+									{
+										"$ git status --short\n M src/checkout.ts\n M src/checkout.test.ts"
+									}
+								</code>
+							</pre>
 						</section>
 						<section>
-							<h2>Review a PR in its own place</h2>
+							<p className={styles.storyLabel}>02 · Start another task</p>
+							<h2>Give the next task its own place.</h2>
 							<p>
-								Open a PR in a separate worktree, then return to your task when
-								you’re ready.
+								Create a branch and worktree together. gji moves your shell into
+								the new directory, ready for the next task.
 							</p>
-							<code>gji pr 1234</code>
+							<pre>
+								<code>{"$ gji new feature/search"}</code>
+							</pre>
 						</section>
 						<section>
-							<h2>Pick up where you left off</h2>
+							<p className={styles.storyLabel}>03 · Review a PR</p>
+							<h2>Review without disturbing your work.</h2>
 							<p>
-								Return to your original directory and keep using your usual Git
-								commands and editor.
+								Open a pull request from your repository in a separate worktree.
+								Your other tasks stay in their own directories.
 							</p>
-							<code>gji back</code>
+							<pre>
+								<code>{"$ gji pr 1234"}</code>
+							</pre>
+						</section>
+						<section>
+							<p className={styles.storyLabel}>
+								04 · Pick up where you left off
+							</p>
+							<h2>Go back to exactly where you were.</h2>
+							<p>
+								Choose an open task with gji go. The changes you left in that
+								worktree are still there.
+							</p>
+							<pre>
+								<code>
+									{
+										"$ gji go feature/payments\n$ git status --short\n M src/checkout.ts\n M src/checkout.test.ts"
+									}
+								</code>
+							</pre>
+							<p className={styles.storyAside}>
+								Use <code>gji go</code> to choose an open task, or{" "}
+								<code>gji back</code> to return to the previous worktree.
+							</p>
 						</section>
 					</div>
 					<p className={styles.setup}>
