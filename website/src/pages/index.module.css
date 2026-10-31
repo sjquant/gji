@@ -86,10 +86,10 @@
 }
 .highlights {
 	max-width: 60rem;
-	margin: 3rem auto 0;
+	margin: 5rem auto 0;
 	display: grid;
 	grid-template-columns: repeat(3, minmax(0, 1fr));
-	padding-bottom: 2.5rem;
+	padding-bottom: 4rem;
 	border-bottom: 1px solid var(--gji-border);
 }
 .highlights > div {
@@ -125,17 +125,17 @@
 }
 .explanation {
 	max-width: 60rem;
-	margin: 0 auto 5rem;
+	margin: 5rem auto 7rem;
 	color: var(--gji-ink);
 	line-height: 1.7;
 }
 .story section {
 	max-width: 38rem;
-	min-height: 55vh;
 	display: flex;
 	flex-direction: column;
 	justify-content: center;
 	margin: 0 auto;
+	padding: 1.75rem 0;
 }
 .story h2 {
 	color: var(--gji-ink-strong);
@@ -172,13 +172,9 @@
 	color: inherit;
 	font: inherit;
 }
-.story .storyAside {
-	font-size: 0.9rem;
-	margin-top: 1.25rem;
-}
 .setup {
 	max-width: 38rem;
-	margin: 2rem auto 0;
+	margin: 5rem auto 0;
 	font-size: 0.9rem;
 }
 @supports (animation-timeline: view()) {

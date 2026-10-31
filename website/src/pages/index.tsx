@@ -179,13 +179,11 @@ export default function Home(): ReactNode {
 							</pre>
 						</section>
 						<section>
-							<p className={styles.storyLabel}>
-								04 · Pick up where you left off
-							</p>
-							<h2>Go back to exactly where you were.</h2>
+							<p className={styles.storyLabel}>04 · Move between tasks</p>
+							<h2>Go to the task you need.</h2>
 							<p>
-								Choose an open task with gji go. The changes you left in that
-								worktree are still there.
+								Choose an open task with gji go, or name the branch you want.
+								Your changes remain in that worktree.
 							</p>
 							<pre>
 								<code>
@@ -194,10 +192,17 @@ export default function Home(): ReactNode {
 									}
 								</code>
 							</pre>
-							<p className={styles.storyAside}>
-								Use <code>gji go</code> to choose an open task, or{" "}
-								<code>gji back</code> to return to the previous worktree.
+						</section>
+						<section>
+							<p className={styles.storyLabel}>05 · Return to your last task</p>
+							<h2>Go back in one command.</h2>
+							<p>
+								Return to the previous worktree with gji back. In this example,
+								that takes you back to the PR you were reviewing.
 							</p>
+							<pre>
+								<code>{"$ gji back"}</code>
+							</pre>
 						</section>
 					</div>
 					<p className={styles.setup}>
