@@ -48,13 +48,13 @@ export default function WorkflowDemo() {
 	}, [typing, paused, typed]);
 
 	useEffect(() => {
-		if (!motion || paused) return;
+		if (!motion || paused || typing) return;
 		const timer = window.setTimeout(
 			() => setStep((step + 1) % scenes.length),
-			2800,
+			350,
 		);
 		return () => window.clearTimeout(timer);
-	}, [motion, paused, step]);
+	}, [motion, paused, typing, step]);
 
 	return (
 		<section

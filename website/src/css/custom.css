@@ -1,3 +1,7 @@
+html {
+	scroll-behavior: smooth;
+}
+
 :root {
 	--ifm-color-primary: #586b43;
 	--ifm-color-primary-dark: #4f603c;

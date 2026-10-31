@@ -56,9 +56,9 @@ export default function Home(): ReactNode {
 						<Link className={styles.primary} to="/docs/installation">
 							Install gji
 						</Link>
-						<Link className={styles.secondary} to="/docs/quick-start">
-							Quick start <span aria-hidden="true">→</span>
-						</Link>
+						<a className={styles.secondary} href="#workflow">
+							See the workflow <span aria-hidden="true">↓</span>
+						</a>
 					</div>
 					<Link className={styles.install} to="/docs/installation">
 						<code>npm install -g @solaqua/gji</code>
