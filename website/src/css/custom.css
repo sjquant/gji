@@ -1,3 +1,7 @@
+html {
+	scroll-behavior: smooth;
+}
+
 :root {
 	--ifm-color-primary: #586b43;
 	--ifm-color-primary-dark: #4f603c;
@@ -142,6 +146,8 @@ pre {
 }
 .theme-code-block {
 	overflow: hidden;
+	border-color: #30363d;
+	--docusaurus-highlighted-code-line-bg: #ffffff1a;
 }
 .theme-code-block pre {
 	border: 0;

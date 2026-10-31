@@ -2,6 +2,11 @@ import type * as Preset from "@docusaurus/preset-classic";
 import type { Config } from "@docusaurus/types";
 import { themes as prismThemes } from "prism-react-renderer";
 
+const terminalTheme = {
+	...prismThemes.dracula,
+	plain: { ...prismThemes.dracula.plain, backgroundColor: "#0d0f12" },
+};
+
 const config: Config = {
 	title: "gji",
 	tagline: "Switch tasks. Keep your place.",
@@ -124,11 +129,8 @@ const config: Config = {
 			copyright: `Copyright © ${new Date().getFullYear()} sjquant. MIT License.`,
 		},
 		prism: {
-			theme: prismThemes.github,
-			darkTheme: {
-				...prismThemes.dracula,
-				plain: { ...prismThemes.dracula.plain, backgroundColor: "#0d0f12" },
-			},
+			theme: terminalTheme,
+			darkTheme: terminalTheme,
 		},
 	} satisfies Preset.ThemeConfig,
 };

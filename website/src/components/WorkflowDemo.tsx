@@ -48,13 +48,13 @@ export default function WorkflowDemo() {
 	}, [typing, paused, typed]);
 
 	useEffect(() => {
-		if (!motion || paused) return;
+		if (!motion || paused || typing) return;
 		const timer = window.setTimeout(
 			() => setStep((step + 1) % scenes.length),
-			2800,
+			1000,
 		);
 		return () => window.clearTimeout(timer);
-	}, [motion, paused, step]);
+	}, [motion, paused, typing, step]);
 
 	return (
 		<section
@@ -70,8 +70,29 @@ export default function WorkflowDemo() {
 					setFocused(false);
 			}}
 		>
+			<fieldset className={styles.steps} aria-label="Choose a workflow scene">
+				{scenes.map((item, index) => (
+					<button
+						key={item.label}
+						type="button"
+						aria-pressed={step === index}
+						onClick={() => {
+							setStep(index);
+							setTyped(item.command.length);
+						}}
+					>
+						<span aria-hidden="true">0{index + 1} · </span>
+						{item.label}
+					</button>
+				))}
+				<span
+					className={styles.indicator}
+					aria-hidden="true"
+					style={{ transform: `translateX(${step * 100}%)` }}
+				/>
+			</fieldset>
 			<div className={styles.terminal}>
-				<pre className={styles.screen} aria-hidden="true">
+				<pre key={scene.label} className={styles.screen} aria-hidden="true">
 					<code>
 						<span className={styles.prompt}>$ </span>
 						{renderCommand(
@@ -114,21 +135,6 @@ export default function WorkflowDemo() {
 					))}
 				</div>
 			</div>
-			<fieldset className={styles.steps} aria-label="Choose a workflow scene">
-				{scenes.map((item, index) => (
-					<button
-						key={item.label}
-						type="button"
-						title={item.label}
-						aria-label={item.label}
-						aria-pressed={step === index}
-						onClick={() => {
-							setStep(index);
-							setTyped(item.command.length);
-						}}
-					/>
-				))}
-			</fieldset>
 			<p className={styles.note}>Illustrated workflow · setup time omitted</p>
 			<p id="workflow-help" className={styles.srOnly}>
 				Shell integration is enabled in this example. Hover or focus to pause.
