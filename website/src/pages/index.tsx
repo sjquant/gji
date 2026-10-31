@@ -57,28 +57,7 @@ export default function Home(): ReactNode {
 						<Link className={styles.primary} to="/docs/quick-start">
 							Quick start
 						</Link>
-						{/* biome-ignore lint/a11y/useValidAnchor: The link navigates to the workflow and also highlights its destination. */}
-						<a
-							className={styles.secondary}
-							href="#workflow"
-							onClick={() => {
-								const workflow = document.getElementById("workflow");
-								workflow?.focus({ preventScroll: true });
-								if (
-									workflow &&
-									!window.matchMedia("(prefers-reduced-motion: reduce)").matches
-								) {
-									workflow.animate(
-										[
-											{ outlineColor: "transparent" },
-											{ outlineColor: "var(--gji-accent)" },
-											{ outlineColor: "transparent" },
-										],
-										{ duration: 900 },
-									);
-								}
-							}}
-						>
+						<a className={styles.secondary} href="#workflow">
 							See the workflow <span aria-hidden="true">↓</span>
 						</a>
 					</div>
@@ -107,23 +86,33 @@ export default function Home(): ReactNode {
 					className={styles.explanation}
 					aria-label="Work with your existing tools"
 				>
-					<div className={styles.benefits}>
-						<div>
+					<div className={styles.story}>
+						<section>
 							<h2>Leave work as it is</h2>
 							<p>
-								Start another task in its own directory. When you come back,
-								your uncommitted changes are right where you left them.
+								Start another task in its own directory. Your uncommitted
+								changes stay right where you left them.
 							</p>
-						</div>
-						<div>
-							<h2>Review without switching context</h2>
+							<code>gji new feature/search</code>
+						</section>
+						<section>
+							<h2>Review a PR in its own place</h2>
 							<p>
-								Open a PR in a separate worktree, then return to your task. Keep
-								using your usual Git commands and editor.
+								Open a PR in a separate worktree, then return to your task when
+								you’re ready.
 							</p>
-						</div>
+							<code>gji pr 1234</code>
+						</section>
+						<section>
+							<h2>Pick up where you left off</h2>
+							<p>
+								Return to your original directory and keep using your usual Git
+								commands and editor.
+							</p>
+							<code>gji back</code>
+						</section>
 					</div>
-					<p>
+					<p className={styles.setup}>
 						New worktrees run supported dependency setup automatically. Shell
 						integration lets gji move you between directories.{" "}
 						<Link to="/docs/installation">Installation and setup</Link>

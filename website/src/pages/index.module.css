@@ -84,23 +84,58 @@
 	font: inherit;
 	font-weight: 700;
 }
-.benefits {
-	display: grid;
-	grid-template-columns: repeat(2, minmax(0, 1fr));
-	gap: 3rem;
-	text-align: left;
-	margin-bottom: 2rem;
-}
-.benefits h2 {
-	font-size: 1.3rem;
-	color: var(--gji-ink-strong);
-}
 .explanation {
 	max-width: 60rem;
-	text-align: center;
-	margin: 3rem auto 4rem;
+	margin: 0 auto 5rem;
 	color: var(--gji-ink);
-	line-height: 1.75;
+	line-height: 1.7;
+}
+.story section {
+	max-width: 38rem;
+	min-height: 55vh;
+	display: flex;
+	flex-direction: column;
+	justify-content: center;
+	margin: 0 auto;
+}
+.story h2 {
+	color: var(--gji-ink-strong);
+	font-size: clamp(1.8rem, 3vw, 2.6rem);
+	letter-spacing: -0.035em;
+	line-height: 1.15;
+}
+.story p {
+	font-size: 1.1rem;
+}
+.story code {
+	align-self: flex-start;
+	padding: 0.55rem 0.8rem;
+	background: var(--gji-surface-muted);
+	border: 0;
+}
+.setup {
+	max-width: 38rem;
+	margin: 2rem auto 0;
+	font-size: 0.9rem;
+}
+@supports (animation-timeline: view()) {
+	@media (prefers-reduced-motion: no-preference) {
+		.story section {
+			animation: reveal linear both;
+			animation-timeline: view();
+			animation-range: entry 0% entry 80%;
+		}
+	}
+}
+@keyframes reveal {
+	from {
+		opacity: 0.6;
+		transform: translateY(12px);
+	}
+	to {
+		opacity: 1;
+		transform: translateY(0);
+	}
 }
 .referenceLinks {
 	display: flex;
@@ -110,10 +145,6 @@
 	margin: 1.5rem 0 0;
 }
 @media (max-width: 650px) {
-	.benefits {
-		grid-template-columns: 1fr;
-		gap: 1rem;
-	}
 	.page {
 		padding: 0 1rem;
 	}
