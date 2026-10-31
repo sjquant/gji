@@ -70,6 +70,22 @@ export default function WorkflowDemo() {
 					setFocused(false);
 			}}
 		>
+			<fieldset className={styles.steps} aria-label="Choose a workflow scene">
+				{scenes.map((item, index) => (
+					<button
+						key={item.label}
+						type="button"
+						aria-pressed={step === index}
+						onClick={() => {
+							setStep(index);
+							setTyped(item.command.length);
+						}}
+					>
+						<span aria-hidden="true">0{index + 1} · </span>
+						{item.label}
+					</button>
+				))}
+			</fieldset>
 			<div className={styles.terminal}>
 				<pre className={styles.screen} aria-hidden="true">
 					<code>
@@ -114,21 +130,6 @@ export default function WorkflowDemo() {
 					))}
 				</div>
 			</div>
-			<fieldset className={styles.steps} aria-label="Choose a workflow scene">
-				{scenes.map((item, index) => (
-					<button
-						key={item.label}
-						type="button"
-						title={item.label}
-						aria-label={item.label}
-						aria-pressed={step === index}
-						onClick={() => {
-							setStep(index);
-							setTyped(item.command.length);
-						}}
-					/>
-				))}
-			</fieldset>
 			<p className={styles.note}>Illustrated workflow · setup time omitted</p>
 			<p id="workflow-help" className={styles.srOnly}>
 				Shell integration is enabled in this example. Hover or focus to pause.
