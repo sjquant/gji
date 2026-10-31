@@ -51,7 +51,7 @@ export default function WorkflowDemo() {
 		if (!motion || paused || typing) return;
 		const timer = window.setTimeout(
 			() => setStep((step + 1) % scenes.length),
-			350,
+			1000,
 		);
 		return () => window.clearTimeout(timer);
 	}, [motion, paused, typing, step]);
@@ -85,6 +85,11 @@ export default function WorkflowDemo() {
 						{item.label}
 					</button>
 				))}
+				<span
+					className={styles.indicator}
+					aria-hidden="true"
+					style={{ transform: `translateX(${step * 100}%)` }}
+				/>
 			</fieldset>
 			<div className={styles.terminal}>
 				<pre key={scene.label} className={styles.screen} aria-hidden="true">

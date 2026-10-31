@@ -4,9 +4,13 @@
 	scroll-margin-top: 5rem;
 }
 .steps {
-	display: flex;
-	justify-content: center;
+	display: grid;
+	grid-template-columns: repeat(4, minmax(0, 1fr));
+	position: relative;
+	width: 100%;
+	max-width: 42rem;
 	border: 0;
+	border-bottom: 2px solid var(--gji-border);
 	padding: 0;
 	min-width: 0;
 	margin: 0 auto 1rem;
@@ -14,20 +18,26 @@
 .steps button {
 	background: none;
 	border: 0;
-	border-bottom: 2px solid var(--gji-border);
 	color: var(--gji-muted);
 	cursor: pointer;
 	font: inherit;
 	font-size: 0.78rem;
-	padding: 0.6rem 1rem;
-	transition:
-		color 180ms ease,
-		border-color 180ms ease;
+	padding: 0.6rem 0.5rem;
+	transition: color 320ms ease;
 }
 .steps button[aria-pressed="true"] {
 	color: var(--gji-accent);
 	font-weight: 700;
-	border-color: var(--gji-accent);
+}
+.indicator {
+	position: absolute;
+	bottom: -2px;
+	left: 0;
+	width: 25%;
+	height: 2px;
+	background: var(--gji-accent);
+	transition: transform 320ms cubic-bezier(0.22, 1, 0.36, 1);
+	pointer-events: none;
 }
 .terminal {
 	background: #0d0f12;
@@ -59,17 +69,18 @@
 }
 @media (prefers-reduced-motion: no-preference) {
 	.screen {
-		animation: sceneEnter 180ms ease-out;
+		animation: sceneEnter 320ms ease-out;
 	}
 	.workspace {
 		transition:
-			color 180ms ease,
-			border-color 180ms ease,
-			opacity 180ms ease;
+			color 320ms ease,
+			border-color 320ms ease,
+			opacity 320ms ease;
 	}
 }
 @media (prefers-reduced-motion: reduce) {
-	.steps button {
+	.steps button,
+	.indicator {
 		transition: none;
 	}
 }
@@ -122,7 +133,6 @@
 }
 @media (max-width: 650px) {
 	.steps button {
-		flex: 1;
 		min-width: 0;
 		min-height: 3rem;
 		padding: 0.5rem 0.3rem;
