@@ -210,11 +210,14 @@ export default function Home(): ReactNode {
 						integration lets gji move you between directories.{" "}
 						<Link to="/docs/installation">Installation and setup</Link>
 					</p>
-					<p className={styles.referenceLinks}>
-						<Link to="/docs/quick-start">Quick start</Link>
-						<span aria-hidden="true">·</span>
-						<Link to="/docs/commands">Command reference</Link>
-					</p>
+					<div className={styles.referenceLinks}>
+						<Link className={styles.primary} to="/docs/quick-start">
+							Quick start
+						</Link>
+						<Link className={styles.secondary} to="/docs/commands">
+							Command reference
+						</Link>
+					</div>
 				</section>
 			</main>
 		</Layout>

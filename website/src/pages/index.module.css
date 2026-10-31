@@ -198,10 +198,11 @@
 }
 .referenceLinks {
 	display: flex;
-	gap: 1rem;
+	align-items: center;
+	flex-wrap: wrap;
+	gap: 1.5rem;
 	justify-content: center;
-	font-size: 0.85rem;
-	margin: 1.5rem 0 0;
+	margin: 3rem 0 0;
 }
 @media (max-width: 650px) {
 	.highlights {
