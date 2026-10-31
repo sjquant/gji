@@ -2,7 +2,7 @@ import Head from "@docusaurus/Head";
 import Link from "@docusaurus/Link";
 import useDocusaurusContext from "@docusaurus/useDocusaurusContext";
 import Layout from "@theme/Layout";
-import type { ReactNode } from "react";
+import { type ReactNode, useState } from "react";
 
 import WorkflowDemo from "../components/WorkflowDemo";
 import styles from "./index.module.css";
@@ -11,6 +11,7 @@ const description =
 	"Open a new task or review a PR. Your current work stays right where you left it. gji makes Git worktrees part of your everyday shell workflow.";
 
 export default function Home(): ReactNode {
+	const [copyStatus, setCopyStatus] = useState("Copy");
 	const { siteConfig } = useDocusaurusContext();
 	const siteUrl = `${siteConfig.url}${siteConfig.baseUrl}`;
 	return (
@@ -53,27 +54,79 @@ export default function Home(): ReactNode {
 						<br /> Your current work stays right where you left it.
 					</p>
 					<div className={styles.actions}>
-						<Link className={styles.primary} to="/docs/installation">
-							Install gji
+						<Link className={styles.primary} to="/docs/quick-start">
+							Quick start
 						</Link>
-						<a className={styles.secondary} href="#workflow">
+						{/* biome-ignore lint/a11y/useValidAnchor: The link navigates to the workflow and also highlights its destination. */}
+						<a
+							className={styles.secondary}
+							href="#workflow"
+							onClick={() => {
+								const workflow = document.getElementById("workflow");
+								workflow?.focus({ preventScroll: true });
+								if (
+									workflow &&
+									!window.matchMedia("(prefers-reduced-motion: reduce)").matches
+								) {
+									workflow.animate(
+										[
+											{ outlineColor: "transparent" },
+											{ outlineColor: "var(--gji-accent)" },
+											{ outlineColor: "transparent" },
+										],
+										{ duration: 900 },
+									);
+								}
+							}}
+						>
 							See the workflow <span aria-hidden="true">↓</span>
 						</a>
 					</div>
-					<Link className={styles.install} to="/docs/installation">
+					<div className={styles.install}>
 						<code>npm install -g @solaqua/gji</code>
-						<span aria-hidden="true">↗</span>
-					</Link>
+						<button
+							type="button"
+							onClick={async () => {
+								try {
+									await navigator.clipboard.writeText(
+										"npm install -g @solaqua/gji",
+									);
+									setCopyStatus("Copied");
+								} catch {
+									setCopyStatus("Select to copy");
+								}
+							}}
+							aria-live="polite"
+						>
+							{copyStatus}
+						</button>
+					</div>
 				</section>
 				<WorkflowDemo />
 				<section
 					className={styles.explanation}
 					aria-label="Work with your existing tools"
 				>
+					<div className={styles.benefits}>
+						<div>
+							<h2>Leave work as it is</h2>
+							<p>
+								Start another task in its own directory. When you come back,
+								your uncommitted changes are right where you left them.
+							</p>
+						</div>
+						<div>
+							<h2>Review without switching context</h2>
+							<p>
+								Open a PR in a separate worktree, then return to your task. Keep
+								using your usual Git commands and editor.
+							</p>
+						</div>
+					</div>
 					<p>
-						Each task gets its own directory, files, and dependencies.
-						<br />
-						Keep using your usual Git commands, editor, and coding tools.
+						New worktrees run supported dependency setup automatically. Shell
+						integration lets gji move you between directories.{" "}
+						<Link to="/docs/installation">Installation and setup</Link>
 					</p>
 					<p className={styles.referenceLinks}>
 						<Link to="/docs/quick-start">Quick start</Link>

@@ -59,12 +59,15 @@ export default function WorkflowDemo() {
 	return (
 		<section
 			id="workflow"
+			tabIndex={-1}
 			className={styles.demo}
 			aria-label="See how work stays in separate worktrees"
 			aria-describedby="workflow-help"
 			onMouseEnter={() => setHovered(true)}
 			onMouseLeave={() => setHovered(false)}
-			onFocusCapture={() => setFocused(true)}
+			onFocusCapture={(event) => {
+				if (event.target !== event.currentTarget) setFocused(true);
+			}}
 			onBlurCapture={(event) => {
 				if (!event.currentTarget.contains(event.relatedTarget))
 					setFocused(false);

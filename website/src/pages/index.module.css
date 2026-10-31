@@ -76,6 +76,25 @@
 	color: var(--gji-accent);
 	text-decoration: none;
 }
+.install button {
+	background: none;
+	border: 0;
+	color: var(--gji-accent);
+	cursor: pointer;
+	font: inherit;
+	font-weight: 700;
+}
+.benefits {
+	display: grid;
+	grid-template-columns: repeat(2, minmax(0, 1fr));
+	gap: 3rem;
+	text-align: left;
+	margin-bottom: 2rem;
+}
+.benefits h2 {
+	font-size: 1.3rem;
+	color: var(--gji-ink-strong);
+}
 .explanation {
 	max-width: 60rem;
 	text-align: center;
@@ -91,6 +110,10 @@
 	margin: 1.5rem 0 0;
 }
 @media (max-width: 650px) {
+	.benefits {
+		grid-template-columns: 1fr;
+		gap: 1rem;
+	}
 	.page {
 		padding: 0 1rem;
 	}
