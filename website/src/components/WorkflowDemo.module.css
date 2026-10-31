@@ -20,6 +20,9 @@
 	font: inherit;
 	font-size: 0.78rem;
 	padding: 0.6rem 1rem;
+	transition:
+		color 180ms ease,
+		border-color 180ms ease;
 }
 .steps button[aria-pressed="true"] {
 	color: var(--gji-accent);
@@ -43,6 +46,32 @@
 	overflow-wrap: anywhere;
 	font: 0.92rem / 1.85 var(--ifm-font-family-monospace);
 	color: #e6edf3;
+}
+@keyframes sceneEnter {
+	from {
+		opacity: 0;
+		transform: translateY(4px);
+	}
+	to {
+		opacity: 1;
+		transform: translateY(0);
+	}
+}
+@media (prefers-reduced-motion: no-preference) {
+	.screen {
+		animation: sceneEnter 180ms ease-out;
+	}
+	.workspace {
+		transition:
+			color 180ms ease,
+			border-color 180ms ease,
+			opacity 180ms ease;
+	}
+}
+@media (prefers-reduced-motion: reduce) {
+	.steps button {
+		transition: none;
+	}
 }
 .screen code {
 	background: transparent;
@@ -75,6 +104,7 @@
 }
 .hidden {
 	visibility: hidden;
+	opacity: 0;
 }
 .branch {
 	display: block;

@@ -87,7 +87,7 @@ export default function WorkflowDemo() {
 				))}
 			</fieldset>
 			<div className={styles.terminal}>
-				<pre className={styles.screen} aria-hidden="true">
+				<pre key={scene.label} className={styles.screen} aria-hidden="true">
 					<code>
 						<span className={styles.prompt}>$ </span>
 						{renderCommand(
