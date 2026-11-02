@@ -1,6 +1,7 @@
 import type * as Preset from "@docusaurus/preset-classic";
 import type { Config } from "@docusaurus/types";
 import { themes as prismThemes } from "prism-react-renderer";
+import docStructuredData from "./plugins/doc-structured-data";
 
 const terminalTheme = {
 	...prismThemes.dracula,
@@ -35,6 +36,7 @@ const config: Config = {
 			{
 				docs: {
 					sidebarPath: "./sidebars.ts",
+					remarkPlugins: [docStructuredData],
 					editUrl: "https://github.com/sjquant/gji/tree/main/website/",
 					showLastUpdateTime: true,
 				},
