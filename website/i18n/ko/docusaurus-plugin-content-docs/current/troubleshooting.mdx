@@ -1,0 +1,111 @@
+---
+title: 문제 해결
+description: 셸 이동이나 의존성 설치, PR 가져오기, 동기화, 정리에 문제가 생겼을 때 해결하는 방법을 안내합니다.
+---
+
+# 문제를 해결하고 작업을 이어 가세요
+
+문제가 발생한 저장소 안에서 진단부터 시작하세요.
+
+```bash
+gji doctor
+```
+
+진단 결과에 나온 Git, 셸, 설정 관련 안내부터 확인하세요. 자주 겪는 문제는 아래에서 해결 방법을 찾을 수 있습니다.
+
+## `gji go`가 디렉터리를 바꾸지 않고 경로만 출력합니다 {/* #gji-go-prints-a-path-instead-of-changing-directories */}
+
+현재 셸 세션에 래퍼가 불러와져 있지 않습니다. zsh에서는 다음과 같이 실행합니다.
+
+```bash
+eval "$(gji init zsh)"
+```
+
+bash에서는 `zsh`를 `bash`로 바꾸세요. fish에서는 `gji init fish | source`를 실행합니다. `gji go`를 다시 시도하세요. 영구 적용하려면 `gji init`을 실행하고 셸을 다시 시작한 뒤 `gji doctor`로 다시 확인하세요.
+
+셸을 직접 지정해 설치하는 방법과 스크립트에서만 사용하는 방법은 [셸 통합](./shell-integration)을 참고하세요.
+
+## 워크트리는 있지만 의존성이 없습니다 {/* #the-worktree-exists-but-dependencies-are-missing */}
+
+워크트리는 만들어졌지만 의존성을 준비하는 과정에서 실패한 상태일 수 있습니다. 오류에 표시된 경로로 생성된 워크트리에 들어가세요. 설치를 재시도하려고 워크트리를 제거하고 다시 만들지 마세요.
+
+해당 위치에서 프로젝트의 일반 설치 명령을 실행하세요. 예를 들면 다음과 같습니다.
+
+```bash
+pnpm install
+```
+
+패키지 관리자를 사용할 수 있고 레지스트리에 접근할 수 있는지 확인하세요. 설치 실패로 `afterCreate`가 실행되지 않았다면 적절한 시점에 설정된 훅을 다시 실행하세요.
+
+```bash
+gji run-hook afterCreate
+```
+
+다시 실행해도 되는 명령인지 먼저 확인하세요. 훅이 파일을 바꾸는 등 부수 효과를 일으킬 수 있습니다. 훅 명령 자체는 자동 의존성 설치를 다시 실행하지 않습니다.
+
+지원하는 잠금 파일이 없다면 프로젝트별 [설정 훅](./hooks)을 구성하거나 직접 설치하세요. 지원 도구는 [의존성 초기 설정](./configuration#dependency-bootstrap)을 참고하세요.
+
+## 의존성 설정을 생략하고 싶습니다 {/* #i-want-to-skip-dependency-setup */}
+
+작업 하나에만 적용하려면 다음과 같이 실행합니다.
+
+```bash
+gji new feature/search --no-install
+gji pr 1234 --no-install
+```
+
+저장소에 적용하려면 `.gji.json`에서 `dependencyBootstrap`을 `off`로 설정하세요.
+
+## 로컬 설정 파일이 복사되지 않았습니다 {/* #local-setup-files-werent-copied */}
+
+설정된 목록을 확인하세요.
+
+```bash
+gji sync-files list
+```
+
+원본 파일은 현재 워크트리에만 있는 것이 아니라 **메인 워크트리**에 있어야 합니다. 원본이 없으면 건너뛰며, 대상에 이미 있는 파일은 덮어쓰지 않습니다. 목록 변경은 이후 워크트리에 적용되며 복사는 지속적으로 이루어지지 않습니다. [로컬 파일](./configuration#sync-private-local-files)을 참고하세요.
+
+## `sync`가 실행을 거부하거나 리베이스가 멈췄습니다 {/* #sync-refuses-to-run-or-a-rebase-stops */}
+
+```bash
+gji status
+git status --short
+```
+
+워크트리에 로컬 변경 사항이 있거나 `HEAD`가 브랜치에 연결되지 않은 상태일 수 있습니다. 동기화 전에 로컬 변경 사항을 정리하거나 브랜치가 있는 워크트리로 이동하세요. 이미 리베이스가 진행 중이라면 평소 Git 작업 방식으로 해결한 뒤 (`git rebase --continue` 또는 `git rebase --abort`) 다시 시도하세요.
+
+## PR이 로컬에서 열리지 않습니다 {/* #a-pr-wont-open-locally */}
+
+PR 번호나 URL이 현재 저장소에 속하는지, 현재 자격 증명으로 Git 원격 저장소에 접근할 수 있는지 확인하세요. `gji pr`은 PR 참조를 가져올 뿐, 비공개 저장소에 대한 접근 권한을 부여하지 않습니다.
+
+파일을 만들지 않고 계획을 보려면 다음과 같이 실행합니다.
+
+```bash
+gji pr 1234 --dry-run
+```
+
+## 등록해 둔 저장소가 사라졌습니다 {/* #a-repository-in-the-registry-no-longer-exists */}
+
+더 이상 유효하지 않은 등록 항목을 확인하세요.
+
+```bash
+gji doctor --fix
+```
+
+대화형 모드에서는 존재하지 않는 저장소 항목을 제거하기 전에 확인합니다. 이미 검토한 비대화형 수정에는 `gji doctor --fix --yes`를 사용하세요. Git, 에디터, 셸 설정을 자동으로 복구하지는 않습니다.
+
+## 정리 명령이 워크트리 제거를 거부합니다 {/* #cleanup-refuses-to-remove-a-worktree */}
+
+로컬 변경 사항, 병합되지 않은 브랜치, 현재 워크트리나 주 워크트리인지 여부를 확인하세요. 디렉터리만 제거하려면 `gji done <branch> --keep-branch`로 브랜치를 유지하세요.
+
+경고를 숨기려고 `--force`를 사용하지 마세요. 미커밋 파일을 버리고 병합되지 않은 브랜치를 삭제할 수 있습니다. 먼저 [정리와 복구](./sync-and-cleanup)를 읽으세요. `gji undo --list`는 복구할 수 있는 기록된 작업을 보여 주지만, 실행 취소로 미커밋 파일을 복구할 수는 없습니다.
+
+## 스크립트에서 경로만 필요합니다 {/* #i-only-need-paths-for-a-script */}
+
+```bash
+gji go --print feature/payments
+gji root --print
+```
+
+이 명령들에는 셸 래퍼가 필요 없습니다. 구조화된 상태가 필요하면 해당 명령의 `--json` 옵션을 사용하세요. [명령어](./commands#paths-and-json-for-scripts)를 참고하세요.

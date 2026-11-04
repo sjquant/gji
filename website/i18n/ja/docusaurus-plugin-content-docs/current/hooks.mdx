@@ -1,0 +1,138 @@
+---
+title: フック
+description: 組み込みの依存関係セットアップに加えて、ワークツリーごとにプロジェクト固有の準備や後片付けを実行します。
+---
+
+# 繰り返すセットアップを自動化する
+
+ワークツリーの作成、移動、削除時に実行したいプロジェクトのコマンドには、フックを使ってください。コード生成、ローカルサービスの準備、プロジェクトの後片付けなどに利用できます。
+
+対応する依存関係のインストールはすでに自動実行します。組み込みアダプタが対応していない設定が必要な場合だけ、インストール用のフックを追加してください。
+
+`.env.local` のような Git で無視するローカルファイルを新しいワークツリーにコピーするだけなら、独自のフックではなく [`gji sync-files`](./configuration#sync-private-local-files) を使ってください。フックは、実際にコマンドを実行する必要がある場合に適しています。
+
+## 設定例 {/* #example */}
+
+```json
+{
+  "hooks": {
+    "afterCreate": ["pnpm", "run", "generate"],
+    "afterEnter": ["printf", "switched to %s\n", "{{branch}}"],
+    "beforeRemove": "pnpm run cleanup"
+  }
+}
+```
+
+プロジェクトで共有する場合は `.gji.json` に、個人のワークフローにはグローバルのリポジトリ別設定に書きます。そのプロジェクトに存在するコマンドを指定してください。
+
+## 利用できるフック {/* #available-hooks */}
+
+| フック | イベント | フックを呼び出すコマンド | 実行場所 |
+| --- | --- | --- | --- |
+| `afterBranchCreate` | 新しいブランチを作成したとき | ブランチを作成する `gji new`。`--branch-only` の有無にかかわらず実行します | 新しいブランチがあるワークツリー |
+| `afterCreate` | リンクされたワークツリーの作成と初期設定が完了したとき | `gji new`（`--branch-only` を除く）、`gji pr`、既存ブランチ用にワークツリーを作成する `gji go` | 新しいワークツリー |
+| `afterEnter` | 既存のワークツリーへ移動したとき | `gji go` と `gji back` | 移動先のワークツリー |
+| `afterSwitch` | 現在のワークツリー内で別のブランチに切り替えたとき | `gji new --branch-only` | 現在のワークツリー |
+| `beforeRemove` | リンクされたワークツリーを削除しようとするとき | `gji done` と `gji clean`。削除を試みるワークツリーごとに 1 回実行します | 削除対象のワークツリー |
+
+プロジェクト固有のセットアップは `afterCreate` に設定してください。`gji` が新しいワークツリーディレクトリを初期設定した後に動く唯一のフックです。`afterBranchCreate` と `afterSwitch` は、新しいディレクトリを作らない `--branch-only` でも実行します。そのため、チケットの記録や通知の表示など、ブランチ単位の処理にとどめてください。
+
+1 つのコマンドが複数のイベントを発生させる場合は、次の順でフックを実行します。
+
+- `gji new <branch>`：`afterCreate`、次に `afterBranchCreate`。
+- `gji new --branch-only <branch>`：`afterBranchCreate`、次に `afterSwitch`。
+
+`gji new` と `gji pr` は、ワークツリーの作成後に `afterEnter` を実行しません。`afterBranchCreate` は、基準ブランチから新しく作ったブランチだけで実行します。`gji new` が既存ブランチをチェックアウトする場合は実行しません。また、`gji pr` と `gji go` が PR やリモートの参照から作るローカルブランチでは、`afterCreate` だけを実行します。`gji go --json` は、機械で読み取れる出力を保つために `afterEnter` を省略します。
+
+`beforeRemove` は、`gji` が削除を試みる直前に実行します。その後に削除が失敗したり、変更のあるワークツリーを強制削除する確認で拒否したりすると、フックを実行済みのままワークツリーが残ります。
+
+`--json` モードでは、JSON を正しく解析できるよう、フックの標準出力を破棄します。
+
+## テンプレートの値 {/* #template-values */}
+
+フックでは次のテンプレート変数を使えます。
+
+- `{{branch}}`
+- `{{path}}`
+- `{{repo}}`
+- `{{slot}}` — ワークツリーの固定スロット番号。
+
+同じ値を環境変数でも参照できます。
+
+- `GJI_BRANCH`
+- `GJI_PATH`
+- `GJI_REPO`
+- `GJI_SLOT`（gji が作ったワークツリーで利用できます。メインワークツリーは、gji がリンクされたワークツリーを作成した後はスロット `0` を使います）
+
+## フックを安全に実行する {/* #safer-hook-commands */}
+
+シェルの機能が不要な場合は、引数配列のフックを使うことをお勧めします。
+
+```json
+{
+  "hooks": {
+    "afterCreate": ["pnpm", "run", "generate"],
+    "afterEnter": ["printf", "switched to %s at %s\n", "{{branch}}", "{{path}}"]
+  }
+}
+```
+
+配列のフックはシェルを介さずに実行します。各要素は正確に 1 つの引数として渡されるため、空白やシェルのメタ文字を含むブランチ名やパスを、シェル構文として再解析しません。
+
+`&&`、パイプ、リダイレクト、シェル関数、`nvm use` などのシェル機能には文字列のフックも使えます。ただし、シェルが解析する前にテンプレートの値を展開するため、`{{branch}}`、`{{path}}`、`{{repo}}` をシェル文字列へ直接埋め込まないでください。
+
+シェル文字列のフックでは、環境変数から情報を読み取り、変数の展開をそれぞれ二重引用符で囲んでください。
+
+```json
+{
+  "hooks": {
+    "afterCreate": "pnpm run generate && printf 'ready: %s\n' \"$GJI_PATH\""
+  }
+}
+```
+
+`echo {{branch}}` や `cd {{path}}` のように、引用符で囲まないテンプレート値をシェル文字列に使わないでください。
+
+## 設定の優先順位 {/* #layering-behavior */}
+
+フックは次の場所で設定できます。
+
+1. グローバル設定
+2. グローバルのリポジトリ別設定
+3. ローカルの `.gji.json`
+
+異なるフックキーは統合します。同じフックキーは、最も優先度の高い階層が上書きします。
+
+たとえば、共通の既定値に `afterEnter` を用意し、あるリポジトリでは `afterCreate` だけを上書きできます。
+
+## 手動で実行する {/* #manual-execution */}
+
+上の表のフックは、現在のワークツリーで再実行できます。
+
+```bash
+gji trigger-hook <hook>   # for example: gji trigger-hook afterCreate
+```
+
+再実行するのは設定済みのフックであり、組み込みの依存関係アダプタではありません。依存関係のインストールに失敗した場合は、そのワークツリーでプロジェクトのインストールコマンドを実行してください。[トラブルシューティング](./troubleshooting#the-worktree-exists-but-dependencies-are-missing)をご覧ください。
+
+## 活用例 {/* #practical-examples */}
+
+### 依存関係のセットアップ後にプロジェクトファイルを生成する {/* #generate-project-files-after-dependency-setup */}
+
+```json
+{
+  "hooks": {
+    "afterCreate": ["pnpm", "run", "generate"]
+  }
+}
+```
+
+### 移動時に現在の情報を表示する {/* #print-context-on-entry */}
+
+```json
+{
+  "hooks": {
+    "afterEnter": ["printf", "switched to %s at %s\n", "{{branch}}", "{{path}}"]
+  }
+}
+```

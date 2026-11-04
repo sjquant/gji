@@ -1,0 +1,68 @@
+---
+title: 자주 묻는 질문
+description: gji를 쓰기 전에 작업이 어떻게 분리되는지, 의존성과 로컬 파일은 어떻게 준비하는지, 정리할 때 무엇을 주의해야 하는지 확인하세요.
+---
+
+# 자주 묻는 질문
+
+## 다른 작업을 열기 전에 커밋하거나 스태시해야 하나요? {/* #do-i-need-to-commit-or-stash-before-opening-another-task */}
+
+별도의 워크트리를 연다면 그럴 필요 없습니다. `gji new`나 `gji pr`이 다른 디렉터리에 작업을 열어도 변경 사항은 원래 디렉터리에 남습니다. `gji new --branch-only`는 다릅니다. 현재 워크트리를 재사용하므로 변경 사항이 없어야 합니다.
+
+## 이동하면 변경 사항도 다른 브랜치로 옮겨지나요? {/* #does-navigation-move-my-changes-to-another-branch */}
+
+아니요. `go`와 `back`은 위치만 바꾸며 파일은 원래 워크트리에 그대로 있습니다. 미커밋 변경 사항을 새 작업으로 명시적으로 옮기려면 `gji new <branch> --take`를 사용하고, 두 곳에 모두 남기려면 `--copy`를 추가하세요.
+
+## 워크트리마다 어떤 것이 분리되나요? {/* #what-does-each-worktree-isolate */}
+
+작업 파일, 설치한 의존성, 생성 파일은 별도 디렉터리에 있습니다. Git 이력과 참조는 공유합니다. 서비스, 포트, 데이터베이스 등 외부 자원은 여전히 프로젝트별 설정이 필요합니다.
+
+## 평소 쓰던 에디터나 코딩 에이전트를 쓸 수 있나요? {/* #can-i-use-my-editor-or-coding-agent */}
+
+네. 워크트리로 들어가 평소 도구를 실행하세요. `gji open`으로 설치된 에디터에서 열 수도 있습니다. 에이전트 여러 개가 서로 다른 파일에서 작업하게 하려면 작업마다 워크트리를 따로 만들어 주세요. gji는 에이전트를 관리하거나 조율하지 않습니다.
+
+## gji에 셸 통합이 필요한 이유는 무엇인가요? {/* #why-does-gji-need-shell-integration */}
+
+CLI 프로세스는 부모 셸의 작업 디렉터리를 바꿀 수 없습니다. 래퍼가 현재 셸에서 디렉터리를 바꾸는 역할을 맡습니다. `gji init`을 실행하고 셸을 다시 시작한 뒤 `gji doctor`로 확인하세요. [셸 통합](./shell-integration)을 참고하세요.
+
+## 래퍼 없이도 사용할 수 있나요? {/* #can-i-use-it-without-the-wrapper */}
+
+네. 워크트리를 생성하거나 살펴보는 기능은 그대로 사용하고, 스크립트에서 경로가 필요하면 `gji go --print <branch>`나 `gji root --print`를 사용하세요. 디렉터리까지 자동으로 이동하려면 래퍼가 필요합니다.
+
+## 워크트리는 어디에 만들어지나요? {/* #where-do-worktrees-live */}
+
+기본 위치는 다음과 같습니다.
+
+```text
+../worktrees/<repo>/<branch>
+```
+
+메인 체크아웃 바깥에 브랜치 이름에 맞춰 일정한 경로에 만들어집니다. 이미 있는 디렉터리는 `gji ls`로 확인하세요.
+
+## 워크트리마다 의존성을 설치하나요? {/* #do-dependencies-install-for-every-worktree */}
+
+새 워크트리에서도 의존성을 새로 설치해야 합니다. 지원하는 잠금 파일이 있으면 자동으로 설치하며, 다른 워크트리의 의존성 트리를 복사하지 않습니다. 첫 설정에는 시간이 걸릴 수 있습니다. 한 번만 생략하려면 `--no-install`, 저장소 전체에서 끄려면 `dependencyBootstrap`을 `off`로 설정하세요. [의존성 초기 설정](./configuration#dependency-bootstrap)을 참고하세요.
+
+## 새 워크트리에 `.env.local`을 어떻게 가져오나요? {/* #how-do-new-worktrees-get-envlocal */}
+
+```bash
+gji sync-files add .env.local
+```
+
+이후 만들어지는 워크트리는 의존성 설정 전에 **메인 워크트리**에서 파일을 복사합니다. 그 뒤로 계속 동기화되지는 않습니다. [로컬 파일 설정](./configuration#sync-private-local-files)을 참고하세요.
+
+## 어떤 PR 형식을 지원하나요? {/* #which-pr-formats-work */}
+
+`gji pr`은 GitHub PR 번호, 따옴표로 감싼 `'#1234'`, 전체 GitHub PR URL을 받습니다. 작업 중인 저장소에 속한 참조를 사용하세요.
+
+## 설정은 어디에 두어야 하나요? {/* #where-should-i-put-my-settings */}
+
+개인이 사용할 기본값은 `~/.config/gji/config.json`에 둡니다. 그 파일 안에서 저장소별로 설정하면 개인 설정을 Git에 올리지 않아도 됩니다. 팀과 공유할 프로젝트 기본값은 `.gji.json`을 사용하세요. [설정](./configuration)을 참고하세요.
+
+## 워크트리를 다시 만들지 않고 설정을 재실행할 수 있나요? {/* #can-i-rerun-setup-without-recreating-a-worktree */}
+
+의존성을 설정하려면 해당 디렉터리에서 프로젝트의 설치 명령을 실행하세요. 미리 설정해 둔 훅을 다시 실행하려면 `gji run-hook afterCreate`를 사용합니다. 훅 명령은 기본 의존성 어댑터를 다시 실행하지 않습니다.
+
+## 실행 취소로 정리 중 제거된 파일을 복구할 수 있나요? {/* #can-undo-recover-files-removed-during-cleanup */}
+
+기록된 브랜치와 워크트리 상태는 복원하지만 미커밋 파일이나 추적되지 않은 파일은 복구하지 않습니다. 특히 `--force`를 사용할 때는 제거 전에 워크트리 내용을 검토하세요. [동기화와 정리](./sync-and-cleanup#restore-a-journaled-cleanup)를 참고하세요.

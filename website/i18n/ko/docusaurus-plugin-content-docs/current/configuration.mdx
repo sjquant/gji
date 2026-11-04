@@ -1,0 +1,145 @@
+---
+title: 설정
+description: 에디터와 브랜치 이름, 복사할 로컬 파일, 의존성 설치 방식을 미리 정해 두세요. 새 워크트리를 만들 때마다 같은 설정을 반복하지 않아도 됩니다.
+---
+
+# 새 워크트리를 프로젝트에 맞추세요
+
+기본값으로 시작하세요. 같은 설정 단계를 반복하거나, 같은 에디터를 고르거나, 같은 로컬 파일을 복사하게 될 때 설정을 추가하세요.
+
+## 어디에 설정할지 정하기 {/* #choose-where-a-setting-belongs */}
+
+| 위치 | 용도 |
+| --- | --- |
+| `~/.config/gji/config.json` | 여러 저장소에 적용할 개인 기본값 |
+| 전역 파일의 `repos` 항목 | 비공개 로컬 파일 이름 등, 특정 저장소에서만 사용할 개인 설정 |
+| 저장소의 `.gji.json` | 공유 프로젝트 기본값 |
+
+전역 기본값부터 전역 파일의 저장소별 설정, 로컬 `.gji.json` 순서로 읽어 적용합니다. 나중에 읽은 값이 앞서 읽은 값을 덮어씁니다. 훅은 이벤트 키별로 병합되며, 같은 이벤트의 설정이 있으면 나중에 읽은 값을 사용합니다.
+
+## 기본 에디터와 브랜치 접두사 저장하기 {/* #save-an-editor-or-branch-prefix */}
+
+```bash
+gji open --editor cursor --save
+gji config set branchPrefix feature/
+```
+
+설치된 에디터 CLI를 사용하세요. `config`는 전역 기본값을 편집합니다.
+
+```bash
+gji config get
+gji config get branchPrefix
+gji config unset branchPrefix
+```
+
+## 비공개 로컬 파일 복사 {/* #sync-private-local-files */}
+
+앞으로 만들 워크트리에 이 파일들이 필요한 저장소에서 실행하세요.
+
+```bash
+gji sync-files add .env.local .npmrc
+gji sync-files list
+gji sync-files remove .npmrc
+```
+
+목록은 전역 설정 파일에서 해당 저장소의 설정으로 저장합니다. 새 워크트리는 의존성 설정 전에 **메인 워크트리에서** 파일을 복사합니다. 원본 파일이 없으면 건너뛰며, 대상에 이미 있는 파일은 덮어쓰지 않습니다. 워크트리를 만들 때 한 번 복사하며, 이후에도 계속 동기화하지는 않습니다.
+
+공유할 프로젝트 파일은 대신 `.gji.json`의 `syncFiles`에 넣으세요.
+
+```json
+{
+  "syncFiles": [".env.example", ".nvmrc"]
+}
+```
+
+## 의존성 초기 설정 {/* #dependency-bootstrap */}
+
+새 워크트리는 자체 의존성을 갖습니다. `gji new`나 `gji pr`이 지원하는 잠금 파일을 찾으면 프로젝트 안에서 적절한 설정을 실행합니다.
+
+| 프로젝트 | 설정 |
+| --- | --- |
+| pnpm, Yarn, Bun, npm | JavaScript 의존성 설치 |
+| uv, Poetry, Pipenv | Python 환경 준비 |
+| Bundler | `vendor/bundle`에 설치 |
+| Composer | `vendor`에 설치 |
+| Go | `go mod download` |
+| Cargo | `cargo check` 또는 `dependencyBuildCommand` |
+
+다른 워크트리의 의존성 트리나 빌드 캐시를 복사하지는 않습니다. 준비 과정에는 시간이 걸릴 수 있으며, 필요한 도구와 원격 저장소 접근 권한이 있어야 합니다. 설정된 로컬 파일을 먼저 복사하고, 설정이 성공하면 `afterCreate` 훅이 실행됩니다.
+
+한 번만 설치를 생략하려면 다음과 같이 실행합니다.
+
+```bash
+gji new feature/search --no-install
+gji pr 1234 --no-install
+```
+
+저장소 전체에서 이 기능을 끄려면 `.gji.json`에 다음을 넣으세요.
+
+```json
+{
+  "dependencyBootstrap": "off"
+}
+```
+
+`gji new feature/search --dry-run`으로 생성 계획을 살펴보세요. JSON 모드와 비대화형 명령도 비활성화하지 않는 한 같은 의존성 설정을 사용합니다. 의존성을 준비하다 실패하더라도 작업을 다시 만들지 말고, 오류에 표시된 워크트리 경로에서 복구하세요. [문제 해결](./troubleshooting#the-worktree-exists-but-dependencies-are-missing)을 참고하세요.
+
+## 워크트리 디렉터리 선택 {/* #choose-a-worktree-directory */}
+
+기본값은 `../worktrees/<repo>/<branch>`입니다. 다른 기준 디렉터리가 필요한 저장소에서는 `.gji.json` 또는 전역 저장소별 설정에 `worktreePath`를 지정하세요.
+
+```json
+{
+  "worktreePath": "~/worktrees/my-repo"
+}
+```
+
+브랜치는 이 기준 경로 아래에 배치됩니다. `feature/search`는 `~/worktrees/my-repo/feature/search`가 됩니다. 절대 경로나 `~/` 경로를 사용하세요. 상대 경로는 경고와 함께 무시됩니다. 이 설정은 이후 생성에 적용되며 기존 워크트리 위치는 바꾸지 않습니다.
+
+## 다른 동기화 대상 사용 {/* #use-a-different-sync-target */}
+
+```json
+{
+  "syncRemote": "upstream",
+  "syncDefaultBranch": "main"
+}
+```
+
+`gji sync`의 대상과 `gji new --branch-only`가 사용하는 원격 기본 브랜치를 지정합니다. [동기화와 정리](./sync-and-cleanup)를 참고하세요.
+
+## 개인 설정을 Git에 올리지 않고 저장소별로 관리하기 {/* #keep-personal-per-repo-settings-out-of-git */}
+
+`~/.config/gji/config.json`에서 설정합니다.
+
+```json
+{
+  "repos": {
+    "/home/me/code/my-repo": {
+      "editor": "zed",
+      "syncFiles": [".env.local"],
+      "hooks": {
+        "afterCreate": ["pnpm", "run", "generate"]
+      }
+    }
+  }
+}
+```
+
+저장소 항목에는 절대 경로를 사용하세요. 지정한 저장소에만 재정의한 값이 적용됩니다.
+
+## 설정 키 살펴보기 {/* #key-reference */}
+
+| 키 | 용도 |
+| --- | --- |
+| `branchPrefix` | `feature/` 같은 새 브랜치 이름의 접두사 |
+| `editor` | `open`과 `new --open`의 기본 에디터 CLI |
+| `worktreePath` | 새 워크트리의 기준 디렉터리. 절대 경로 또는 `~/` 경로 |
+| `syncRemote` | 동기화에 사용할 원격 저장소 |
+| `syncDefaultBranch` | 동기화 대상으로 사용할 기본 브랜치 |
+| `syncFiles` | 생성 시 메인 워크트리에서 복사할 파일 |
+| `dependencyBootstrap` | 자동 의존성 설정을 끄려면 `off`로 설정 |
+| `dependencyBuildCommand` | 선택 사항인 Cargo 설정 명령. 기본값은 `cargo check` |
+| `shellIntegration` | 마법사에서 저장한 셸 설정 선택 |
+| `installSaveTarget` | 설정 마법사의 설정을 로컬 또는 전역 중 어디에 저장할지 지정 |
+| `hooks` | 생성, 이동, 전환, 제거 시 실행할 [훅 명령](./hooks) |
+| `repos` | 전역 설정의 저장소별 재정의 |

@@ -1,0 +1,76 @@
+---
+title: シェル連携
+description: 現在のシェルをワークツリー間で移動できます。対話的な移動が不要なスクリプトでは、パスだけを出力できます。
+---
+
+# タスクに合わせてシェルを移動する
+
+シェル連携を使うと、`gji new`、`gji go`、`gji back` で選択したワークツリーに移動できます。通常の CLI プロセスは親シェルのディレクトリを変えられないため、小さなシェルラッパーが最後の移動を行います。
+
+## 一度だけインストールする {/* #install-once */}
+
+```bash
+gji init
+```
+
+シェルを再起動するか、ウィザードが示した rc ファイルを読み込んでください。その後、確認します。
+
+```bash
+gji doctor
+```
+
+ウィザードはラッパーと補完を設定し、エディタの保存も案内します。シェルを指定する場合は、次のうち **1 つ**を実行してください。
+
+```bash
+gji init zsh --write
+gji init bash --write
+gji init fish --write
+```
+
+## 現在のセッションで試す {/* #try-it-in-the-current-session */}
+
+zsh または bash では、rc ファイルに書き込まずにラッパーを読み込めます。
+
+```bash
+eval "$(gji init zsh)"
+# In bash, use: eval "$(gji init bash)"
+```
+
+fish では次のようにします。
+
+```fish
+gji init fish | source
+```
+
+ラッパーを先に確認するには、`--write` を付けずに `gji init zsh`、`gji init bash`、`gji init fish` を実行してください。
+
+## 普段のコマンドで移動する先 {/* #what-changes-in-daily-use */}
+
+| コマンド | シェルの移動先 |
+| --- | --- |
+| `gji new feature/search` | 新しいタスクのワークツリー |
+| `gji pr 1234` | PR のワークツリー |
+| `gji go feature/payments` | 既存の移動先ワークツリー |
+| `gji back` | 前に訪れたワークツリー |
+| `gji root` | メインリポジトリのチェックアウト |
+
+移動しても未コミットの変更は転送されません。変更を加えたワークツリーに残ります。
+
+## スクリプト用にパスを出力する {/* #print-paths-for-scripts */}
+
+移動先のパスだけが必要な場合、シェル連携は不要です。
+
+```bash
+gji go --print feature/payments
+gji root --print
+```
+
+たとえば zsh や bash では、次のように使えます。
+
+```bash
+cd "$(gji go --print feature/payments)"
+```
+
+## 更新後に読み込み直す {/* #reload-after-an-update */}
+
+シェルを再起動するか、上記のセッション用コマンドでラッパーを読み込み直してください。`gji go` がまだ移動せずにパスだけを出力する場合は、実際に使っているシェルで連携を読み込んだか確認してください。[トラブルシューティング](./troubleshooting#gji-go-prints-a-path-instead-of-changing-directories)もご覧ください。

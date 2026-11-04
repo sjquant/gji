@@ -1,0 +1,137 @@
+---
+sidebar_position: 4
+title: 명령어
+description: 작업을 시작하고 이동하고 검토하거나 정리할 때 필요한 gji 명령을 찾아보세요. 주요 옵션과 실행 결과도 함께 설명합니다.
+image: /img/social-card.png
+---
+
+# 명령어 참고
+
+하려는 일에 맞는 항목부터 살펴보세요. 명령의 전체 옵션 목록은 `gji <command> --help`로 확인할 수 있습니다. gji를 처음 써 본다면 [빠른 시작](./quick-start)을 먼저 따라 해 보세요.
+
+## 시작과 검토 {/* #start-and-review */}
+
+| 명령 | 결과 |
+| --- | --- |
+| `gji new [branch]` | 브랜치와 연결된 워크트리 생성. 브랜치를 생략하면 대화형으로 진행 |
+| `gji pr <ref>` | GitHub 풀 리퀘스트를 전용 워크트리로 가져오기. 번호, `#number`, URL 지원 |
+| `gji pr open [branch\|#N]` | 현재 또는 지정한 워크트리의 PR 웹 페이지 열기 |
+| `gji pr open --select` | 연결된 워크트리에서 PR을 선택한 뒤 웹 페이지 열기 |
+
+### 만들 때 사용할 수 있는 옵션 {/* #creation-options */}
+
+| 옵션 | 효과 |
+| --- | --- |
+| `--open`, `--editor <cli>` | 생성한 워크트리를 에디터로 열기. `--editor`에는 `--open`이 필요 |
+| `--task <description>` | 새 워크트리의 용도 기록 |
+| `--from-current` | 메인 워크트리 대신 현재 워크트리의 `HEAD`에서 새 브랜치 시작 |
+| `--detached` | 브랜치 없이 임시 작업 공간 생성. `--from-current`와 함께 사용 불가 |
+| `--take` | 현재 미커밋 변경 사항을 새 워크트리로 이동 |
+| `--take --copy` | 변경 사항을 복사하고 원본에도 유지 |
+| `--branch-only` | 현재 워크트리에 브랜치 생성. 변경 사항이 없어야 하며 새 디렉터리는 만들지 않음 |
+| `--no-fetch` | 생성 전 원격 기본 브랜치 갱신 생략 |
+| `--no-install` | 이 워크트리의 자동 의존성 설정 생략 |
+| `--dry-run` | Git 명령 실행이나 파일 쓰기 없이 계획 확인 |
+| `--force` | 기존 대상 워크트리 경로를 제거한 뒤 다시 생성. 교체 전에 검토 필요 |
+| `--json` | 성공 또는 오류를 구조화된 출력으로 내보내기 |
+
+이 옵션들은 `new`에 대한 설명입니다. `pr`은 `--no-install`, `--dry-run`, `--json`을 지원합니다. 프로젝트별 설정은 기본 의존성 어댑터 실행 후에 이어집니다. [설정](./configuration#dependency-bootstrap)을 참고하세요.
+
+```bash
+gji new feature/search --open --editor cursor
+gji new feature/search-tests --from-current
+gji pr 1234 --dry-run
+```
+
+`--branch-only`는 설정된 기본 브랜치를 갱신하고 의존성 설정 없이 현재 위치에 브랜치를 만듭니다. 로컬 기본 브랜치를 사용하려면 `--no-fetch`를 사용하세요. 떠나는 작업을 열어 두어야 한다면 별도 워크트리를 선택하세요.
+
+## 이동과 에디터 열기 {/* #navigate-and-open-editors */}
+
+| 명령 | 결과 |
+| --- | --- |
+| `gji go [branch]` | 기존 워크트리로 진입하거나 브랜치, 원격 브랜치, PR을 찾아 워크트리를 준비한 뒤 이동 |
+| `gji go repo/branch` | 등록된 여러 저장소에서 원하는 목적지 지정 |
+| `gji go --root` 또는 `gji root` | 메인 저장소 체크아웃으로 돌아가기 |
+| `gji back [n]` 또는 `gji go -` | 이전에 방문한 워크트리로 돌아가기. `back n`은 이력을 더 거슬러 이동 |
+| `gji history [--json]` | 방문 이력 표시 |
+| `gji open [branch]` | 현재 또는 지정한 워크트리를 에디터로 열기 |
+| `gji open --select` | 대화형으로 워크트리와 에디터 선택 |
+
+목적지가 없으면 `go`는 현재 저장소의 선택기를 엽니다. 등록된 모든 저장소를 보려면 **Tab**, 브랜치, 경로, PR, 작업 설명을 검색하려면 **/**를 누르세요.
+
+브랜치를 지정하면 현재 저장소부터 찾습니다. 이후에는 등록된 다른 저장소, 기존 로컬 브랜치, 가져온 원격 브랜치, PR 참조 순으로 확인합니다. `go --json`은 기존 목적지만 확인하며, 새로 가져오거나 만들지 않습니다.
+
+```bash
+gji go feature/payments
+gji go api/main
+gji back 2
+gji open --editor cursor --save
+gji open feature/payments --workspace
+```
+
+`open --save`는 에디터 CLI를 기억합니다. `--workspace`는 VS Code, Cursor, Windsurf용 `.code-workspace` 파일을 생성합니다. `go --quiet`는 작업 정보 카드를 숨깁니다. 이동 명령은 [셸 통합](./shell-integration)을 불러온 경우에만 현재 셸의 디렉터리를 바꿉니다.
+
+## 작업 상태를 확인하고 설명 남기기 {/* #inspect-and-label-work */}
+
+| 명령 | 결과 |
+| --- | --- |
+| `gji [--json]` | 현재 작업과 추천 목적지, 확인할 워크트리를 한곳에 보여 주는 저장소 허브 열기 |
+| `gji status [--json]` | 저장소와 워크트리 상태 및 앞선 커밋과 뒤처진 커밋 수 확인 |
+| `gji ls [--compact] [--json]` | 워크트리 나열. 간략 모드에서는 브랜치와 경로 표시 |
+| `gji task [description] [--clear] [--json]` | 현재 워크트리의 작업 설명 읽기, 설정, 지우기 |
+| `gji doctor [--json]` | 셸, Git, 설정, 저장소 등록 상태 진단 |
+
+`gji doctor --fix`로 더 이상 존재하지 않는 저장소를 등록 목록에서 제거할지 확인하세요. Git이나 셸 설정을 자동으로 복구하지는 않습니다. `--yes`를 사용하면 확인 없이 해당 수정을 적용합니다.
+
+## 유지 관리 {/* #maintenance */}
+
+| 명령 | 결과 |
+| --- | --- |
+| `gji sync [--all] [--json]` | 하나 또는 모든 워크트리에서 원격 변경 사항을 가져와 기본 브랜치 위로 리베이스 |
+| `gji done [branch] [--keep-branch] [--force] [--json]` | 완료된 연결 워크트리와, 유지하지 않은 경우 그 브랜치 제거 |
+| `gji clean [--stale] [--path <pattern>] [--dry-run] [--force] [--json]` | 여러 연결 워크트리를 선택해 제거 |
+| `gji undo [id] [--list] [--json]` | 기존 작업을 덮어쓰지 않고 저널에 기록된 정리 상태 복원 |
+| `gji sync-files [list\|add\|remove] [paths...] [--json]` | 메인 워크트리에서 이후 워크트리로 복사할 파일 관리 |
+| `gji run-hook <hook>` | 현재 워크트리에서 설정된 수명 주기 훅 실행. `trigger-hook`은 별칭 |
+
+`sync`에서 리베이스 충돌 해결이 필요할 수 있습니다. `done`과 `clean`은 브랜치를 삭제할 수 있습니다. **`--force`는 미커밋 파일을 버리고 병합되지 않은 브랜치를 삭제할 수 있으며, 실행 취소로 해당 파일을 복구할 수 없습니다.** 제거를 자동화하기 전에 [동기화와 정리](./sync-and-cleanup)를 읽으세요.
+
+```bash
+gji clean --stale --dry-run
+gji done feature/search --keep-branch
+gji undo --list
+gji sync-files add .env.local
+gji run-hook afterCreate
+```
+
+`--stale`은 업스트림이 사라졌고 변경 사항이 기본 브랜치에 이미 병합된, 변경 사항 없는 워크트리를 선택합니다. 여러 위치 중 하나와 일치시키려면 `--path`를 반복하세요. 경로 필터는 등록된 모든 저장소를 검색합니다. [경로 필터](./sync-and-cleanup#limit-cleanup-to-a-location)를 참고하세요.
+
+## 설정과 기본값 {/* #setup-and-defaults */}
+
+| 명령 | 결과 |
+| --- | --- |
+| `gji init [shell] [--write]` | 안내에 따라 설정하거나 특정 셸 래퍼 출력 또는 설치 |
+| `gji completion [shell]` | 셸 자동 완성 출력 |
+| `gji config get [key]` | 전역 기본값 또는 특정 값 읽기 |
+| `gji config set <key> <value>` | 전역 기본값 저장 |
+| `gji config unset <key>` | 전역 기본값 제거 |
+
+설정 방법은 [설치](./installation), [설정](./configuration), [훅](./hooks)을 참고하세요.
+
+## 스크립트용 경로와 JSON {/* #paths-and-json-for-scripts */}
+
+목적지만 필요하다면 `go`, `back`, `root`에 `--print`를 사용하세요.
+
+```bash
+feature_path=$(gji go --print feature/payments)
+```
+
+허브, `new`, `pr`, `go`, `status`, `ls`, `task`, `history`, `sync`, `sync-files`, `clean`, `done`, `undo`, `doctor`에서 `--json`을 사용할 수 있습니다. 이동 JSON에는 `repository.name`과 정규화된 `repository.root`가 포함됩니다.
+
+```bash
+gji --json
+gji go feature/payments --json
+gji new feature/search --json
+```
+
+JSON 출력이라고 해서 읽기 전용으로 동작하는 것은 아닙니다. 생성 명령은 생략하지 않는 한 의존성 설정을 실행합니다. 지원하는 명령에서는 `--dry-run`으로 계획을 확인하세요. 비대화형 정리에서는 제거를 위해 `--force`가 필요하므로, 먼저 `--dry-run`으로 후보를 검토하세요.

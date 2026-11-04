@@ -1,0 +1,137 @@
+---
+sidebar_position: 4
+title: コマンド
+description: タスクの開始、移動、レビュー、確認、完了に使う gji コマンドと、主なオプションや動作を調べられます。
+image: /img/social-card.png
+---
+
+# コマンドリファレンス
+
+まず、やりたい作業に合うコマンドを探してください。各コマンドの全オプションは `gji <command> --help` で確認できます。初めて使う場合は、先に[クイックスタート](./quick-start)をお試しください。
+
+## 開始とレビュー {/* #start-and-review */}
+
+| コマンド | 動作 |
+| --- | --- |
+| `gji new [branch]` | ブランチとリンクされたワークツリーを作成します。ブランチを省略すると対話的に進めます |
+| `gji pr <ref>` | GitHub プルリクエストを専用のワークツリーに取得します。番号、`#number`、URL を指定できます |
+| `gji pr open [branch\|#N]` | 現在、または指定したワークツリーの PR を Web で開きます |
+| `gji pr open --select` | リンクされたワークツリーの PR を選び、Web で開きます |
+
+### 作成オプション {/* #creation-options */}
+
+| オプション | 動作 |
+| --- | --- |
+| `--open`, `--editor <cli>` | 作成したワークツリーをエディタで開きます。`--editor` には `--open` が必要です |
+| `--task <description>` | 新しいワークツリーの用途を記録します |
+| `--from-current` | メインワークツリーではなく、現在のワークツリーの `HEAD` から新しいブランチを作成します |
+| `--detached` | ブランチなしで一時的な作業場所を作成します。`--from-current` とは併用できません |
+| `--take` | 現在の未コミットの変更を新しいワークツリーへ移します |
+| `--take --copy` | 変更をコピーし、元にも残します |
+| `--branch-only` | 現在のワークツリーにブランチを作成します。変更がないことが必要で、新しいディレクトリは作成しません |
+| `--no-fetch` | 作成前のリモート既定ブランチの更新を省略します |
+| `--no-install` | このワークツリーの自動依存関係セットアップを省略します |
+| `--dry-run` | Git コマンドの実行やファイルの書き込みをせず、計画を確認します |
+| `--force` | 既存の対象ワークツリーパスを削除して作り直します。置き換える前に内容を確認してください |
+| `--json` | 成功またはエラーを構造化して出力します |
+
+ここで説明しているのは `new` のオプションです。`pr` は `--no-install`、`--dry-run`、`--json` をサポートします。組み込みの依存関係アダプタの後に、プロジェクト固有のセットアップを実行します。[設定](./configuration#dependency-bootstrap)をご覧ください。
+
+```bash
+gji new feature/search --open --editor cursor
+gji new feature/search-tests --from-current
+gji pr 1234 --dry-run
+```
+
+`--branch-only` は設定された既定ブランチを更新し、依存関係のセットアップなしで、その場にブランチを作成します。ローカルの既定ブランチを使うには `--no-fetch` を指定してください。離れるタスクを開いたままにする場合は、別のワークツリーを選んでください。
+
+## 移動とエディタの起動 {/* #navigate-and-open-editors */}
+
+| コマンド | 動作 |
+| --- | --- |
+| `gji go [branch]` | 既存のワークツリーへ移動します。ブランチ、リモートブランチ、PR を解決してワークツリーを用意することもできます |
+| `gji go repo/branch` | 登録済みの複数リポジトリから移動先を指定します |
+| `gji go --root` または `gji root` | メインリポジトリのチェックアウトに戻ります |
+| `gji back [n]` または `gji go -` | 前に訪れたワークツリーに戻ります。`back n` は履歴をさらにさかのぼります |
+| `gji history [--json]` | 移動履歴を表示します |
+| `gji open [branch]` | 現在、または指定したワークツリーをエディタで開きます |
+| `gji open --select` | ワークツリーとエディタを対話的に選びます |
+
+移動先を指定しないと、`go` は現在のリポジトリの選択画面を開きます。**Tab** ですべての登録済みリポジトリを対象にできます。**/** を押すと、ブランチ、パス、PR、タスクの説明を検索できます。
+
+ブランチの引数は、現在のリポジトリ、ほかの登録済みリポジトリ、既存のローカルブランチ、取得したリモートブランチ、PR 参照の順に解決します。`go --json` は既存の移動先だけを解決し、取得や作成は行いません。
+
+```bash
+gji go feature/payments
+gji go api/main
+gji back 2
+gji open --editor cursor --save
+gji open feature/payments --workspace
+```
+
+`open --save` はエディタ CLI を保存します。`--workspace` は VS Code、Cursor、Windsurf 用の `.code-workspace` ファイルを生成します。`go --quiet` はコンテキストカードを非表示にします。[シェル連携](./shell-integration)を読み込んだ場合だけ、移動コマンドが現在のシェルのディレクトリを変更します。
+
+## タスクの確認と説明の設定 {/* #inspect-and-label-work */}
+
+| コマンド | 動作 |
+| --- | --- |
+| `gji [--json]` | 現在の作業、移動先の候補、確認が必要なワークツリーをまとめたリポジトリハブを開きます |
+| `gji status [--json]` | リポジトリとワークツリーの状態、先行・遅延コミット数を確認します |
+| `gji ls [--compact] [--json]` | ワークツリーを一覧表示します。コンパクトモードではブランチとパスを表示します |
+| `gji task [description] [--clear] [--json]` | 現在のワークツリーのタスク説明を取得、設定、消去します |
+| `gji doctor [--json]` | シェル、Git、設定、登録情報を診断します |
+
+`gji doctor --fix` で、存在しないリポジトリの登録情報の削除を確認できます。Git やシェルの設定を自動修復するものではありません。`--yes` を指定すると、確認なしでその修正を適用します。
+
+## メンテナンス {/* #maintenance */}
+
+| コマンド | 動作 |
+| --- | --- |
+| `gji sync [--all] [--json]` | 1 つまたはすべてのワークツリーで取得を行い、既定ブランチへリベースします |
+| `gji done [branch] [--keep-branch] [--force] [--json]` | 完了したリンクされたワークツリーと、保持しない場合はそのブランチを削除します |
+| `gji clean [--stale] [--path <pattern>] [--dry-run] [--force] [--json]` | 複数のリンクされたワークツリーを選んで削除します |
+| `gji undo [id] [--list] [--json]` | 既存の作業を上書きせず、記録された削除操作の状態を復元します |
+| `gji sync-files [list\|add\|remove] [paths...] [--json]` | メインワークツリーから今後のワークツリーにコピーするファイルを管理します |
+| `gji run-hook <hook>` | 現在のワークツリーで設定済みのライフサイクルフックを実行します。`trigger-hook` は別名です |
+
+`sync` ではリベースの競合解決が必要な場合があります。`done` と `clean` はブランチを削除することがあります。**`--force` は未コミットのファイルを破棄し、未マージのブランチを削除できます。取り消しでは、そのファイルを復元できません。** 削除を自動化する前に、[同期と削除](./sync-and-cleanup)を読んでください。
+
+```bash
+gji clean --stale --dry-run
+gji done feature/search --keep-branch
+gji undo --list
+gji sync-files add .env.local
+gji run-hook afterCreate
+```
+
+`--stale` は、上流ブランチがなくなり、変更が既定ブランチへマージ済みで、変更のないワークツリーを選びます。複数の場所のいずれかを対象にするには `--path` を繰り返し指定します。パスの絞り込みではすべての登録済みリポジトリを検索します。[パスによる絞り込み](./sync-and-cleanup#limit-cleanup-to-a-location)をご覧ください。
+
+## セットアップと既定値 {/* #setup-and-defaults */}
+
+| コマンド | 動作 |
+| --- | --- |
+| `gji init [shell] [--write]` | 案内に従って設定するか、指定したシェルのラッパーを表示・インストールします |
+| `gji completion [shell]` | シェルの補完を出力します |
+| `gji config get [key]` | グローバルの既定値、または 1 つの値を取得します |
+| `gji config set <key> <value>` | グローバルの既定値を保存します |
+| `gji config unset <key>` | グローバルの既定値を削除します |
+
+設定方法は[インストール](./installation)、[設定](./configuration)、[フック](./hooks)をご覧ください。
+
+## スクリプト用のパスと JSON {/* #paths-and-json-for-scripts */}
+
+移動先だけが必要な場合は、`go`、`back`、`root` に `--print` を付けます。
+
+```bash
+feature_path=$(gji go --print feature/payments)
+```
+
+ハブ、`new`、`pr`、`go`、`status`、`ls`、`task`、`history`、`sync`、`sync-files`、`clean`、`done`、`undo`、`doctor` で `--json` を使えます。移動の JSON には `repository.name` と正規化された `repository.root` が含まれます。
+
+```bash
+gji --json
+gji go feature/payments --json
+gji new feature/search --json
+```
+
+JSON は読み取り専用という意味ではありません。省略しない限り、作成時には依存関係のセットアップも実行します。対応するコマンドでは `--dry-run` で計画を確認してください。非対話モードの削除には `--force` が必要です。先に `--dry-run` で候補を確認してください。

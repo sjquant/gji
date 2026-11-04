@@ -1,0 +1,145 @@
+---
+title: 設定
+description: エディタ、ブランチ名、ローカルファイル、依存関係のインストールの既定値を設定し、新しいワークツリーで同じ設定を繰り返さずに済むようにします。
+---
+
+# ワークツリーをプロジェクトに合わせる
+
+まずは既定値で使ってみてください。同じセットアップを繰り返したり、毎回同じエディタを選んだり、同じローカルファイルをコピーしたりするようになったら、設定を追加します。
+
+## 設定の保存先を選ぶ {/* #choose-where-a-setting-belongs */}
+
+| 場所 | 用途 |
+| --- | --- |
+| `~/.config/gji/config.json` | 複数のリポジトリで使う個人の既定値 |
+| そのグローバルファイル内の `repos` 項目 | 非公開のローカルファイル名など、1 つのリポジトリに対する個人設定 |
+| リポジトリ内の `.gji.json` | チームで共有するプロジェクトの既定値 |
+
+設定は、グローバルの既定値、グローバルのリポジトリ別設定、ローカルの `.gji.json` の順に適用します。後の階層が前の値を上書きします。フックはイベントのキー単位で統合し、同じイベントは後の階層で上書きします。
+
+## エディタやブランチの接頭辞を保存する {/* #save-an-editor-or-branch-prefix */}
+
+```bash
+gji open --editor cursor --save
+gji config set branchPrefix feature/
+```
+
+インストール済みのエディタ CLI を指定してください。`config` が編集するのはグローバルの既定値です。
+
+```bash
+gji config get
+gji config get branchPrefix
+gji config unset branchPrefix
+```
+
+## 非公開のローカルファイルをコピーする {/* #sync-private-local-files */}
+
+今後作成するワークツリーでそのファイルが必要なリポジトリ内で実行してください。
+
+```bash
+gji sync-files add .env.local .npmrc
+gji sync-files list
+gji sync-files remove .npmrc
+```
+
+一覧はグローバル設定の該当リポジトリの項目に保存します。新しいワークツリーには、依存関係のセットアップ前に**メインワークツリーから**ファイルをコピーします。コピー元にないファイルは無視し、コピー先の既存ファイルは上書きしません。作成時のコピーであり、継続的な同期ではありません。
+
+共有するプロジェクトファイルには、代わりに `.gji.json` の `syncFiles` を使ってください。
+
+```json
+{
+  "syncFiles": [".env.example", ".nvmrc"]
+}
+```
+
+## 依存関係の初期セットアップ {/* #dependency-bootstrap */}
+
+新しいワークツリーは独自の依存関係を持ちます。`gji new` または `gji pr` が対応するロックファイルを検出すると、プロジェクト内で適切なセットアップを実行します。
+
+| プロジェクト | セットアップ |
+| --- | --- |
+| pnpm, Yarn, Bun, npm | JavaScript の依存関係をインストールします |
+| uv, Poetry, Pipenv | Python 環境をインストールします |
+| Bundler | `vendor/bundle` にインストールします |
+| Composer | `vendor` にインストールします |
+| Go | `go mod download` |
+| Cargo | `cargo check`、または `dependencyBuildCommand` |
+
+依存関係ツリーやビルドキャッシュをワークツリー間でコピーすることはありません。セットアップには時間がかかる場合があり、対応するツールとリモートへのアクセスが必要です。設定したローカルファイルを先にコピーし、セットアップが成功した後で `afterCreate` フックを実行します。
+
+1 回だけインストールを省略するには、次のようにします。
+
+```bash
+gji new feature/search --no-install
+gji pr 1234 --no-install
+```
+
+リポジトリで無効にするには、`.gji.json` に次を設定します。
+
+```json
+{
+  "dependencyBootstrap": "off"
+}
+```
+
+`gji new feature/search --dry-run` で作成計画を確認できます。JSON や非対話のコマンドでも、無効にしない限り同じ依存関係のセットアップを行います。失敗したときはタスクを作り直さず、表示されたワークツリーのパスで復旧してください。[トラブルシューティング](./troubleshooting#the-worktree-exists-but-dependencies-are-missing)をご覧ください。
+
+## ワークツリーの保存先を選ぶ {/* #choose-a-worktree-directory */}
+
+既定は `../worktrees/<repo>/<branch>` です。別の基準ディレクトリが必要なリポジトリでは、`.gji.json` またはグローバルのリポジトリ別設定に `worktreePath` を指定します。
+
+```json
+{
+  "worktreePath": "~/worktrees/my-repo"
+}
+```
+
+ブランチはその基準パスの配下に置きます。`feature/search` なら `~/worktrees/my-repo/feature/search` になります。絶対パスまたは `~/` で始まるパスを使ってください。相対パスは警告を表示して無視します。この設定は今後の作成に適用し、既存ワークツリーの場所は変えません。
+
+## 別の同期先を使う {/* #use-a-different-sync-target */}
+
+```json
+{
+  "syncRemote": "upstream",
+  "syncDefaultBranch": "main"
+}
+```
+
+`gji sync` の同期先と、`gji new --branch-only` が使うリモートの既定ブランチを指定します。[同期と削除](./sync-and-cleanup)をご覧ください。
+
+## 個人のリポジトリ別設定を Git に含めない {/* #keep-personal-per-repo-settings-out-of-git */}
+
+`~/.config/gji/config.json` に設定します。
+
+```json
+{
+  "repos": {
+    "/home/me/code/my-repo": {
+      "editor": "zed",
+      "syncFiles": [".env.local"],
+      "hooks": {
+        "afterCreate": ["pnpm", "run", "generate"]
+      }
+    }
+  }
+}
+```
+
+リポジトリの項目には絶対パスを使ってください。指定したリポジトリだけに、その設定を適用します。
+
+## 設定キーの一覧 {/* #key-reference */}
+
+| キー | 用途 |
+| --- | --- |
+| `branchPrefix` | `feature/` など、新しいブランチ名の接頭辞 |
+| `editor` | `open` と `new --open` の既定エディタ CLI |
+| `worktreePath` | 新しいワークツリーの基準ディレクトリ。絶対パス、または `~/` で始まるパス |
+| `syncRemote` | 同期に使うリモート |
+| `syncDefaultBranch` | 同期先に使う既定ブランチ |
+| `syncFiles` | 作成時にメインワークツリーからコピーするファイル |
+| `dependencyBootstrap` | 自動依存関係セットアップを無効にするには `off` を指定します |
+| `dependencyBuildCommand` | 任意の Cargo セットアップコマンド。既定は `cargo check` |
+| `shellIntegration` | ウィザードで保存したシェル設定の選択 |
+| `installSaveTarget` | ウィザードの設定をローカルとグローバルのどちらに保存するか |
+| `hooks` | 作成、移動、切り替え、削除に使う[ライフサイクルコマンド](./hooks) |
+| `repos` | グローバル設定にあるリポジトリ別の上書き設定 |
