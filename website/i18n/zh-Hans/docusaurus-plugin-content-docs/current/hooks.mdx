@@ -1,0 +1,138 @@
+---
+title: 钩子
+description: 在内置依赖初始化完成后，为每个工作树执行项目特定的准备和清理命令。
+---
+
+# 自动执行重复的初始化步骤
+
+创建、进入或移除工作树时，如果需要执行代码生成、本地服务设置或项目清理等命令，可以使用钩子。
+
+支持的依赖安装已经会自动执行。只有内置适配器无法覆盖项目所需步骤时，才需要添加安装钩子。
+
+如果只是要把 `.env.local` 等被 Git 忽略的本地文件复制到新工作树，请使用 [`gji sync-files`](./configuration#sync-private-local-files)，不必自定义钩子。钩子适合确实需要执行命令的情况。
+
+## 示例 {/* #example */}
+
+```json
+{
+  "hooks": {
+    "afterCreate": ["pnpm", "run", "generate"],
+    "afterEnter": ["printf", "switched to %s\n", "{{branch}}"],
+    "beforeRemove": "pnpm run cleanup"
+  }
+}
+```
+
+项目共享的配置放在 `.gji.json` 中，个人工作流放在全局仓库设置中。请使用项目里实际存在的命令。
+
+## 可用钩子 {/* #available-hooks */}
+
+| 钩子 | 事件 | 触发命令 | 执行位置 |
+| --- | --- | --- | --- |
+| `afterBranchCreate` | 新分支已创建 | 创建分支的 `gji new`，无论是否带 `--branch-only` | 新分支所在的工作树 |
+| `afterCreate` | 关联工作树已创建并完成初始化 | `gji new`（不含 `--branch-only`）、`gji pr`，以及为已有分支创建工作树的 `gji go` | 新工作树 |
+| `afterEnter` | 进入已有工作树 | `gji go` 和 `gji back` | 进入的工作树 |
+| `afterSwitch` | 当前工作树原地切换到另一分支 | `gji new --branch-only` | 当前工作树 |
+| `beforeRemove` | 即将移除关联工作树 | `gji done` 和 `gji clean`，每尝试移除一个工作树执行一次 | 待移除的工作树 |
+
+项目特定的初始化应放在 `afterCreate`：它是唯一在 `gji` 完成新工作树目录初始化后执行的钩子。`afterBranchCreate` 和 `afterSwitch` 也会在 `--branch-only` 模式执行，此时不会产生新目录，因此只适合记录工单、输出提醒等分支级操作。
+
+一条命令触发多个事件时，钩子按以下顺序执行：
+
+- `gji new <branch>`：先 `afterCreate`，再 `afterBranchCreate`。
+- `gji new --branch-only <branch>`：先 `afterBranchCreate`，再 `afterSwitch`。
+
+`gji new` 和 `gji pr` 创建工作树后不会运行 `afterEnter`。`afterBranchCreate` 仅对从基准分支创建的新分支执行：`gji new` 检出已有分支时会跳过它，而 `gji pr` 和 `gji go` 从拉取请求或远程引用创建的本地分支只触发 `afterCreate`。`gji go --json` 会跳过 `afterEnter`，以保持输出可供程序解析。
+
+`beforeRemove` 在 `gji` 尝试移除之前执行。如果随后移除失败，或你拒绝强制移除有修改工作树的确认提示，工作树会保留，但钩子已经执行过。
+
+在 `--json` 模式中，钩子的标准输出会被丢弃，以保证 JSON 输出仍可解析。
+
+## 模板变量 {/* #template-values */}
+
+钩子可以使用以下模板变量：
+
+- `{{branch}}`
+- `{{path}}`
+- `{{repo}}`
+- `{{slot}}` — 固定的工作树槽位编号。
+
+这些值也可以通过环境变量获取：
+
+- `GJI_BRANCH`
+- `GJI_PATH`
+- `GJI_REPO`
+- `GJI_SLOT`（适用于 gji 创建的工作树；gji 创建关联工作树后，主工作树使用槽位 `0`）
+
+## 更安全的钩子命令 {/* #safer-hook-commands */}
+
+不需要 Shell 功能时，优先使用参数数组形式的钩子：
+
+```json
+{
+  "hooks": {
+    "afterCreate": ["pnpm", "run", "generate"],
+    "afterEnter": ["printf", "switched to %s at %s\n", "{{branch}}", "{{path}}"]
+  }
+}
+```
+
+数组钩子不经过 Shell 执行。每个数组元素严格作为一个参数传入，因此分支名或路径中的空格、Shell 元字符不会再被当作 Shell 语法解析。
+
+需要 `&&`、管道、重定向、Shell 函数或 `nvm use` 等 Shell 功能时，仍可使用字符串钩子。模板变量会在 Shell 解析前替换，因此不要把 `{{branch}}`、`{{path}}` 或 `{{repo}}` 直接嵌入 Shell 字符串。
+
+使用 Shell 字符串钩子时，请通过环境变量读取上下文，并用双引号包裹每一次变量展开：
+
+```json
+{
+  "hooks": {
+    "afterCreate": "pnpm run generate && printf 'ready: %s\n' \"$GJI_PATH\""
+  }
+}
+```
+
+不要在 Shell 字符串中使用没有引号保护的模板变量，例如 `echo {{branch}}` 或 `cd {{path}}`。
+
+## 配置优先级 {/* #layering-behavior */}
+
+钩子可以来自以下位置：
+
+1. 全局配置
+2. 全局文件中的仓库覆盖设置
+3. 本地 `.gji.json`
+
+不同的钩子键会合并；同一个钩子键由优先级最高的配置层覆盖。
+
+因此，可以在全局默认配置中设置 `afterEnter`，同时只在某个仓库中覆盖 `afterCreate`。
+
+## 手动执行 {/* #manual-execution */}
+
+上表中的任意钩子都可以在当前工作树中重新执行：
+
+```bash
+gji trigger-hook <hook>   # for example: gji trigger-hook afterCreate
+```
+
+它只会重新执行配置的钩子，不会重新运行内置依赖适配器。依赖安装失败时，请在该工作树中运行项目自己的安装命令；详见[问题排查](./troubleshooting#the-worktree-exists-but-dependencies-are-missing)。
+
+## 实用示例 {/* #practical-examples */}
+
+### 依赖准备完毕后生成项目文件 {/* #generate-project-files-after-dependency-setup */}
+
+```json
+{
+  "hooks": {
+    "afterCreate": ["pnpm", "run", "generate"]
+  }
+}
+```
+
+### 进入工作树时输出当前信息 {/* #print-context-on-entry */}
+
+```json
+{
+  "hooks": {
+    "afterEnter": ["printf", "switched to %s at %s\n", "{{branch}}", "{{path}}"]
+  }
+}
+```

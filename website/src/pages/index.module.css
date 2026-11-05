@@ -56,6 +56,9 @@
 	text-decoration: underline;
 	text-underline-offset: 0.35rem;
 }
+.secondary:hover {
+	color: var(--gji-ink-strong);
+}
 .install {
 	align-items: center;
 	display: inline-flex;

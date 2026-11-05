@@ -1,0 +1,55 @@
+---
+title: 工具对比
+description: 了解 gji 为 Git 工作树增加了哪些操作，判断它是否适合你的工作方式，以及何时现有工具已经足够。
+---
+
+# gji 适合你的工作方式吗？
+
+如果经常需要保留一项 Git 任务，同时去处理审查、功能开发、调查或实验等其他任务，gji 可能适合你。它专注于为任务提供单独的目录，并让你从 Shell 回到之前的工作。
+
+## 从要完成的事情出发 {/* #start-with-the-job-you-need-done */}
+
+| 需求 | 可以从这些工具开始 |
+| --- | --- |
+| 保留一个任务，再切换到另一个任务 | gji：创建工作树、执行初始化、进入目录，再回到原任务 |
+| 直接用 Git 管理工作树 | [git worktree](https://git-scm.com/docs/git-worktree)：创建、列出和移除关联工作树 |
+| 在终端界面中操作 Git | [lazygit](https://github.com/jesseduffield/lazygit)：交互式检查和操作仓库 |
+| 克隆仓库并找到仓库根目录 | [ghq](https://github.com/x-motemen/ghq)：整理磁盘上的仓库 |
+
+这些工具可以配合使用。例如，先用 `ghq` 找到仓库，再用 gji 进入任务，最后在该工作树中运行 `lazygit`。这张表只比较各自的侧重点，不是性能测试或完整功能对照。
+
+## gji 为 Git 工作树增加了什么 {/* #what-gji-adds-to-git-worktrees */}
+
+单独的工作树由 Git 提供，gji 将周围重复的步骤串起来：
+
+- `gji new` 创建分支和目录，执行支持的依赖初始化，并将当前 Shell 切换到该目录。
+- `gji pr 1234` 把 GitHub PR 获取到单独的工作目录。
+- `gji go` 查找已打开的任务，也可以跨已登记的仓库查找。
+- `gji back` 回到刚刚离开的工作树。
+- `gji done` 和 `gji clean` 在检查状态并显示确认提示后，移除已完成的工作树。
+
+加载 Shell 集成后，可以这样处理临时任务，再回到原来的工作：
+
+```bash
+# Your feature is already open in its own worktree.
+gji pr 1234
+# Inspect and test the PR here.
+gji back
+# Continue your feature with its changes still in place.
+```
+
+请使用当前仓库中真实的 PR 编号。新工作树可能需要安装依赖，已有工作树则保留各自的安装状态。
+
+## 什么时候现有工具就够了 {/* #when-your-existing-setup-may-be-enough */}
+
+如果通常只在一个分支上工作，很少需要第二份工作副本，再加一个命令行工具可能帮助不大。如果已经有合适的目录结构和脚本来处理初始化与导航，直接使用 `git worktree` 也可能已经足够。
+
+## 成本与限制 {/* #costs-and-boundaries */}
+
+- 每个工作树的文件和依赖都会占用磁盘空间，首次初始化需要时间。
+- 工作树共享仓库历史和引用，不会隔离服务、端口或外部数据。
+- 要自动切换当前 Shell 的目录，需要启用 Shell 集成。
+- 导航时 gji 不会移动未提交修改；需要明确运行 `new --take` 才会移动。
+- 清理可能删除分支和未提交文件。撤销只恢复已记录的 Git 和工作树状态，不会恢复那些未提交文件。
+
+如果这些取舍符合需要，可以跟随[快速上手](./quick-start)体验。先试着回到之前保留的工作，不必一开始就记住长长的命令列表。

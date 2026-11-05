@@ -7,6 +7,7 @@ import useIsBrowser from "@docusaurus/useIsBrowser";
 import OriginalNotFound from "@theme-original/NotFound";
 import japanese from "../../../i18n/ja/code.json";
 import korean from "../../../i18n/ko/code.json";
+import chinese from "../../../i18n/zh-Hans/code.json";
 
 /** Keep explicit translated missing paths localized on hosts with one root 404. */
 export default function NotFound() {
@@ -19,19 +20,25 @@ export default function NotFound() {
 		? "ko"
 		: pathname.startsWith("/ja/")
 			? "ja"
-			: undefined;
-	const locale =
-		i18n.currentLocale === "ko" || i18n.currentLocale === "ja"
-			? i18n.currentLocale
-			: isBrowser
-				? pathLocale
+			: pathname.startsWith("/zh/")
+				? "zh-Hans"
 				: undefined;
+	const locale = ["ko", "ja", "zh-Hans"].includes(i18n.currentLocale)
+		? i18n.currentLocale
+		: isBrowser
+			? pathLocale
+			: undefined;
 	if (!locale) {
 		return <OriginalNotFound />;
 	}
 	const useLocalizedFallback = i18n.currentLocale !== locale;
-	const messages = locale === "ko" ? korean : japanese;
+	const messages =
+		locale === "ko" ? korean : locale === "ja" ? japanese : chinese;
 	const baseUrl = i18n.localeConfigs[locale].baseUrl;
+	const ogLocales = siteConfig.customFields?.ogLocales as Record<
+		string,
+		string
+	>;
 	const englishPath = pathname.slice(3);
 	const unsafePath =
 		englishPath.startsWith("//") ||
@@ -54,19 +61,23 @@ export default function NotFound() {
 								for (const link of document.querySelectorAll<HTMLLinkElement>(
 									'link[rel="alternate"][hreflang]',
 								)) {
-									const language =
+									const localeConfig =
 										link.hreflang === "x-default"
-											? i18n.defaultLocale
-											: link.hreflang;
-									link.href = `${siteConfig.url}${i18n.localeConfigs[language].baseUrl}${counterpartPath.slice(1)}`;
+											? i18n.localeConfigs[i18n.defaultLocale]
+											: Object.values(i18n.localeConfigs).find(
+													(config) => config.htmlLang === link.hreflang,
+												);
+									if (localeConfig) {
+										link.href = `${siteConfig.url}${localeConfig.baseUrl}${counterpartPath.slice(1)}`;
+									}
 								}
 							}
 						: undefined
 				}
 			>
-				<html lang={locale} />
+				<html lang={i18n.localeConfigs[locale].htmlLang} />
 				<meta name="robots" content="noindex, follow" />
-				<meta property="og:locale" content={locale} />
+				<meta property="og:locale" content={ogLocales[locale]} />
 				{useLocalizedFallback &&
 					i18n.locales
 						.filter((language) => language !== locale)
@@ -74,7 +85,7 @@ export default function NotFound() {
 							<meta
 								key={language}
 								property="og:locale:alternate"
-								content={language}
+								content={ogLocales[language]}
 							/>
 						))}
 				<meta name="twitter:title" content={format(title)} />

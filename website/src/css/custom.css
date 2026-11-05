@@ -41,7 +41,7 @@ html {
 	--gji-border: #dfe3d7;
 	--gji-surface-muted: #f0f2e9;
 }
-[data-theme="dark"] {
+html[data-theme="dark"] {
 	--ifm-color-primary: #b9ca9f;
 	--ifm-color-primary-dark: #a8bd87;
 	--ifm-color-primary-darker: #a0b67b;

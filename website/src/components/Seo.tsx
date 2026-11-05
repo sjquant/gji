@@ -29,6 +29,7 @@ export default function Seo({
 		i18n: { currentLocale, localeConfigs, defaultLocale },
 	} = useDocusaurusContext();
 	const { format } = useTitleFormatter();
+	const contentLanguage = localeConfigs[currentLocale].htmlLang;
 	const siteUrl = new URL(siteConfig.baseUrl, siteConfig.url).href;
 	const pageUrl = new URL(permalink, siteUrl).href;
 	const websiteId = `${siteUrl}#website`;
@@ -52,13 +53,13 @@ export default function Seo({
 		"@type": faq ? "Question" : "HowToStep",
 		"@id": `${pageUrl}#${section.id}`,
 		name: section.name,
-		inLanguage: currentLocale,
+		inLanguage: contentLanguage,
 		url: `${pageUrl}#${section.id}`,
 		...(faq
 			? {
 					acceptedAnswer: {
 						"@type": "Answer",
-						inLanguage: currentLocale,
+						inLanguage: contentLanguage,
 						"@id": `${pageUrl}#${section.id}-answer`,
 						text: section.text,
 					},
@@ -71,7 +72,7 @@ export default function Seo({
 			"@id": websiteId,
 			name: siteConfig.title,
 			url: siteUrl,
-			inLanguage: currentLocale,
+			inLanguage: contentLanguage,
 			publisher: { "@id": authorId },
 			about: { "@id": softwareId },
 		},
@@ -100,7 +101,7 @@ export default function Seo({
 			name: title,
 			description,
 			url: pageUrl,
-			inLanguage: currentLocale,
+			inLanguage: contentLanguage,
 			isPartOf: { "@id": websiteId },
 			about: { "@id": softwareId },
 			mainEntity: faq
@@ -123,7 +124,7 @@ export default function Seo({
 							: {}),
 						description,
 						url: pageUrl,
-						inLanguage: currentLocale,
+						inLanguage: contentLanguage,
 						mainEntityOfPage: { "@id": pageId },
 						isPartOf: { "@id": websiteId },
 						about: { "@id": softwareId },

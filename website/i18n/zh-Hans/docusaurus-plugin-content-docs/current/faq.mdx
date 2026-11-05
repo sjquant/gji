@@ -1,0 +1,68 @@
+---
+title: 常见问题
+description: 开始使用 gji 前，了解任务隔离、依赖、Shell 集成、本地文件和清理的行为与限制。
+---
+
+# 常见问题
+
+## 打开另一个任务前，需要先提交或 stash 吗？ {/* #do-i-need-to-commit-or-stash-before-opening-another-task */}
+
+使用单独的工作树时不需要。`gji new` 或 `gji pr` 在其他目录打开任务时，修改会留在原目录。`gji new --branch-only` 则不同：它复用当前工作树，要求工作树没有修改。
+
+## 切换位置会把修改移到另一个分支吗？ {/* #does-navigation-move-my-changes-to-another-branch */}
+
+不会。`go` 和 `back` 只改变你所在的位置，文件留在各自的工作树中。如果确实要把未提交修改移到新任务，请用 `gji new <branch> --take`；加上 `--copy` 则会在两处都保留。
+
+## 每个工作树隔离了什么？ {/* #what-does-each-worktree-isolate */}
+
+工作文件、已安装的依赖和生成文件分别放在不同目录中。Git 历史和引用仍然共享。服务、端口、数据库等外部资源仍需项目自行配置。
+
+## 能继续使用原来的编辑器或编程代理吗？ {/* #can-i-use-my-editor-or-coding-agent */}
+
+可以。进入工作树后，在那里运行平时使用的工具即可。`gji open` 可以在已安装的编辑器中打开工作树。如果希望并行代理各用不同的文件，请为每项任务创建单独的工作树；gji 不负责管理或协调代理。
+
+## 为什么 gji 需要 Shell 集成？ {/* #why-does-gji-need-shell-integration */}
+
+命令行进程无法改变父 Shell 的工作目录，包装脚本负责完成这一步。运行 `gji init` 后重启 Shell，再用 `gji doctor` 检查。详见 [Shell 集成](./shell-integration)。
+
+## 不使用包装脚本也能用吗？ {/* #can-i-use-it-without-the-wrapper */}
+
+可以。仍能正常创建和检查工作树。脚本只需要路径时，可用 `gji go --print <branch>` 或 `gji root --print`。自动切换目录需要包装脚本。
+
+## 工作树放在哪里？ {/* #where-do-worktrees-live */}
+
+默认路径：
+
+```text
+../worktrees/<repo>/<branch>
+```
+
+它们位于主检出目录之外，每个分支都有固定规则的路径。用 `gji ls` 可以查看已有目录。
+
+## 每个工作树都会安装依赖吗？ {/* #do-dependencies-install-for-every-worktree */}
+
+新工作树需要自己的一套安装状态。支持的锁文件会触发自动安装，不会从其他工作树复制依赖树。首次初始化可能需要一些时间。单次跳过可用 `--no-install`；对整个仓库关闭则把 `dependencyBootstrap` 设为 `off`。详见[依赖初始化](./configuration#dependency-bootstrap)。
+
+## 如何把 `.env.local` 带入新工作树？ {/* #how-do-new-worktrees-get-envlocal */}
+
+```bash
+gji sync-files add .env.local
+```
+
+之后创建的工作树会在准备依赖前，从**主工作树**复制该文件。之后不会继续同步。详见[本地文件配置](./configuration#sync-private-local-files)。
+
+## 支持哪些 PR 格式？ {/* #which-pr-formats-work */}
+
+`gji pr` 支持 GitHub PR 编号、用引号包裹的 `'#1234'`，以及完整 GitHub PR URL。请使用属于当前仓库的引用。
+
+## 配置应该放在哪里？ {/* #where-should-i-put-my-settings */}
+
+个人默认值放在 `~/.config/gji/config.json`。其中的仓库条目可以让个人设置不进入 Git。共享的项目默认值放在 `.gji.json`。详见[配置](./configuration)。
+
+## 可以不重建工作树，直接重新初始化吗？ {/* #can-i-rerun-setup-without-recreating-a-worktree */}
+
+要重新初始化依赖，请进入该目录运行项目的安装命令。要重新执行配置的钩子，可用 `gji run-hook afterCreate`。钩子命令不会重新运行内置依赖适配器。
+
+## 撤销能恢复清理时删除的文件吗？ {/* #can-undo-recover-files-removed-during-cleanup */}
+
+撤销可以恢复已记录的分支和工作树状态，但不会恢复未提交或未跟踪的文件。移除前请检查工作树内容，尤其是在使用 `--force` 时。详见[同步与清理](./sync-and-cleanup#restore-a-journaled-cleanup)。
