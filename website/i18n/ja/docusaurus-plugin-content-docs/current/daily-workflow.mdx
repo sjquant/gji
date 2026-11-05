@@ -1,0 +1,123 @@
+---
+title: 日常のワークフロー
+description: 機能開発、PR レビュー、実験を開いたままにして、ファイルを移さず必要なタスクへ移動できます。
+image: /img/social-card.png
+---
+
+# タスクを開いたままにする
+
+中断して戻る必要のあるタスクごとに、ワークツリーを用意してください。以下のコマンドは、[シェル連携](./shell-integration)を読み込んだ状態を前提としています。
+
+## 機能開発を始める {/* #start-a-feature */}
+
+```bash
+gji new feature/search
+```
+
+ブランチとワークツリーを作成し、対応する依存関係のセットアップを実行して、シェルをそのディレクトリへ移動します。元のワークツリーのファイルは残ります。
+
+同時にエディタも開くには、次のようにします。
+
+```bash
+gji new feature/search --open --editor cursor
+```
+
+必要に応じて `code`、`zed` など、インストール済みのエディタ CLI を選んでください。`gji open --editor cursor --save` で既定値を保存すれば、`--editor` は省略できます。
+
+既定では、新しいブランチはメインワークツリーから作成します。現在のワークツリーのコミットを含める場合は、次のようにします。
+
+```bash
+gji new feature/search-tests --from-current
+```
+
+現在のワークツリーの `HEAD` を使います。未コミットのファイルは引き継ぎません。そのファイルを意図的に新しいワークツリーへ移すには `--take` を使ってください。元にも残す場合は `--copy` を追加します。
+
+```bash
+gji new feature/search-fix --take
+gji new feature/search-copy --take --copy
+```
+
+必要な結果に合うコマンドを、どちらか 1 つ選んでください。
+
+## 変更を片付けずに PR をレビューする {/* #review-a-pr-without-packing-up-your-changes */}
+
+```bash
+gji pr 1234
+# Or: gji pr https://github.com/org/repo/pull/1234
+```
+
+自分のリポジトリの実際の PR 番号か URL を使ってください。レビュー専用のワークツリーを作成し、依存関係もセットアップします。戻るには次を実行します。
+
+```bash
+gji back
+```
+
+現在のワークツリーの PR を Web で開くには、次のようにします。
+
+```bash
+gji pr open
+```
+
+別のリンクされたワークツリーの PR を選ぶには `gji pr open --select` を使います。
+
+## 開いているタスクを見つける {/* #find-the-work-you-left-open */}
+
+```bash
+gji                     # see the repository hub
+gji go                  # choose a destination
+gji go feature/payments  # go to a known branch
+gji back                # return to the previous worktree
+```
+
+選択画面は現在のリポジトリから始まります。**Tab** を押すと、登録済みのすべてのリポジトリを対象にできます。**/** でブランチ、パス、PR、タスクの説明を検索します。同じブランチ名が複数のリポジトリにある場合は `repo/branch` を使ってください。
+
+```bash
+gji go api/main
+```
+
+さらに前の移動履歴は `gji history` と `gji back 2` でたどれます。メインリポジトリのチェックアウトに戻るには `gji root` を使います。
+
+## エディタを開いてタスクに説明を付ける {/* #open-your-editor-and-label-the-task */}
+
+```bash
+gji open
+gji task "Add payment retries"
+```
+
+タスクの説明は対話的な選択画面に表示されるため、ブランチ名だけですべてを伝える必要はありません。`gji task --clear` で消せます。
+
+`gji open` は現在のワークツリーを対象とします。別のワークツリーを選ぶには `gji open --select`、直接指定するには `gji open feature/payments` を使ってください。VS Code、Cursor、Windsurf では、`--workspace` が `.code-workspace` ファイルを生成してから開きます。
+
+## 実験用のファイルを分ける {/* #give-experiments-their-own-files */}
+
+```bash
+gji new --detached
+```
+
+ブランチに属さないワークツリーを使えば、最初にブランチ名を決めずに調査できます。コミットを名前のあるブランチに残したい場合は、その前に Git でブランチを作ってください。`--detached` と `--from-current` は併用できません。
+
+コーディングエージェントにはタスクごとに別のワークツリーを用意し、そのディレクトリで普段のツールを起動してください。ワークツリーが分けるのはファイルです。共有サービス、データベース、待ち受けポートは分離しません。
+
+## 別のディレクトリが不要ならワークツリーを再利用する {/* #reuse-a-worktree-when-you-dont-need-another-directory */}
+
+```bash
+gji new feature/next-task --branch-only
+```
+
+現在のワークツリーに**変更がないこと**が必要です。設定されたリモートの既定ブランチを更新し、新しいワークツリーや依存関係のセットアップなしで、その場にブランチを作成します。ローカルの既定ブランチを使う場合は `--no-fetch` を指定してください。
+
+順番に進める作業で使ってください。別の場所で作業する間も元のタスクを開いておきたい場合は、別のワークツリーを使います。
+
+## タスクを更新、または完了する {/* #update-or-finish-a-task */}
+
+```bash
+gji sync
+```
+
+リモートの変更を取得し、現在のブランチを設定された既定ブランチの上へリベースします。タスクを終えて削除する前に、ファイルとブランチの状態を確認してください。
+
+```bash
+gji done feature/search
+```
+
+削除時にはワークツリーとブランチの両方を削除する場合があります。`--keep-branch`、事前確認、取り消しの限界については、[同期と削除](./sync-and-cleanup)をご覧ください。

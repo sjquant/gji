@@ -1,7 +1,15 @@
+import Translate, { translate } from "@docusaurus/Translate";
 import clsx from "clsx";
 import { useEffect, useState } from "react";
 import styles from "./WorkflowDemo.module.css";
 import scenes from "./workflow-scenes.json";
+
+const sceneLabels = [
+	translate({ id: "workflow.scene.progress", message: "In progress" }),
+	translate({ id: "workflow.scene.another", message: "Start another" }),
+	translate({ id: "workflow.scene.review", message: "Review a PR" }),
+	translate({ id: "workflow.scene.return", message: "Pick up your work" }),
+];
 
 const workspaces = ["feature/payments", "feature/search", "PR #1234"];
 
@@ -60,7 +68,10 @@ export default function WorkflowDemo() {
 		<section
 			id="workflow"
 			className={styles.demo}
-			aria-label="See how work stays in separate worktrees"
+			aria-label={translate({
+				id: "workflow.label",
+				message: "See how work stays in separate worktrees",
+			})}
 			aria-describedby="workflow-help"
 			onMouseEnter={() => setHovered(true)}
 			onMouseLeave={() => setHovered(false)}
@@ -70,10 +81,16 @@ export default function WorkflowDemo() {
 					setFocused(false);
 			}}
 		>
-			<fieldset className={styles.steps} aria-label="Choose a workflow scene">
+			<fieldset
+				className={styles.steps}
+				aria-label={translate({
+					id: "workflow.choose",
+					message: "Choose a workflow scene",
+				})}
+			>
 				{scenes.map((item, index) => (
 					<button
-						key={item.label}
+						key={sceneLabels[index]}
 						type="button"
 						aria-pressed={step === index}
 						onClick={() => {
@@ -82,7 +99,7 @@ export default function WorkflowDemo() {
 						}}
 					>
 						<span aria-hidden="true">0{index + 1} · </span>
-						{item.label}
+						{sceneLabels[index]}
 					</button>
 				))}
 				<span
@@ -135,17 +152,28 @@ export default function WorkflowDemo() {
 					))}
 				</div>
 			</div>
-			<p className={styles.note}>Illustrated workflow · setup time omitted</p>
+			<p className={styles.note}>
+				<Translate id="workflow.text01">
+					{"Illustrated workflow · setup time omitted"}
+				</Translate>
+			</p>
 			<p id="workflow-help" className={styles.srOnly}>
-				Shell integration is enabled in this example. Hover or focus to pause.
+				<Translate id="workflow.text02">
+					{
+						"Shell integration is enabled in this example. Hover or focus to pause."
+					}
+				</Translate>
 			</p>
 			<noscript>
 				<pre className={styles.fallback}>
 					gji new feature/search{"\n"}gji pr 1234{"\n"}gji go feature/payments
 				</pre>
 				<p>
-					Each task gets its own worktree. Return to feature/payments with your
-					edits still there.
+					<Translate id="workflow.text03">
+						{
+							"Each task gets its own worktree. Return to feature/payments with your edits still there."
+						}
+					</Translate>
 				</p>
 			</noscript>
 		</section>

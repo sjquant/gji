@@ -1,0 +1,76 @@
+---
+title: 셸 통합
+description: 셸에서 워크트리 사이를 바로 이동하세요. 이동이 필요 없는 스크립트에서는 경로만 출력할 수도 있습니다.
+---
+
+# 셸에서도 작업 사이를 바로 이동하세요
+
+셸 통합을 사용하면 `gji new`, `gji go`, `gji back`이 선택한 워크트리로 이동시켜 줍니다. 일반 CLI 프로세스는 부모 셸의 디렉터리를 바꿀 수 없으므로, 작은 셸 래퍼가 실제 디렉터리 이동을 대신 처리합니다.
+
+## 한 번만 설정하면 됩니다 {/* #install-once */}
+
+```bash
+gji init
+```
+
+셸을 다시 시작하거나 마법사가 안내한 rc 파일을 불러오세요. 그런 다음 확인합니다.
+
+```bash
+gji doctor
+```
+
+마법사에서 래퍼와 자동 완성을 설정하고 기본 에디터를 저장할 수 있습니다. 특정 셸을 지정하려면 다음 중 **하나**를 실행하세요.
+
+```bash
+gji init zsh --write
+gji init bash --write
+gji init fish --write
+```
+
+## 현재 세션에서 시험 {/* #try-it-in-the-current-session */}
+
+zsh나 bash에서는 rc 파일을 쓰지 않고 래퍼를 불러올 수 있습니다.
+
+```bash
+eval "$(gji init zsh)"
+# In bash, use: eval "$(gji init bash)"
+```
+
+fish에서는 다음과 같이 실행합니다.
+
+```fish
+gji init fish | source
+```
+
+래퍼를 먼저 검토하려면 `--write` 없이 `gji init zsh`, `gji init bash`, `gji init fish`를 실행하세요.
+
+## 명령별로 이동하는 위치 {/* #what-changes-in-daily-use */}
+
+| 명령 | 셸이 이동하는 곳 |
+| --- | --- |
+| `gji new feature/search` | 새 작업의 워크트리 |
+| `gji pr 1234` | PR의 워크트리 |
+| `gji go feature/payments` | 이미 있는 대상 워크트리 |
+| `gji back` | 이전에 방문한 워크트리 |
+| `gji root` | 메인 저장소 체크아웃 |
+
+다른 워크트리로 이동해도 미커밋 변경 사항이 따라오지는 않습니다. 변경한 워크트리에 그대로 남습니다.
+
+## 스크립트에서 경로만 가져오기 {/* #print-paths-for-scripts */}
+
+대상 경로만 필요하다면 셸 통합을 사용할 필요가 없습니다.
+
+```bash
+gji go --print feature/payments
+gji root --print
+```
+
+예를 들어 zsh나 bash에서는 다음과 같이 실행합니다.
+
+```bash
+cd "$(gji go --print feature/payments)"
+```
+
+## 업데이트 후 다시 불러오기 {/* #reload-after-an-update */}
+
+셸을 다시 시작하거나 위의 세션 전용 명령으로 래퍼를 다시 불러오세요. `gji go`가 여전히 이동하지 않고 경로만 출력한다면 실제 사용 중인 셸에 통합이 불러와졌는지 확인하세요. [문제 해결](./troubleshooting#gji-go-prints-a-path-instead-of-changing-directories)을 참고하세요.

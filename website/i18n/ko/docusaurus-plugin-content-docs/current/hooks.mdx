@@ -1,0 +1,138 @@
+---
+title: 훅
+description: 기본 의존성이 준비된 뒤 워크트리마다 프로젝트 설정과 정리 작업을 실행하세요.
+---
+
+# 매번 하던 준비 작업을 자동화하세요
+
+워크트리를 만들거나 들어가거나 정리할 때 실행할 명령은 훅으로 설정하세요. 코드 생성, 로컬 서비스 준비, 프로젝트 정리 등에 사용할 수 있습니다.
+
+지원하는 의존성 설치는 이미 자동으로 실행됩니다. 기본 어댑터로 처리할 수 없는 설치 과정이 필요한 경우에만 설치 훅을 추가하세요.
+
+`.env.local`처럼 gitignore에 포함된 로컬 파일을 새 워크트리로 복사하기만 하면 된다면, 사용자 지정 훅 대신 [`gji sync-files`](./configuration#sync-private-local-files)를 사용하세요. 훅은 실제로 실행해야 하는 명령에 적합합니다.
+
+## 예시 {/* #example */}
+
+```json
+{
+  "hooks": {
+    "afterCreate": ["pnpm", "run", "generate"],
+    "afterEnter": ["printf", "switched to %s\n", "{{branch}}"],
+    "beforeRemove": "pnpm run cleanup"
+  }
+}
+```
+
+프로젝트에서 공유할 설정은 `.gji.json`에 넣고, 개인적으로 쓸 설정은 전역 파일의 저장소별 항목에 넣으세요. 프로젝트에 실제로 있는 명령을 사용하세요.
+
+## 사용 가능한 훅 {/* #available-hooks */}
+
+| 훅 | 이벤트 | 실행되는 명령 | 실행 위치 |
+| --- | --- | --- | --- |
+| `afterBranchCreate` | 새 브랜치 생성 | `--branch-only` 사용 여부와 관계없이 브랜치를 생성하는 `gji new` | 새 브랜치가 있는 워크트리 |
+| `afterCreate` | 연결된 워크트리 생성과 초기 설정 완료 | `gji new` (`--branch-only` 제외), `gji pr`, 기존 브랜치에 쓸 워크트리를 만드는 `gji go` | 새 워크트리 |
+| `afterEnter` | 기존 워크트리로 진입 | `gji go`와 `gji back` | 진입한 워크트리 |
+| `afterSwitch` | 현재 워크트리에서 다른 브랜치로 전환 | `gji new --branch-only` | 현재 워크트리 |
+| `beforeRemove` | 연결된 워크트리 제거 직전 | `gji done`과 `gji clean`이 제거를 시도하는 워크트리마다 한 번 | 제거할 워크트리 |
+
+프로젝트별 설정은 `afterCreate`에 넣으세요. `gji`가 새 워크트리 디렉터리를 초기 설정한 뒤 실행되는 유일한 훅입니다. `afterBranchCreate`와 `afterSwitch`는 새 디렉터리를 만들지 않는 `--branch-only`에서도 실행됩니다. 따라서 티켓을 기록하거나 알림을 출력하는 등 브랜치에만 관련된 작업을 넣으세요.
+
+한 명령이 여러 이벤트를 일으키면 다음 순서로 실행됩니다.
+
+- `gji new <branch>`: `afterCreate` 다음 `afterBranchCreate`.
+- `gji new --branch-only <branch>`: `afterBranchCreate` 다음 `afterSwitch`.
+
+`gji new`와 `gji pr`은 워크트리를 만든 뒤 `afterEnter`를 실행하지 않습니다. `afterBranchCreate`는 기준 브랜치에서 시작한 브랜치에만 실행됩니다. `gji new`가 기존 브랜치를 체크아웃하면 생략하며, `gji pr`과 `gji go`가 PR이나 원격 참조에서 만든 로컬 브랜치는 `afterCreate`만 실행합니다. `gji go --json`은 기계가 읽을 수 있는 출력을 유지하려고 `afterEnter`를 생략합니다.
+
+`beforeRemove`는 `gji`가 제거를 시도하기 직전에 실행됩니다. 그 뒤 제거에 실패하거나, 변경 사항이 있는 워크트리의 강제 제거 확인을 거절하면 워크트리는 그대로 남지만 훅은 이미 실행된 상태입니다.
+
+`--json` 모드에서는 JSON 형식을 유지하도록 훅이 표준 출력에 쓴 내용은 버립니다.
+
+## 훅에서 사용할 수 있는 값 {/* #template-values */}
+
+훅은 다음 템플릿 변수를 받습니다.
+
+- `{{branch}}`
+- `{{path}}`
+- `{{repo}}`
+- `{{slot}}` — 고정된 워크트리 슬롯 번호.
+
+같은 값을 환경 변수로도 사용할 수 있습니다.
+
+- `GJI_BRANCH`
+- `GJI_PATH`
+- `GJI_REPO`
+- `GJI_SLOT` (gji가 만든 워크트리에 적용. gji가 연결된 워크트리를 만든 뒤 메인 워크트리는 슬롯 `0`을 사용)
+
+## 훅 명령을 안전하게 작성하기 {/* #safer-hook-commands */}
+
+셸 기능이 필요 없다면 인수 배열 형태의 훅을 우선 사용하세요.
+
+```json
+{
+  "hooks": {
+    "afterCreate": ["pnpm", "run", "generate"],
+    "afterEnter": ["printf", "switched to %s at %s\n", "{{branch}}", "{{path}}"]
+  }
+}
+```
+
+배열 훅은 셸 없이 실행됩니다. 각 배열 항목을 정확히 하나의 인수로 전달하므로, 공백이나 셸 메타 문자가 포함된 브랜치 이름과 경로를 셸 구문으로 다시 해석하지 않습니다.
+
+`&&`, 파이프, 리다이렉션, 셸 함수, `nvm use` 같은 셸 기능에는 문자열 훅도 사용할 수 있습니다. 셸이 명령을 해석하기 전에 템플릿 값이 삽입되므로 `{{branch}}`, `{{path}}`, `{{repo}}`를 셸 문자열에 직접 넣지 마세요.
+
+셸 문자열 훅에서는 환경 변수로 맥락을 읽고 각 변수 확장을 큰따옴표로 감싸세요.
+
+```json
+{
+  "hooks": {
+    "afterCreate": "pnpm run generate && printf 'ready: %s\n' \"$GJI_PATH\""
+  }
+}
+```
+
+`echo {{branch}}`나 `cd {{path}}`처럼 템플릿 값을 따옴표 없이 셸 문자열에 직접 넣지 마세요.
+
+## 여러 곳에 설정했을 때의 우선순위 {/* #layering-behavior */}
+
+훅은 다음 위치에서 가져올 수 있습니다.
+
+1. 전역 설정
+2. 전역 설정의 저장소별 재정의
+3. 로컬 `.gji.json`
+
+서로 다른 훅 키는 병합됩니다. 같은 훅 키는 우선순위가 가장 높은 계층이 덮어씁니다.
+
+따라서 일반 기본값으로 `afterEnter`를 두고 특정 저장소에서 `afterCreate`만 재정의할 수 있습니다.
+
+## 수동 실행 {/* #manual-execution */}
+
+위 표의 훅은 현재 워크트리에서 다시 실행할 수 있습니다.
+
+```bash
+gji trigger-hook <hook>   # for example: gji trigger-hook afterCreate
+```
+
+설정된 훅을 다시 실행하는 것이며, 기본 의존성 어댑터를 다시 실행하지는 않습니다. 의존성 설치에 실패했다면 해당 워크트리에서 프로젝트의 설치 명령을 실행하세요. [문제 해결](./troubleshooting#the-worktree-exists-but-dependencies-are-missing)을 참고하세요.
+
+## 활용 예시 {/* #practical-examples */}
+
+### 의존성 설정 후 프로젝트 파일 생성 {/* #generate-project-files-after-dependency-setup */}
+
+```json
+{
+  "hooks": {
+    "afterCreate": ["pnpm", "run", "generate"]
+  }
+}
+```
+
+### 이동할 때 현재 위치 정보 출력 {/* #print-context-on-entry */}
+
+```json
+{
+  "hooks": {
+    "afterEnter": ["printf", "switched to %s at %s\n", "{{branch}}", "{{path}}"]
+  }
+}
+```

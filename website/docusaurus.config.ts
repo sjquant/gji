@@ -24,7 +24,12 @@ const config: Config = {
 	onBrokenLinks: "throw",
 	i18n: {
 		defaultLocale: "en",
-		locales: ["en"],
+		locales: ["en", "ko", "ja"],
+		localeConfigs: {
+			en: { label: "English", htmlLang: "en" },
+			ko: { label: "한국어", htmlLang: "ko" },
+			ja: { label: "日本語", htmlLang: "ja" },
+		},
 	},
 	customFields: {
 		githubUrl: "https://github.com/sjquant/gji",
@@ -39,6 +44,7 @@ const config: Config = {
 					remarkPlugins: [docStructuredData],
 					editUrl: "https://github.com/sjquant/gji/tree/main/website/",
 					showLastUpdateTime: true,
+					editLocalizedFiles: true,
 				},
 				blog: false,
 				theme: {
@@ -73,6 +79,7 @@ const config: Config = {
 				srcDark: "img/logo-dark.svg",
 			},
 			items: [
+				{ type: "localeDropdown", position: "right" },
 				{ to: "/docs/intro", label: "Docs", position: "right" },
 				{
 					href: "https://github.com/sjquant/gji",
@@ -128,7 +135,13 @@ const config: Config = {
 					],
 				},
 			],
-			copyright: `Copyright © ${new Date().getFullYear()} sjquant. MIT License.`,
+			// Keep the computed build year out of the static translation catalog.
+			copyright:
+				process.env.DOCUSAURUS_CURRENT_LOCALE === "ko"
+					? `저작권 © ${new Date().getFullYear()} sjquant. MIT 라이선스.`
+					: process.env.DOCUSAURUS_CURRENT_LOCALE === "ja"
+						? `著作権 © ${new Date().getFullYear()} sjquant. MIT ライセンス。`
+						: `Copyright © ${new Date().getFullYear()} sjquant. MIT License.`,
 		},
 		prism: {
 			theme: terminalTheme,

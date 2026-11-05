@@ -2,3 +2,5 @@ User-agent: *
 Allow: /
 
 Sitemap: https://gji.solaqua.dev/sitemap.xml
+Sitemap: https://gji.solaqua.dev/ko/sitemap.xml
+Sitemap: https://gji.solaqua.dev/ja/sitemap.xml

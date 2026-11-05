@@ -1,0 +1,42 @@
+{
+  "link.title.Docs": {
+    "message": "문서",
+    "description": "The title of the footer links column with title=Docs in the footer"
+  },
+  "link.title.Project": {
+    "message": "프로젝트",
+    "description": "The title of the footer links column with title=Project in the footer"
+  },
+  "link.title.Why gji": {
+    "message": "gji를 사용하는 이유",
+    "description": "The title of the footer links column with title=Why gji in the footer"
+  },
+  "link.item.label.Overview": {
+    "message": "개요",
+    "description": "The label of footer link with label=Overview linking to /docs/intro"
+  },
+  "link.item.label.Quick Start": {
+    "message": "빠른 시작",
+    "description": "The label of footer link with label=Quick Start linking to /docs/quick-start"
+  },
+  "link.item.label.GitHub": {
+    "message": "GitHub",
+    "description": "The label of footer link with label=GitHub linking to https://github.com/sjquant/gji"
+  },
+  "link.item.label.npm": {
+    "message": "npm",
+    "description": "The label of footer link with label=npm linking to https://www.npmjs.com/package/@solaqua/gji"
+  },
+  "link.item.label.Issues": {
+    "message": "이슈",
+    "description": "The label of footer link with label=Issues linking to https://github.com/sjquant/gji/issues"
+  },
+  "link.item.label.Comparison": {
+    "message": "비교",
+    "description": "The label of footer link with label=Comparison linking to /docs/comparison"
+  },
+  "link.item.label.Hooks": {
+    "message": "훅",
+    "description": "The label of footer link with label=Hooks linking to /docs/hooks"
+  }
+}

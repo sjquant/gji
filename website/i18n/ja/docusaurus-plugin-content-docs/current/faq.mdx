@@ -1,0 +1,68 @@
+---
+title: よくある質問
+description: gji を使い始める前に、タスクの分離、依存関係、シェル連携、ローカルファイル、削除に関する疑問を確認できます。
+---
+
+# よくある質問
+
+## 別のタスクを開く前にコミットやスタッシュが必要ですか？ {/* #do-i-need-to-commit-or-stash-before-opening-another-task */}
+
+別のワークツリーを使うなら必要ありません。`gji new` や `gji pr` が別の場所でタスクを開いても、変更は元のディレクトリに残ります。ただし、`gji new --branch-only` は現在のワークツリーを再利用するため、変更がないことが必要です。
+
+## 移動すると変更も別のブランチへ移りますか？ {/* #does-navigation-move-my-changes-to-another-branch */}
+
+いいえ。`go` と `back` は場所を変えるだけで、ファイルはそれぞれのワークツリーに残ります。未コミットの変更を意図的に新しいタスクへ移すには `gji new <branch> --take` を使います。両方に残すには `--copy` を追加してください。
+
+## ワークツリーごとに何を分離しますか？ {/* #what-does-each-worktree-isolate */}
+
+作業ファイル、インストールした依存関係、生成ファイルを別々のディレクトリに置きます。Git の履歴と参照は共有します。サービス、ポート、データベースなどの外部リソースには、引き続きプロジェクト固有の設定が必要です。
+
+## 普段のエディタやコーディングエージェントを使えますか？ {/* #can-i-use-my-editor-or-coding-agent */}
+
+はい。ワークツリーに入り、その場所で普段のツールを起動してください。`gji open` でインストール済みのエディタを開くこともできます。並列エージェントに別々のファイルで作業させたい場合は、タスクごとにワークツリーを分けてください。gji はエージェントの管理や調整は行いません。
+
+## なぜシェル連携が必要ですか？ {/* #why-does-gji-need-shell-integration */}
+
+CLI プロセスは親シェルの作業ディレクトリを変更できません。ラッパーがその部分を受け持ちます。`gji init` を実行してシェルを再起動し、`gji doctor` で確認してください。[シェル連携](./shell-integration)をご覧ください。
+
+## ラッパーなしでも使えますか？ {/* #can-i-use-it-without-the-wrapper */}
+
+はい。ワークツリーの作成や確認は通常どおり使えます。スクリプトでパスが必要な場合は `gji go --print <branch>` や `gji root --print` を使ってください。ディレクトリの自動移動にはラッパーが必要です。
+
+## ワークツリーはどこに作られますか？ {/* #where-do-worktrees-live */}
+
+既定の場所は次のとおりです。
+
+```text
+../worktrees/<repo>/<branch>
+```
+
+メインのチェックアウトの外側に、ブランチごとの予測可能なパスで作成します。既存のディレクトリは `gji ls` で確認してください。
+
+## ワークツリーごとに依存関係をインストールしますか？ {/* #do-dependencies-install-for-every-worktree */}
+
+新しいワークツリーには独自のインストール状態が必要です。対応するロックファイルがあると自動でインストールし、別のワークツリーの依存関係ツリーはコピーしません。初回のセットアップには時間がかかる場合があります。1 回だけ省略するには `--no-install`、リポジトリで無効にするには `dependencyBootstrap` を `off` に設定してください。[依存関係の初期セットアップ](./configuration#dependency-bootstrap)をご覧ください。
+
+## 新しいワークツリーに `.env.local` を用意するには？ {/* #how-do-new-worktrees-get-envlocal */}
+
+```bash
+gji sync-files add .env.local
+```
+
+今後作成するワークツリーには、依存関係のセットアップ前に**メインワークツリー**からコピーします。その後、同期し続けるわけではありません。[ローカルファイルの設定](./configuration#sync-private-local-files)をご覧ください。
+
+## どの PR 形式を指定できますか？ {/* #which-pr-formats-work */}
+
+`gji pr` は GitHub PR 番号、引用符で囲んだ `'#1234'`、完全な GitHub PR URL を受け付けます。作業中のリポジトリに属する参照を使ってください。
+
+## 設定はどこに保存しますか？ {/* #where-should-i-put-my-settings */}
+
+個人の既定値は `~/.config/gji/config.json` に保存します。その中のリポジトリ別の項目を使えば、個人設定を Git に含めずに済みます。共有するプロジェクトの既定値には `.gji.json` を使ってください。[設定](./configuration)をご覧ください。
+
+## ワークツリーを作り直さずにセットアップをやり直せますか？ {/* #can-i-rerun-setup-without-recreating-a-worktree */}
+
+依存関係をセットアップするには、そのディレクトリ内でプロジェクトのインストールコマンドを実行します。設定済みフックを再実行するには `gji run-hook afterCreate` を使ってください。フックのコマンドは、組み込みの依存関係アダプタを再実行しません。
+
+## 削除したファイルを取り消しで復元できますか？ {/* #can-undo-recover-files-removed-during-cleanup */}
+
+記録されたブランチとワークツリーの状態は復元できますが、未コミットのファイルや未追跡のファイルは復元できません。特に `--force` を使うときは、削除前に内容を確認してください。[同期と削除](./sync-and-cleanup#restore-a-journaled-cleanup)をご覧ください。

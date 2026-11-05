@@ -1,4 +1,5 @@
 import Head from "@docusaurus/Head";
+import { translate } from "@docusaurus/Translate";
 import { useTitleFormatter } from "@docusaurus/theme-common/internal";
 import useDocusaurusContext from "@docusaurus/useDocusaurusContext";
 
@@ -23,28 +24,41 @@ export default function Seo({
 	doc,
 	content,
 }: Props) {
-	const { siteConfig } = useDocusaurusContext();
+	const {
+		siteConfig,
+		i18n: { currentLocale, localeConfigs, defaultLocale },
+	} = useDocusaurusContext();
 	const { format } = useTitleFormatter();
 	const siteUrl = new URL(siteConfig.baseUrl, siteConfig.url).href;
 	const pageUrl = new URL(permalink, siteUrl).href;
 	const websiteId = `${siteUrl}#website`;
-	const softwareId = `${siteUrl}#software`;
-	const authorId = `${siteUrl}#author`;
+	const productUrl = new URL(
+		localeConfigs[defaultLocale].baseUrl,
+		siteConfig.url,
+	).href;
+	const softwareId = `${productUrl}#software`;
+	const authorId = `${productUrl}#author`;
 	const pageId = `${pageUrl}#webpage`;
 	const articleId = `${pageUrl}#article`;
 	const githubUrl = siteConfig.customFields?.githubUrl as string;
 	const npmUrl = siteConfig.customFields?.npmUrl as string;
+	const imageAlt = translate({
+		id: "seo.imageAlt",
+		message: "gji: Switch tasks. Keep your place. A Git worktree CLI.",
+	});
 	const faq = content?.kind === "faq";
 	const howto = content?.kind === "howto";
 	const sections = content?.sections.map((section, index) => ({
 		"@type": faq ? "Question" : "HowToStep",
 		"@id": `${pageUrl}#${section.id}`,
 		name: section.name,
+		inLanguage: currentLocale,
 		url: `${pageUrl}#${section.id}`,
 		...(faq
 			? {
 					acceptedAnswer: {
 						"@type": "Answer",
+						inLanguage: currentLocale,
 						"@id": `${pageUrl}#${section.id}-answer`,
 						text: section.text,
 					},
@@ -57,7 +71,7 @@ export default function Seo({
 			"@id": websiteId,
 			name: siteConfig.title,
 			url: siteUrl,
-			inLanguage: siteConfig.i18n.defaultLocale,
+			inLanguage: currentLocale,
 			publisher: { "@id": authorId },
 			about: { "@id": softwareId },
 		},
@@ -73,7 +87,7 @@ export default function Seo({
 			name: "gji",
 			applicationCategory: "DeveloperApplication",
 			...(!doc ? { description } : {}),
-			url: siteUrl,
+			url: productUrl,
 			codeRepository: githubUrl,
 			downloadUrl: npmUrl,
 			sameAs: [githubUrl, npmUrl],
@@ -86,7 +100,7 @@ export default function Seo({
 			name: title,
 			description,
 			url: pageUrl,
-			inLanguage: siteConfig.i18n.defaultLocale,
+			inLanguage: currentLocale,
 			isPartOf: { "@id": websiteId },
 			about: { "@id": softwareId },
 			mainEntity: faq
@@ -109,7 +123,7 @@ export default function Seo({
 							: {}),
 						description,
 						url: pageUrl,
-						inLanguage: siteConfig.i18n.defaultLocale,
+						inLanguage: currentLocale,
 						mainEntityOfPage: { "@id": pageId },
 						isPartOf: { "@id": websiteId },
 						about: { "@id": softwareId },
@@ -121,7 +135,18 @@ export default function Seo({
 
 	return (
 		<Head>
+			<meta
+				name="keywords"
+				content={translate({
+					id: "seo.keywords",
+					message:
+						"git worktree cli, git worktree navigation, multi repo worktree, pull request review cli, git stash alternative, ai coding workflow",
+				})}
+			/>
 			<meta name="twitter:title" content={format(title)} />
+			<meta name="twitter:description" content={description} />
+			<meta property="og:image:alt" content={imageAlt} />
+			<meta name="twitter:image:alt" content={imageAlt} />
 			<script type="application/ld+json">
 				{JSON.stringify({
 					"@context": "https://schema.org",
