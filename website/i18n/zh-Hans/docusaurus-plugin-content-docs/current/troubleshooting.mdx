@@ -1,0 +1,111 @@
+---
+title: 问题排查
+description: 当 Shell 导航、依赖初始化、PR 获取、同步或清理未按预期工作时，按症状查找处理方法。
+---
+
+# 排除问题，继续工作
+
+先在出现问题的仓库中诊断：
+
+```bash
+gji doctor
+```
+
+按照提示检查 Git、Shell 和配置。以下是常见症状及处理方式。
+
+## `gji go` 只打印路径，没有切换目录 {/* #gji-go-prints-a-path-instead-of-changing-directories */}
+
+当前会话尚未加载 Shell 包装脚本。zsh 中运行：
+
+```bash
+eval "$(gji init zsh)"
+```
+
+bash 用户请把 `zsh` 换成 `bash`。fish 用户运行 `gji init fish | source`。然后再试 `gji go`。若要持久生效，请运行 `gji init`，重启 Shell，再用 `gji doctor` 检查。
+
+指定 Shell 的安装方式和仅供脚本使用的方式，见 [Shell 集成](./shell-integration)。
+
+## 工作树已创建，但依赖缺失 {/* #the-worktree-exists-but-dependencies-are-missing */}
+
+工作树可能已经创建完成，而依赖初始化随后失败。请进入错误信息提示的工作树路径；不要为了重试安装而删除并重建它。
+
+在该目录中执行项目通常使用的安装命令，例如：
+
+```bash
+pnpm install
+```
+
+确认包管理器可用，并且能够访问包注册表。如果安装失败导致 `afterCreate` 未执行，可在合适的时候重新运行配置的钩子：
+
+```bash
+gji run-hook afterCreate
+```
+
+只重新执行确实需要重复的命令。钩子可能产生副作用。钩子命令本身不会重新运行自动依赖安装。
+
+如果没有支持的锁文件，请配置项目特定的[初始化钩子](./hooks)，或手动安装。支持的工具见[依赖初始化](./configuration#dependency-bootstrap)。
+
+## 想跳过依赖初始化 {/* #i-want-to-skip-dependency-setup */}
+
+仅对一个任务跳过：
+
+```bash
+gji new feature/search --no-install
+gji pr 1234 --no-install
+```
+
+若要对整个仓库关闭，请在 `.gji.json` 中把 `dependencyBootstrap` 设为 `off`。
+
+## 本地初始化文件没有复制 {/* #local-setup-files-werent-copied */}
+
+检查配置的清单：
+
+```bash
+gji sync-files list
+```
+
+源文件必须位于**主工作树**，而不只是你当前所在的工作树。源文件缺失时会跳过；目标已有的文件不会被覆盖。清单修改只影响之后创建的工作树，不会持续复制。详见[本地文件](./configuration#sync-private-local-files)。
+
+## `sync` 拒绝执行，或变基中途停止 {/* #sync-refuses-to-run-or-a-rebase-stops */}
+
+```bash
+gji status
+git status --short
+```
+
+工作树可能有本地修改，或 `HEAD` 处于分离状态。同步前请处理本地修改，或进入关联分支的工作树。如果已经在变基过程中，请先按通常的 Git 流程处理（`git rebase --continue` 或 `git rebase --abort`），再重试。
+
+## 无法在本地打开 PR {/* #a-pr-wont-open-locally */}
+
+确认编号或 URL 属于当前仓库，并且当前凭据可以访问 Git 远程仓库。`gji pr` 负责获取 PR 引用，不会授予私有仓库的访问权限。
+
+不创建文件，只查看计划：
+
+```bash
+gji pr 1234 --dry-run
+```
+
+## 已登记的仓库不再存在 {/* #a-repository-in-the-registry-no-longer-exists */}
+
+检查失效的登记项：
+
+```bash
+gji doctor --fix
+```
+
+交互模式会在移除失效仓库登记项前询问。已检查过的非交互式修复可以用 `gji doctor --fix --yes`。它不会自动修复 Git、编辑器或 Shell 配置。
+
+## 清理命令拒绝移除工作树 {/* #cleanup-refuses-to-remove-a-worktree */}
+
+检查是否有本地修改、未合并分支，或目标是否为当前工作树或主工作树。如果只想移除目录，可以用 `gji done <branch> --keep-branch` 保留分支。
+
+不要仅为隐藏警告而使用 `--force`：它可能丢弃未提交文件并删除未合并分支。请先阅读[清理与恢复](./sync-and-cleanup)。`gji undo --list` 会显示可恢复的已记录操作，但撤销无法恢复未提交文件。
+
+## 脚本只需要路径 {/* #i-only-need-paths-for-a-script */}
+
+```bash
+gji go --print feature/payments
+gji root --print
+```
+
+这些命令不需要 Shell 包装脚本。要获取结构化状态，请使用对应命令的 `--json` 选项；详见[命令参考](./commands#paths-and-json-for-scripts)。

@@ -1,0 +1,72 @@
+---
+sidebar_position: 3
+title: 快速上手
+description: 打开一个新任务，再回到原工作树，确认之前的修改仍然保留。
+image: /img/social-card.png
+---
+
+# 打开新任务，再回到手头的工作
+
+请从仓库中一个已命名的分支开始。你需要先[安装 gji 并加载 Shell 集成](./installation)。
+
+目标很简单：打开一个独立的工作目录，然后回到你留在原处的文件。体验这个流程不需要先提交或 stash 修改。
+
+## 1. 记下当前状态 {/* #1-note-where-you-are */}
+
+```bash
+git branch --show-current
+git status --short
+```
+
+记住当前分支和修改过的文件。工作树没有修改也没关系。
+
+## 2. 为新任务创建单独的目录 {/* #2-give-a-new-task-its-own-place */}
+
+```bash
+gji new feature/try-gji
+```
+
+如果该分支名已经存在，请换一个名字。`gji` 会创建分支和工作树，执行所支持的依赖初始化，并将当前 Shell 切换到新目录。初始化可能需要一些时间；本次体验可以用 `--no-install` 跳过。
+
+查看新的位置：
+
+```bash
+pwd
+git branch --show-current
+```
+
+现在你已经在单独的目录中打开了 `feature/try-gji`。可以在这里编辑文件、运行测试或打开编辑器，不会改变原工作树里的文件。
+
+## 3. 回到原来的工作 {/* #3-pick-up-where-you-left-off */}
+
+```bash
+gji back
+git status --short
+```
+
+你已经回到原分支，步骤 1 中看到的修改也还在。这就是基本的使用方式：切换任务时，每个任务的文件都留在各自的工作树中。
+
+运行 `gji go feature/try-gji` 可以回到体验用的工作树；只运行 `gji go` 则可以从已打开的任务中选择。
+
+## 4. 体验结束后移除目录 {/* #4-remove-the-trial-directory-when-youre-done */}
+
+确认体验用的工作树中没有仍需保留的文件后，可以运行：
+
+```bash
+gji done feature/try-gji --keep-branch
+```
+
+这会保留分支，只移除工作目录。移除有修改的工作树前，请仔细阅读确认提示。`gji undo` 无法恢复未提交的文件。
+
+## 接下来：处理一次真实的临时任务 {/* #next-a-real-interruption */}
+
+开发功能时，可以用自己仓库里的 PR 编号试一试：
+
+```bash
+gji pr 1234
+gji back
+```
+
+PR 会在单独的工作树中打开，`back` 会回到刚刚离开的工作树。要前往指定位置，请用 `gji go <branch>`。
+
+编辑器、实验、跨仓库导航和清理的用法，请继续阅读[日常工作流](./daily-workflow)。

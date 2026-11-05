@@ -8,12 +8,28 @@ const terminalTheme = {
 	plain: { ...prismThemes.dracula.plain, backgroundColor: "#0d0f12" },
 };
 
+const locale = process.env.DOCUSAURUS_CURRENT_LOCALE ?? "en";
+const ogLocales: Record<string, string> = {
+	en: "en_US",
+	ko: "ko_KR",
+	ja: "ja_JP",
+	"zh-Hans": "zh_CN",
+};
+const currentLocale = Object.hasOwn(ogLocales, locale) ? locale : "en";
+
 const config: Config = {
 	title: "gji",
 	tagline: "Switch tasks. Keep your place.",
 	favicon: "img/favicon.svg",
 	future: {
-		v4: true,
+		v4: {
+			removeLegacyPostBuildHeadAttribute: true,
+			// Avoid specificity changes when the bundler lowers CSS layers.
+			useCssCascadeLayers: false,
+			siteStorageNamespacing: true,
+			fasterByDefault: true,
+			mdx1CompatDisabledByDefault: true,
+		},
 	},
 	url: "https://gji.solaqua.dev",
 	baseUrl: "/",
@@ -24,14 +40,21 @@ const config: Config = {
 	onBrokenLinks: "throw",
 	i18n: {
 		defaultLocale: "en",
-		locales: ["en", "ko", "ja"],
+		locales: ["en", "ko", "ja", "zh-Hans"],
 		localeConfigs: {
 			en: { label: "English", htmlLang: "en" },
 			ko: { label: "한국어", htmlLang: "ko" },
 			ja: { label: "日本語", htmlLang: "ja" },
+			"zh-Hans": {
+				label: "简体中文",
+				htmlLang: "zh-CN",
+				path: "zh-Hans",
+				baseUrl: "/zh/",
+			},
 		},
 	},
 	customFields: {
+		ogLocales,
 		githubUrl: "https://github.com/sjquant/gji",
 		npmUrl: "https://www.npmjs.com/package/@solaqua/gji",
 	},
@@ -57,6 +80,10 @@ const config: Config = {
 	themeConfig: {
 		image: "img/social-card.png",
 		metadata: [
+			{ property: "og:locale", content: ogLocales[currentLocale] },
+			...Object.entries(ogLocales)
+				.filter(([language]) => language !== currentLocale)
+				.map(([, content]) => ({ property: "og:locale:alternate", content })),
 			{
 				name: "keywords",
 				content:
@@ -137,11 +164,13 @@ const config: Config = {
 			],
 			// Keep the computed build year out of the static translation catalog.
 			copyright:
-				process.env.DOCUSAURUS_CURRENT_LOCALE === "ko"
+				currentLocale === "ko"
 					? `저작권 © ${new Date().getFullYear()} sjquant. MIT 라이선스.`
-					: process.env.DOCUSAURUS_CURRENT_LOCALE === "ja"
+					: currentLocale === "ja"
 						? `著作権 © ${new Date().getFullYear()} sjquant. MIT ライセンス。`
-						: `Copyright © ${new Date().getFullYear()} sjquant. MIT License.`,
+						: currentLocale === "zh-Hans"
+							? `版权所有 © ${new Date().getFullYear()} sjquant。MIT 许可证。`
+							: `Copyright © ${new Date().getFullYear()} sjquant. MIT License.`,
 		},
 		prism: {
 			theme: terminalTheme,

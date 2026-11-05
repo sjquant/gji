@@ -1,0 +1,90 @@
+---
+title: 同步与清理
+description: 为进行中的工作树变基，先预览清理计划，了解分支删除和恢复限制后再移除已完成的任务。
+---
+
+# 保留进行中的工作，清理已完成的任务
+
+用 `sync` 更新任务；单个任务完成后用 `done`，需要一起检查多个清理候选项时用 `clean`。
+
+## 更新任务 {/* #bring-a-task-up-to-date */}
+
+```bash
+gji sync
+```
+
+命令会获取远程更新，并将当前分支变基到配置的默认分支上。同步前请先提交或以其他方式处理本地修改。变基过程中可能需要解决冲突，继续或中止时使用平时的 Git 操作即可。
+
+对当前仓库的所有工作树执行：
+
+```bash
+gji sync --all
+```
+
+未关联分支的工作树会被跳过。需要时可在[配置](./configuration#use-a-different-sync-target)中指定 `syncRemote` 和 `syncDefaultBranch`。
+
+## 清理一个工作树 {/* #finish-one-worktree */}
+
+先确认工作树里没有仍然需要的文件：
+
+```bash
+gji status
+gji done feature/search
+```
+
+`done` 会移除关联工作树，并尝试删除它的分支。若要保留分支、只移除目录：
+
+```bash
+gji done feature/search --keep-branch
+```
+
+交互模式会在丢弃未提交修改或删除未合并分支前询问。请仔细阅读提示：**随工作树一起移除的未提交文件和未跟踪文件，无法用 `gji undo` 恢复。**
+
+## 一起检查多个工作树 {/* #review-several-worktrees-for-cleanup */}
+
+```bash
+gji clean
+```
+
+选择器默认只显示当前仓库。按 **Tab** 可以包含所有已登记的仓库。各仓库的主工作树和当前工作树会受到保护。无法检查的仓库会单独报告，不会被当作空仓库处理。
+
+只查看待移除的候选计划、不实际移除：
+
+```bash
+gji clean --stale --dry-run
+```
+
+`--stale` 只选择没有本地修改、上游分支已消失，且其改动已经合并到所配置的默认分支或远程默认分支中的分支工作树；也包含经压缩合并或变基合并的改动。
+
+## 按路径缩小清理范围 {/* #limit-cleanup-to-a-location */}
+
+```bash
+gji clean --path ~/worktrees/gji/spike
+gji clean --path '../worktrees/*/experiment-*' --dry-run
+```
+
+普通路径会匹配该目录及其子目录。含有 `*`、`**` 或 `?` 的通配模式匹配完整工作树路径；请用引号包裹，避免 Shell 提前展开。要匹配字面量通配符，请用反斜杠转义，例如 `'fix-\?-bug'`。重复指定 `--path` 可以匹配多个模式中的任意一个。
+
+`--path` 会搜索所有已登记的仓库。在选择器中按 **Tab**，可以把范围重新缩小到当前仓库。
+
+## 确认目标后再强制移除 {/* #force-removal-only-after-reviewing-the-targets */}
+
+```bash
+gji clean --stale --force
+gji done feature/search --force
+```
+
+`--force` 会跳过确认，可以移除有修改的工作树，也可以删除未合并的分支。它不只是减少输出的选项。用于自动化前，请先预览清理计划，确认哪些文件仍需保留。
+
+## 撤销已记录的清理操作 {/* #restore-a-journaled-cleanup */}
+
+```bash
+gji undo --list
+gji undo
+# Or restore a specific operation:
+gji undo <id>
+```
+
+撤销会从操作日志中恢复已记录的分支和工作树状态，但会拒绝覆盖已有工作。它**不会**恢复未提交文件、未跟踪文件、已安装的依赖或钩子造成的改动。
+
+清理涉及多个仓库时，请使用清理结果中给出的各仓库撤销命令。相关命令见[命令参考](./commands#maintenance)。

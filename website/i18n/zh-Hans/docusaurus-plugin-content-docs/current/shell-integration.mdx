@@ -1,0 +1,76 @@
+---
+title: Shell 集成
+description: 让 gji 切换当前 Shell 的工作目录；脚本不需要交互式导航时，也可以只输出路径。
+---
+
+# 让 Shell 跟着任务切换
+
+Shell 集成让 `gji new`、`gji go` 和 `gji back` 将你带到选中的工作树。普通命令行进程无法改变父 Shell 的工作目录，因此最后的目录切换由一个小型 Shell 包装脚本完成。
+
+## 只需设置一次 {/* #install-once */}
+
+```bash
+gji init
+```
+
+重启 Shell，或加载向导提示的 rc 文件，然后检查：
+
+```bash
+gji doctor
+```
+
+向导会配置包装脚本和补全，也可以保存默认编辑器。若要明确指定 Shell，请从下面选择**一条**命令执行：
+
+```bash
+gji init zsh --write
+gji init bash --write
+gji init fish --write
+```
+
+## 只在当前会话中体验 {/* #try-it-in-the-current-session */}
+
+zsh 和 bash 可以在不写入 rc 文件的情况下加载包装脚本：
+
+```bash
+eval "$(gji init zsh)"
+# In bash, use: eval "$(gji init bash)"
+```
+
+fish 使用：
+
+```fish
+gji init fish | source
+```
+
+如果想先查看包装脚本，可以不带 `--write` 运行 `gji init zsh`、`gji init bash` 或 `gji init fish`。
+
+## 常用命令会切换到哪里 {/* #what-changes-in-daily-use */}
+
+| 命令 | Shell 切换到的位置 |
+| --- | --- |
+| `gji new feature/search` | 新任务的工作树 |
+| `gji pr 1234` | PR 的工作树 |
+| `gji go feature/payments` | 已存在的目标工作树 |
+| `gji back` | 上一次访问的工作树 |
+| `gji root` | 主仓库的检出目录 |
+
+导航不会转移未提交的修改。修改会留在产生它们的工作树中。
+
+## 为脚本输出路径 {/* #print-paths-for-scripts */}
+
+如果只需要目标路径，就不需要启用 Shell 集成：
+
+```bash
+gji go --print feature/payments
+gji root --print
+```
+
+例如，在 zsh 或 bash 中：
+
+```bash
+cd "$(gji go --print feature/payments)"
+```
+
+## 更新后重新加载 {/* #reload-after-an-update */}
+
+重启 Shell，或使用上面的会话专用命令重新加载包装脚本。如果 `gji go` 仍然只输出路径而没有切换目录，请确认集成已在你实际使用的 Shell 中加载。详见[问题排查](./troubleshooting#gji-go-prints-a-path-instead-of-changing-directories)。

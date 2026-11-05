@@ -1,0 +1,145 @@
+---
+title: 配置
+description: 设置编辑器、分支名、本地初始化文件和依赖安装的默认值，不必每次创建工作树都重复配置。
+---
+
+# 让新工作树适合你的项目
+
+可以先使用默认配置。发现自己总在重复某个初始化步骤、选择同一个编辑器或复制相同文件时，再添加对应配置。
+
+## 选择配置保存位置 {/* #choose-where-a-setting-belongs */}
+
+| 位置 | 用途 |
+| --- | --- |
+| `~/.config/gji/config.json` | 跨仓库使用的个人默认值 |
+| 全局文件中的 `repos` 条目 | 特定仓库的个人设置，包括私有本地文件名 |
+| 仓库内的 `.gji.json` | 共享的项目默认值 |
+
+配置按上述顺序读取：全局默认值、全局文件中的仓库设置、再到本地 `.gji.json`。后读取的层覆盖前面的值。钩子按事件键合并；同一事件由后面的层覆盖。
+
+## 保存编辑器或分支前缀 {/* #save-an-editor-or-branch-prefix */}
+
+```bash
+gji open --editor cursor --save
+gji config set branchPrefix feature/
+```
+
+请使用已经安装的编辑器命令。`config` 修改的是全局默认值：
+
+```bash
+gji config get
+gji config get branchPrefix
+gji config unset branchPrefix
+```
+
+## 复制私有本地文件 {/* #sync-private-local-files */}
+
+在需要把文件带入后续新工作树的仓库中运行：
+
+```bash
+gji sync-files add .env.local .npmrc
+gji sync-files list
+gji sync-files remove .npmrc
+```
+
+清单保存在全局配置中对应仓库的条目里。新工作树会在准备依赖前**从主工作树**复制文件。源文件不存在时会跳过，目标已有的文件不会被覆盖。这只是在创建时复制一次，不会持续同步。
+
+对于共享的项目文件，请改用 `.gji.json` 中的 `syncFiles`：
+
+```json
+{
+  "syncFiles": [".env.example", ".nvmrc"]
+}
+```
+
+## 依赖初始化 {/* #dependency-bootstrap */}
+
+新工作树使用自己的一套依赖。`gji new` 或 `gji pr` 检测到支持的锁文件时，会在项目中执行相应的初始化：
+
+| 项目 | 初始化操作 |
+| --- | --- |
+| pnpm, Yarn, Bun, npm | 安装 JavaScript 依赖 |
+| uv, Poetry, Pipenv | 安装 Python 环境 |
+| Bundler | 安装到 `vendor/bundle` |
+| Composer | 安装到 `vendor` |
+| Go | `go mod download` |
+| Cargo | `cargo check` 或配置的 `dependencyBuildCommand` |
+
+工作树之间不会复制依赖树或构建缓存。初始化可能需要一些时间，也需要相应工具和远程访问权限。已配置的本地文件会先复制；初始化成功后才运行 `afterCreate` 钩子。
+
+仅跳过这一次安装：
+
+```bash
+gji new feature/search --no-install
+gji pr 1234 --no-install
+```
+
+若要对整个仓库关闭此功能，在 `.gji.json` 中设置：
+
+```json
+{
+  "dependencyBootstrap": "off"
+}
+```
+
+用 `gji new feature/search --dry-run` 可以查看创建计划。除非禁用，JSON 和非交互式命令也会执行同样的依赖初始化。如果失败，请进入提示的工作树路径修复，不要重新创建任务；详见[问题排查](./troubleshooting#the-worktree-exists-but-dependencies-are-missing)。
+
+## 选择工作树目录 {/* #choose-a-worktree-directory */}
+
+默认位置是 `../worktrees/<repo>/<branch>`。如果某个仓库需要不同的基础目录，可以在它的 `.gji.json` 或全局仓库设置中指定 `worktreePath`：
+
+```json
+{
+  "worktreePath": "~/worktrees/my-repo"
+}
+```
+
+分支会放在该基础路径下：`feature/search` 对应 `~/worktrees/my-repo/feature/search`。请使用绝对路径或以 `~/` 开头的路径；相对路径会被忽略，并显示警告。此设置只影响后续创建，不会改变已有工作树的位置。
+
+## 使用其他同步目标 {/* #use-a-different-sync-target */}
+
+```json
+{
+  "syncRemote": "upstream",
+  "syncDefaultBranch": "main"
+}
+```
+
+这些设置控制 `gji sync` 的同步目标，以及 `gji new --branch-only` 使用的远程默认分支。详见[同步与清理](./sync-and-cleanup)。
+
+## 不把个人仓库设置提交到 Git {/* #keep-personal-per-repo-settings-out-of-git */}
+
+在 `~/.config/gji/config.json` 中配置：
+
+```json
+{
+  "repos": {
+    "/home/me/code/my-repo": {
+      "editor": "zed",
+      "syncFiles": [".env.local"],
+      "hooks": {
+        "afterCreate": ["pnpm", "run", "generate"]
+      }
+    }
+  }
+}
+```
+
+仓库条目使用绝对路径。覆盖设置只对指定的仓库生效。
+
+## 配置项参考 {/* #key-reference */}
+
+| 键 | 用途 |
+| --- | --- |
+| `branchPrefix` | 新分支名的前缀，例如 `feature/` |
+| `editor` | `open` 和 `new --open` 默认使用的编辑器命令 |
+| `worktreePath` | 新工作树的基础目录，使用绝对路径或 `~/` 路径 |
+| `syncRemote` | 同步使用的远程仓库 |
+| `syncDefaultBranch` | 同步目标默认分支 |
+| `syncFiles` | 创建时从主工作树复制的文件 |
+| `dependencyBootstrap` | 设为 `off` 可关闭自动依赖初始化 |
+| `dependencyBuildCommand` | 可选的 Cargo 初始化命令，默认为 `cargo check` |
+| `shellIntegration` | 设置向导保存的 Shell 配置选择 |
+| `installSaveTarget` | 设置向导的配置保存在本地还是全局 |
+| `hooks` | 创建、进入、切换和移除时执行的[生命周期命令](./hooks) |
+| `repos` | 全局配置中的仓库级覆盖设置 |

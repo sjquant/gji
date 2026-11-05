@@ -1,0 +1,123 @@
+---
+title: 日常工作流
+description: 分别保留功能开发、PR 审查和实验任务，需要时切换过去，不必来回搬动文件。
+image: /img/social-card.png
+---
+
+# 把各项任务分别保留
+
+对于需要暂时离开、之后继续的任务，可以各用一个工作树。下面的命令都假设你已经加载 [Shell 集成](./shell-integration)。
+
+## 开始开发功能 {/* #start-a-feature */}
+
+```bash
+gji new feature/search
+```
+
+这会创建分支和工作树，执行支持的依赖初始化，再将当前 Shell 切换到该目录。原工作树的文件会留在原处。
+
+如果还想同时打开编辑器：
+
+```bash
+gji new feature/search --open --editor cursor
+```
+
+根据需要选择已安装的编辑器命令，例如 `code`、`zed`。用 `gji open --editor cursor --save` 保存默认值后，就可以省略 `--editor`。
+
+默认情况下，新分支从主工作树创建。如果需要包含当前工作树中的提交：
+
+```bash
+gji new feature/search-tests --from-current
+```
+
+这会使用当前工作树的 `HEAD`，但不会带走未提交的文件。如果确实想把这些文件移到新工作树，可以使用 `--take`；再加上 `--copy`，原工作树中也会保留一份。
+
+```bash
+gji new feature/search-fix --take
+gji new feature/search-copy --take --copy
+```
+
+根据想要的结果，选择其中一条命令。
+
+## 不用整理手头的修改，也能审查 PR {/* #review-a-pr-without-packing-up-your-changes */}
+
+```bash
+gji pr 1234
+# Or: gji pr https://github.com/org/repo/pull/1234
+```
+
+请使用当前仓库中真实的 PR 编号或 URL。审查会有单独的工作树，也会初始化依赖。返回时运行：
+
+```bash
+gji back
+```
+
+打开当前工作树对应的 PR 网页：
+
+```bash
+gji pr open
+```
+
+用 `gji pr open --select` 可以选择其他关联工作树中的 PR。
+
+## 找到已经打开的任务 {/* #find-the-work-you-left-open */}
+
+```bash
+gji                     # see the repository hub
+gji go                  # choose a destination
+gji go feature/payments  # go to a known branch
+gji back                # return to the previous worktree
+```
+
+选择器默认只显示当前仓库。按 **Tab** 可以包含所有已登记的仓库；按 **/** 可以搜索分支、路径、PR 或任务描述。如果多个仓库中有同名分支，请使用 `repo/branch`：
+
+```bash
+gji go api/main
+```
+
+用 `gji history` 查看更长的导航历史，用 `gji back 2` 回到更早的位置。`gji root` 则会回到主仓库的检出目录。
+
+## 打开编辑器并添加任务描述 {/* #open-your-editor-and-label-the-task */}
+
+```bash
+gji open
+gji task "Add payment retries"
+```
+
+任务描述会显示在交互式选择器中，不必仅靠分支名表达所有背景信息。用 `gji task --clear` 可以清除描述。
+
+`gji open` 默认针对当前工作树。用 `gji open --select` 可以选择其他工作树，也可以用 `gji open feature/payments` 直接指定。对于 VS Code、Cursor 和 Windsurf，`--workspace` 会先生成 `.code-workspace` 文件再打开。
+
+## 为实验准备单独的文件 {/* #give-experiments-their-own-files */}
+
+```bash
+gji new --detached
+```
+
+不关联分支的工作树适合先做调查或实验，不用一开始就给分支起名。如果需要把提交保留在一个具名分支上，请提前用 Git 创建分支。`--detached` 不能与 `--from-current` 一起使用。
+
+使用编程代理时，可以为每项任务创建单独的工作树，再在对应目录启动平时使用的工具。工作树只分开文件，不会隔离共享服务、数据库或监听端口。
+
+## 不需要新目录时复用工作树 {/* #reuse-a-worktree-when-you-dont-need-another-directory */}
+
+```bash
+gji new feature/next-task --branch-only
+```
+
+这要求当前工作树**没有未提交的修改**。命令会更新所配置的远程默认分支，并在当前位置创建新分支，不会另建工作树或初始化依赖。如果要改用本地默认分支，请加上 `--no-fetch`。
+
+这适合依次处理的任务。如果需要在别处工作时仍保留原任务，请使用单独的工作树。
+
+## 更新或结束任务 {/* #update-or-finish-a-task */}
+
+```bash
+gji sync
+```
+
+这会获取远程更新，并将当前分支变基到配置的默认分支上。任务完成后，移除前请检查文件和分支状态：
+
+```bash
+gji done feature/search
+```
+
+清理可能同时移除工作树和分支。有关 `--keep-branch`、预览和撤销的限制，请参阅[同步与清理](./sync-and-cleanup)。

@@ -1,0 +1,74 @@
+---
+sidebar_position: 2
+title: 安装
+description: 安装 gji 并启用 Shell 集成，让 new、go 和 back 将当前 Shell 切换到对应工作树。
+---
+
+# 安装 gji
+
+先安装命令行工具，再配置一次 Shell 集成。这样，`gji new`、`gji go` 和 `gji back` 就能切换当前 Shell 的工作目录。
+
+## 环境要求 {/* #requirements */}
+
+- 用于运行 npm 包的 **Node.js 18+**。
+- **支持工作树的 Git**，以及一个可供操作的本地仓库。
+- 用于自动切换目录的 **zsh、bash 或 fish**。
+- 能够访问 Git 远程仓库，以获取分支或拉取请求。
+
+检测到支持的锁文件时，新工作树会安装依赖。项目所用的包管理器必须可用；首次安装可能需要一些时间，也会占用额外磁盘空间。可以用 `--no-install` 跳过。
+
+## 安装并设置 Shell {/* #install-and-set-up-your-shell */}
+
+```bash
+npm install -g @solaqua/gji
+gji init
+```
+
+初始化向导会安装 Shell 集成和补全，并让你选择可用的编辑器。继续操作前，请**重启 Shell**，或加载向导提示的配置文件。
+
+在仓库中检查配置结果：
+
+```bash
+gji doctor
+```
+
+按照提示检查 Shell、Git 或配置，然后[创建第一个工作树](./quick-start)。
+
+## 指定要配置的 Shell {/* #set-up-a-specific-shell */}
+
+配置 dotfiles 或进行非交互式设置时，可以使用：
+
+```bash
+gji init zsh --write
+# Or use your shell:
+gji init bash --write
+gji init fish --write
+```
+
+只需执行与你所用 Shell 对应的命令。如果想先查看包装脚本而不写入文件：
+
+```bash
+gji init zsh
+```
+
+仅在当前会话启用集成、或在脚本中使用的方式，见 [Shell 集成](./shell-integration)。没有 Shell 集成时，工作树命令仍可创建目录或解析目录路径，但无法改变父 Shell 的当前目录。
+
+## 可选：准备项目的本地文件 {/* #optional-prepare-local-project-files */}
+
+如果新工作树需要**主工作树**中的私有文件，可以先登记：
+
+```bash
+gji sync-files add .env.local .npmrc
+```
+
+文件清单保存在全局配置中对应仓库的条目里。创建工作树时，会在准备依赖之前复制这些文件；目标位置已有的文件不会被覆盖。详见[本地文件](./configuration#sync-private-local-files)。
+
+代码生成等额外的项目初始化步骤可交给[钩子](./hooks)。如果内置适配器已负责安装依赖，就不要再添加一个重复安装依赖的钩子。
+
+## 更新 {/* #update */}
+
+```bash
+npm install -g @solaqua/gji
+```
+
+重启 Shell 以重新加载集成，再运行 `gji doctor`。如果导航命令只打印路径却没有切换目录，请参阅[导航问题排查](./troubleshooting#gji-go-prints-a-path-instead-of-changing-directories)。

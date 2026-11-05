@@ -1,0 +1,137 @@
+---
+sidebar_position: 4
+title: 命令参考
+description: 查找开始任务、切换位置、审查 PR、检查状态和清理工作所需的 gji 命令，以及主要选项和行为。
+image: /img/social-card.png
+---
+
+# 命令参考
+
+先按要完成的任务查找命令。要查看任意命令的完整选项，请运行 `gji <command> --help`。第一次使用 gji，建议先跟随[快速上手](./quick-start)体验。
+
+## 开始任务与审查 {/* #start-and-review */}
+
+| 命令 | 作用 |
+| --- | --- |
+| `gji new [branch]` | 创建分支及关联工作树；省略分支名时进入交互流程 |
+| `gji pr <ref>` | 将 GitHub 拉取请求获取到专用工作树；支持编号、`#number` 或 URL |
+| `gji pr open [branch\|#N]` | 打开当前或指定工作树对应的 PR 网页 |
+| `gji pr open --select` | 从关联工作树中选择 PR，再打开其网页 |
+
+### 创建选项 {/* #creation-options */}
+
+| 选项 | 作用 |
+| --- | --- |
+| `--open`, `--editor <cli>` | 用编辑器打开新工作树；`--editor` 需要配合 `--open` |
+| `--task <description>` | 记录新工作树的用途 |
+| `--from-current` | 从当前工作树的 `HEAD` 创建新分支，而不是从主工作树创建 |
+| `--detached` | 创建不关联分支的临时工作目录；不能与 `--from-current` 同用 |
+| `--take` | 将当前未提交的修改移到新工作树 |
+| `--take --copy` | 复制这些修改，同时在原位置保留 |
+| `--branch-only` | 在当前工作树中创建分支；要求没有未提交修改，不创建新目录 |
+| `--no-fetch` | 创建前不更新远程默认分支 |
+| `--no-install` | 跳过此工作树的自动依赖初始化 |
+| `--dry-run` | 只查看计划，不执行 Git 命令或写入文件 |
+| `--force` | 移除已有的目标工作树路径并重建；替换前请先检查内容 |
+| `--json` | 以结构化格式输出成功或错误结果 |
+
+这些选项针对 `new`。`pr` 支持 `--no-install`、`--dry-run` 和 `--json`。内置依赖适配器执行后，再进行项目特定的初始化；详见[配置](./configuration#dependency-bootstrap)。
+
+```bash
+gji new feature/search --open --editor cursor
+gji new feature/search-tests --from-current
+gji pr 1234 --dry-run
+```
+
+`--branch-only` 会更新配置的默认分支，并在当前位置创建分支，不执行依赖初始化。使用 `--no-fetch` 可以改用本地默认分支。如果离开当前任务后仍需保留它，请选择单独的工作树。
+
+## 导航与打开编辑器 {/* #navigate-and-open-editors */}
+
+| 命令 | 作用 |
+| --- | --- |
+| `gji go [branch]` | 进入已有工作树，或解析分支、远程分支、PR 并准备对应的工作树 |
+| `gji go repo/branch` | 在已登记的多个仓库中明确指定目标 |
+| `gji go --root` 或 `gji root` | 回到主仓库的检出目录 |
+| `gji back [n]` 或 `gji go -` | 回到上一次访问的工作树；`back n` 可以沿历史继续往前找 |
+| `gji history [--json]` | 显示访问历史 |
+| `gji open [branch]` | 用编辑器打开当前或指定工作树 |
+| `gji open --select` | 交互式选择工作树和编辑器 |
+
+未指定目标时，`go` 会打开当前仓库的选择器。按 **Tab** 可查看所有已登记的仓库；按 **/** 可搜索分支、路径、PR 或任务描述。
+
+指定分支时，先查找当前仓库，再依次查找其他已登记仓库、已有本地分支、获取到的远程分支和 PR 引用。`go --json` 只解析已有目标，不会获取或创建新的目标。
+
+```bash
+gji go feature/payments
+gji go api/main
+gji back 2
+gji open --editor cursor --save
+gji open feature/payments --workspace
+```
+
+`open --save` 会保存编辑器命令。`--workspace` 为 VS Code、Cursor 和 Windsurf 生成 `.code-workspace` 文件。`go --quiet` 隐藏上下文卡片。只有加载 [Shell 集成](./shell-integration)后，导航命令才会改变当前 Shell 的目录。
+
+## 检查任务并添加描述 {/* #inspect-and-label-work */}
+
+| 命令 | 作用 |
+| --- | --- |
+| `gji [--json]` | 打开仓库总览，显示当前工作、建议目标和需要关注的工作树 |
+| `gji status [--json]` | 检查仓库与工作树状态，以及领先或落后的提交数量 |
+| `gji ls [--compact] [--json]` | 列出工作树；精简模式显示分支和路径 |
+| `gji task [description] [--clear] [--json]` | 读取、设置或清除当前工作树的任务描述 |
+| `gji doctor [--json]` | 诊断 Shell、Git、配置和仓库登记状态 |
+
+用 `gji doctor --fix` 检查并确认是否移除已经不存在的仓库登记项。它不会自动修复 Git 或 Shell 配置。`--yes` 会跳过确认，直接应用这一修复。
+
+## 维护 {/* #maintenance */}
+
+| 命令 | 作用 |
+| --- | --- |
+| `gji sync [--all] [--json]` | 获取远程更新，并将一个或所有工作树的分支变基到默认分支上 |
+| `gji done [branch] [--keep-branch] [--force] [--json]` | 移除已完成的关联工作树，以及未要求保留的分支 |
+| `gji clean [--stale] [--path <pattern>] [--dry-run] [--force] [--json]` | 选择并移除多个关联工作树 |
+| `gji undo [id] [--list] [--json]` | 恢复操作日志记录的清理状态，不覆盖已有工作 |
+| `gji sync-files [list\|add\|remove] [paths...] [--json]` | 管理创建新工作树时从主工作树复制的文件 |
+| `gji run-hook <hook>` | 在当前工作树运行已配置的生命周期钩子；`trigger-hook` 是别名 |
+
+`sync` 可能需要解决变基冲突。`done` 和 `clean` 可以删除分支。**`--force` 可能丢弃未提交文件并删除未合并分支；撤销无法恢复这些文件。** 自动化移除前，请先阅读[同步与清理](./sync-and-cleanup)。
+
+```bash
+gji clean --stale --dry-run
+gji done feature/search --keep-branch
+gji undo --list
+gji sync-files add .env.local
+gji run-hook afterCreate
+```
+
+`--stale` 选择没有未提交修改、上游分支已不存在且改动已合并到默认分支中的工作树。重复指定 `--path` 可以匹配多个位置中的任意一个；路径筛选会搜索所有已登记的仓库。详见[按路径筛选](./sync-and-cleanup#limit-cleanup-to-a-location)。
+
+## 初始化与默认值 {/* #setup-and-defaults */}
+
+| 命令 | 作用 |
+| --- | --- |
+| `gji init [shell] [--write]` | 运行设置向导，或输出、安装指定 Shell 的包装脚本 |
+| `gji completion [shell]` | 输出 Shell 补全脚本 |
+| `gji config get [key]` | 读取全局默认值或某一项配置 |
+| `gji config set <key> <value>` | 保存全局默认值 |
+| `gji config unset <key>` | 移除全局默认值 |
+
+有关初始化选项，参阅[安装](./installation)、[配置](./configuration)和[钩子](./hooks)。
+
+## 脚本使用的路径和 JSON {/* #paths-and-json-for-scripts */}
+
+如果只需要目标路径，可以为 `go`、`back` 或 `root` 加上 `--print`：
+
+```bash
+feature_path=$(gji go --print feature/payments)
+```
+
+仓库总览以及 `new`、`pr`、`go`、`status`、`ls`、`task`、`history`、`sync`、`sync-files`、`clean`、`done`、`undo` 和 `doctor` 都支持 `--json`。导航 JSON 包含 `repository.name` 和规范化的 `repository.root`。
+
+```bash
+gji --json
+gji go feature/payments --json
+gji new feature/search --json
+```
+
+JSON 不代表只读：除非明确跳过，创建时仍会执行依赖初始化。对于支持的命令，可用 `--dry-run` 查看计划。非交互式清理必须使用 `--force` 才会实际移除，因此应先用 `--dry-run` 检查候选项。
